@@ -35,7 +35,9 @@ import { planToMarkdown } from "@/app/(tools)/sprint-planning/markdown";
 import { toMarkdown as refinementMarkdown } from "@/app/(tools)/refinement/markdown";
 import { refinementSession } from "@/app/(tools)/refinement/session";
 import {
+  CRITERIA_MD_MAX,
   STORY_CRITERIA_MAX,
+  criteriaMarkdownLines,
   STORY_LINK_MAX,
   STORY_NOTES_MAX,
   STORY_TICKET_KEY_MAX,
@@ -407,5 +409,52 @@ describe("share links", () => {
     const given = lines.find((l) => l.startsWith("Given "))!;
     expect(given).toHaveLength(300);
     expect(md).not.toContain("END");
+  });
+});
+
+describe("free-text criteria in a Markdown export", () => {
+  it("keeps the text's own lines, so a list stays a list", () => {
+    expect(
+      criteriaMarkdownLines(
+        "- A statement for any of the last 24 months\r\n\r\n- The figures match  \n  - in the app too\n- It opens on a phone"
+      )
+    ).toEqual([
+      "- A statement for any of the last 24 months",
+      "- The figures match",
+      "  - in the app too",
+      "- It opens on a phone",
+    ]);
+    expect(criteriaMarkdownLines("Charged once.")).toEqual(["Charged once."]);
+    expect(criteriaMarkdownLines(undefined)).toEqual([]);
+    expect(criteriaMarkdownLines("  \n \n")).toEqual([]);
+  });
+
+  it(`keeps ${CRITERIA_MD_MAX} characters in all, with "…" where it was cut`, () => {
+    const lines = criteriaMarkdownLines(
+      Array.from({ length: 20 }, (_, i) => `- Criterion ${i} ${"x".repeat(40)}`).join("\n")
+    );
+    expect(lines.length).toBeLessThan(20);
+    expect(lines.join("").length).toBeLessThanOrEqual(CRITERIA_MD_MAX);
+    expect(lines.at(-1)!.endsWith("…")).toBe(true);
+    expect(lines.slice(0, -1).every((l) => !l.endsWith("…"))).toBe(true);
+    // Full at the end of a line, with more to come: that line shows the cut.
+    expect(criteriaMarkdownLines("abcd\nefgh\nijkl", 8)).toEqual(["abcd", "efg…"]);
+    expect(criteriaMarkdownLines("abcd\nefgh", 8)).toEqual(["abcd", "efgh"]);
+    expect(criteriaMarkdownLines("abcdefghij", 8)).toEqual(["abcdefg…"]);
+  });
+
+  it("never cuts through an emoji", () => {
+    // "ab" then a two-unit emoji: a cut at 3 would keep half of it.
+    expect(criteriaMarkdownLines("ab😀cd", 4)).toEqual(["ab…"]);
+  });
+
+  it("escapes a line that would open a code fence, so a cut can't leave one open", () => {
+    expect(criteriaMarkdownLines("Works with\n```js\npay()\n   ~~~\n````")).toEqual([
+      "Works with",
+      "\\```js",
+      "pay()",
+      "   \\~~~",
+      "\\````",
+    ]);
   });
 });

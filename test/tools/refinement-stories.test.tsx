@@ -388,15 +388,17 @@ describe("acceptance criteria in the Markdown and the CSV", () => {
     ]);
   });
 
-  it("exports free-text criteria: on one line in the Markdown, whole in the CSV", () => {
+  it("exports free-text criteria: its own lines in the Markdown, whole in the CSV", () => {
     renderPage();
+    // A list stays a list: each criterion is its own "- " line.
     expect(markdown()).toContain(
       [
         "## Acceptance criteria",
         "",
         "### Pay with a saved card",
         "",
-        "- A saved card shows at checkout - Only the security code is asked",
+        "- A saved card shows at checkout",
+        "- Only the security code is asked",
       ].join("\n")
     );
     expect(markdown()).not.toContain("```");
@@ -426,7 +428,8 @@ describe("acceptance criteria in the Markdown and the CSV", () => {
       [
         "### Pay with a saved card",
         "",
-        "- A saved card shows at checkout - Only the security code is asked",
+        "- A saved card shows at checkout",
+        "- Only the security code is asked",
         "",
         GWT_BLOCK,
       ].join("\n")

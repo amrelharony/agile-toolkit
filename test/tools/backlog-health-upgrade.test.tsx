@@ -631,4 +631,12 @@ describe("settings and export", () => {
       expect.any(String),
     ]);
   });
+
+  it("keeps free-text criteria written as a list a list in the Markdown", async () => {
+    seed([story({ acceptanceCriteria: "- Charged once\n\n- A receipt is sent  " })]);
+    renderPage();
+    await screen.findByText("Stories to look at");
+    const md = screen.getByTestId("export-markdown").textContent ?? "";
+    expect(md).toContain("### 1. Pay with a saved card\n\n- Charged once\n- A receipt is sent\n");
+  });
 });

@@ -1,6 +1,6 @@
 import { isExampleId } from "@/components/tool-frame/example-data";
 import type { Story } from "@/lib/stores/workspace-types";
-import { gwtLines } from "@/lib/stories/fields";
+import { criteriaMarkdownLines, gwtLines } from "@/lib/stories/fields";
 import { metCriteria, readinessState, type RefinementSession } from "./session";
 import type { Criterion, StorySave } from "./store";
 import { refinementVerdict } from "./verdict";
@@ -34,9 +34,9 @@ function fenceFor(lines: readonly string[]): string {
 }
 
 /**
- * Each story's acceptance criteria, both ways: the free text, then the
- * Given/When/Then scenarios. A story with neither is left out, and with
- * none at all there is no section.
+ * Each story's acceptance criteria, both ways: the free text (its own
+ * lines, so a list stays a list), then the Given/When/Then scenarios. A
+ * story with neither is left out, and with none at all there is no section.
  */
 function criteriaSection(stories: readonly Story[]): string[] {
   const out: string[] = [];
@@ -45,7 +45,7 @@ function criteriaSection(stories: readonly Story[]): string[] {
     const gwt = gwtLines(s.gwt).map((l) => cap(l, 300));
     if (!free && gwt.length === 0) continue;
     out.push("", `### ${cap(s.title, 200)}${isExampleId(s.id) ? " (example)" : ""}`, "");
-    if (free) out.push(cap(free, 600));
+    if (free) out.push(...criteriaMarkdownLines(free));
     if (free && gwt.length > 0) out.push("");
     if (gwt.length > 0) {
       const fence = fenceFor(gwt);

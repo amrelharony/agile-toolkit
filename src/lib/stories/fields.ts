@@ -228,6 +228,41 @@ export function gwtLines(gwt: readonly StoryGwt[] | undefined): string[] {
   return out;
 }
 
+/** How much free-text criteria a story's Markdown keeps (a share link carries it, and is capped). */
+export const CRITERIA_MD_MAX = 600;
+
+/**
+ * Free-text acceptance criteria as Markdown lines, kept short: the text's
+ * own lines with the blank ones dropped, so a "- " list stays a list, at
+ * most `max` characters in all and "…" where it was cut. A line that would
+ * open a code fence has its marker escaped, so a cut can't leave a fence
+ * open over the rest of the Markdown.
+ */
+export function criteriaMarkdownLines(
+  text: string | undefined,
+  max: number = CRITERIA_MD_MAX
+): string[] {
+  const out: string[] = [];
+  let left = max;
+  for (const raw of (text ?? "").trim().split(/\r\n?|\n/)) {
+    const line = raw.trimEnd().replace(/^( {0,3})(?=`{3}|~{3})/, "$1\\");
+    if (!line.trim()) continue;
+    if (left <= 0) {
+      // Full at the end of a line, with more to come: that line shows the cut.
+      const last = out.pop() ?? "";
+      out.push(`${cutText(last, last.length - 1).trimEnd()}…`);
+      break;
+    }
+    if (line.length > left) {
+      out.push(`${cutText(line, left - 1).trimEnd()}…`);
+      break;
+    }
+    out.push(line);
+    left -= line.length;
+  }
+  return out;
+}
+
 /** The rows in one cell of a CSV or a table: sentences joined by " | ". */
 export function gwtCell(gwt: readonly StoryGwt[] | undefined): string {
   return (gwt ?? []).map(gwtSentence).filter(Boolean).join(" | ");
