@@ -16,7 +16,7 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 1,
     panel: 1,
-    alt: "In an office, Amr looks doubtful and gestures at a board where the tap, report and poster cards are all tagged first. The Dinosaur scratches its head, and a tap overflows a bucket near a worried tea glass with a face.",
+    alt: "In an office, Amr looks doubtful and gestures at a board where the tap, report and poster cards are all tagged first. The Dinosaur scratches its head, and a tap overflows a bucket near the Ahwa Cup, a worried tea glass with a face.",
   },
   {
     ep: 1,
@@ -51,12 +51,12 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 2,
     panel: 4,
-    alt: "The Capacity Camel, in only a harness, and the Scope Creep Cat smile beside a welcome sign and an arrow to an open door. The visitor, a yellow note with a face and briefcase, walks by; behind is a trolley tagged later.",
+    alt: "The Capacity Camel, in only a harness, and the Scope Creep Cat smile beside a welcome sign and an arrow to an open door. The visitor, Agile Sticky, a yellow sticky note with a face and briefcase, walks by; behind is a trolley tagged later.",
   },
   {
     ep: 3,
     panel: 1,
-    alt: "Under a book swap sign for 12:00 and a clock at 11:50, the Deadline Rabbit, in a headband and backpack, happily pushes an empty trolley. The Beaver, holding a clipboard, gestures at stacks of coloured books on a table.",
+    alt: "Under a book swap sign for 12:00 and a clock at 11:50, the Deadline Rabbit, in a headband and backpack, happily pushes an empty trolley. Dependable Beaver, holding a clipboard, gestures at stacks of coloured books on a table.",
   },
   {
     ep: 3,
@@ -66,32 +66,32 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 3,
     panel: 3,
-    alt: "The Beaver kneels by the trolley, tipped up on its side against a wooden block, and tightens a wheel with a spanner. The Deadline Rabbit kneels nearby, looking down apologetically, and the books sit in four stacks on the floor.",
+    alt: "The beaver kneels by the trolley, tipped up on its side against a wooden block, and tightens a wheel with a spanner. The Deadline Rabbit kneels nearby, looking down apologetically, and the books sit in four stacks on the floor.",
   },
   {
     ep: 3,
     panel: 4,
-    alt: "The Deadline Rabbit smiles, pushing the trolley with four stacks of books on board and all four wheels turning. The Beaver stands beside it, grinning, and gives a thumbs up in an office lined with bookshelves.",
+    alt: "The Deadline Rabbit smiles, pushing the trolley with four stacks of books on board and all four wheels turning. The beaver stands beside it, grinning, and gives a thumbs up in an office lined with bookshelves.",
   },
   {
     ep: 4,
     panel: 1,
-    alt: "In a meeting room, the Rubber Duck sits at a table, pointing to a wall chart listing plan message, agree words and review. The Monkey sits at a laptop, hand to chin, mouth open; the smiling tea glass stands between them.",
+    alt: "In a meeting room, Rubber Duck Analyst sits at a table, pointing to a wall chart listing plan message, agree words and review. Meeting Monkey sits at a laptop, hand to chin, mouth open; the Ahwa Cup, a smiling tea glass with a face, stands between them.",
   },
   {
     ep: 4,
     panel: 2,
-    alt: "The Rubber Duck raises a hand and looks at the Monkey, who smiles behind a laptop with one hand at the chin and a thumb up. The smiling tea glass stands between them, and the wall chart still lists all three steps.",
+    alt: "The duck raises a hand and looks at the monkey, who smiles behind a laptop with one hand at the chin and a thumb up. The smiling tea glass stands between them, and the wall chart still lists all three steps.",
   },
   {
     ep: 4,
     panel: 3,
-    alt: "The Rubber Duck points across the table towards the Monkey, who smiles and types on the laptop. On the wall chart, the word review is now crossed out, and the steaming tea glass smiles between them.",
+    alt: "The duck points across the table towards the monkey, who smiles and types on the laptop. On the wall chart, the word review is now crossed out, and the steaming tea glass smiles between them.",
   },
   {
     ep: 4,
     panel: 4,
-    alt: "The Monkey and the Rubber Duck lean in, smiling at a laptop showing a sent message, team photo, tomorrow 2 pm in the garden, with a reply saying got it. The tea glass beams nearby; review is crossed out on the chart.",
+    alt: "The monkey and the duck lean in, smiling at a laptop showing a sent message, team photo, tomorrow 2 pm in the garden, with a reply saying got it. The tea glass beams nearby; review is crossed out on the chart.",
   },
   {
     ep: 5,
@@ -116,12 +116,12 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 6,
     panel: 1,
-    alt: "The falcon, in a navy suit, folds a paper fan beside Amr, who smiles up while writing on blank name cards at a table. The camel stands behind them, carrying bags stuffed with papers.",
+    alt: "Value Falcon, in a navy suit, folds a paper fan beside Amr, who smiles up while writing on blank name cards at a table. Capacity Camel stands behind them, carrying bags stuffed with papers.",
   },
   {
     ep: 6,
     panel: 2,
-    alt: "The duck, in round glasses and carrying a briefcase, walks in waving. At the table the falcon looks round from folding a fan, Amr writes name cards and the camel stands behind with full bags.",
+    alt: "Rubber Duck Analyst, in round glasses and carrying a briefcase, walks in waving. At the table the falcon looks round from folding a fan, Amr writes name cards and the camel stands behind with full bags.",
   },
   {
     ep: 6,
@@ -136,12 +136,12 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 7,
     panel: 1,
-    alt: "In an office, the smiling monkey holds up a sheet reading Fix printer. The beaver stands behind a desk with a red-handled toolbox on it, one thumb pointing to the side.",
+    alt: "In an office, Meeting Monkey, smiling, holds up a sheet reading Fix printer. Dependable Beaver stands behind a desk with a red-handled toolbox on it, one thumb pointing to the side.",
   },
   {
     ep: 7,
     panel: 2,
-    alt: "The ox, in glasses and a white shirt, looks down with a small smile and writes on a clipboard reading Owner Ox. The monkey, hands held up at the chest, beams up at the ox, with a printer behind them.",
+    alt: "Captain Blocker Ox, in glasses and a white shirt, looks down with a small smile and writes on a clipboard reading Owner Ox. The monkey, hands held up at the chest, beams up at the ox, with a printer behind them.",
   },
   {
     ep: 7,
@@ -156,12 +156,12 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 8,
     panel: 1,
-    alt: "In a corridor, the hedgehog, in shirt and tie, and the spider, in glasses, each carry a box out of opposite rooms onto stacks on the floor. An open storage room lies at the far end.",
+    alt: "In a corridor, Silo Hedgehog, in shirt and tie, and Dependency Spider, in glasses, each carry a box out of opposite rooms onto stacks on the floor. An open storage room lies at the far end.",
   },
   {
     ep: 8,
     panel: 2,
-    alt: "The hedgehog and the spider smile from behind a wall of boxes stacked across the corridor between their two doorways. The duck stands in front of the boxes with wings spread, looking up, beak open and brows raised.",
+    alt: "The hedgehog and the spider smile from behind a wall of boxes stacked across the corridor between their two doorways. Rubber Duck Analyst stands in front of the boxes with wings spread, looking up, beak open and brows raised.",
   },
   {
     ep: 8,
@@ -176,7 +176,7 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 9,
     panel: 1,
-    alt: "In a break area, the smiling hamster spreads both arms beside a water dispenser with rows of identical tiny buttons. The duck holds an empty glass and looks up, puzzled, a wing to the chin.",
+    alt: "In a break area, Feature Factory Hamster, smiling, spreads both arms beside a water dispenser with rows of identical tiny buttons. Rubber Duck Analyst holds an empty glass and looks up, puzzled, a wing to the chin.",
   },
   {
     ep: 9,
@@ -196,12 +196,12 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 10,
     panel: 1,
-    alt: "The peacock, tail fanned and in a purple jacket, gestures at a screen showing cones served rising 40, 50, 60. The hamster serves ice cream at counter 1, counter 2 has nobody behind it and the turtle watches.",
+    alt: "Vanity Metrics Peacock, tail fanned and in a purple jacket, gestures at a screen showing cones served rising 40, 50, 60. Feature Factory Hamster serves ice cream at counter 1, counter 2 has nobody behind it and Retrospective Turtle watches.",
   },
   {
     ep: 10,
     panel: 2,
-    alt: "Six colleagues queue at counter 1, where the hamster holds a cone: a cat, a fox, an owl, a mouse, the turtle and the duck. Counter 2, stocked with cones, has nobody behind it.",
+    alt: "Six colleagues queue at counter 1, where the hamster holds a cone: Scope Creep Cat, Firefighter Fox, Perfectionist Owl, Experiment Mouse, the turtle and Rubber Duck Analyst. Counter 2, stocked with cones, has nobody behind it.",
   },
   {
     ep: 10,
@@ -216,7 +216,7 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 11,
     panel: 1,
-    alt: 'In a bright office, the hippo in a navy suit smiles and holds up a white T-shirt with a "one size fits all" tag. The mouse, in a lab coat and goggles, looks up at it with a finger on its chin.',
+    alt: 'In a bright office, HiPPO, the hippo in a navy suit, smiles and holds up a white T-shirt with a "one size fits all" tag. Experiment Mouse, in a lab coat and goggles, looks up at it with a finger on its chin.',
   },
   {
     ep: 11,
@@ -236,7 +236,7 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 12,
     panel: 1,
-    alt: 'In a library, the surprised mouse in a lab coat and goggles gestures at a "closed" sign on the desk. Behind it sit the thoughtful chameleon and the parrot with a notepad. A plate reads 9 am to 3 pm.',
+    alt: 'In a library, Experiment Mouse, surprised, in a lab coat and goggles, gestures at a "closed" sign on the desk. Behind it sit Requirement Chameleon, thoughtful, and Customer Voice Parrot with a notepad. A plate reads 9 am to 3 pm.',
   },
   {
     ep: 12,
@@ -261,12 +261,12 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 13,
     panel: 2,
-    alt: 'The rabbit, in a red "Deadline" headband, backpack and shorts, holds a card to a reader beside a glass door marked "Workroom". The reader buzzes and shows a red cross, and the rabbit looks worried.',
+    alt: 'Deadline Rabbit, in a red "Deadline" headband, backpack and shorts, holds a card to a reader beside a glass door marked "Workroom". The reader buzzes and shows a red cross, and the rabbit looks worried.',
   },
   {
     ep: 13,
     panel: 3,
-    alt: "The beaver sits at a desk in a white shirt and green tie, smiling and pointing at a monitor. The screen says the rabbit's workroom access is approved but the card is not active.",
+    alt: "Dependable Beaver sits at a desk in a white shirt and green tie, smiling and pointing at a monitor. The screen says the rabbit's workroom access is approved but the card is not active.",
   },
   {
     ep: 13,
@@ -296,12 +296,12 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 15,
     panel: 1,
-    alt: 'At a round meeting table, the mouse smiles and gestures to the owl beside it. The owl, in round black glasses and a red bow tie, holds up a paper form headed "Draft room booking" with boxes for name, day and start.',
+    alt: 'At a round meeting table, Experiment Mouse smiles and gestures to Perfectionist Owl beside it. The owl, in round black glasses and a red bow tie, holds up a paper form headed "Draft room booking" with boxes for name, day and start.',
   },
   {
     ep: 15,
     panel: 2,
-    alt: 'The rabbit in a red "Deadline" headband holds the draft form and a pen and looks puzzled, one hand at its chin. The mouse smiles beside a laptop, and the owl watches, one wing to its beak.',
+    alt: 'Deadline Rabbit, in a red "Deadline" headband, holds the draft form and a pen and looks puzzled, one hand at its chin. The mouse smiles beside a laptop, and the owl watches, one wing to its beak.',
   },
   {
     ep: 15,
@@ -336,7 +336,7 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 17,
     panel: 1,
-    alt: "Firefighter Fox bends to lift a notebook off a chair. Retrospective Turtle stands by a blank screen with a folder. A chameleon and a grey striped cat sit waiting, and a tea glass with a face stands on a cabinet.",
+    alt: "Firefighter Fox bends to lift a notebook off a chair. Retrospective Turtle stands by a blank screen with a folder. Requirement Chameleon and Scope Creep Cat, grey and striped, sit waiting, and the Ahwa Cup, a tea glass with a face, stands on a cabinet.",
   },
   {
     ep: 17,
@@ -376,7 +376,7 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 19,
     panel: 1,
-    alt: "The fox, sweating, clutches a bag and holds out a phone showing a bus at 5:00 pm. The monkey raises one finger and the turtle sits smiling between them, at a round table overlooking a city at sunset.",
+    alt: "Firefighter Fox, sweating, clutches a bag and holds out a phone showing a bus at 5:00 pm. Meeting Monkey raises one finger and Retrospective Turtle sits smiling between them, at a round table overlooking a city at sunset.",
   },
   {
     ep: 19,
@@ -436,17 +436,17 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 22,
     panel: 1,
-    alt: "In a lobby decorated with balloons and a Family Day banner, the chameleon smiles and holds up a sign saying a visitor pass is required. Amr, smiling, gestures towards it with one hand on his hip.",
+    alt: "In a lobby decorated with balloons and a Family Day banner, Requirement Chameleon smiles and holds up a sign saying a visitor pass is required. Amr, smiling, gestures towards it with one hand on his hip.",
   },
   {
     ep: 22,
     panel: 2,
-    alt: "In the same lobby, the chameleon holds a stack of paper visitor passes and gestures to the parrot and a grey-haired man in glasses holding a small keypad phone. Amr, frowning, spreads both hands.",
+    alt: "In the same lobby, the chameleon holds a stack of paper visitor passes and gestures to Customer Voice Parrot and a grey-haired man in glasses holding a small keypad phone. Amr, frowning, spreads both hands.",
   },
   {
     ep: 22,
     panel: 3,
-    alt: "At the reception desk, the parrot gestures to the grey-haired man holding up his keypad phone. The chameleon works on a tablet beside the paper character, a small sticky note, while Amr, hand on chest, grimaces.",
+    alt: "At the reception desk, the parrot gestures to the grey-haired man holding up his keypad phone. The chameleon works on a tablet beside Agile Sticky, a small sticky note with a face, while Amr, hand on chest, grimaces.",
   },
   {
     ep: 22,
@@ -456,12 +456,12 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 23,
     panel: 1,
-    alt: "In an office, the spider, in glasses, suit and tie, sits at a desk between tall stacks of paper, looking up worried. The dinosaur, in shirt and tie, stands beside the desk, grinning with one arm flung out.",
+    alt: "In an office, Dependency Spider, in glasses, suit and tie, sits at a desk between tall stacks of paper, looking up worried. The Dinosaur, in shirt and tie, stands beside the desk, grinning with one arm flung out.",
   },
   {
     ep: 23,
     panel: 2,
-    alt: "The spider, holding a sheet, looks distressed behind much taller paper stacks. The dinosaur spreads both hands, frowning. Amr and the hedgehog wait with papers, and a curly-haired woman sits behind them, arms crossed.",
+    alt: "The spider, holding a sheet, looks distressed behind much taller paper stacks. The Dinosaur spreads both hands, frowning. Amr and Silo Hedgehog wait with papers, and a curly-haired woman sits behind them, arms crossed.",
   },
   {
     ep: 23,
@@ -476,27 +476,27 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 24,
     panel: 1,
-    alt: "At a cluttered office table, the mouse, in goggles and lab coat, holds up a stopwatch. The octopus, in glasses and braces, sits behind a laptop and paper stack, holding three event tickets. The dinosaur smiles, watching.",
+    alt: "At a cluttered office table, Experiment Mouse, in goggles and lab coat, holds up a stopwatch. Overengineering Octopus, in glasses and braces, sits behind a laptop and paper stack, holding three event tickets. The Dinosaur smiles, watching.",
   },
   {
     ep: 24,
     panel: 2,
-    alt: "Outside a training room, the mouse points up at a flip chart of afternoon demos: slide effects, templates, animation and export tools. The octopus, holding an open notebook, and the dinosaur study it, hands to chins.",
+    alt: "Outside a training room, the mouse points up at a flip chart of afternoon demos: slide effects, templates, animation and export tools. The octopus, holding an open notebook, and the Dinosaur study it, hands to chins.",
   },
   {
     ep: 24,
     panel: 3,
-    alt: "In a lobby, the octopus looks worried, holding a ticket marked full day, no refunds. The dinosaur, smiling, turns both palms up. The mouse, clutching a dark folder, looks up at them with a small frown.",
+    alt: "In a lobby, the octopus looks worried, holding a ticket marked full day, no refunds. The Dinosaur, smiling, turns both palms up. The mouse, clutching a dark folder, looks up at them with a small frown.",
   },
   {
     ep: 24,
     panel: 4,
-    alt: "The dinosaur holds a glass door open as the three walk out into the sunshine, smiling, leaving rows of empty seats behind. The octopus and the mouse carry bags and notebooks.",
+    alt: "The Dinosaur holds a glass door open as the three walk out into the sunshine, smiling, leaving rows of empty seats behind. The octopus and the mouse carry bags and notebooks.",
   },
   {
     ep: 25,
     panel: 1,
-    alt: "In a bright room, the rabbit, wearing a red Deadline headband and a backpack, dives into four open boxes of chair parts, grabbing metal legs. The turtle, in round glasses, calmly studies the assembly instructions.",
+    alt: "In a bright room, Deadline Rabbit, wearing a red Deadline headband and a backpack, dives into four open boxes of chair parts, grabbing metal legs. Retrospective Turtle, in round glasses, calmly studies the assembly instructions.",
   },
   {
     ep: 25,
@@ -516,22 +516,22 @@ const BOOK_DESCRIPTIONS: readonly BookDescription[] = [
   {
     ep: 26,
     panel: 1,
-    alt: "The mouse, in goggles and lab coat, holds open an empty printer paper tray and looks up. The dinosaur strides past smiling, a mug in one hand, pointing at the printer with the other.",
+    alt: "Experiment Mouse, in goggles and lab coat, holds open an empty printer paper tray and looks up. The Dinosaur strides past smiling, a mug in one hand, pointing at the printer with the other.",
   },
   {
     ep: 26,
     panel: 2,
-    alt: "The camel, laden with files, leans towards Amr, who is thinking, hand to chin. The duck looks anxious. The mouse, sweating, strains under a wobbling tower of paper reams, and a small tea glass character looks alarmed.",
+    alt: "Capacity Camel, laden with files, leans towards Amr, who is thinking, hand to chin. Rubber Duck Analyst looks anxious. The mouse, sweating, strains under a wobbling tower of paper reams, and the Ahwa Cup, a small tea glass with a face, looks alarmed.",
   },
   {
     ep: 26,
     panel: 3,
-    alt: "The dinosaur, smiling, crouches by the open printer tray with four reams of paper in hand. Amr, the camel and the duck look on happily, and the mouse, empty-handed, smiles up at the dinosaur.",
+    alt: "The Dinosaur, smiling, crouches by the open printer tray with four reams of paper in hand. Amr, the camel and the duck look on happily, and the mouse, empty-handed, smiles up at the Dinosaur.",
   },
   {
     ep: 26,
     panel: 4,
-    alt: "In a sunny lounge, the dinosaur stands with open hands facing a blue sofa, where the duck, the camel, the mouse and Amr sit smiling, each with a hand raised. A small tea glass character waves from the sofa arm.",
+    alt: "In a sunny lounge, the Dinosaur stands with open hands facing a blue sofa, where the duck, the camel, the mouse and Amr sit smiling, each with a hand raised. A small tea glass character waves from the sofa arm.",
   },
 ];
 
