@@ -64,7 +64,9 @@ export type PanelCloseReason =
   /** Something outside the panel closed it (another surface opening over it). */
   | "outside"
   /** The phone's Back, on the full-height sheet. */
-  | "back";
+  | "back"
+  /** A scene picked in the Scenes tab: the panel steps aside so he's in view. */
+  | "scene";
 
 /** The attribute a view may put on its first target instead of registering it. */
 export const AUTOFOCUS_ATTR = "data-autofocus";

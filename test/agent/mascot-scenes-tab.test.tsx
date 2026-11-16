@@ -478,6 +478,20 @@ describe("the Scenes button in Amr's panel", () => {
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
     expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
   });
+
+  it("closes the panel its one way for a scene tapped, so focus comes back to Amr", async () => {
+    h.auth = { status: "anonymous", user: null };
+    render(<MascotAssistant />);
+    fireEvent.click(scenesButton());
+    await screen.findByTestId("mascot-scenes");
+    const scene = play(EXPANSION_TITLES.x112);
+    scene.focus();
+    fireEvent.click(scene);
+    expect(useAgentStore.getState().open).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // No opener held focus when the panel opened: his own button takes it.
+    expect(document.querySelector("[data-amr-button]")).toHaveFocus();
+  });
 });
 
 describe("a chat hidden under the scenes", () => {

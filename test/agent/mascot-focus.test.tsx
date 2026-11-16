@@ -80,6 +80,7 @@ import {
   VISITOR_AI_CONSENT_KEY,
   VISITOR_AI_CONSENT_VERSION,
 } from "@/components/agent/mascot/visitor-ai-consent";
+import { EXPANSION_TITLES } from "@/components/agent/mascot/engine/expansion-titles";
 import { useAgentStore } from "@/lib/agent/store";
 
 const OWNER = { status: "authenticated", user: { id: "owner-1" } };
@@ -601,6 +602,46 @@ describe("History", () => {
     await act(() => sleep(20));
     // The chat came back, and offered its composer: the button holds focus.
     expect(screen.getByRole("button", { name: "Conversation history" })).toHaveFocus();
+    expect(composer()).not.toHaveFocus();
+  });
+});
+
+describe("Amr's scenes", () => {
+  const scenes = () => screen.getByRole("button", { name: "Amr's scenes" });
+
+  it("offer the chat's composer again as the chat comes back, where focus is free", async () => {
+    h.auth = OWNER;
+    render(<MascotAssistant />);
+    pressAmr("pointer");
+    await waitFor(() => expect(composer()).toHaveFocus());
+    act(() => useAgentStore.setState({ streaming: true }));
+
+    scenes().focus();
+    fireEvent.click(scenes());
+    await screen.findByTestId("mascot-scenes");
+    // Tapped mid-turn, a scene sends the panel back to the chat; its button
+    // goes with the tab, so focus is free and the composer takes it.
+    const scene = screen.getByRole("button", { name: `Play: ${EXPANSION_TITLES.x001}` });
+    scene.focus();
+    fireEvent.click(scene);
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    await waitFor(() => expect(composer()).toHaveFocus());
+  });
+
+  it("keep focus on their button when it brings the chat back", async () => {
+    h.auth = OWNER;
+    render(<MascotAssistant />);
+    pressAmr("pointer");
+    await waitFor(() => expect(composer()).toHaveFocus());
+
+    scenes().focus();
+    fireEvent.click(scenes());
+    await screen.findByTestId("mascot-scenes");
+    fireEvent.click(scenes());
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    await act(() => sleep(20));
+    // The chat offered its composer, but focus someone placed wins.
+    expect(scenes()).toHaveFocus();
     expect(composer()).not.toHaveFocus();
   });
 });

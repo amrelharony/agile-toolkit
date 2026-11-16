@@ -44,8 +44,8 @@
  * (setPlacement), for the things beside him to follow.
  *
  * Every close goes through closePanel(reason): Amr's button, Ctrl/Cmd+J,
- * Escape, the Close button and a link followed alike, and a second call does
- * nothing. Focus has one owner (lib/agent/mascot/use-panel-focus): a keyboard
+ * Escape, the Close button, a link followed and a scene picked alike, and a
+ * second call does nothing. Focus has one owner (lib/agent/mascot/use-panel-focus): a keyboard
  * open goes to the name plate, then to a view's registered target (the
  * composer, on a fine pointer); a pointer open leaves focus where it is; a
  * close brings it back to the opener or to Amr's button, except after a link.
@@ -839,11 +839,12 @@ export function MascotAssistant() {
   // A tapped scene plays with the panel closed, so he's in view. While a turn is
   // still running or a card waits, the answer is what to watch (closing the panel
   // wouldn't stop it, but would hide it): back to the chat instead, with him beside
-  // the panel.
+  // the panel. The close is the panel's one way (closePanel, below), so focus
+  // comes back to the opener or to him.
   const onScenePlayed = () => {
     const { streaming, pendingToolUse } = useAgentStore.getState();
     if (streaming || pendingToolUse) setShowScenes(false);
-    else useAgentStore.getState().closeSheet();
+    else closePanel("scene");
   };
 
   // Owner signed out mid-session: drop the conversation from memory (reset
