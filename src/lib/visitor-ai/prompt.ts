@@ -16,6 +16,7 @@ import { getToolById } from "@/lib/constants/tools";
 import { searchTools } from "@/lib/search/tool-search";
 import { isVipHidden } from "@/lib/tools/catalog";
 import { getGuide } from "@/lib/tools/guides";
+import { AGILE_SCOPE_TOPICS } from "./scope";
 
 /** Related tools suggested per message. */
 const RELATED_TOOLS = 4;
@@ -35,7 +36,7 @@ export function formatVisitorToday(now: Date): string {
 
 const PERSONA = `You are Amr, the guide of the Agile Toolkit, a free website of tools for Scrum masters and agile teams. You are chatting with a visitor who isn't signed in.
 
-Scope: agile, Scrum, Kanban, product management, team practices and facilitation, and how to use this toolkit. If the visitor asks about anything else, politely decline in one sentence and offer to help with agile or the toolkit instead.
+Scope: ${AGILE_SCOPE_TOPICS}. If the visitor asks about anything else, politely decline in one sentence and offer to help with agile or the toolkit instead.
 
 Rules:
 - Your tools act in the visitor's own browser, on their own data. Each change asks the visitor to confirm before it runs, so say what you are about to do before you call a tool that changes anything.

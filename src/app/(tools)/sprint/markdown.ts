@@ -7,6 +7,7 @@ import {
   daysOverdue,
   impedimentStatus,
 } from "@/lib/impediments/model";
+import { RISK_LEVEL_LABEL } from "@/lib/sprints/risk";
 import { cockpitNotes, cockpitTiles, localDay, type CockpitData } from "./view";
 import { cockpitVerdict } from "./verdict";
 
@@ -83,6 +84,20 @@ export function cockpitMarkdown({
   );
   if (sprint.goal?.trim()) lines.push(`**Goal:** ${cell(sprint.goal)}  `);
   lines.push("", cockpitVerdict(data, today));
+
+  // The goal check, while the sprint runs (lib/sprints/risk).
+  const { risk } = data;
+  if (risk?.applies) {
+    lines.push("", `**Goal check: ${RISK_LEVEL_LABEL[risk.level]}.** ${cell(risk.headline)}`);
+    if (risk.reasons.length > 0) {
+      lines.push(
+        "",
+        ...risk.reasons.map(
+          (r) => `- ${RISK_LEVEL_LABEL[r.level]}: ${cell(r.text)} Try: ${cell(r.tryThis)}`
+        )
+      );
+    }
+  }
 
   lines.push(
     "",
@@ -204,6 +219,13 @@ export function cockpitMarkdown({
       "**Blocked stories:**",
       ...data.blockedStories.map((s) => `- ${cell(s.title)}${s.owner ? ` (${cell(s.owner)})` : ""}`)
     );
+  }
+
+  if (data.interrupts) {
+    lines.push("", "## Interrupt buffer", "", cell(data.interrupts.summary));
+    if (data.interrupts.over) {
+      lines.push("", "The buffer is spent: the Emergency Procedure applies.");
+    }
   }
 
   lines.push("", "## Retrospective", "");

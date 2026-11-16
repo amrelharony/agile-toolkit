@@ -8,6 +8,21 @@
 
 export type ToolMomentListener = (toolId: string, moment: string) => void;
 
+/**
+ * The moments a tool announces to ask Amr to celebrate (lib/celebrate/cheer.ts):
+ * a cheer for a result, a dance for a milestone. Named apart from his own
+ * reactions ("cheer", "dance"), which reach this channel as the mascot's own
+ * sounds, so one can never set off the other.
+ */
+export const CHEER_MOMENTS = { cheer: "amr_cheer", dance: "amr_dance" } as const;
+
+/** The pose a cheer moment asks for, or null for any other moment. */
+export function cheerPose(moment: string): "cheer" | "dance" | null {
+  if (moment === CHEER_MOMENTS.cheer) return "cheer";
+  if (moment === CHEER_MOMENTS.dance) return "dance";
+  return null;
+}
+
 const listeners = new Set<ToolMomentListener>();
 
 /** Hear every announced moment. Returns the unsubscribe. */

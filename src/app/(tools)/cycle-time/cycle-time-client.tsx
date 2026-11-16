@@ -20,6 +20,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { generateCycleTimePrompts } from "@/lib/ai-prompts/cycle-time";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { fmt } from "@/lib/charts/chart-text";
+import { STAGE_LABEL, cleanStageIds, type StageId } from "@/lib/flow";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { CYCLE_TIME_ACTIONS } from "@/lib/history/event-actions";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -36,6 +37,7 @@ import {
   SOURCE_LABEL,
   ageingRows,
   boardRows,
+  boardStages,
   cycleStats,
   histogram,
   rowsFrom,
@@ -54,6 +56,7 @@ import { ScatterTab } from "./components/scatter-tab";
 import { WorkItemsTable, typedItemRows, type ItemRow } from "./components/work-items-table";
 import { AgeingTable } from "./components/ageing-table";
 import { AddItemForm } from "./components/add-item-form";
+import { StageSection } from "./components/stage-section";
 
 export const TOOL_ID = "cycle-time";
 
@@ -89,8 +92,10 @@ function onScreen(name: string, value: string): HTMLElement | undefined {
  * start and done times through lib/flow, with items typed by hand as the
  * fallback; every source counts days the same way (a same-day item is 1).
  * The scatter runs by completion date, the ageing view flags work in
- * progress already older than the 85th percentile, and the statistics wait
- * for enough items, the heavy ones behind Advanced analysis.
+ * progress already older than the 85th percentile, Time in each status
+ * reads the boards' recorded moves (with the flow efficiency once the
+ * person marks the statuses where work waits), and the statistics wait for
+ * enough items, the heavy ones behind Advanced analysis.
  */
 export function CycleTimeClient() {
   const hydrated = useWorkspaceHydrated();
@@ -101,10 +106,12 @@ export function CycleTimeClient() {
     items,
     targetPct,
     sleTargetDays,
+    waitingStages,
     addItem,
     updateItem,
     setTargetPct,
     setSleTargetDays,
+    setWaitingStages,
     reset,
     restoreItems,
   } = useCycleTimeStore();
@@ -124,6 +131,8 @@ export function CycleTimeClient() {
   const typedItems = example?.items ?? items;
   const boardStories = preview ? NO_STORIES : stories;
   const boardCards = example?.cards ?? cards;
+  // The example marks its own waiting statuses; toggling them changes only its copy.
+  const waiting = example?.waiting ?? waitingStages;
 
   const allRows = useMemo(
     () => [
@@ -140,6 +149,12 @@ export function CycleTimeClient() {
     [boardStories, boardCards, today, p85, preview]
   );
   const ageing = useMemo(() => allAgeing.filter((a) => sources.has(a.kind)), [allAgeing, sources]);
+  const stages = useMemo(
+    () => boardStages(boardStories, boardCards, sources, waiting, { includeExamples: preview }),
+    [boardStories, boardCards, sources, waiting, preview]
+  );
+  const typedShown = rows.filter((r) => r.source === "typed").length;
+  const showStages = rows.length > typedShown || stages.approximate > 0;
   const sle = { pct: targetPct, days: sleDays(rows, targetPct) };
   const analysis = useMemo(() => analyseCycleTimes(rows), [rows]);
   const verdict = cycleTimeVerdict(stats, ageing, sle);
@@ -155,7 +170,15 @@ export function CycleTimeClient() {
   const counts = Object.fromEntries(
     ALL_SOURCES.map((s) => [s, allRows.filter((r) => r.source === s).length])
   ) as Record<CycleSource, number>;
-  const markdown = cycleTimeToMarkdown({ today, rows, sources, stats, ageing, sle });
+  const markdown = cycleTimeToMarkdown({
+    today,
+    rows,
+    sources,
+    stats,
+    ageing,
+    sle,
+    ...(showStages ? { stages } : {}),
+  });
   // From every source, not the ones picked: switching the only source with
   // data off mustn't swap the page for the first-run state, chips and all.
   const empty = allRows.length === 0 && typedItems.length === 0 && allAgeing.length === 0;
@@ -211,6 +234,14 @@ export function CycleTimeClient() {
         : addRef.current?.querySelector<HTMLElement>("input")
       )?.focus()
     );
+  };
+
+  const toggleWaiting = (stage: StageId) => {
+    const on = !waiting.includes(stage);
+    const next = cleanStageIds(on ? [...waiting, stage] : waiting.filter((s) => s !== stage));
+    if (preview) setExample((ex) => (ex ? { ...ex, waiting: next } : ex));
+    else setWaitingStages(next);
+    announce(`${STAGE_LABEL[stage]} counts as ${on ? "waiting" : "active"}`);
   };
 
   const toggleSource = (s: CycleSource) => {
@@ -294,8 +325,9 @@ export function CycleTimeClient() {
           <div>
             <ExampleNotice onClear={() => setExample(null)} />
             <p className="-mt-2 text-xs text-sub">
-              Example: seven weeks of a team&apos;s Flow board and two items typed by hand. Nothing
-              in it is saved, and your own boards stay as they are.
+              Example: seven weeks of a team&apos;s Flow board and two items typed by hand, with
+              Review marked as a status where work waits. Nothing in it is saved, and your own
+              boards stay as they are.
             </p>
           </div>
         )}
@@ -371,6 +403,12 @@ export function CycleTimeClient() {
                     summary: stats.summary,
                     percentiles: stats.percentiles,
                     ageing,
+                    timeInStatus: {
+                      stages: stages.stages,
+                      flowEfficiency: stages.efficiency,
+                      waiting: stages.waiting,
+                      items: stages.items,
+                    },
                   }}
                 />
               </div>
@@ -591,6 +629,14 @@ export function CycleTimeClient() {
                 </p>
                 <AgeingTable items={ageing} sleDays={p85} preview={preview} />
               </SectionCard>
+            )}
+
+            {showStages && (
+              <StageSection
+                breakdown={stages}
+                onToggleWaiting={toggleWaiting}
+                typedLeftOut={typedShown}
+              />
             )}
 
             {rows.length > 0 && (
