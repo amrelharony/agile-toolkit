@@ -34,18 +34,20 @@ import { ChatFrame, type ChatFrameProps } from "./chat-frame";
 /**
  * The chat's items from the store, each kept by identity while it doesn't
  * change. Reads the store's values a step needs (the reply streaming now,
- * whether a turn is under way, the call whose card is showing) as plain ids.
+ * whether a turn is under way, the call whose card is showing) and where a
+ * picked-up thread's scene caption goes, as plain ids.
  */
 export function useChatItems(): readonly ChatItem[] {
   const messages = useAgentStore((s) => s.messages);
   const streamingId = useAgentStore((s) => s.streamingMessageId);
   const streaming = useAgentStore((s) => s.streaming);
   const pendingId = useAgentStore((s) => s.pendingToolUse?.toolUseId ?? null);
+  const resumedAfter = useAgentStore((s) => s.resumedAfter);
   // One view per chat on screen: it keeps only what its last call made.
   const [view] = useState(createChatView);
   return useMemo(
-    () => view(messages, { streamingId, busy: streaming, pendingId }),
-    [view, messages, streamingId, streaming, pendingId]
+    () => view(messages, { streamingId, busy: streaming, pendingId, resumedAfter }),
+    [view, messages, streamingId, streaming, pendingId, resumedAfter]
   );
 }
 

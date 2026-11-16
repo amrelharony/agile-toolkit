@@ -4,9 +4,11 @@ import {
   chatView,
   createChatView,
   findLead,
+  dayLabel,
   leadOf,
   type BalloonItem,
   type ChatItem,
+  type SceneItem,
   type StepsItem,
 } from "@/lib/agent/chat-view";
 import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "@/lib/agent/types";
@@ -543,5 +545,95 @@ describe("createChatView: keeps what didn't change", () => {
     expect(second).toHaveLength(1);
     expect(second[0].key).toBe(first[0].key);
     expect((second[0] as StepsItem).steps[0]).toBe((first[0] as StepsItem).steps[0]);
+  });
+});
+
+describe("chatView: scene captions for a change of time", () => {
+  /** A message's createdAt at a local time, so the day is the reader's. */
+  const at = (day: number, hour: number) => new Date(2026, 10, day, hour, 0).toISOString();
+  const dated = <M extends ChatMessage>(m: M, createdAt: string): M => ({ ...m, createdAt });
+  const scenes = (items: readonly ChatItem[]) =>
+    items.filter((i): i is SceneItem => i.kind === "scene");
+
+  it("marks a new day before that day's first message, from the messages' times", () => {
+    const items = chatView([
+      dated(user("u1", "Plan the sprint"), at(15, 22)),
+      dated(assistant("a1", text("Planned.")), at(15, 23)),
+      dated(user("u2", "And the retro?"), at(16, 9)),
+      dated(assistant("a2", text("Booked.")), at(16, 9)),
+    ]);
+    expect(kinds(items)).toEqual(["you", "balloon", "scene", "you", "balloon"]);
+    expect(scenes(items)).toEqual([{ kind: "scene", key: "day:u2", at: at(16, 9) }]);
+  });
+
+  it("marks nothing for a chat within one day, or for messages with no time", () => {
+    expect(scenes(chatView([user("u1", "Hi"), assistant("a1", text("Hello."))]))).toEqual([]);
+    const undated = [dated(user("u1", "Hi"), ""), dated(assistant("a1", text("Hello.")), "")];
+    expect(scenes(chatView(undated, { resumedAfter: "a1" }))).toEqual([
+      { kind: "scene", key: "resume:a1", at: null },
+    ]);
+  });
+
+  it("opens a picked-up thread with the day it began and marks where it left off", () => {
+    const thread = [
+      dated(user("u1", "Plan the sprint"), at(9, 10)),
+      dated(assistant("a1", text("Planned.")), at(9, 10)),
+    ];
+    expect(kinds(chatView(thread, { resumedAfter: "a1" }))).toEqual([
+      "scene",
+      "you",
+      "balloon",
+      "scene",
+    ]);
+    // Asked again today: the place it was picked up, then the new day.
+    const items = chatView([...thread, dated(user("u2", "What next?"), at(16, 9))], {
+      resumedAfter: "a1",
+    });
+    expect(scenes(items)).toEqual([
+      { kind: "scene", key: "day:u1", at: at(9, 10) },
+      { kind: "scene", key: "resume:a1", at: null },
+      { kind: "scene", key: "day:u2", at: at(16, 9) },
+    ]);
+    expect(kinds(items).slice(-3)).toEqual(["scene", "scene", "you"]);
+  });
+
+  it("ends a run of steps at a scene caption, and ignores a pick-up point no longer in the chat", () => {
+    const items = chatView([
+      dated(assistant("a1", call("c1")), at(15, 23)),
+      dated(assistant("a2", call("c2")), at(16, 0)),
+    ]);
+    expect(kinds(items)).toEqual(["steps", "scene", "steps"]);
+    expect(scenes(chatView([user("u1", "Hi")], { resumedAfter: "gone" }))).toEqual([]);
+  });
+
+  it("keeps each scene caption's identity while nothing changes", () => {
+    const view = createChatView();
+    const thread = [dated(user("u1", "Hi"), at(9, 10)), dated(user("u2", "Again"), at(10, 10))];
+    const first = view(thread, { resumedAfter: "u2" });
+    expect(
+      view(
+        thread.map((m) => ({ ...m })),
+        { resumedAfter: "u2" }
+      )
+    ).toBe(first);
+  });
+});
+
+describe("dayLabel: a scene caption's day", () => {
+  const now = new Date(2026, 10, 16, 0, 30);
+
+  it("says Today and Yesterday by the reader's calendar, not by 24 hours", () => {
+    expect(dayLabel(new Date(2026, 10, 16, 0, 5).toISOString(), now)).toBe("Today");
+    expect(dayLabel(new Date(2026, 10, 15, 23, 50).toISOString(), now)).toBe("Yesterday");
+    expect(dayLabel(new Date(2026, 10, 15, 0, 1).toISOString(), now)).toBe("Yesterday");
+  });
+
+  it("names an older day by its weekday and date, with the year only when it isn't this one", () => {
+    const older = new Date(2026, 10, 8, 9, 0);
+    const label = dayLabel(older.toISOString(), now);
+    expect(label).toContain(older.toLocaleDateString(undefined, { weekday: "long" }));
+    expect(label).toContain("8");
+    expect(label).not.toContain("2026");
+    expect(dayLabel(new Date(2025, 10, 8, 9, 0).toISOString(), now)).toContain("2025");
   });
 });

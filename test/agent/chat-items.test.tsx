@@ -20,7 +20,7 @@ import {
   useChat,
   type ChatContextValue,
 } from "@/components/agent/chat/chat-context";
-import { ChatItemView } from "@/components/agent/chat/chat-items";
+import { ChatItemView, PICKED_UP } from "@/components/agent/chat/chat-items";
 import { StepDetails } from "@/components/agent/chat/step-details";
 import { useChatItems } from "@/components/agent/chat/chat-strip";
 import {
@@ -436,6 +436,31 @@ describe("tool steps", () => {
   it("still shows a result whose call isn't in the chat", () => {
     const log = strip([toolMsg("t1", result("c9", "Cancelled.", true))]);
     expect(log).toHaveTextContent("Step · Stopped");
+  });
+});
+
+describe("scene captions", () => {
+  it("names a new day in a <time> and marks where a picked-up thread left off, as scene captions", () => {
+    const today = new Date();
+    const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 12);
+    const log = strip(
+      [
+        { ...user("u1", "Plan the sprint"), createdAt: yesterday.toISOString() },
+        { ...assistant("a1", text("Planned.")), createdAt: yesterday.toISOString() },
+        { ...user("u2", "And now?"), createdAt: today.toISOString() },
+      ],
+      { resumedAfter: "a1" }
+    );
+    const scenes = Array.from(log.querySelectorAll('[data-chat-item="scene"]'));
+    expect(scenes.map((s) => s.textContent)).toEqual(["Yesterday", PICKED_UP, "Today"]);
+    for (const scene of scenes) {
+      const caption = scene.querySelector(".comic-caption")!;
+      expect(caption).toHaveAttribute("data-voice", "scene");
+      // Narration, not anyone's words: no speaker.
+      expect(caption.querySelector("[data-speaker]")).toBeNull();
+    }
+    expect(scenes[0].querySelector("time")).toHaveAttribute("dateTime", yesterday.toISOString());
+    expect(scenes[1].querySelector("time")).toBeNull();
   });
 });
 

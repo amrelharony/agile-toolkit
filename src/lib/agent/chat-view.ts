@@ -14,6 +14,11 @@
  *            the third person (a text block marked `note`: the round limit's
  *            stand-in for a wrap-up), for a narration caption, never a
  *            balloon: only the model's own words go in his balloons
+ *   scene    a change of time, for a scene caption: the day, before the
+ *            first message of a new day (from the messages' createdAt), and
+ *            in a thread that was picked up (a resumed thread, one opened
+ *            from History) the day it began, at its top, and "Picking up
+ *            where you left off" after its last message
  *
  * An assistant message's text and its tool calls are drawn apart, in their
  * order: a message with only tool calls draws no balloon. A result shows on
@@ -325,7 +330,21 @@ export interface NoteItem {
   text: string;
 }
 
-export type ChatItem = YouItem | BalloonItem | StepsItem | NoteItem;
+/**
+ * A change of time in the strip: a new day, or where a thread was picked up.
+ * Drawn as a scene caption, between the messages it falls between.
+ */
+export interface SceneItem {
+  kind: "scene";
+  key: string;
+  /**
+   * The day's first message's createdAt (dayLabel names it), or null for
+   * the place a thread was picked up ("Picking up where you left off").
+   */
+  at: string | null;
+}
+
+export type ChatItem = YouItem | BalloonItem | StepsItem | NoteItem | SceneItem;
 
 export interface ChatViewOptions {
   /** The assistant message a reply is streaming into (store.streamingMessageId). */
@@ -334,6 +353,36 @@ export interface ChatViewOptions {
   busy?: boolean;
   /** The call whose confirm card is showing (store.pendingToolUse.toolUseId). */
   pendingId?: string | null;
+  /**
+   * The last message of a thread that was picked up (store.resumedAfter):
+   * the strip opens with the day the thread began and marks the place after
+   * this message. Ignored when the message isn't in the chat.
+   */
+  resumedAfter?: string | null;
+}
+
+const DAY_MS = 86_400_000;
+
+/** Midnight of a date's own day, in the reader's time zone. */
+const dayStart = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+/**
+ * A scene caption's day, for the reader: "Today", "Yesterday", or the date
+ * with its weekday in the reader's own format ("Sunday, November 8"), with
+ * the year when it isn't this one. `at` is a message's createdAt.
+ */
+export function dayLabel(at: string, now: Date = new Date()): string {
+  const d = new Date(at);
+  // Rounded: a day the clocks change in is 23 or 25 hours long.
+  const ago = Math.round((dayStart(now) - dayStart(d)) / DAY_MS);
+  if (ago === 0) return "Today";
+  if (ago === 1) return "Yesterday";
+  return d.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: d.getFullYear() === now.getFullYear() ? undefined : "numeric",
+  });
 }
 
 /** What a view made last time, by key, and each balloon's parse cache. */
@@ -430,7 +479,31 @@ function build(
     });
   };
 
+  const addScene = (key: string, at: string | null) => {
+    endRun();
+    const old = prev.items.get(key);
+    keep(old?.kind === "scene" && old.at === at ? old : { kind: "scene", key, at });
+  };
+
+  // Picked up, while the thread's last message then is still in the chat.
+  const resumedAfter = opts.resumedAfter ?? null;
+  const resumed = resumedAfter !== null && messages.some((m) => m.id === resumedAfter);
+  /** The day of the latest message with a date so far (the reader's time zone). */
+  let day: string | null = null;
+  /** The message before this one. */
+  let before: string | null = null;
+
   for (const message of messages) {
+    if (resumed && before === resumedAfter) addScene(`resume:${before}`, null);
+    before = message.id;
+    const date = new Date(message.createdAt);
+    const dayOf = Number.isNaN(date.getTime()) ? null : date.toDateString();
+    if (dayOf !== null) {
+      // A new day; a picked-up thread also opens with the day it began.
+      if (day === null ? resumed : dayOf !== day) addScene(`day:${message.id}`, message.createdAt);
+      day = dayOf;
+    }
+
     if (message.role === "user") {
       turn = message.id;
       const text = textOf(message.content);
@@ -492,6 +565,7 @@ function build(
     });
     endText(streaming);
   }
+  if (resumed && before === resumedAfter) addScene(`resume:${before}`, null);
   endRun();
   return out;
 }

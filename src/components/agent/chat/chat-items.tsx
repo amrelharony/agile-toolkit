@@ -23,6 +23,9 @@
  *   note     a line the client wrote for Amr (the round limit's stand-in),
  *            in a narration caption with no "Amr said:": it is about him,
  *            not his words. Inline markdown, so an action's id is a chip.
+ *   scene    a change of time, in a scene caption across the log: a new
+ *            day ("Yesterday", in a <time>), or "Picking up where you left
+ *            off" after a picked-up thread's last message
  *
  * A message with only tool calls draws no balloon: chat-view makes it steps
  * alone. No second Amr in the chat either: the real one stands beside it, and
@@ -48,11 +51,22 @@
 
 import { memo } from "react";
 import { Narration, YouCaption } from "../comic/comic-parts";
-import { AmrBalloon, ThinkingBalloon } from "../comic/strip-parts";
+import { AmrBalloon, SceneCaption, ThinkingBalloon } from "../comic/strip-parts";
 import { Markdown } from "../markdown";
-import type { BalloonItem, ChatItem, NoteItem, StepsItem, YouItem } from "@/lib/agent/chat-view";
+import {
+  dayLabel,
+  type BalloonItem,
+  type ChatItem,
+  type NoteItem,
+  type SceneItem,
+  type StepsItem,
+  type YouItem,
+} from "@/lib/agent/chat-view";
 import { cn } from "@/lib/utils";
 import { ToolSteps } from "./tool-steps";
+
+/** The scene caption where a picked-up thread's last message was. */
+export const PICKED_UP = "Picking up where you left off";
 
 /** Amr's side of the log: a balloon stands there, mirrored when he moves, with room for its tail. */
 const AMR_SIDE =
@@ -135,6 +149,17 @@ export const NoteItemView = memo(function NoteItemView({ item }: { item: NoteIte
   );
 });
 
+/** A change of time: the day, or where a picked-up thread left off, as a scene caption. */
+export const SceneItemView = memo(function SceneItemView({ item }: { item: SceneItem }) {
+  return (
+    <div data-chat-item="scene">
+      <SceneCaption>
+        {item.at === null ? PICKED_UP : <time dateTime={item.at}>{dayLabel(item.at)}</time>}
+      </SceneCaption>
+    </div>
+  );
+});
+
 /** One item of the strip, whatever its kind: what the log draws for each chatView item. */
 export function ChatItemView({ item }: { item: ChatItem }) {
   switch (item.kind) {
@@ -146,5 +171,7 @@ export function ChatItemView({ item }: { item: ChatItem }) {
       return <StepsItemView item={item} />;
     case "note":
       return <NoteItemView item={item} />;
+    case "scene":
+      return <SceneItemView item={item} />;
   }
 }

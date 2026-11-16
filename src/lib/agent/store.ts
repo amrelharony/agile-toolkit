@@ -94,6 +94,12 @@ interface AgentState {
   activeMeta: ConversationMeta | null;
   /** Messages in the active conversation, in chronological order. */
   messages: ChatMessage[];
+  /**
+   * The last message of the thread last opened with its messages (resumed,
+   * or picked from History): the strip says "Picking up where you left off"
+   * after it (lib/agent/chat-view). Null for a fresh chat.
+   */
+  resumedAfter: string | null;
   /** Set true while a Claude request is streaming. */
   streaming: boolean;
   /**
@@ -219,6 +225,7 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   activeConversationId: null,
   activeMeta: null,
   messages: [],
+  resumedAfter: null,
   streaming: false,
   streamingMessageId: null,
   pendingToolUse: null,
@@ -279,6 +286,8 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
       activeConversationId: meta?.id ?? null,
       activeMeta: meta,
       messages,
+      // The same thread reloaded is no new pick-up.
+      ...(switching ? { resumedAfter: (meta && messages.at(-1)?.id) || null } : {}),
       pendingToolUse: null,
       notice: null,
       error: null,
@@ -371,6 +380,7 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
       activeConversationId: null,
       activeMeta: null,
       messages: [],
+      resumedAfter: null,
       streaming: false,
       streamingMessageId: null,
       pendingToolUse: null,
