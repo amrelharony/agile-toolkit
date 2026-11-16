@@ -11,6 +11,7 @@ import {
 import { Award, Crown, Flag, Sparkles, TrendingUp, X, type LucideIcon } from "lucide-react";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
+import { APP_RAIL_VAR } from "@/lib/layout/amr-sheet";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
 import { useAgentStore } from "@/lib/agent/store";
 import { cornerAt } from "@/components/agent/mascot/amr-geometry";
@@ -38,7 +39,8 @@ const DESKTOP_SIDE_PX = 156;
  * Where the chip stands: beside Amr, wherever he's parked.
  * - Phones: just past his band (`--amr-band-bottom`, or `--amr-band-top`
  *   under the header when he's docked at the top), on his side.
- * - Larger screens: level with him, to the inside of his corner.
+ * - Larger screens: level with him, to the inside of his corner (on his left
+ *   from md, counted from the app's rail, as he is).
  * `lift` is how far (px) he has stepped up off his edge (the mascot store's
  * `lift`): the spot moves off the edge with him. Anything but a positive
  * number counts as 0.
@@ -59,7 +61,10 @@ export function momentChipPosition(corner: MascotCorner, phone: boolean, lift = 
   }
   return {
     ...(top ? { top: `calc(var(--header-h, 56px) + ${24 + up}px)` } : { bottom: 24 + up }),
-    ...(left ? { left: DESKTOP_SIDE_PX } : { right: DESKTOP_SIDE_PX }),
+    // On his left from md, past the app's rail, as he is (lib/layout/amr-sheet).
+    ...(left
+      ? { left: `calc(${DESKTOP_SIDE_PX}px + var(${APP_RAIL_VAR}, 0px))` }
+      : { right: DESKTOP_SIDE_PX }),
   };
 }
 

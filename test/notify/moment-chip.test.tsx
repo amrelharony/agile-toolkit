@@ -21,6 +21,12 @@ import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 
 const h = vi.hoisted(() => ({ phone: false }));
 
+/**
+ * Its spot on his left on larger screens: 156 px in, counted from the app's
+ * rail from md, as he is (the sidebar keeps its right edge as --app-rail).
+ */
+const DESKTOP_LEFT = "calc(156px + var(--app-rail, 0px))";
+
 beforeAll(() => {
   vi.stubGlobal("matchMedia", (query: string) => ({
     matches: query === PHONE_MEDIA_QUERY ? h.phone : false,
@@ -178,7 +184,7 @@ describe("MomentChip", () => {
     render(<MomentChip />);
     show();
     const style = screen.getByRole("status").style;
-    expect(style.left).toBe("156px");
+    expect(style.left).toBe(DESKTOP_LEFT);
     expect(style.right).toBe("");
     expect(style.bottom).toBe("24px");
   });
@@ -197,7 +203,7 @@ describe("MomentChip", () => {
     act(() => useMascotStore.getState().setPlacement({ side: "left", edge: "top" }, 0));
     expect(region.style.bottom).toBe("");
     expect(region.style.top).toContain("--header-h");
-    expect(region.style.left).toBe("156px");
+    expect(region.style.left).toBe(DESKTOP_LEFT);
   });
 
   it("phones: follows his lift past his band", () => {
@@ -237,14 +243,31 @@ describe("momentChipPosition", () => {
   it.each([
     ["bottomRight", true, { right: 16 }, "bottom", "--amr-band-bottom"],
     ["topRight", true, { right: 16 }, "top", "--amr-band-top"],
-    ["bottomLeft", false, { left: 156 }, "bottom", null],
-    ["topLeft", false, { left: 156 }, "top", "--header-h"],
+    ["bottomLeft", false, { left: DESKTOP_LEFT }, "bottom", null],
+    ["topLeft", false, { left: DESKTOP_LEFT }, "top", "--header-h"],
   ] as const)("%s (phone %s)", (corner, phone, side, edge, variable) => {
     const pos = momentChipPosition(corner, phone) as Record<string, unknown>;
     expect(pos).toMatchObject(side);
     expect(pos[edge]).toBeDefined();
     expect(pos[edge === "top" ? "bottom" : "top"]).toBeUndefined();
     if (variable) expect(String(pos[edge])).toContain(variable);
+  });
+
+  it("on his left from md stands as far past the app's rail as it stood from the edge; phones and his right are as they were", () => {
+    // jsdom resolves no var(): the browser's sum, as the rail's edge goes in.
+    const leftOf = (corner: "bottomLeft" | "topLeft", rail: number | null) => {
+      const value = String(momentChipPosition(corner, false).left);
+      const px = value.replace(/var\(--app-rail, 0px\)/, `${rail ?? 0}px`);
+      const m = /^calc\((\d+)px \+ (\d+)px\)$/.exec(px);
+      if (!m) throw new Error(`unexpected: ${value}`);
+      return Number(m[1]) + Number(m[2]);
+    };
+    for (const corner of ["bottomLeft", "topLeft"] as const) {
+      expect(leftOf(corner, null)).toBe(156);
+      for (const rail of [64, 256, 303]) expect(leftOf(corner, rail)).toBe(156 + rail);
+    }
+    expect(momentChipPosition("bottomRight", false)).toMatchObject({ right: 156 });
+    expect(momentChipPosition("bottomLeft", true)).toMatchObject({ left: 16 });
   });
 
   it("moves off his edge as far as he has stepped up", () => {
