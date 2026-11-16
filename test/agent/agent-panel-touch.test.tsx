@@ -848,8 +848,10 @@ describe("AgentConversation: notices, the draft and a new thread", () => {
     fireEvent.change(box(), { target: { value: "dance" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     expect(box()).toHaveValue("");
-    const note = screen.getByText(DANCE_NOTE);
+    // Inside the status row's polite live span (in a node of its own, so the same words again are said again).
+    const note = screen.getByText(DANCE_NOTE).closest("[aria-live]");
     expect(note).toHaveAttribute("aria-live", "polite");
+    expect(note).toHaveAttribute("data-composer-note");
     expect(h.createConversation).not.toHaveBeenCalled();
     expect(h.sendUserMessage).not.toHaveBeenCalled();
     // The note goes with the next send.
