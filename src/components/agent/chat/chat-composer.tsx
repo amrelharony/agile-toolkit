@@ -31,7 +31,9 @@
  *            row and the status line.
  *   status   the status row: a note span, its only live part, polite ("Amr
  *            dances" after a chat command, "Listening…", "Cut to 2,000
- *            characters" after a long paste, a dictation error); then, never
+ *            characters" after a long paste, a dictation error, "Reply
+ *            copied" said from the log through the chat context's note);
+ *            then, never
  *            live, the characters left (a chat with a limit, once within
  *            COUNTER_FROM of it), "On {tool}" (the page's tool, whose context
  *            Amr gets) and the chat's own `status` (a visitor's allowance).
@@ -193,7 +195,7 @@ export function ChatComposer({
   takeFocus = false,
   children,
 }: ChatComposerProps) {
-  const { profile, composerId } = useChat();
+  const { profile, composerId, takeNotes } = useChat();
   const draft = useAgentStore((s) => s.drafts[profile]);
   const boxRef = useRef<HTMLTextAreaElement>(null);
   const counterId = useId();
@@ -201,6 +203,8 @@ export function ChatComposer({
   const [note, setNote] = useState<Note | null>(null);
   // False while Amr's Scenes view covers the chat (mounted, hidden).
   const visible = useChatVisible();
+  // A control in the log says what it did here (Copy reply), while this shows.
+  useEffect(() => takeNotes((text) => setNote({ text, mic: false })), [takeNotes]);
   // What the mic shows under the row (a visitor's voice notice).
   const [micShows, setMicShows] = useState<ReactNode>(null);
 
