@@ -478,7 +478,24 @@ describe("choosing his corner (X108)", () => {
   it("shows the corner chosen once he has landed in it, never over the landing", () => {
     stubScreen({ phone: false });
     render(<MascotAssistant />);
-    drag(20, 20);
+    // From the bottom right he stands in to the bottom left: the move the sheet draws.
+    drag(20, 1300);
+    expect(queue()).toEqual(["land", corner]);
+  });
+
+  it("plays nothing for a move the sheet doesn't draw, which leaves the page's once unspent", () => {
+    stubScreen({ phone: false });
+    render(<MascotAssistant />);
+    // Its marker only ever leaves the lower-right cup for the lower-left one.
+    drag(20, 20); // the top left
+    expect(queue()).toEqual(["land"]);
+    drag(1000, 20); // the top right
+    expect(queue()).toEqual(["land"]);
+    drag(20, 1300); // the bottom left, but from the top right
+    expect(queue()).toEqual(["land"]);
+    drag(1000, 1300); // back to the bottom right
+    expect(queue()).toEqual(["land"]);
+    drag(20, 1300); // and now the move it draws
     expect(queue()).toEqual(["land", corner]);
   });
 
@@ -489,13 +506,15 @@ describe("choosing his corner (X108)", () => {
     expect(queue()).toEqual(["land"]);
   });
 
-  it("once a page: a second move there just lands", () => {
+  it("once a page: the same move again just lands", () => {
     stubScreen({ phone: false });
     render(<MascotAssistant />);
-    drag(20, 20);
+    drag(20, 1300);
     expect(queue()).toEqual(["land", corner]);
-    // Back to the bottom right: another corner, but this page has had the scene.
     drag(1000, 1300);
+    expect(queue()).toEqual(["land"]);
+    // The bottom right to the bottom left again, but this page has had the scene.
+    drag(20, 1300);
     expect(queue()).toEqual(["land"]);
   });
 
@@ -512,6 +531,9 @@ describe("choosing his corner (X108)", () => {
     }));
     render(<MascotAssistant />);
     drag(20, 20);
+    expect(queue()).toEqual([]);
+    drag(1000, 1300);
+    drag(20, 1300);
     expect(queue()).toEqual([corner]);
   });
 
@@ -519,7 +541,7 @@ describe("choosing his corner (X108)", () => {
     stubScreen({ phone: false });
     useMascotStore.setState({ ready: false });
     render(<MascotAssistant />);
-    drag(20, 20);
+    drag(20, 1300);
     expect(queue()).not.toContain(corner);
   });
 });

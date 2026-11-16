@@ -1446,9 +1446,10 @@ const LIST: Array<[string, Clip]> = [
   // The guestbook only takes a note in to wait for approval: the note written and the pen
   // capped, not beat 8 presenting the page as if the note showed there.
   expansion("x016", "idle", 7, "x016.sent"),
-  // A love or a Seen answer is kept here and maybe counted: the card held halfway in the
-  // slot, before beat 7 drops it in (illustration only, by its own beat) and 8's thumbs-up.
-  expansion("x017", "idle", 6, "x017.card"),
+  // A love or a Seen answer is kept here and maybe counted: the card brought to the slot,
+  // before beat 7 drops it in (illustration only, by its own beat) and 8's thumbs-up. It
+  // ends on beat 5, since beat 6's box swings in front of him (AMR-EXPANSION-FIX-1.md).
+  expansion("x017", "idle", 5, "x017.card"),
   // A test created hasn't run: the spacer fitted and the cart back at the start, before
   // beat 7 shows it crossing the join.
   expansion("x095", "idle", 6, "x095.setup"),
@@ -1506,7 +1507,7 @@ export const EVENT_SCENES = {
   guess: "x018",
   /** A Squad Session started. */
   squadKit: "x021",
-  /** Dragged to a corner other than the one he stood in, once he has landed. */
+  /** Dragged from the bottom right to the bottom left (the move it draws), once he has landed. */
   corner: "x108",
   /** The interface sounds switched off by the visitor. */
   mute: "x109",

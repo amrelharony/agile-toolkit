@@ -191,8 +191,9 @@ describe("where the expansion scenes play", () => {
     const variants: Record<string, number> = {
       // Waiting for approval: the pen capped, the page not presented.
       "x016.sent": 7,
-      // Kept, maybe counted: the card at the slot, never dropped in, no thumbs-up.
-      "x017.card": 6,
+      // Kept, maybe counted: the card brought to the slot, never dropped in, no thumbs-up;
+      // beat 5, since beat 6 is drawn wrong (AMR-EXPANSION-FIX-1.md).
+      "x017.card": 5,
       // A test created hasn't run: the cart back at the start, before it crosses.
       "x095.setup": 6,
     };

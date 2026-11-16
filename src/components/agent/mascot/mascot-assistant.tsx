@@ -797,9 +797,11 @@ export function MascotAssistant() {
   // drag, or on unmount) so they never leak past an in-progress drag.
   const dragCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => dragCleanupRef.current?.(), []);
-  // Dropped in a corner other than the one he stood in: once he has landed, he
-  // shows the corner chosen and holds it (X108), once a page. Nothing keeps the
-  // corner past this visit, so nothing in the scene says it was saved.
+  // Moved from the bottom right to the bottom left: once he has landed, he shows
+  // the corner chosen and holds it (X108), once a page. The sheet draws that one
+  // move (its marker leaves the lower-right cup for the lower-left), so any other
+  // drop would hold a corner the visitor didn't pick. Nothing keeps the corner
+  // past this visit, so nothing in the scene says it was saved.
   const cornerScene = useRef<{ pending: boolean; playedOn: string | null }>({
     pending: false,
     playedOn: null,
@@ -932,9 +934,10 @@ export function MascotAssistant() {
           cx < window.innerWidth / 2 ? "Left" : "Right"
         }` as Corner;
         setCorner(next);
-        // A real change: a corner other than the one he stood in (where a step
-        // aside had put him counts). With reduced motion there's no landing to wait for.
-        if (next !== placed) {
+        // A real change, and the one X108 draws: from the bottom right where he
+        // stood (where a step aside had put him counts) to the bottom left. With
+        // reduced motion there's no landing to wait for.
+        if (placed === "bottomRight" && next === "bottomLeft") {
           if (flightRef.current) cornerScene.current.pending = true;
           else playCornerScene();
         }
