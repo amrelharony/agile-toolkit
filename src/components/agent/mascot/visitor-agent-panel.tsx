@@ -51,14 +51,7 @@
  * this view or its composer.
  */
 
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ComponentType,
-} from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { ChevronLeft, Eraser } from "lucide-react";
 import { useAgentStore } from "@/lib/agent/store";
@@ -141,47 +134,84 @@ function subscribeStartingTurn(listener: () => void): () => void {
 
 const turnStarting = () => startingTurn !== null;
 
-let LoadedReplyEnd: ComponentType<ReplyEndProps> | null = null;
-let replyEndLoad: Promise<void> | null = null;
-const replyEndListeners = new Set<() => void>();
-
-function subscribeReplyEnd(listener: () => void): () => void {
-  replyEndListeners.add(listener);
-  return () => {
-    replyEndListeners.delete(listener);
+/**
+ * A part of the chat in a chunk of its own, which the chat's first paint
+ * doesn't carry: `load` imports it once (a failed load tries again on the
+ * next call), `prefetch` does so quietly, and `useLoaded` gives the module
+ * once it is in (null before, and on the server), so a part is drawn as it
+ * arrives.
+ */
+function lazyPart<T>(importer: () => Promise<T>) {
+  let loaded: T | null = null;
+  let loading: Promise<T> | null = null;
+  const listeners = new Set<() => void>();
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  };
+  const current = () => loaded;
+  const load = (): Promise<T> =>
+    (loading ??= importer().then(
+      (m) => {
+        loaded = m;
+        listeners.forEach((listener) => listener());
+        return m;
+      },
+      (err: unknown) => {
+        loading = null;
+        throw err;
+      }
+    ));
+  return {
+    load,
+    prefetch: () => void load().catch(() => {}),
+    current,
+    useLoaded: () => useSyncExternalStore(subscribe, current, () => null),
   };
 }
-
-const loadedReplyEnd = () => LoadedReplyEnd;
 
 /**
  * The end of a reply (chat/reply-end: Copy reply, Try again, the follow-ups
  * and their rules), loaded as the first message goes out: nothing needs it
- * before a reply, so the chat's first paint doesn't carry it. Never in a
- * turn's way: it is small and loads beside the runtime, so it is nearly
- * always in before the reply it ends, and a reply that settles first gets it
- * as it arrives. If it fails to load, a reply has no end until the next
- * message tries again.
+ * before a reply. Never in a turn's way: it is small and loads beside the
+ * runtime, so it is nearly always in before the reply it ends, and a reply
+ * that settles first gets it as it arrives. If it fails to load, a reply has
+ * no end until the next message tries again.
  */
-function loadReplyEnd(): void {
-  replyEndLoad ??= import("../chat/reply-end").then(
-    (m) => {
-      LoadedReplyEnd = m.ReplyEnd;
-      replyEndListeners.forEach((listener) => listener());
-    },
-    () => {
-      replyEndLoad = null;
-    }
-  );
-}
+const replyEndPart = lazyPart(() => import("../chat/reply-end"));
+
+/** Clear chat with Undo (./visitor-clear-chat), loaded with the first message: nothing to clear before one. */
+const clearPart = lazyPart(() => import("./visitor-clear-chat"));
 
 /**
  * The end of a visitor's reply, once it has loaded (nothing before); only it
  * draws again as it arrives. Stable, so the strip keeps it.
  */
 function VisitorReplyEnd(props: ReplyEndProps) {
-  const End = useSyncExternalStore(subscribeReplyEnd, loadedReplyEnd, () => null);
+  const End = replyEndPart.useLoaded()?.ReplyEnd;
   return End ? <End {...props} /> : null;
+}
+
+/** Clear chat's "Chat cleared · Undo" in the log, once its chunk is in. */
+function VisitorCleared() {
+  const Caption = clearPart.useLoaded()?.ClearedCaption;
+  return Caption ? <Caption /> : null;
+}
+
+/**
+ * Clear chat: with Undo once its chunk is in (it loads with the first
+ * message, so nearly always is). One that can't load still clears, as Clear
+ * chat always did, through the store, which stops the answer under way first.
+ */
+function clearChat(): void {
+  const loaded = clearPart.current();
+  if (loaded) return loaded.clearVisitorChat();
+  clearPart.load().then(
+    (m) => m.clearVisitorChat(),
+    () => useAgentStore.getState().reset()
+  );
 }
 
 /** Said when the voice notice can't load: dictation didn't start. */
@@ -311,7 +341,8 @@ export default function VisitorAgentPanel({
     // One turn at a time, across chats: a turn still starting counts as busy.
     if (startingTurn || useAgentStore.getState().streaming) return;
     setStartingTurn({ question });
-    loadReplyEnd();
+    replyEndPart.prefetch();
+    clearPart.prefetch();
     try {
       const runtime = await loadRuntime();
       // A turn outlives the chat: one asked as the panel closed still goes
@@ -445,13 +476,7 @@ export default function VisitorAgentPanel({
       {/* Something to clear: a message, or a turn under way. */}
       <PanelActions>
         {(!empty || busy) && (
-          <PanelIconButton
-            label="Clear chat"
-            data-visitor-clear=""
-            // Through the store: reset stops the answer under way before the
-            // chat empties, so none of it lands in the fresh one.
-            onClick={() => useAgentStore.getState().reset()}
-          >
+          <PanelIconButton label="Clear chat" data-visitor-clear="" onClick={clearChat}>
             <Eraser aria-hidden="true" />
           </PanelIconButton>
         )}
@@ -463,6 +488,7 @@ export default function VisitorAgentPanel({
         replyEnd={VisitorReplyEnd}
         retry={left === 0 ? undefined : { ...retry, cost: retryCost(left) }}
       >
+        <VisitorCleared />
         {/* Once, at the log's end, while the room is open: narration, not Amr's words. */}
         {inLiveRoom && <Narration data-testid="visitor-ai-live-room">{LIVE_ROOM_LINE}</Narration>}
         {empty && !busy && (

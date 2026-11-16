@@ -56,6 +56,12 @@ async function openChat() {
 
 const search = () => screen.getByLabelText("What do you need to do?");
 
+/** Clear chat in the panel header; its Undo's chunk may still be loading, so wait for the chat to empty. */
+async function clearChat() {
+  fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+  await waitFor(() => expect(useAgentStore.getState().messages).toHaveLength(0));
+}
+
 /** The page on a touch screen: (pointer: coarse) matches, nothing else does. */
 const touchScreen = () =>
   vi.spyOn(window, "matchMedia").mockImplementation(
@@ -241,8 +247,7 @@ describe("VisitorPanel: focus and announcements", () => {
 
   it("Clear chat drops the question: with a new chat under way, the guide opens empty and Back to chat sends nothing", async () => {
     await askInChat("retro");
-    fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
-    expect(useAgentStore.getState().messages).toHaveLength(0);
+    await clearChat();
     // The visitor sends a new message from the composer (as the runtime would add it).
     act(() => {
       useAgentStore.setState({
@@ -278,7 +283,7 @@ describe("VisitorPanel: focus and announcements", () => {
 
   it("Clear chat drops the question: with the chat left empty, the guide opens empty on Chat with Amr", async () => {
     await askInChat("retro");
-    fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+    await clearChat();
 
     fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
     expect(search()).toHaveValue("");

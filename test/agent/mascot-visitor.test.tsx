@@ -1304,14 +1304,21 @@ describe("MascotAssistant — visitor AI", () => {
         await new Promise((resolve) => setTimeout(resolve, SWAP_GUARD_MS));
       });
 
-    it("Clear chat stops the answer through the store and empties the chat", async () => {
+    it("Clear chat stops the answer through the store, empties the chat and offers Undo in the log", async () => {
       await openChatWithQuestion();
       const abortTurn = liveTurn();
       fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
-      expect(abortTurn).toHaveBeenCalledTimes(1);
+      // Its Undo's chunk loads with the first message, so it may still be on its way.
+      await waitFor(() => expect(abortTurn).toHaveBeenCalledTimes(1));
       expect(abortTurn).toHaveBeenCalledWith("reset");
       expect(useAgentStore.getState().messages).toEqual([]);
       expect(useAgentStore.getState().streaming).toBe(false);
+      const log = screen.getByRole("log", { name: "Conversation" });
+      const undo = await within(log).findByRole("button", { name: "Undo" });
+      expect(undo).toHaveFocus();
+      fireEvent.click(undo);
+      expect(useAgentStore.getState().messages.map((m) => m.id)).toEqual(["v1"]);
+      expect(screen.getByRole("button", { name: "Clear chat" })).toHaveFocus();
     });
 
     it("Back to tool finder goes back to the guide and the answer goes on", async () => {

@@ -807,6 +807,19 @@ describe("visitor bundle", () => {
     expect(violations(visitorPanel, [exactly(PERSIST), SUPABASE])).toEqual([]);
   });
 
+  it("loads Clear chat's Undo only from the visitor's chat, by a dynamic import, under the chat's bans", () => {
+    const clear = "src/components/agent/mascot/visitor-clear-chat.tsx";
+    expect(isFile(path.join(ROOT, clear)), `${clear} exists`).toBe(true);
+    // Not in the visitor chat's first paint: it loads with the first message.
+    expect(visitorChat.files.has(clear)).toBe(false);
+    expect(lazyTargets(VISITOR_CHAT)).toContain(clear);
+    const ownerChat = closure(["src/components/agent/agent-conversation.tsx"]);
+    for (const c of [everyPage, mascotChunk, staticShell, visitorPanel, ownerChat]) {
+      expect(c.files.has(clear)).toBe(false);
+    }
+    expect(violations(closure([clear]), [...OWNER_BANS, SUPABASE])).toEqual([]);
+  });
+
   it("never loads the owner's persistence or Supabase from a visitor file, even lazily", () => {
     const visitorFiles = new Set(
       Array.from(visitorPanel.files.keys()).concat(Array.from(visitorChat.files.keys()))

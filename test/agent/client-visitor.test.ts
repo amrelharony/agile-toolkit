@@ -1523,7 +1523,9 @@ describe("the visitor's tool calls", () => {
     queue.push(toolTurn("c1", "tool_zorblax_add_card", { text: "flaky CI" }));
     const turn = askVisitor("add a zorblax card saying flaky CI");
     await confirmation();
-    // What the panel's Clear chat does.
+    // Stop, then Clear chat: the panel's Clear chat is the store's reset
+    // (mascot/visitor-clear-chat, through undoable()), which stops a turn
+    // itself; the next case clears with no Stop first.
     abortInFlight();
     useAgentStore.getState().reset();
     await turn;
@@ -1535,7 +1537,7 @@ describe("the visitor's tool calls", () => {
     expect(s.pendingToolUse).toBeNull();
   });
 
-  it("a reset alone (the visitor turned out to be the owner) leaves no stray result either", async () => {
+  it("a reset alone (Clear chat, or the visitor turned out to be the owner) leaves no stray result either", async () => {
     queue.push(toolTurn("c1", "tool_zorblax_add_card", { text: "flaky CI" }));
     const turn = askVisitor("add a zorblax card saying flaky CI");
     await confirmation();
