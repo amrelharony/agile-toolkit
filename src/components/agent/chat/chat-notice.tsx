@@ -24,7 +24,7 @@
  * focusBeforeTurn), since the box taking focus would raise the keyboard over
  * the answer just asked for. The turn keeps that question: Try again asks it
  * again, Go on adds one after it. The Try again under the latest reply
- * (chat-items ReplyEnd) is this one's, wired the same way.
+ * (chat/reply-end) is this one's, wired the same way.
  *
  * It reads the notice from the store itself, so the container around it
  * never re-renders for one.

@@ -666,17 +666,24 @@ describe("the chat strip (chat/)", () => {
     expect(staticTargets(VISITOR_CHAT)).toContain(`${CHAT_DIR}dictate-button.tsx`);
   });
 
-  it("works out follow-ups in the owner's chat, and loads them for a visitor only as the first message goes out", () => {
-    const rules = "src/lib/agent/follow-ups.ts";
-    // The owner's chat carries them; the shared strip only draws what it is handed.
-    expect(staticTargets(OWNER_CHAT)).toContain(rules);
+  it("hands the owner's chat the reply's end, and loads it for a visitor only as the first message goes out", () => {
+    const end = `${CHAT_DIR}reply-end.tsx`;
+    // What rides with it: the follow-ups' rules and the clipboard helper.
+    const withIt = ["src/lib/agent/follow-ups.ts", "src/lib/utils/clipboard.ts"];
+    expect(staticTargets(end)).toEqual(expect.arrayContaining(withIt));
+    // The owner's chat imports it; the strip both chats share only draws what it is handed.
+    expect(staticTargets(OWNER_CHAT)).toContain(end);
     for (const file of filesUnder(CHAT_DIR)) {
-      expect(staticTargets(file), `${file} imports no follow-up rules`).not.toContain(rules);
+      expect(staticTargets(file), `${file} imports no reply end`).not.toContain(end);
     }
     // Not in the visitor's chat chunk, which paints before any reply: a dynamic import.
-    expect(visitorChat.files.has(rules), "the visitor's chat chunk never carries them").toBe(false);
-    expect(lazyTargets(VISITOR_CHAT)).toContain(rules);
-    expect(everyPage.files.has(rules), `${rules} stays off every page`).toBe(false);
+    for (const file of [end, ...withIt]) {
+      expect(visitorChat.files.has(file), `the visitor's chat chunk never carries ${file}`).toBe(
+        false
+      );
+      expect(everyPage.files.has(file), `${file} stays off every page`).toBe(false);
+    }
+    expect(lazyTargets(VISITOR_CHAT)).toContain(end);
   });
 
   it("loads a visitor's voice notice only on a press of the mic: a dynamic import, from the visitor's chat alone", () => {

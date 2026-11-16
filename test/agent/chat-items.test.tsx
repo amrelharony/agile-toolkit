@@ -22,16 +22,15 @@ import {
   useChat,
   type ChatContextValue,
 } from "@/components/agent/chat/chat-context";
+import { ChatItemView, PICKED_UP, latestReply } from "@/components/agent/chat/chat-items";
 import {
   COPY_FAILED,
-  ChatItemView,
-  PICKED_UP,
+  FOLLOW_UPS_LABEL,
   REPLY_COPIED,
-  latestReply,
+  ReplyEnd,
   retryCost,
-  type FollowUpsFor,
   type ReplyRetry,
-} from "@/components/agent/chat/chat-items";
+} from "@/components/agent/chat/reply-end";
 import { StepDetails } from "@/components/agent/chat/step-details";
 import { ChatStrip, useChatItems } from "@/components/agent/chat/chat-strip";
 import { registry } from "@/lib/actions/registry";
@@ -767,26 +766,30 @@ describe("the end of the latest reply (ReplyEnd)", () => {
     }
   }
 
-  /** Both containers' chat: the store's strip with the shared composer as its footer. */
+  /**
+   * Both containers' chat: the store's strip with the shared composer as its
+   * footer, and the reply's end handed in (`end`: false for a chat that has
+   * none yet, as a visitor's before it loads).
+   */
   function Chat({
     profile = "owner",
     busy = false,
     retry,
-    rules = followUps,
+    end = true,
     composer = true,
   }: {
     profile?: ChatProfile;
     busy?: boolean;
     retry?: ReplyRetry;
-    rules?: FollowUpsFor;
+    end?: boolean;
     composer?: boolean;
   }) {
     return (
       <ChatProvider profile={profile}>
         <ChatStrip
           busy={busy}
+          replyEnd={end ? ReplyEnd : undefined}
           retry={retry}
-          followUps={rules}
           footer={
             composer ? <ChatComposer busy={busy} onSend={h.onSend} onStop={() => {}} /> : null
           }
@@ -1025,7 +1028,7 @@ describe("the end of the latest reply (ReplyEnd)", () => {
     setChat([user("u1", asked), assistant("a1", text(reply))]);
     const before = useAgentStore.getState().messages;
     render(<Chat />);
-    const list = within(end()).getByRole("list", { name: "Ways to follow up" });
+    const list = within(end()).getByRole("list", { name: FOLLOW_UPS_LABEL });
     const chips = within(list).getAllByRole("button");
     const expected = followUps({ reply, asked });
     expect(expected).toEqual([FOLLOW_UP_TEXT.ranks, FOLLOW_UP_TEXT.example]);
@@ -1048,37 +1051,41 @@ describe("the end of the latest reply (ReplyEnd)", () => {
   });
 
   it("works the follow-ups out from the latest turn's own steps and question", () => {
-    const seen: Parameters<FollowUpsFor>[0][] = [];
-    const rules: FollowUpsFor = (turn) => {
-      seen.push(turn);
-      return followUps(turn);
-    };
     setChat([user("u0", "Hi"), assistant("a0", text("Hello.")), ...writeTurn()]);
-    render(<Chat rules={rules} />);
-    const turn = seen.at(-1)!;
-    expect(turn.reply).toBe("Added it to the board.");
-    expect(turn.asked).toBe("Add flaky CI");
-    expect(turn.steps?.map((s) => s.state)).toEqual(["done"]);
-    expect(
-      within(end())
-        .getAllByRole("button")
-        .map((b) => b.textContent)
-    ).toContain(moreIn("Retro Board"));
-    // latestReply, which the log asks: the same turn.
+    render(<Chat />);
+    // The turn's change in Retro Board, not the earlier greeting.
+    const chips = within(within(end()).getByRole("list", { name: FOLLOW_UPS_LABEL }))
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+    expect(chips[0]).toBe(moreIn("Retro Board"));
+    // latestReply, which the log asks: that turn, its steps and its question.
     const found = latestReply(chatView(useAgentStore.getState().messages))!;
     expect(found.reply.messageId).toBe("a2");
-    expect(found.steps.map((s) => s.call?.id)).toEqual(["c1"]);
+    expect(found.reply.text).toBe("Added it to the board.");
+    expect(found.asked).toBe("Add flaky CI");
+    expect(found.steps.map((s) => [s.call?.id, s.state])).toEqual([["c1", "done"]]);
+    expect(chips).toEqual(
+      followUps({ reply: found.reply.text, steps: found.steps, asked: found.asked })
+    );
   });
 
-  it("draws no follow-ups when the chat has none for the turn (a visitor's, before their rules load)", () => {
-    setChat([user("u1", "How?"), assistant("a1", text("Open the board."))]);
-    render(<Chat profile="visitor" rules={() => []} />);
+  it("draws no follow-ups for a reply in another script, only Copy reply", () => {
+    setChat([user("u1", "كيف أبدأ؟"), assistant("a1", text("افتح اللوحة أولا."))]);
+    render(<Chat profile="visitor" />);
     expect(within(end()).queryByRole("list")).toBeNull();
     expect(
       within(end())
         .getAllByRole("button")
         .map((b) => b.textContent)
     ).toEqual(["Copy reply"]);
+  });
+
+  it("draws no end at all until the chat hands one in (a visitor's, before it loads)", () => {
+    setChat([user("u1", "How?"), assistant("a1", text("Open the board."))]);
+    const view = render(<Chat end={false} />);
+    expect(ends()).toEqual([]);
+    view.rerender(<Chat />);
+    end();
   });
 });
 

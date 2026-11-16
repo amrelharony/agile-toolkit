@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { useAgentStore } from "@/lib/agent/store";
-import { followUps } from "@/lib/agent/follow-ups";
 import { OWNER_EMPTY, ownerStarters } from "@/lib/agent/owner-starters";
 import { resolvePageTool, toolIdForPath } from "@/lib/agent/page-tool";
 import { useAuth } from "@/lib/auth/auth-provider";
@@ -31,6 +30,7 @@ import { ThinkingItemView } from "./chat/chat-items";
 import { ChatNotice } from "./chat/chat-notice";
 import { ChatStrip, useAwaitingReply } from "./chat/chat-strip";
 import { DictateButton } from "./chat/dictate-button";
+import { ReplyEnd } from "./chat/reply-end";
 import { StepDetails } from "./chat/step-details";
 import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 
@@ -89,9 +89,9 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
  * and errors show as a narration caption under the strip (chat/chat-notice),
  * with "Try again" or "Go on" when the notice calls for one; the chat's
  * status line (chat/chat-status) says what Amr is doing while he answers.
- * Under the latest reply, once its turn is done: Copy reply, the same Try
- * again (while the turn ran no change) and up to two follow-ups
- * (lib/agent/follow-ups), which only this chat's chunk carries up front.
+ * Under the latest reply, once its turn is done, its end (chat/reply-end):
+ * Copy reply, the same Try again (while the turn ran no change) and up to
+ * two follow-ups. This chat imports it; a visitor's loads it later.
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone
@@ -264,8 +264,8 @@ export function AgentConversation() {
         busy={streaming}
         footer={footer}
         className="px-3 py-2"
+        replyEnd={ReplyEnd}
         retry={user ? retry : undefined}
-        followUps={followUps}
       >
         {empty && (
           <ChatEmpty

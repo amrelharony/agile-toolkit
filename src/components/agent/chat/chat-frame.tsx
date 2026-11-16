@@ -46,7 +46,7 @@
  * here, except that a tap on a touch screen hands it to the newest item (a
  * key press there still hands it to the composer); Try again and Go on do the
  * same in the notice (chat-notice), and Try again under the latest reply
- * (chat-items ReplyEnd), except that a tap on a touch screen hands focus to
+ * (chat/reply-end), except that a tap on a touch screen hands focus to
  * the latest question's caption; starters and follow-ups do where they are
  * drawn, and a decided
  * confirm card hands it to the composer, or on a touch screen to its step's
@@ -104,8 +104,8 @@ const NEWEST_ITEM = '[data-chat-item]:not([data-chat-item="thinking"]):not([data
 export function ChatFrame({
   items,
   busy = false,
+  replyEnd,
   retry,
-  followUps,
   children,
   footer,
   className,
@@ -224,8 +224,8 @@ export function ChatFrame({
         contentRef={contentRef}
         items={items}
         busy={busy}
+        replyEnd={replyEnd}
         retry={retry}
-        followUps={followUps}
       >
         {children}
       </ChatLog>

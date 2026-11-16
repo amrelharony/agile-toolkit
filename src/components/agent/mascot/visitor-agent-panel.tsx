@@ -24,11 +24,11 @@
  * caption under the strip (chat/chat-notice), the narrator's line and never
  * Amr's own words, with "Try again" or "Go on" when the notice calls for one;
  * the chat's status line (chat/chat-status) says what Amr is doing while he
- * answers. Under the latest reply, once its turn is done: Copy reply, the
- * same Try again (while the turn ran no change and a message is left; it says
- * it spends one) and up to two follow-ups, whose rules load with the first
- * message (lib/agent/follow-ups), so the chat's first paint doesn't carry
- * them. An empty chat shows a narration line and up to three starters for
+ * answers. Under the latest reply, once its turn is done, its end
+ * (chat/reply-end, loaded with the first message, so the chat's first paint
+ * doesn't carry it): Copy reply, the same Try again (while the turn ran no
+ * change and a message is left; it says it spends one) and up to two
+ * follow-ups. An empty chat shows a narration line and up to three starters for
  * the page the visitor is on (chat/chat-empty, words in
  * lib/agent/visitor-starters); a starter fills the message box and never
  * sends, so it spends nothing. The composer is the one both chats share
@@ -43,7 +43,14 @@
  * this view or its composer.
  */
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentType,
+} from "react";
 import { usePathname } from "next/navigation";
 import { BookOpen, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -62,9 +69,10 @@ import { ChatComposer, type ComposerMicProps } from "../chat/chat-composer";
 import { ChatProvider } from "../chat/chat-context";
 import { DictateButton } from "../chat/dictate-button";
 import { ChatEmpty } from "../chat/chat-empty";
-import { ThinkingItemView, type FollowUpsFor } from "../chat/chat-items";
+import { ThinkingItemView } from "../chat/chat-items";
 import { ChatNotice } from "../chat/chat-notice";
 import { ChatStrip, useAwaitingReply } from "../chat/chat-strip";
+import type { ReplyEndProps } from "../chat/reply-end";
 import { COMPACT_HIDDEN } from "./panel-context";
 import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
 
@@ -123,28 +131,32 @@ function subscribeStartingTurn(listener: () => void): () => void {
 
 const turnStarting = () => startingTurn !== null;
 
-let followUpRules: FollowUpsFor | null = null;
-let followUpsLoad: Promise<void> | null = null;
+let LoadedReplyEnd: ComponentType<ReplyEndProps> | null = null;
+let replyEndLoad: Promise<void> | null = null;
 
 /**
- * The follow-ups' rules (lib/agent/follow-ups), loaded as the first message
- * goes out: they are needed only under a reply, so the chat's first paint
- * doesn't carry them. Never in a turn's way: until they are in (or if they
- * fail to load, until the next message tries again), a reply has none.
+ * The end of a reply (chat/reply-end: Copy reply, Try again, the follow-ups
+ * and their rules), loaded as the first message goes out: nothing needs it
+ * before a reply, so the chat's first paint doesn't carry it. Never in a
+ * turn's way, and in long before the reply it ends (it is small, and the turn
+ * waits on the runtime, loading beside it). If it fails to load, a reply has
+ * no end until the next message tries again.
  */
-function loadFollowUps(): void {
-  followUpsLoad ??= import("@/lib/agent/follow-ups").then(
+function loadReplyEnd(): void {
+  replyEndLoad ??= import("../chat/reply-end").then(
     (m) => {
-      followUpRules = m.followUps;
+      LoadedReplyEnd = m.ReplyEnd;
     },
     () => {
-      followUpsLoad = null;
+      replyEndLoad = null;
     }
   );
 }
 
-/** A visitor's follow-ups under a reply, once their rules are in. Stable, so the strip keeps it. */
-const visitorFollowUps: FollowUpsFor = (turn) => followUpRules?.(turn) ?? [];
+/** The end of a visitor's reply, once it has loaded (nothing before). Stable, so the strip keeps it. */
+function VisitorReplyEnd(props: ReplyEndProps) {
+  return LoadedReplyEnd ? <LoadedReplyEnd {...props} /> : null;
+}
 
 /** A visitor's messages left now: today's, or fewer in busy hours. Null before the route has said. */
 function messagesLeft(quota: VisitorQuota | null): number | null {
@@ -300,7 +312,7 @@ export default function VisitorAgentPanel({
     // One turn at a time, across chats: a turn still starting counts as busy.
     if (startingTurn || useAgentStore.getState().streaming) return;
     setStartingTurn({ question });
-    loadFollowUps();
+    loadReplyEnd();
     try {
       const runtime = await loadRuntime();
       // A turn outlives the chat: one asked as the panel closed still goes
@@ -455,8 +467,8 @@ export default function VisitorAgentPanel({
         busy={busy}
         footer={footer}
         className="px-3 py-2"
+        replyEnd={VisitorReplyEnd}
         retry={left === 0 ? undefined : { ...retry, left }}
-        followUps={visitorFollowUps}
       >
         {empty && !busy && (
           <ChatEmpty line={VISITOR_EMPTY.line} short={VISITOR_EMPTY.short} starters={starters} />

@@ -5,7 +5,7 @@
  * begin, written as the reader's own questions ("How does Retro Board
  * work?"), never in Amr's voice and never with I, me or my in them (a chat
  * line in the first person reads as his). The follow-ups under the latest
- * reply (chat-items ReplyEnd) are these chips too, in a list of their own.
+ * reply (chat/reply-end) are these chips too, in a list of their own.
  *
  * A starter fills the message box and never sends: the reader reads it,
  * changes it or sends it (a change would still ask first, and a visitor's
@@ -50,7 +50,7 @@ export const inTheBox = (starter: string) => `In the message box: ${starter}`;
 
 export interface SuggestionChipsProps {
   starters: readonly string[];
-  /** The list's name: "Ways to start", or the follow-ups' under a reply (chat-items ReplyEnd). */
+  /** The list's name: "Ways to start", or the follow-ups' under a reply (chat/reply-end). */
   label?: string;
   className?: string;
 }

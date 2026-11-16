@@ -8,7 +8,7 @@
  * step it asks about (chat/tool-steps); one whose call isn't in the chat
  * shows here, after the items, so a turn never waits on a card no one sees.
  * Once a turn has settled, the latest reply gets its end right under it
- * (chat-items ReplyEnd: Copy reply, Try again, follow-ups), with what the
+ * (chat/reply-end: Copy reply, Try again, follow-ups), with what the
  * container wired for it.
  *
  *   role="log", named "Conversation"
@@ -31,27 +31,26 @@
  * (test/agent/bundle-boundary.test.ts).
  */
 
-import { Fragment, forwardRef, type ReactNode, type Ref } from "react";
+import { Fragment, forwardRef, type ComponentType, type ReactNode, type Ref } from "react";
 import type { ChatItem } from "@/lib/agent/chat-view";
 import { cn } from "@/lib/utils";
 import { COMPACT_LOG } from "../mascot/panel-context";
 import { useChat } from "./chat-context";
-import {
-  ChatItemView,
-  ReplyEnd,
-  latestReply,
-  type FollowUpsFor,
-  type ReplyRetry,
-} from "./chat-items";
+import { ChatItemView, latestReply } from "./chat-items";
 import { ConfirmCard } from "./confirm-card";
+import type { ReplyEndProps, ReplyRetry } from "./reply-end";
 import { cardUnderStep } from "./tool-steps";
 
-/** What the end of the latest reply offers (chat-items ReplyEnd), as the chat's container wires it. */
+/** The end of the latest reply (chat/reply-end), as the chat's container wires it. */
 export interface ReplyEndWiring {
+  /**
+   * chat/reply-end's ReplyEnd, handed in so the chunk both chats share doesn't
+   * carry it: the owner's chat imports it, a visitor's loads it with the first
+   * message. Left out, or not in yet, a reply has no end.
+   */
+  replyEnd?: ComponentType<ReplyEndProps>;
   /** Try again, when the chat can run one now (the owner signed in, a visitor with a message left). */
   retry?: ReplyRetry;
-  /** The chat's follow-ups for a turn, once it has them. */
-  followUps?: FollowUpsFor;
 }
 
 export interface ChatLogProps extends ReplyEndWiring {
@@ -68,12 +67,12 @@ export interface ChatLogProps extends ReplyEndWiring {
 
 /** The comic strip, as a log that keeps its words to itself until the turn settles. */
 export const ChatLog = forwardRef<HTMLDivElement, ChatLogProps>(function ChatLog(
-  { items, busy = false, retry, followUps, children, contentRef, className },
+  { items, busy = false, replyEnd: ReplyEnd, retry, children, contentRef, className },
   ref
 ) {
   const { logId, profile } = useChat();
   // The latest reply, once its turn has settled: its end goes right under it.
-  const end = busy ? null : latestReply(items);
+  const end = busy || !ReplyEnd ? null : latestReply(items);
   return (
     <div
       ref={ref}
@@ -92,7 +91,7 @@ export const ChatLog = forwardRef<HTMLDivElement, ChatLogProps>(function ChatLog
         {items.map((item) => (
           <Fragment key={item.key}>
             <ChatItemView item={item} />
-            {item === end?.reply && <ReplyEnd turn={end} retry={retry} followUps={followUps} />}
+            {ReplyEnd && item === end?.reply && <ReplyEnd turn={end} retry={retry} />}
           </Fragment>
         ))}
         {!cardUnderStep(items) && <ConfirmCard allowApproveAll={profile === "owner"} />}
