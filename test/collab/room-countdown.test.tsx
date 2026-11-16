@@ -196,17 +196,21 @@ describe("RoomTimerControls", () => {
     one.focus();
     fireEvent.click(one);
     expect(screen.getByRole("button", { name: "Pause" })).toHaveFocus();
-    // Time runs out with Pause focused: the same button becomes "1 more minute".
+    // Time runs out with Pause focused: the same button becomes "1 minute more",
+    // the one label the action has, running or not.
     advance(61_000);
-    expect(screen.getByRole("button", { name: "1 more minute" })).toHaveFocus();
-    fireEvent.click(screen.getByRole("button", { name: "1 more minute" }));
+    expect(screen.getAllByRole("button", { name: "1 minute more" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "1 minute more" })).toHaveFocus();
+    fireEvent.click(screen.getByRole("button", { name: "1 minute more" }));
     expect(screen.getByRole("button", { name: "Pause" })).toHaveFocus();
-    // "1 minute more" focused at zero: focus follows it into the first button.
+    // The separate "1 minute more" focused at zero: focus follows it into the first button.
     const more = screen.getByRole("button", { name: "1 minute more" });
     more.focus();
     advance(61_000);
-    expect(screen.queryByRole("button", { name: "1 minute more" })).toBeNull();
-    expect(screen.getByRole("button", { name: "1 more minute" })).toHaveFocus();
+    expect(more.isConnected).toBe(false);
+    expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
+    expect(screen.getAllByRole("button", { name: "1 minute more" })).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "1 minute more" })).toHaveFocus();
     const stop = screen.getByRole("button", { name: "Stop timer" });
     stop.focus();
     fireEvent.click(stop);
@@ -219,7 +223,7 @@ describe("RoomTimerControls", () => {
     advance(61_000);
     expect(alarm.timesUp).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "1 more minute" }));
+    fireEvent.click(screen.getByRole("button", { name: "1 minute more" }));
     expect(state()?.endsAt).toBe(Date.now() + 60_000);
   });
 

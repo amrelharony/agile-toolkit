@@ -116,7 +116,10 @@ export function RoomBigScreenView({
                 ? `Scan to join, or open ${host}/join and type the code:`
                 : "Scan the QR code with a phone camera to join."}
             </p>
-            <p className="break-words font-data text-4xl font-bold tracking-wider sm:text-6xl">
+            {/* On one line from sm, sized to the 24rem column beside the
+                room on a wide screen, so "ABCD-EFGH-JKMN" never breaks
+                mid-group when it's read aloud. */}
+            <p className="break-words font-data text-4xl font-bold tracking-wider sm:whitespace-nowrap sm:text-6xl lg:text-4xl">
               <span className="sr-only">Room code </span>
               {groupRoomCode(code)}
             </p>
