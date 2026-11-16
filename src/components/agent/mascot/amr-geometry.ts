@@ -172,8 +172,9 @@ export function cornerAfterKey(c: AmrCorner, key: string): AmrCorner | null {
 /**
  * How far his centre line runs in from the panel's edge on his side, in px.
  * Both are offset from the same side of the screen (BUTTON_SIDE, PANEL_SIDE, and
- * the same safe area), so this holds on any screen: 58 for the desktop figure,
- * 40 for a phone's, 46 for the launcher plate.
+ * the same safe area, or on his left from md the app's rail), so this holds on
+ * any screen: 58 for the desktop figure, 40 for a phone's, 46 for the launcher
+ * plate.
  */
 export function amrCentreInPanel(phone: boolean, figure: boolean): number {
   const width = figure ? (phone ? MASCOT_BOX_PHONE : MASCOT_BOX).w : LAUNCHER_PLATE.w;
@@ -297,7 +298,11 @@ export interface VisibleInsets {
   bottom: number;
 }
 
-/** The screen's side safe areas, px: a landscape phone's notch or camera cutout. */
+/**
+ * The screen's side safe areas, px: a landscape phone's notch or camera cutout.
+ * On the left, from md, mascot-assistant passes the app's rail's right edge
+ * instead (the rail covers that inset), so his box starts past the rail.
+ */
 export interface SideSafeArea {
   left: number;
   right: number;
