@@ -77,6 +77,7 @@ import {
 } from "@/components/agent/mascot/amr-geometry";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "@/components/agent/mascot/engine/figure-metrics";
 import { DOCK_END_FULL } from "@/components/agent/mascot/panel-context";
+import { VISITOR_AI_CONSENT_KEY } from "@/components/agent/mascot/visitor-ai-consent";
 import { VISIBLE_GAP } from "@/lib/layout/use-visible-area";
 import { useAgentStore } from "@/lib/agent/store";
 import { useBubbleStore } from "@/lib/agent/mascot/bubble";
@@ -1327,6 +1328,81 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
           expect(finderBottom).toBeLessThanOrEqual(top + 1e-6);
         });
       }
+    }
+  }
+
+  for (const w of [320, 360, 375]) {
+    for (const inset of [0, 34]) {
+      it(`${w}x812${inset ? ", home indicator" : ""}, his figure docked: the chat's Latest button stands above the composer's row, so it is never his`, async () => {
+        vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+        window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+        try {
+          screenAt(w, 812, { insetTop: inset ? 44 : 0, insetBottom: inset, header: HEADER_H });
+          render(<MascotAssistant />);
+          await withFigure();
+          const panel = openPanel();
+          await guide();
+          fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+          const log = await screen.findByRole("log", { name: "Conversation" });
+          act(() => {
+            useAgentStore.setState({
+              chatProfile: "visitor",
+              messages: [
+                {
+                  id: "u1",
+                  role: "user",
+                  content: [{ type: "text", text: "How do I run a retro?" }],
+                  createdAt: "2026-11-16T09:00:00Z",
+                },
+                {
+                  id: "a1",
+                  role: "assistant",
+                  content: [{ type: "text", text: "Start with what went well." }],
+                  createdAt: "2026-11-16T09:00:01Z",
+                },
+              ],
+            });
+          });
+          // The reader goes up the log (jsdom lays nothing out: its scroll is stubbed).
+          Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => 900 });
+          Object.defineProperty(log, "clientHeight", { configurable: true, get: () => 300 });
+          Object.defineProperty(log, "scrollTop", { configurable: true, get: () => 120, set() {} });
+          fireEvent.wheel(log, { deltaY: -120 });
+          const latest = await screen.findByRole("button", { name: "Latest" });
+          await frames();
+          const button = amrButton();
+          expect(button).toHaveAttribute("data-amr-docked");
+
+          // In the chat's flow, after the log and before the composer's row:
+          // never over the log, and never in the footer, whose gutter he stands in.
+          const frame = log.parentElement!;
+          const footer = frame.querySelector<HTMLElement>("[data-chat-footer]")!;
+          expect(latest.closest("[data-chat-frame]")).toBe(frame);
+          expect(log.contains(latest)).toBe(false);
+          expect(footer.contains(latest)).toBe(false);
+          expect(
+            log.compareDocumentPosition(latest) & Node.DOCUMENT_POSITION_FOLLOWING
+          ).toBeTruthy();
+          expect(
+            latest.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING
+          ).toBeTruthy();
+          // The footer is at least as tall as his room while he is docked...
+          expect(footer.className).toContain(
+            "group-data-[amr-dock]/amr:min-h-[var(--amr-dock-footer)]"
+          );
+          // ...so the 44 px Latest, 8 px above it, has its centre above his figure's top.
+          const dockBottom = px(button, "--amr-dock-bottom");
+          const hitTop = 812 - dockBottom - MASCOT_BOX_PHONE.h + FIGURE_TOP * scale;
+          const sheetBottom = 812 - px(panel, "--amr-vv-bottom");
+          const footerTop = sheetBottom - dockRoom(panel, "--amr-dock-footer");
+          const latestCentre = footerTop - 8 - 22;
+          expect(latestCentre).toBeLessThan(hitTop);
+        } finally {
+          window.localStorage.removeItem(VISITOR_AI_CONSENT_KEY);
+          vi.unstubAllEnvs();
+          act(() => useAgentStore.getState().reset());
+        }
+      });
     }
   }
 
