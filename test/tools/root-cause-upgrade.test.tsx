@@ -293,9 +293,34 @@ describe("the empty page", () => {
     expect(screen.getByRole("navigation", { name: "Analyses" })).toBeInTheDocument();
     // The line above the list reads the example, not "No analysis yet."
     expect(screen.queryByText("No analysis yet.")).toBeNull();
-    const verdict = rootCauseVerdict(buildExample());
+    const verdict = rootCauseVerdict(buildExample(), undefined, { example: true });
     expect(verdict).not.toBe("No analysis yet.");
     expect(screen.getByText(verdict)).toBeInTheDocument();
+  });
+
+  it("doesn't tell anyone to send the example's countermeasures, which can't be sent", async () => {
+    const [rollbacks, checkout] = buildExample();
+    useWorkspaceStore.setState({
+      rootCauseAnalyses: [rollbacks, { ...checkout, countermeasure: "Alert on the error rate." }],
+    });
+    renderPage();
+    const both = "The example's countermeasures would go to Retro Actions in your own analyses.";
+    expect(screen.getByText(both)).toBeInTheDocument();
+    expect(screen.queryByText(/send (it|them)/)).toBeNull();
+    await waitFor(() => expect(exported.markdown).toContain(`> ${both}`));
+    expect(exported.markdown).not.toMatch(/send (it|them)/);
+    cleanup();
+    useWorkspaceStore.setState({ rootCauseAnalyses: [rollbacks] });
+    renderPage();
+    expect(
+      screen.getByText(
+        "The example's countermeasure would go to Retro Actions in your own analysis."
+      )
+    ).toBeInTheDocument();
+    // The team's own analyses still get told to send.
+    expect(rootCauseVerdict([{ ...rollbacks, id: "rca_mine" }])).toBe(
+      "1 countermeasure isn't in Retro Actions yet: send it so someone owns it."
+    );
   });
 });
 

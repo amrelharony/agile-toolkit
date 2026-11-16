@@ -496,9 +496,13 @@ export function RootCauseClient() {
 
   const selected = analyses.find((a) => a.id === selectedId) ?? analyses[0] ?? null;
   const example = hasExampleItems(analyses);
-  // The team's own analyses; with only the example on the page, the example's.
+  // The team's own analyses; with only the example on the page, the example's
+  // (which is never sent, so it isn't told to send).
   const real = analyses.filter((a) => !isExampleId(a.id));
-  const verdict = rootCauseVerdict(real.length > 0 ? real : analyses, isLive);
+  const verdict =
+    real.length > 0
+      ? rootCauseVerdict(real, isLive)
+      : rootCauseVerdict(analyses, isLive, { example: true });
 
   useEffect(() => {
     if (!focusShown.current) return;
