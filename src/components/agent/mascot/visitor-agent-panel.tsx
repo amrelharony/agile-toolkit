@@ -20,9 +20,9 @@
  * The chat is the comic strip (chat/chat-strip): Amr's balloons, the
  * visitor's captions and one caption per run of tool steps, in words only (a
  * visitor never sees JSON), with the confirm card under the step it asks
- * about (no Approve all for a visitor). Notes and errors show as a narration caption,
- * the narrator's line and never Amr's own words, with "Try again" or "Go on"
- * when the notice calls for one (lib/agent/notice-actions).
+ * about (no Approve all for a visitor). Notes and errors show as a narration
+ * caption under the strip (chat/chat-notice), the narrator's line and never
+ * Amr's own words, with "Try again" or "Go on" when the notice calls for one.
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone, never
@@ -33,17 +33,16 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { BookOpen, Eraser, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Narration } from "@/components/agent/comic/comic-parts";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
-import { noticeAction } from "@/lib/agent/notice-actions";
 import { toolIdForPath } from "@/lib/agent/page-tool";
 import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import { formatPeakTime, peakWindow } from "@/lib/visitor-ai/peak";
 import { cn } from "@/lib/utils";
 import { useChatVisible } from "../chat-visibility";
-import { ChatProvider, focusAtEnd } from "../chat/chat-context";
+import { ChatProvider } from "../chat/chat-context";
 import { ThinkingItemView } from "../chat/chat-items";
+import { ChatNotice } from "../chat/chat-notice";
 import { ChatStrip, ThinkingStatus, useAwaitingReply } from "../chat/chat-strip";
 import { handleMascotCommand } from "./engine/customization/commands";
 import { COMPACT_HIDDEN, useInitialFocus } from "./panel-context";
@@ -160,7 +159,6 @@ export default function VisitorAgentPanel({
   onOfflineGuide,
 }: VisitorAgentPanelProps) {
   const streaming = useAgentStore((s) => s.streaming);
-  const notice = useAgentStore((s) => s.notice);
   const quota = useAgentStore((s) => s.visitorQuota);
   const input = useAgentStore((s) => s.drafts.visitor);
   // A turn this chat or an earlier one started, its runtime still loading.
@@ -221,11 +219,9 @@ export default function VisitorAgentPanel({
     );
   };
 
-  // The notice's buttons go with it once the turn starts, so focus moves to
-  // the message box first, caret at the end (read-only, never disabled,
-  // while Amr answers).
+  // The notice hands focus to the message box before these run (read-only,
+  // never disabled, while Amr answers).
   const tryAgain = () => {
-    focusAtEnd(composerRef.current);
     void startTurn(
       (runtime) => runtime.retryVisitorTurn({ toolId: toolIdForPath(pathname) }),
       null,
@@ -233,7 +229,6 @@ export default function VisitorAgentPanel({
     );
   };
   const goOn = () => {
-    focusAtEnd(composerRef.current);
     void startTurn(
       (runtime) => runtime.visitorGoOn({ toolId: toolIdForPath(pathname) }),
       null,
@@ -278,13 +273,6 @@ export default function VisitorAgentPanel({
   // arrive (or between tool rounds). The log follows itself (chat-frame).
   const awaiting = useAwaitingReply(busy);
   const peak = peakNote(quota, now);
-  // Try again only when the last turn ran no change; the runtime that ran it
-  // knows (it holds the registry). Nothing to press while Amr answers.
-  const retryable = useAgentStore(
-    (s) => !busy && (loadedRuntime?.canRetryLastTurn(s.messages) ?? false)
-  );
-  const action = busy ? null : noticeAction(notice, "visitor");
-  const canRetry = action === "retry" && retryable;
 
   // The composer's row: the frame keeps it shrink-0 (the form its direct
   // child) and makes room beside it for docked Amr.
@@ -395,26 +383,13 @@ export default function VisitorAgentPanel({
           </div>
         )}
         {awaiting && <ThinkingItemView />}
-        {/* A visitor approves every change: no Approve all. */}
-        {notice && (
-          <Narration
-            tone={notice.tone}
-            data-notice-kind={notice.kind}
-            actions={
-              canRetry ? (
-                <Button type="button" variant="outline" size="sm" onClick={tryAgain}>
-                  Try again
-                </Button>
-              ) : action === "go_on" ? (
-                <Button type="button" variant="outline" size="sm" onClick={goOn}>
-                  Go on
-                </Button>
-              ) : null
-            }
-          >
-            {notice.text}
-          </Narration>
-        )}
+        <ChatNotice
+          ready={!busy}
+          // The runtime that ran the turn knows (it holds the registry).
+          canRetry={(messages) => loadedRuntime?.canRetryLastTurn(messages) ?? false}
+          onTryAgain={tryAgain}
+          onGoOn={goOn}
+        />
       </ChatStrip>
     </ChatProvider>
   );

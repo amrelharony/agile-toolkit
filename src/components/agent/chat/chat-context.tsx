@@ -77,6 +77,14 @@ export function focusAtEnd(el: HTMLElement | null | undefined): boolean {
   return el.ownerDocument.activeElement === el;
 }
 
+/**
+ * A touch screen: a text field taking focus there raises the keyboard over
+ * the strip. Kept here, not panel-context's helper, so nothing new reaches
+ * mascot code.
+ */
+export const onTouchScreen = (doc: Document | null | undefined) =>
+  doc?.defaultView?.matchMedia?.("(pointer: coarse)")?.matches === true;
+
 /** No chat around the part: a visitor's, with nothing to focus. */
 export const NO_CHAT: ChatContextValue = Object.freeze({
   profile: "visitor",

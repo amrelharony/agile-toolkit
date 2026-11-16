@@ -3,7 +3,6 @@
 import { useEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { useAgentStore } from "@/lib/agent/store";
-import { noticeAction } from "@/lib/agent/notice-actions";
 import { toolIdForPath } from "@/lib/agent/page-tool";
 import { useAuth } from "@/lib/auth/auth-provider";
 import {
@@ -25,10 +24,10 @@ import {
 } from "@/lib/agent/persist";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Narration } from "./comic/comic-parts";
 import { useChatVisible } from "./chat-visibility";
-import { ChatProvider, focusAtEnd } from "./chat/chat-context";
+import { ChatProvider } from "./chat/chat-context";
 import { ThinkingItemView } from "./chat/chat-items";
+import { ChatNotice } from "./chat/chat-notice";
 import { ChatStrip, ThinkingStatus, useAwaitingReply } from "./chat/chat-strip";
 import { StepDetails } from "./chat/step-details";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
@@ -61,8 +60,8 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
  *
  * Closing the panel unmounts this and stops nothing: the turn and what the
  * owner has typed but not sent (drafts.owner) live in the agent store. Notes
- * and errors show as a narration caption, with "Try again" or "Go on" when
- * the notice calls for one (lib/agent/notice-actions).
+ * and errors show as a narration caption under the strip (chat/chat-notice),
+ * with "Try again" or "Go on" when the notice calls for one.
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone
@@ -71,11 +70,8 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
 export function AgentConversation() {
   const { user } = useAuth();
   const streaming = useAgentStore((s) => s.streaming);
-  const notice = useAgentStore((s) => s.notice);
   const input = useAgentStore((s) => s.drafts.owner);
   const empty = useAgentStore((s) => s.messages.length === 0);
-  // Try again only when the last turn ran no change; nothing to press while Amr answers.
-  const retryable = useAgentStore((s) => !s.streaming && canRetryLastTurn(s.messages));
   // The thinking balloon and status, until the reply's first words or steps arrive.
   const awaiting = useAwaitingReply(streaming);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -197,24 +193,16 @@ export function AgentConversation() {
           conversationId: useAgentStore.getState().activeConversationId ?? undefined,
         }
       : null;
-  // The notice's buttons go with it once the turn starts, so focus moves to
-  // the message box first, caret at the end (read-only, never disabled,
-  // while Amr answers).
+  // The notice hands focus to the message box before these run (read-only,
+  // never disabled, while Amr answers).
   const tryAgain = () => {
     const opts = turnOptions();
-    if (!opts) return;
-    focusAtEnd(composerRef.current);
-    void retryLastTurn(opts);
+    if (opts) void retryLastTurn(opts);
   };
   const goOnNow = () => {
     const opts = turnOptions();
-    if (!opts) return;
-    focusAtEnd(composerRef.current);
-    void goOn(opts);
+    if (opts) void goOn(opts);
   };
-
-  const action = streaming || !user ? null : noticeAction(notice, "owner");
-  const canRetry = action === "retry" && retryable;
 
   // The composer's row: the frame keeps it shrink-0 (the form its direct
   // child) and makes room beside it for docked Amr.
@@ -310,25 +298,12 @@ export function AgentConversation() {
           </div>
         )}
         {awaiting && <ThinkingItemView />}
-        {notice && (
-          <Narration
-            tone={notice.tone}
-            data-notice-kind={notice.kind}
-            actions={
-              canRetry ? (
-                <Button type="button" variant="outline" size="sm" onClick={tryAgain}>
-                  Try again
-                </Button>
-              ) : action === "go_on" ? (
-                <Button type="button" variant="outline" size="sm" onClick={goOnNow}>
-                  Go on
-                </Button>
-              ) : null
-            }
-          >
-            {notice.text}
-          </Narration>
-        )}
+        <ChatNotice
+          ready={!streaming && !!user}
+          canRetry={canRetryLastTurn}
+          onTryAgain={tryAgain}
+          onGoOn={goOnNow}
+        />
       </ChatStrip>
     </ChatProvider>
   );

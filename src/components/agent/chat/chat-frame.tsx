@@ -65,17 +65,10 @@ import type { ChatItem } from "@/lib/agent/chat-view";
 import { cn } from "@/lib/utils";
 import { useChatVisible } from "../chat-visibility";
 import { DOCK_FOOTER_IN_PX3 } from "../mascot/panel-context";
-import { useChat } from "./chat-context";
+import { onTouchScreen, useChat } from "./chat-context";
 import { ChatLog } from "./chat-log";
 import { useStickToBottom } from "./use-stick-to-bottom";
 import { useTurnAnnouncer } from "./use-turn-announcer";
-
-/**
- * A touch screen: a text field taking focus there raises the keyboard. Kept
- * here, not panel-context's helper, so nothing new reaches mascot code.
- */
-const onTouchScreen = (doc: Document | undefined) =>
-  doc?.defaultView?.matchMedia?.("(pointer: coarse)")?.matches === true;
 
 export interface ChatFrameProps {
   /** The strip's items, from lib/agent/chat-view. */
