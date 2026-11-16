@@ -619,7 +619,7 @@ describe("Ask Amr: a card for the mood", () => {
     expect(readCardDecks().rounds.retro).toHaveLength(1);
     // The suggestion stays, saying it is done, with focus on its heading.
     const after = screen.getByTestId("ai-suggestions");
-    expect(after.textContent).toContain("All added.");
+    expect(after.textContent).toContain("Dealt.");
     expect(document.activeElement).toBe(
       within(after).getByRole("heading", { name: "A card for the team's mood" })
     );
@@ -715,6 +715,20 @@ describe("Ask Amr: a deck on a theme", () => {
     expect(state.deckId).toBe(state.decks[0].id);
     await undoOf("Made Thanks and appreciation with 3 cards")();
     expect(readCardDecks().decks).toEqual([]);
+  });
+
+  it("says where the cards come from when no built-in deck is near the theme", async () => {
+    await mount();
+    fireEvent.change(screen.getByLabelText("Theme"), {
+      target: { value: "Trust in a remote team" },
+    });
+    fireEvent.change(screen.getByLabelText("How many cards"), { target: { value: "3" } });
+    click(button("Suggest cards from the built-in decks"));
+    expect(
+      screen.getByRole("heading", {
+        name: "Cards from Retro prompts (no built-in deck on “Trust in a remote team”)",
+      })
+    ).toBeInTheDocument();
   });
 
   it("adds one card at a time into the same new deck", async () => {
