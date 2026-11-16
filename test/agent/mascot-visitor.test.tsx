@@ -334,8 +334,8 @@ describe("MascotAssistant — owner gating", () => {
     }
     for (const name of ["New chat", "Conversation history", "Close assistant"]) {
       expect(within(header).getByRole("button", { name })).toHaveClass(
-        "pointer-coarse:min-h-11",
-        "pointer-coarse:min-w-11",
+        "pointer-coarse:min-h-[44px]",
+        "pointer-coarse:min-w-[44px]",
         "inline-flex",
         "items-center",
         "justify-center"
@@ -343,8 +343,8 @@ describe("MascotAssistant — owner gating", () => {
     }
     // The shortcut is the More menu's last line, for the owner too.
     expect(within(header).getByRole("button", { name: "More" })).toHaveClass(
-      "pointer-coarse:min-h-11",
-      "pointer-coarse:min-w-11"
+      "pointer-coarse:min-h-[44px]",
+      "pointer-coarse:min-w-[44px]"
     );
     expect(within(header).queryByText(/Ctrl J/)).toBeNull();
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
@@ -694,7 +694,7 @@ describe("MascotAssistant — visitor AI", () => {
     const back = await within(header).findByRole("button", { name: "Back to tool finder" });
     const plate = within(header).getByRole("heading", { level: 2, name: "Amr" });
     expect(back.compareDocumentPosition(plate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(back).toHaveClass("pointer-coarse:min-h-11", "pointer-coarse:min-w-11");
+    expect(back).toHaveClass("pointer-coarse:min-h-[44px]", "pointer-coarse:min-w-[44px]");
     expect(within(header).queryByRole("button", { name: "Clear chat" })).toBeNull();
     act(() => {
       useAgentStore.setState({
@@ -711,7 +711,7 @@ describe("MascotAssistant — visitor AI", () => {
     });
     const clear = within(header).getByRole("button", { name: "Clear chat" });
     expect(plate.compareDocumentPosition(clear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(clear).toHaveClass("pointer-coarse:min-h-11", "pointer-coarse:min-w-11");
+    expect(clear).toHaveClass("pointer-coarse:min-h-[44px]", "pointer-coarse:min-w-[44px]");
     // Nothing of either is left under the composer.
     const footer = screen.getByLabelText("Message").closest("[data-chat-footer]")!;
     expect(

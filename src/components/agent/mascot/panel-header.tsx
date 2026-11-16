@@ -134,20 +134,25 @@ export function PanelHeader({
   // item to land on. Amr's panel always offers Move Amr, so everyone has one.
   const hasMenu = tilt != null || move != null;
   return (
+    // flex-wrap: when the icons and the plate can't share one row (a large
+    // default font on a narrow panel), the icons wrap onto a second row, still
+    // at the end (ms-auto), instead of running out of the panel. The plate's
+    // column never gets narrower than the plate (min-w-min; the subtitle adds
+    // nothing to that, w-0 min-w-full), so the plate never lies over an icon.
     <div
       data-panel-header=""
-      className="flex min-h-[52px] shrink-0 items-center gap-1 border-b border-border px-3 py-1 group-data-[amr-compact]/amr:min-h-11 group-data-[amr-compact]/amr:py-0"
+      className="flex min-h-[52px] shrink-0 flex-wrap items-center gap-1 border-b border-border px-3 py-1 group-data-[amr-compact]/amr:min-h-11 group-data-[amr-compact]/amr:py-0"
     >
       <span
         ref={slots.ref("back")}
         data-panel-slot="back"
         className="flex shrink-0 items-center empty:hidden"
       />
-      <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-        <h2 id={plateId} className="comic-name-plate" tabIndex={-1}>
+      <div className="flex min-w-min flex-1 flex-col items-start gap-0.5">
+        <h2 id={plateId} className="comic-name-plate max-w-full" tabIndex={-1}>
           Amr
         </h2>
-        <p className={cn("w-full truncate text-xs text-sub", COMPACT_HIDDEN)}>
+        <p className={cn("w-0 min-w-full truncate text-xs text-sub", COMPACT_HIDDEN)}>
           {!filled && subtitle}
           {/* dir=auto: a thread title in Arabic keeps its own direction. */}
           <span ref={slots.ref("subtitle")} data-panel-slot="subtitle" dir="auto" />
@@ -159,7 +164,7 @@ export function PanelHeader({
           )}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="ms-auto flex shrink-0 items-center gap-0.5">
         <span
           ref={slots.ref("actions")}
           data-panel-slot="actions"

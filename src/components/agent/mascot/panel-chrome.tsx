@@ -121,11 +121,18 @@ export const PANEL_SUBTITLE = {
 
 /**
  * A header icon's size: 36 px with a mouse and 44 px on a touch screen, at any
- * width (Button `sm`'s pointer-coarse:min-h-11 recipe; a landscape phone is wide
- * but still touch). A pressed toggle turns accent.
+ * width (Button `sm`'s pointer-coarse recipe; a landscape phone is wide but
+ * still touch). A pressed toggle turns accent.
+ *
+ * In px, not rem: a larger default font (200% text) grows the words, not the
+ * icon targets around them. In rem, five header icons grew to 72 px each at
+ * 200% (88 px on a phone), wider than the 380 px panel, so Close ran out of it
+ * and the name plate lay over the first icons. `md-fine:` repeats the size
+ * because Button's own icon size says md-fine:h-9, and twMerge keeps the last
+ * of the same variant.
  */
 export const PANEL_ICON =
-  "h-9 w-9 min-h-0 min-w-0 pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-sub aria-pressed:text-accent";
+  "h-[36px] w-[36px] md-fine:h-[36px] md-fine:w-[36px] min-h-0 min-w-0 pointer-coarse:min-h-[44px] pointer-coarse:min-w-[44px] text-sub aria-pressed:text-accent";
 
 export interface PanelIconButtonProps extends Omit<ButtonProps, "aria-label" | "variant" | "size"> {
   /** What it does: its accessible name and, unless `title` says otherwise, its tooltip. */
