@@ -497,4 +497,76 @@ export const GUIDES: ToolGuide[] = [
       "ADKAR describes individuals. Score a group by how many people in it are there, and follow up with the rest.",
     ],
   },
+  // ── Phase 42: the meeting widgets and the research top 10 (Team & people) ──
+  {
+    toolId: "team-mixer",
+    summary:
+      "Team Mixer splits people into random groups or pairs, balanced by role or skill, keeping apart (or together) the people you say, with a new mix each round so nobody always works with the same people.",
+    whenToUse: [
+      "Breakout groups in a workshop or a retro.",
+      "Pair rotations and coffee chats across a team, or across teams.",
+      "World Café, where hosts stay at their tables and everyone else moves each round.",
+    ],
+    steps: [
+      "Add who's mixing: the team from the Team page (each person brings their role and skills), typed names, or a pasted list.",
+      "Choose groups by size or by number, pairs (a group of 3 or one person sitting out when the number is odd), or World Café tables and rounds with a host for each table.",
+      "Balance by role or by skill if you like, and add keep-apart or keep-together rules, such as a manager and their report.",
+      "Mix. Under the groups, Team Mixer says plainly which rule it couldn't keep, who meets again and who sits out.",
+      "Mix the next round: it avoids people who have already been together. Pairs with an even number (or one sitting out) and no rules meet everyone before anyone pairs twice. Start over forgets the rounds so far.",
+      "After a mix, move someone who arrives late or leaves early (the report is worked out again), and name the groups from built-in themes, or ask Amr for names on a theme where AI is on.",
+      "Open a live room and show the round: everyone sees it on their phone and finds their group by typing their name. Amr can mix the groups or the next round when you ask him.",
+    ],
+    tips: [
+      "Keep the rules few: each one makes the mix less random.",
+      "Balanced groups feel fairer than random ones, and new pairs share what they know faster.",
+      "A live room gets only what you show, when you press Show.",
+    ],
+    timebox: "Seconds.",
+  },
+  {
+    toolId: "sm-notebook",
+    summary:
+      "The Scrum Master Notebook is your own place for notes on the team: what you saw, what you tried and what to follow up, dated and tagged by event. Each week it shows the counts, the patterns and tools to try.",
+    whenToUse: [
+      "After a Daily Scrum or a retro, to write down what you noticed while it's fresh.",
+      "Before a 1:1 or a coaching conversation, to look back at what came up.",
+      "At the end of the week, to see patterns you miss day to day.",
+    ],
+    steps: [
+      "Write a note: the day, a title if you like, and what happened. A template (observation, coaching moment, experiment, 1:1 note or impediment pattern) gives you the questions to answer.",
+      "Tag it, and pick the event it came from, such as the Daily Scrum or the retro, and the tool it's about. Ask Amr for tags suggests tags from the note's words; you add the ones you want.",
+      "Search, or filter by tag or event, to find notes again. Notes read as a timeline, week by week.",
+      "Send a note on as an impediment or a retro action when it needs one; it links back to the note.",
+      "In Week, read one week's notes together, with how many carry each tag and came from each event. Ask Amr about this week writes a summary, points out patterns and suggests tools. You edit it, tick the patterns to keep and keep it as a note, or dismiss it.",
+    ],
+    tips: [
+      "Write what you saw, not what you think of people: notes can be read later.",
+      "Your notes stay in this browser and in your backups; signed in, they sync to your own account. They never go to a live room.",
+    ],
+    timebox: "Two minutes per note; ten minutes at the end of the week.",
+  },
+  {
+    toolId: "meeting-audit",
+    summary:
+      "Meeting Audit looks at your recurring meetings one by one: how long, how often and how many people, what each costs in person-hours a week, how the team rates it, and a verdict to keep, change or drop it. The verdicts make a ritual reset plan.",
+    whenToUse: [
+      "When calendars are full and the team has no time left to work.",
+      "Once a quarter, as a ritual reset.",
+      "When a new team, or a change in the team, brings meetings nobody questions.",
+    ],
+    steps: [
+      "Add each recurring meeting: its name, how often it happens, how many minutes it takes, how many people attend and what it's for.",
+      "The audit works out the person-hours a week each one takes: people × minutes × how often it meets.",
+      "Rate each meeting with the team from 1 to 5: is its purpose clear, are the right people there, does it end with an outcome, is it the right length, does it give energy?",
+      "Give each meeting a verdict, keep, change or drop, and write what to change.",
+      "“Suggest changes” (Ask Amr, when his AI is on) proposes concrete changes, such as a shorter timebox, fewer people or a written update. Add the ones the team wants to the plan; Undo takes one back.",
+      "The ritual reset plan lists what stays, what changes and what goes, and the time the drops free. Export it as Markdown to agree it at the next retro.",
+      "Next quarter, start a new round: the ratings and verdicts clear, the meetings stay.",
+    ],
+    tips: [
+      "Try a change for a few weeks before judging it.",
+      "The Scrum events each have a purpose: change how you run one before you drop it.",
+    ],
+    timebox: "Thirty to sixty minutes, once a quarter.",
+  },
 ];

@@ -1,0 +1,671 @@
+"use client";
+
+/**
+ * The Lean Coffee runner, on a board in the `lean-coffee` format.
+ *
+ * Write and Vote: topics go in To Discuss and are dot-voted with the
+ * board's own votes. Ask Amr (or the common words, without AI) groups
+ * topics that are the same; the host merges the groups it agrees with,
+ * each with Undo, so the team discusses them once. The groups are checked
+ * against the topics when they come and then stay as they are, so a merge
+ * doesn't reshuffle the list under the keyboard.
+ *
+ * Discuss: the topics in vote order, one at a time. Start puts the next one
+ * in Discussing and runs the board's timer for its timebox (7 minutes by
+ * default). When the time is up (the board rings the shared alarm), the
+ * room votes thumbs up to keep going (3 more minutes) or thumbs down to
+ * move on: in a live room every phone gets the vote (the room's thumbs, a
+ * protocol revision that older tabs simply don't show); on one screen the
+ * facilitator counts the thumbs held up. The facilitator decides, the
+ * totals as a guide.
+ *
+ * The room's vote opens on its own only for a topic the runner started (in
+ * Discussing and marked as the one being discussed), when its timebox runs
+ * out in Discuss, once per time it runs out (not again while the board
+ * still shows time's up after Keep going or Move on), and never over a
+ * vote the host opened early with "Ask the room now", whose thumbs stand.
+ * Its text comes from the cards this screen shows: a card hidden while
+ * people write never reaches the room's phones. While the vote is open,
+ * the host's screen shows how many voted, not the split, so a shared
+ * screen can't tie a thumb to whoever just tapped, with a button to close
+ * it, before and after time's up. A vote closed with fewer than 3 voters
+ * (THUMBS_MIN_VOTERS) shows no split anywhere, only a line saying why;
+ * Keep going and Move on still work. The one-screen hand count has no
+ * minimum: everyone in the room saw the hands.
+ */
+
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Coffee, Play, SkipForward, ThumbsDown, ThumbsUp, TimerReset } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AiButton, AiSuggestions } from "@/components/ai";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { groupTopicsTask } from "@/lib/ai/tasks/retro";
+import type { AiSource } from "@/lib/ai/task-types";
+import {
+  LEAN_COFFEE_EXTEND_CHOICES,
+  LEAN_COFFEE_TIMEBOX_CHOICES,
+  currentTopic,
+  doneTopics,
+  leanTopics,
+  thumbsDecision,
+  topicQueue,
+  withTopicDone,
+  withTopicExtended,
+  withTopicStarted,
+  withTopicsMerged,
+  type LeanTopic,
+} from "@/lib/retro/lean-coffee";
+import { undoable } from "@/lib/utils/undoable";
+import { RETRO_ACTIONS } from "@/lib/history/event-actions";
+import { cn } from "@/lib/utils";
+import type { BoardState, RetroCard } from "../types";
+import { useLeanCoffeeSettings } from "../lean-coffee-store";
+import type { RetroThumbsHost } from "../room/use-retro-room";
+import { shownTotals, thumbsHiddenLine, thumbsVerdict } from "../room/thumbs-vote-card";
+
+/** History actions the runner logs, from RETRO_ACTIONS (lib/history/event-actions.ts). */
+export const LEAN_COFFEE_LOG = {
+  TOPIC_STARTED: RETRO_ACTIONS.TOPIC_STARTED,
+  TOPIC_EXTENDED: RETRO_ACTIONS.TOPIC_EXTENDED,
+  TOPIC_DONE: RETRO_ACTIONS.TOPIC_DONE,
+  TOPICS_MERGED: RETRO_ACTIONS.TOPICS_MERGED,
+} as const;
+
+const short = (s: string, max = 60) => {
+  const t = s.replace(/\s+/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+};
+
+function MinutesPicker({
+  label,
+  groupLabel,
+  value,
+  choices,
+  onChange,
+}: {
+  label: string;
+  /** The group's name for screen readers (the board's own timer has a "Timebox" group). */
+  groupLabel: string;
+  value: number;
+  choices: readonly number[];
+  onChange: (min: number) => void;
+}) {
+  return (
+    <div role="group" aria-label={groupLabel} className="flex flex-wrap items-center gap-1">
+      <span className="text-xs text-sub" aria-hidden="true">
+        {label}
+      </span>
+      {choices.map((m) => (
+        <Button
+          key={m}
+          type="button"
+          size="sm"
+          variant={value === m ? "default" : "outline"}
+          aria-pressed={value === m}
+          className="h-7 px-2 text-xs"
+          onClick={() => onChange(m)}
+        >
+          {m} min
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+/** The cards' grouping and columns before a merge, for its Undo. */
+function placesOf(cards: readonly RetroCard[], ids: ReadonlySet<string>) {
+  return cards
+    .filter((c) => ids.has(c.id) || (c.groupedWith !== null && ids.has(c.groupedWith)))
+    .map((c) => ({ id: c.id, groupedWith: c.groupedWith, columnKey: c.columnKey }));
+}
+
+export function LeanCoffeeRunner({
+  state,
+  shownCards,
+  onUpdate,
+  timeUp,
+  thumbs,
+  log,
+}: {
+  state: BoardState;
+  /** The cards this screen shows (a live room hides the others' while they write). */
+  shownCards: readonly RetroCard[];
+  onUpdate: (updater: (prev: BoardState) => BoardState) => void;
+  /** The board's timer ran out and hasn't been set again. */
+  timeUp: boolean;
+  /** A live room's thumbs vote; null on one screen. */
+  thumbs: RetroThumbsHost | null;
+  log: (action: string, payload?: Record<string, unknown>) => void;
+}) {
+  const announce = useAnnounce();
+  const settings = useLeanCoffeeSettings();
+  const queue = useMemo(() => topicQueue(shownCards), [shownCards]);
+  const current = useMemo(() => currentTopic(shownCards), [shownCards]);
+  const done = useMemo(() => doneTopics(shownCards), [shownCards]);
+  // The topic the runner started: in Discussing and marked as discussed (a
+  // card someone dropped in Discussing isn't one until it's started).
+  const started =
+    state.phase === "discuss" &&
+    current !== null &&
+    shownCards.some((c) => c.id === current.id && c.discussing)
+      ? current
+      : null;
+  const next = queue[0] ?? null;
+  const [extensions, setExtensions] = useState<{ topicId: string; count: number } | null>(null);
+  const extendedTimes = current && extensions?.topicId === current.id ? extensions.count : 0;
+  // On one screen: the thumbs the facilitator counts by hand.
+  const [hand, setHand] = useState({ keep: 0, move: 0 });
+  const [groups, setGroups] = useState<{
+    items: { title: string; topicIds: string[] }[];
+    source: AiSource;
+  } | null>(null);
+  /** Around Ask Amr: where focus goes back to when the groups go. */
+  const askRef = useRef<HTMLDivElement>(null);
+
+  // Which phase the timebox ran out in: a writing or voting timebox that
+  // ended before Discuss isn't a topic's time being up.
+  const upInRef = useRef<BoardState["phase"] | null>(null);
+  useEffect(() => {
+    if (!timeUp) upInRef.current = null;
+    else if (upInRef.current === null) upInRef.current = state.phase;
+  }, [timeUp, state.phase]);
+
+  // At time-up a live room gets the vote on every phone, once each time the
+  // timebox of a topic the runner started runs out, and only in Discuss.
+  // Armed while the time isn't up: after Keep going or Move on the board
+  // still says time's up for a render, and a vote opened then would sit on
+  // every phone with nobody asking. A vote the host opened early with "Ask
+  // the room now" stands, with the thumbs already in.
+  const armedRef = useRef(true);
+  const roomPoll = thumbs?.poll ?? null;
+  const pollOpen = roomPoll?.open === true;
+  useEffect(() => {
+    if (!timeUp) {
+      armedRef.current = true;
+      return;
+    }
+    if (!armedRef.current || !thumbs) return;
+    // A time's up with no topic running, or from an earlier phase, uses up
+    // the arming: Start (or a card marked as discussing) while the board
+    // still says time's up would otherwise open a vote on a topic that has
+    // only just begun.
+    armedRef.current = false;
+    if (!started || state.phase !== "discuss" || upInRef.current !== "discuss") return;
+    if (pollOpen) {
+      announce("Time's up. The room's vote is still open: keep going or move on?");
+      return;
+    }
+    thumbs.open(started.text);
+    announce("Time's up. The room is voting: keep going or move on?");
+  }, [timeUp, started, thumbs, pollOpen, announce, state.phase]);
+
+  // The host's Ask and Close take away the button pressed: focus goes to
+  // Close once the vote is open, to the totals once it's closed, never to
+  // the page. Tried on the next render only (a vote that didn't open
+  // leaves focus on Ask), so a vote opened later at time's up takes none.
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const totalsRef = useRef<HTMLParagraphElement>(null);
+  const focusNextRef = useRef<"close" | "totals" | null>(null);
+  useEffect(() => {
+    const next = focusNextRef.current;
+    if (!next) return;
+    focusNextRef.current = null;
+    (next === "close" ? closeRef : totalsRef).current?.focus();
+  });
+  const askRoom = (text: string) => {
+    if (!thumbs) return;
+    focusNextRef.current = "close";
+    thumbs.open(text);
+  };
+  const closeVote = () => {
+    if (!thumbs) return;
+    focusNextRef.current = "totals";
+    thumbs.close();
+  };
+
+  const start = (topic: LeanTopic) => {
+    const seconds = settings.timeboxMin * 60;
+    onUpdate((prev) => withTopicStarted(prev, topic.id, seconds));
+    setExtensions({ topicId: topic.id, count: 0 });
+    setHand({ keep: 0, move: 0 });
+    thumbs?.clear();
+    log(LEAN_COFFEE_LOG.TOPIC_STARTED, { cardId: topic.id, minutes: settings.timeboxMin });
+    announce(`Now discussing “${short(topic.text)}” for ${settings.timeboxMin} minutes.`);
+  };
+
+  const keepGoing = () => {
+    if (!current) return;
+    const seconds = settings.extendMin * 60;
+    onUpdate((prev) => withTopicExtended(prev, seconds));
+    setExtensions({ topicId: current.id, count: extendedTimes + 1 });
+    setHand({ keep: 0, move: 0 });
+    thumbs?.clear();
+    log(LEAN_COFFEE_LOG.TOPIC_EXTENDED, { cardId: current.id, minutes: settings.extendMin });
+    announce(`${settings.extendMin} more minutes on “${short(current.text)}”.`);
+  };
+
+  const moveOn = () => {
+    if (!current) return;
+    const following = queue.find((t) => t.id !== current.id) ?? null;
+    onUpdate((prev) => {
+      const finished = withTopicDone(prev, current.id);
+      return following
+        ? withTopicStarted(finished, following.id, settings.timeboxMin * 60)
+        : finished;
+    });
+    setHand({ keep: 0, move: 0 });
+    thumbs?.clear();
+    log(LEAN_COFFEE_LOG.TOPIC_DONE, { cardId: current.id, extended: extendedTimes });
+    if (following) {
+      setExtensions({ topicId: following.id, count: 0 });
+      log(LEAN_COFFEE_LOG.TOPIC_STARTED, { cardId: following.id, minutes: settings.timeboxMin });
+      announce(
+        `Done. Now discussing “${short(following.text)}” for ${settings.timeboxMin} minutes.`
+      );
+    } else {
+      announce("That was the last topic. Move on to Actions when you're ready.");
+    }
+  };
+
+  /** Merge one group, or several at once ("Merge all"), with one Undo for what this merged. */
+  const merge = (list: readonly { title: string; topicIds: string[] }[]) => {
+    if (list.length === 0) return;
+    const ids = new Set(list.flatMap((g) => g.topicIds));
+    const before = placesOf(state.cards, ids);
+    const one = list.length === 1 ? list[0] : null;
+    undoable({
+      label: one
+        ? `Merged ${one.topicIds.length} topics`
+        : `Merged ${list.length} groups of topics`,
+      description: one
+        ? `“${short(one.title, 40)}”`
+        : list.map((g) => `“${short(g.title, 24)}”`).join(", "),
+      kind: "success",
+      // Two merges in a row fold into one toast: its Undo takes back both.
+      id: "lean-coffee:merge",
+      apply: () => {
+        onUpdate((prev) => list.reduce((board, g) => withTopicsMerged(board, g.topicIds), prev));
+        for (const g of list) {
+          log(LEAN_COFFEE_LOG.TOPICS_MERGED, { cardIds: g.topicIds, title: g.title });
+        }
+      },
+      revert: () =>
+        onUpdate((prev) => {
+          const was = new Map(before.map((b) => [b.id, b]));
+          return {
+            ...prev,
+            cards: prev.cards.map((c) => {
+              const b = was.get(c.id);
+              return b ? { ...c, groupedWith: b.groupedWith, columnKey: b.columnKey } : c;
+            }),
+          };
+        }),
+    });
+    announce(
+      one ? `Merged into “${short(one.title)}”.` : `Merged ${list.length} groups of similar topics.`
+    );
+  };
+
+  // ── Write and Vote: grouping the topics ──
+  if (state.phase === "write" || state.phase === "vote") {
+    const topics = leanTopics(shownCards).filter((t) => t.columnKey === "to-discuss");
+    const byId = new Map(topics.map((t) => [t.id, t]));
+    const cardText = new Map(shownCards.map((c) => [c.id, c.text]));
+    /** An answer's groups against the topics in To Discuss: each topic in one group, two or more a group. */
+    const groupsFrom = (answer: readonly { title: string; topicIds: string[] }[]) => {
+      const placed = new Set<string>();
+      return answer.flatMap((g) => {
+        const topicIds = Array.from(new Set(g.topicIds)).filter(
+          (id) => byId.has(id) && !placed.has(id)
+        );
+        if (topicIds.length < 2) return [];
+        topicIds.forEach((id) => placed.add(id));
+        return [{ title: g.title, topicIds }];
+      });
+    };
+    /** A group's topics that are still topics (another merge may have taken some). */
+    const stillTopics = (g: { title: string; topicIds: string[] }) => ({
+      ...g,
+      topicIds: g.topicIds.filter((id) => byId.has(id)),
+    });
+    const acceptGroup = (g: { title: string; topicIds: string[] }) => {
+      const left = stillTopics(g);
+      if (left.topicIds.length < 2) {
+        announce("Those topics are merged already.");
+        return;
+      }
+      merge([left]);
+    };
+    /** "Merge all": every group left, in one change with one Undo. */
+    const acceptAll = (all: { title: string; topicIds: string[] }[]) => {
+      const left = all.map(stillTopics).filter((g) => g.topicIds.length >= 2);
+      if (left.length === 0) {
+        announce("Those topics are merged already.");
+        return;
+      }
+      merge(left);
+    };
+    return (
+      <section
+        aria-label="Lean Coffee"
+        className="space-y-3 rounded-lg border border-border bg-card px-4 py-3"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-sm text-text">
+            <Coffee className="h-4 w-4 text-accent" aria-hidden="true" />
+            {state.phase === "write"
+              ? "Lean Coffee: everyone writes topics in To Discuss, then the team dot-votes them."
+              : "Lean Coffee: dot-vote the topics. In Discuss they're taken in vote order, one timebox each."}
+          </p>
+          <div ref={askRef}>
+            <AiButton
+              task={groupTopicsTask}
+              input={() => ({
+                topics: topics.slice(0, 100).map((t) => ({
+                  id: t.id.slice(0, 64),
+                  text: t.text.slice(0, 500),
+                  votes: Math.min(999, t.votes),
+                })),
+              })}
+              label="Ask Amr to group similar topics"
+              fallbackLabel="Group similar topics without AI"
+              variant="outline"
+              disabledReason={topics.length < 2 ? "Add at least two topics first." : null}
+              onResult={(data, meta) => {
+                const items = groupsFrom(data.groups);
+                setGroups({ items, source: meta.source });
+                const n = items.length;
+                announce(
+                  n === 0
+                    ? "No topics look the same."
+                    : `${n} ${n === 1 ? "group" : "groups"} of similar topics below.`
+                );
+              }}
+            />
+          </div>
+        </div>
+        {groups &&
+          (groups.items.length > 0 ? (
+            <AiSuggestions
+              items={groups.items}
+              source={groups.source}
+              title="Topics that look the same"
+              acceptLabel="Merge"
+              render={(g) => ({
+                title: g.title,
+                detail: g.topicIds
+                  .filter((id) => cardText.has(id))
+                  .map((id) => `“${short(cardText.get(id) ?? "", 40)}”`)
+                  .join(" · "),
+              })}
+              onAccept={acceptGroup}
+              onAcceptAll={acceptAll}
+              onDismiss={() => setGroups(null)}
+              returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
+            />
+          ) : (
+            <p role="status" className="text-xs text-sub">
+              No topics look the same. Nothing to merge.
+            </p>
+          ))}
+      </section>
+    );
+  }
+
+  if (state.phase !== "discuss") return null;
+
+  // ── Discuss: one topic at a time ──
+  // The room's split counts once its vote is closed, and only with at
+  // least THUMBS_MIN_VOTERS voters; until then the host's screen shows only
+  // how many voted, and with fewer no button is picked out for it.
+  const roomTotals = roomPoll ? shownTotals(roomPoll) : null;
+  const tally = thumbs ? roomTotals : timeUp ? hand : null;
+  const decision = tally ? thumbsDecision(tally) : "none";
+  const totalsClass =
+    "rounded-sm text-sm text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  // The room's vote as the host sees it: how many voted while it's open
+  // (with Close), the totals once closed (or why there are none). Shown
+  // whether it opened at time's up or early, with "Ask the room now".
+  const roomPollStatus =
+    thumbs && roomPoll ? (
+      <div className="flex flex-wrap items-center gap-2">
+        {roomPoll.open ? (
+          <p role="status" className="text-sm text-text">
+            {roomPoll.voters} {roomPoll.voters === 1 ? "person has" : "people have"} voted so far.
+          </p>
+        ) : roomTotals ? (
+          <p ref={totalsRef} role="status" tabIndex={-1} className={totalsClass}>
+            <ThumbsUp className="mr-1 inline h-4 w-4" aria-hidden="true" />
+            Keep going {roomTotals.keep} ·{" "}
+            <ThumbsDown className="mr-1 inline h-4 w-4" aria-hidden="true" />
+            Move on {roomTotals.move}{" "}
+            <span className="text-xs text-sub">({roomPoll.voters} voted)</span>
+          </p>
+        ) : (
+          <p ref={totalsRef} role="status" tabIndex={-1} className={totalsClass}>
+            {thumbsHiddenLine(roomPoll.voters, true)}
+          </p>
+        )}
+        {roomPoll.open ? (
+          <Button ref={closeRef} type="button" size="sm" variant="outline" onClick={closeVote}>
+            Close the vote and show everyone
+          </Button>
+        ) : roomTotals ? (
+          <span className="text-xs text-sub">{thumbsVerdict(roomTotals)}</span>
+        ) : (
+          // The hidden line says "or ask again": at time's up this is the
+          // way to (before then, Ask the room again sits beside Done).
+          timeUp &&
+          current && (
+            <Button type="button" size="sm" variant="outline" onClick={() => askRoom(current.text)}>
+              Ask the room again
+            </Button>
+          )
+        )}
+      </div>
+    ) : null;
+  return (
+    <section
+      aria-label="Lean Coffee"
+      className="space-y-3 rounded-lg border border-accent/40 bg-card px-4 py-3"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="flex items-center gap-1.5 text-sm font-bold text-text">
+          <Coffee className="h-4 w-4 text-accent" aria-hidden="true" />
+          Lean Coffee
+        </h3>
+        <div className="flex flex-wrap gap-3">
+          <MinutesPicker
+            label="Timebox"
+            groupLabel="Minutes per topic"
+            value={settings.timeboxMin}
+            choices={LEAN_COFFEE_TIMEBOX_CHOICES}
+            onChange={settings.setTimebox}
+          />
+          <MinutesPicker
+            label="Then"
+            groupLabel="Minutes each keep going adds"
+            value={settings.extendMin}
+            choices={LEAN_COFFEE_EXTEND_CHOICES}
+            onChange={settings.setExtend}
+          />
+        </div>
+      </div>
+
+      {current ? (
+        <div className="space-y-2">
+          <p className="text-sm text-text">
+            <span className="font-semibold">Now:</span> {current.text}{" "}
+            <span className="text-xs text-sub">
+              · {current.votes} {current.votes === 1 ? "vote" : "votes"}
+              {extendedTimes > 0
+                ? ` · kept going ${extendedTimes === 1 ? "once" : `${extendedTimes} times`}`
+                : ""}
+            </span>
+          </p>
+          {timeUp ? (
+            <div className="space-y-2 rounded-md border border-warning/60 bg-warning/10 px-3 py-2">
+              <p className="text-sm font-semibold text-text">
+                Time&apos;s up. Keep going or move on?
+              </p>
+              {thumbs ? (
+                roomPoll ? (
+                  roomPollStatus
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => askRoom(current.text)}
+                  >
+                    Ask the room again
+                  </Button>
+                )
+              ) : (
+                <div
+                  className="flex flex-wrap items-center gap-2"
+                  role="group"
+                  aria-label="Count the thumbs"
+                >
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    onClick={() => setHand((h) => ({ ...h, keep: h.keep + 1 }))}
+                    aria-label={`One more thumb up, ${hand.keep} so far`}
+                  >
+                    <ThumbsUp className="h-4 w-4" aria-hidden="true" />
+                    {hand.keep}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="gap-1"
+                    onClick={() => setHand((h) => ({ ...h, move: h.move + 1 }))}
+                    aria-label={`One more thumb down, ${hand.move} so far`}
+                  >
+                    <ThumbsDown className="h-4 w-4" aria-hidden="true" />
+                    {hand.move}
+                  </Button>
+                  {(hand.keep > 0 || hand.move > 0) && (
+                    <>
+                      <span role="status" className="text-xs text-sub">
+                        {thumbsVerdict(hand)}
+                      </span>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 px-2 text-xs"
+                        onClick={() => setHand({ keep: 0, move: 0 })}
+                      >
+                        Count again
+                      </Button>
+                    </>
+                  )}
+                </div>
+              )}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={decision === "keep" ? "default" : "outline"}
+                  className="gap-1.5"
+                  onClick={keepGoing}
+                >
+                  <TimerReset className="h-4 w-4" aria-hidden="true" />
+                  Keep going ({settings.extendMin} min)
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant={decision === "move" ? "default" : "outline"}
+                  className="gap-1.5"
+                  onClick={moveOn}
+                >
+                  <SkipForward className="h-4 w-4" aria-hidden="true" />
+                  {queue.some((t) => t.id !== current.id) ? "Move on to the next topic" : "Move on"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={moveOn}
+                >
+                  <SkipForward className="h-4 w-4" aria-hidden="true" />
+                  {next ? "Done, next topic" : "Done with this topic"}
+                </Button>
+                {thumbs && !pollOpen && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => askRoom(current.text)}
+                  >
+                    {roomPoll ? "Ask the room again" : "Ask the room now"}
+                  </Button>
+                )}
+              </div>
+              {roomPollStatus}
+            </div>
+          )}
+        </div>
+      ) : next ? (
+        <div className="space-y-2">
+          <p className="break-words text-sm text-text">
+            <span className="font-semibold">Next:</span> {next.text}{" "}
+            <span className="text-xs text-sub">
+              · {next.votes} {next.votes === 1 ? "vote" : "votes"}
+            </span>
+          </p>
+          <Button
+            type="button"
+            className="gap-1.5"
+            onClick={() => start(next)}
+            aria-label={`${done.length === 0 ? "Start the first topic" : "Start the next topic"}: ${short(next.text, 40)}`}
+          >
+            <Play className="h-4 w-4" aria-hidden="true" />
+            {done.length === 0 ? "Start the first topic" : "Start the next topic"}
+          </Button>
+        </div>
+      ) : (
+        <p className="text-sm text-sub">
+          {done.length > 0
+            ? "Every topic has been discussed. Move on to Actions to agree what you'll do."
+            : "No topics in To Discuss yet. Go back to Write to add some."}
+        </p>
+      )}
+
+      {queue.filter((t) => t.id !== current?.id).length > 0 && (
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-wider text-sub">Up next</p>
+          <ol className="mt-1 space-y-0.5 text-sm text-text">
+            {queue
+              .filter((t) => t.id !== current?.id)
+              .map((t, i) => (
+                <li key={t.id} className={cn("break-words", i > 0 && "text-sub")}>
+                  {i + 1}. {t.text}{" "}
+                  <span className="text-xs text-sub">
+                    · {t.votes} {t.votes === 1 ? "vote" : "votes"}
+                  </span>
+                </li>
+              ))}
+          </ol>
+        </div>
+      )}
+      {done.length > 0 && (
+        <p className="text-xs text-sub">
+          Discussed: {done.length} {done.length === 1 ? "topic" : "topics"}.
+        </p>
+      )}
+    </section>
+  );
+}

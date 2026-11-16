@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { getNextStepRule } from "@/lib/tools/next-steps";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { getNextStepRule, loadAllNextStepRules } from "@/lib/tools/next-steps";
 import type {
   AdkarInitiative,
   CharterRule,
@@ -9,8 +9,10 @@ import type {
   HealthCheckEntry,
   Kudos,
   MaturityAssessmentEntry,
+  MeetingAudit,
   MoodEntry,
   MoodPulse,
+  NotebookEntry,
   PsychSafetyCounts,
   PsychSafetyQuestionId,
   PsychSafetyResponse,
@@ -39,6 +41,9 @@ import { emptySnapshot } from "@/lib/health-check/score";
  * Definition of Done as Release Readiness and the Sprint board read it.
  * The pulse tools' steps are team level: none names or singles out anyone.
  */
+
+// The tools plan's phase 1 rules load their models on demand (lazyRule).
+beforeAll(loadAllNextStepRules);
 
 const steps = (toolId: string, ws: Partial<Workspace>) => {
   const rule = getNextStepRule(toolId);
@@ -1262,5 +1267,178 @@ describe("ADKAR", () => {
 
   it("ignores example initiatives", () => {
     expect(ids("adkar", adkar([initiative({ id: "example-i" })]))).toEqual([]);
+  });
+});
+
+describe("team-mixer", () => {
+  const FOUR = [...TEAM, member("m4", "Dee")];
+
+  it("asks for the team when the Team page has nobody real on it", () => {
+    expect(steps("team-mixer", { teamMembers: [] })).toEqual([
+      {
+        id: "team-mixer-team",
+        label: "Add your team to the Team page",
+        detail: "Then Team Mixer can put everyone in the mix at once, with their roles and skills.",
+        href: "/team",
+      },
+    ]);
+    expect(ids("team-mixer", { teamMembers: [member("example-m", "Sam")] })).toEqual([
+      "team-mixer-team",
+    ]);
+  });
+
+  it("asks for roles or skills when nobody on the team has any", () => {
+    expect(steps("team-mixer", { teamMembers: FOUR })).toEqual([
+      {
+        id: "team-mixer-roles",
+        label: "Add roles or skills on the Team page",
+        detail:
+          "Nobody on the team has a role or skills yet, so Team Mixer can't balance groups by them.",
+        href: "/team",
+      },
+    ]);
+  });
+
+  it("counts who still has neither once some do, never naming them", () => {
+    const some = [
+      { ...FOUR[0], role: "Developer" },
+      { ...FOUR[1], skills: ["React"] },
+      { ...FOUR[2], role: "  " },
+      FOUR[3],
+    ];
+    const [step] = steps("team-mixer", { teamMembers: some });
+    expect(step.detail).toBe(
+      "2 people on the team have no role or skills yet, so balanced groups place them at random."
+    );
+    expect(step.detail).not.toMatch(/Cy|Dee/);
+  });
+
+  it("stays quiet when everyone has a role or skills, or the team is too small to balance", () => {
+    const all = FOUR.map((m, i) => (i % 2 ? { ...m, role: "Tester" } : { ...m, skills: ["SQL"] }));
+    expect(ids("team-mixer", { teamMembers: all })).toEqual([]);
+    expect(ids("team-mixer", { teamMembers: TEAM })).toEqual([]);
+  });
+});
+
+describe("meeting audit", () => {
+  const meeting = (over: Partial<MeetingAudit> = {}): MeetingAudit => ({
+    id: "m1",
+    meeting: "Weekly status sync",
+    cadence: "weekly",
+    minutes: 60,
+    attendees: 12,
+    purpose: "Everyone reports what they did.",
+    ratings: {},
+    createdAt: "2026-10-20T09:00:00.000Z",
+    updatedAt: "2026-10-20T09:00:00.000Z",
+    ...over,
+  });
+
+  it("asks to rate, then for verdicts, then takes the changes to the retro", () => {
+    expect(ids("meeting-audit", { meetingAudits: [] })).toEqual([]);
+    expect(ids("meeting-audit", { meetingAudits: [meeting()] })).toEqual(["meeting-audit-rate"]);
+    expect(
+      ids("meeting-audit", {
+        meetingAudits: [
+          meeting({ ratings: { outcome: 1 } }),
+          meeting({ id: "m2", ratings: { purpose: 4 }, verdict: "drop" }),
+        ],
+      })
+    ).toEqual(["meeting-audit-verdict", "meeting-audit-retro"]);
+  });
+
+  it("stops asking for the retro once one is held after the verdicts", () => {
+    const planned = meeting({ ratings: { purpose: 2 }, verdict: "change" });
+    // The current board and a retro held before the verdict don't count.
+    expect(
+      ids("meeting-audit", {
+        meetingAudits: [planned],
+        retroBoards: [
+          board("retro-current", []),
+          board("retro:old", [], { archivedAt: "2026-10-16T16:00:00.000Z" }),
+        ],
+      })
+    ).toEqual(["meeting-audit-retro"]);
+    expect(
+      ids("meeting-audit", {
+        meetingAudits: [planned],
+        retroBoards: [board("retro:new", [], ARCHIVED)],
+      })
+    ).toEqual([]);
+  });
+
+  it("asks for the audit again after a quarter, and ignores example meetings", () => {
+    expect(
+      ids("meeting-audit", {
+        meetingAudits: [
+          meeting({
+            ratings: { purpose: 4 },
+            verdict: "keep",
+            updatedAt: "2026-07-01T09:00:00.000Z",
+          }),
+        ],
+      })
+    ).toEqual(["meeting-audit-again"]);
+    expect(ids("meeting-audit", { meetingAudits: [meeting({ id: "example-m1" })] })).toEqual([]);
+  });
+});
+
+describe("Scrum Master Notebook", () => {
+  const note = (id: string, date: string, over: Partial<NotebookEntry> = {}): NotebookEntry => ({
+    id,
+    date,
+    body: `Note ${id}`,
+    tags: [],
+    createdAt: "2026-10-20T09:00:00.000Z",
+    updatedAt: "2026-10-20T09:00:00.000Z",
+    ...over,
+  });
+
+  it("points a theme from three notes in two weeks to the tool for it", () => {
+    expect(
+      steps("sm-notebook", {
+        notebookEntries: [
+          note("a", "2026-10-26", { tags: ["blockers"] }),
+          note("b", "2026-10-20", { body: "Blocked on the sandbox again." }),
+          note("c", "2026-10-13", { tags: ["Blocker"] }),
+        ],
+      })
+    ).toEqual([
+      {
+        id: "sm-notebook-theme",
+        label: "Try Impediment Tracker for “blockers”",
+        detail: "“blockers” came up in 3 of your notes in the last two weeks.",
+        href: "/impediments",
+      },
+    ]);
+  });
+
+  it("takes a theme no tool covers to the retro", () => {
+    const notebookEntries = ["a", "b", "c"].map((id) =>
+      note(id, "2026-10-22", { tags: ["pairing rota"] })
+    );
+    expect(steps("sm-notebook", { notebookEntries })).toEqual([
+      {
+        id: "sm-notebook-retro",
+        label: "Take “pairing rota” to the retro",
+        detail: "“pairing rota” came up in 3 of your notes in the last two weeks.",
+        href: "/retro",
+      },
+    ]);
+  });
+
+  it("stays quiet for example notes, kept summaries, older notes and fewer than three", () => {
+    expect(
+      ids("sm-notebook", {
+        notebookEntries: [
+          note("example-a", "2026-10-26", { tags: ["blockers"] }),
+          note("b", "2026-10-26", { tags: ["blockers", "weekly-summary"] }),
+          note("c", "2026-10-12", { tags: ["blockers"] }),
+          note("d", "2026-10-25", { tags: ["blockers"] }),
+          note("e", "2026-10-24", { tags: ["blockers"] }),
+        ],
+      })
+    ).toEqual([]);
+    expect(ids("sm-notebook", {})).toEqual([]);
   });
 });

@@ -39,6 +39,9 @@ export const GLM_DEFAULT_MODEL = "glm-4.5-flash";
 export const ZAI_DEFAULT_MODEL = "glm-5.3-flash";
 export const VISITOR_DEFAULT_MODEL = "openclaw-flash";
 
+/** OpenClaw's cheaper model (GLM-5.3-Flash on the VPS), for small tool tasks. */
+export const OPENCLAW_FLASH_MODEL = "openclaw-flash";
+
 /** Sent on every OpenClaw request so the gateway's nginx can tell the toolkit apart. */
 export const CALLER_HEADER = "X-Caller";
 export const CALLER_NAME = "agile-toolkit";
@@ -145,6 +148,55 @@ export function resolveVisitorBackend(e: Env = process.env): UpstreamBackend | n
     key,
     model: env(e, "VISITOR_AI_MODEL") ?? VISITOR_DEFAULT_MODEL,
   };
+}
+
+/** How big a model a tool task needs: the cheap, quick one or the full one. */
+export type ModelTier = "flash" | "full";
+
+/**
+ * The model id for one tool AI task (lib/ai), by tier. The owner's chat keeps
+ * using `backend.model` as it is; only the tool routes call this.
+ *
+ * - OpenClaw, owner: `openclaw-flash` for "flash", OPENCLAW_MODEL (default
+ *   `openclaw`, which is `backend.model`) for "full".
+ * - A direct bigmodel key: its flash model for "flash", GLM_AGENT_MODEL
+ *   (`backend.model`) for "full".
+ * - A direct Z.AI key: the same, with Z.AI's flash model.
+ * - The visitors' backend (`audience: "visitor"`): always its own
+ *   VISITOR_AI_MODEL (`backend.model`), whatever the tier, so a visitor can
+ *   never reach the full model.
+ */
+export function pickModel(
+  backend: Pick<UpstreamBackend, "provider" | "model">,
+  tier: ModelTier,
+  audience: "owner" | "visitor" = "owner"
+): string {
+  if (audience === "visitor" || tier === "full") return backend.model;
+  switch (backend.provider) {
+    case "openclaw":
+      return OPENCLAW_FLASH_MODEL;
+    case "glm":
+      return GLM_DEFAULT_MODEL;
+    case "zai":
+      return ZAI_DEFAULT_MODEL;
+  }
+}
+
+/** The `reasoning_effort` levels, lowest first. */
+export type ReasoningEffortLevel = "low" | "high" | "max";
+const EFFORT_RANK: Record<ReasoningEffortLevel, number> = { low: 0, high: 1, max: 2 };
+
+/**
+ * The lower of two efforts (low < high < max). A missing or unknown `b` leaves
+ * `a`, so a task's own effort applies when no cap is set; the visitor config
+ * row's effort is passed as `b`, so it still works as a brake.
+ */
+export function minEffort(
+  a: ReasoningEffortLevel,
+  b?: ReasoningEffortLevel | null
+): ReasoningEffortLevel {
+  if (!b || !(b in EFFORT_RANK)) return a;
+  return EFFORT_RANK[b] < EFFORT_RANK[a] ? b : a;
 }
 
 /**

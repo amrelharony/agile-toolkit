@@ -18,10 +18,12 @@ import {
   cycleDays,
   cycleSummary,
   finishedItems,
+  stageBreakdown,
   storyItems,
   weekOf,
   type AgeingItem,
   type CycleSummary,
+  type StageBreakdown,
 } from "@/lib/flow";
 import { enoughData } from "@/lib/analytics/min-sample";
 import { percentile } from "@/lib/sprints/metrics";
@@ -186,6 +188,25 @@ export function ageingRows(
   opts: { includeExamples?: boolean } = {}
 ): AgeingItem[] {
   return ageingWip([...storyItems(stories, opts), ...cardItems(cards, opts)], today, p85);
+}
+
+/**
+ * Time in each status for the finished stories and cards of the sources
+ * picked (typed items have no statuses), read with these waiting statuses:
+ * lib/flow stageBreakdown, as tool.cycle_time.by_stage reads it.
+ */
+export function boardStages(
+  stories: readonly Story[],
+  cards: readonly KanbanCard[],
+  sources: ReadonlySet<CycleSource>,
+  waiting: readonly string[],
+  opts: { includeExamples?: boolean } = {}
+): StageBreakdown {
+  const items = [
+    ...(sources.has("story") ? storyItems(stories, opts) : []),
+    ...(sources.has("card") ? cardItems(cards, opts) : []),
+  ];
+  return stageBreakdown(items, { waiting });
 }
 
 export function round(v: number, d = 1) {

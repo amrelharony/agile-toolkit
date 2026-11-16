@@ -7,6 +7,8 @@
  * device-local store (see use-cycle-time-store.ts).
  */
 
+import type { StageId } from "@/lib/flow";
+
 /** An item typed by hand: what it was, and the days it started and finished. */
 export interface WorkItem {
   id: string;
@@ -28,12 +30,18 @@ export interface CycleTimeStore {
   targetPct: SlePercentile;
   /** A service-level target in days to check finished and ageing work against; null for none. */
   sleTargetDays: number | null;
+  /**
+   * The statuses counted as waiting for the flow efficiency (Time in each
+   * status), in lib/flow STAGE_ORDER; the rest count as active.
+   */
+  waitingStages: StageId[];
   /** Adds a validated item. */
   addItem: (item: Omit<WorkItem, "id">) => WorkItem;
   removeItem: (id: string) => void;
   updateItem: (id: string, updates: Partial<Omit<WorkItem, "id">>) => void;
   setTargetPct: (pct: SlePercentile) => void;
   setSleTargetDays: (days: number | null) => void;
+  setWaitingStages: (stages: readonly string[]) => void;
   /** Removes every typed item. */
   reset: () => void;
   /** Put the typed items back (Undo of a reset). */

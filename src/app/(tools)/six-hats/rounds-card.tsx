@@ -5,6 +5,7 @@ import { Check, ChevronLeft, Pause, Play, RotateCcw, SkipForward, Timer } from "
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { SectionCard } from "@/components/shared/section-card";
+import { DockOvertime } from "@/components/timer/dock-overtime";
 import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 import type { SixHatsSession } from "@/lib/stores/workspace-types";
 import {
@@ -302,6 +303,7 @@ function ClockView({ clock, onTime }: { clock: RoundClock; onTime: () => void })
       >
         <span className="sr-only">Time left in this round: </span>
         {done ? "Time's up" : formatClock(clock.remaining)}
+        {done && <DockOvertime timer={clock.timer} className="ml-2 text-base font-semibold" />}
       </span>
       {!done && (
         <IconButton

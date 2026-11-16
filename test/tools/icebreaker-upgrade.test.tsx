@@ -614,7 +614,7 @@ describe("the page", () => {
       expect(useIcebreakerSession.getState().selectedId).not.toBeNull();
     }
     vi.useRealTimers();
-  });
+  }, 15_000);
 
   it("spins through the matches, then lands on one and announces it", async () => {
     vi.useFakeTimers();

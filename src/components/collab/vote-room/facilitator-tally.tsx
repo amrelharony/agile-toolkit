@@ -3,7 +3,8 @@
 /**
  * Count hands, or collect paper answers, and enter the totals: the vote
  * round for when live rooms are off (flag off, no Supabase, no WebCrypto,
- * a squad guest, questions the protocol can't carry) or not wanted.
+ * a squad guest, questions the protocol can't carry) or not wanted. With
+ * `paperOnly` it asks for paper slips only, never a show of hands.
  *
  * Same aggregate code, same minN rule (never under the tool's floor) and
  * the same `onSave` as a live round, with `source: "facilitator"`. Only
@@ -48,6 +49,11 @@ export interface FacilitatorTallyProps {
   onSave: SaveVoteRound;
   /** Shown under the results, before Save round. */
   renderResults?: (result: VoteRoundResult) => ReactNode;
+  /**
+   * Counted from paper slips only, never a show of hands: nobody's answer
+   * may be seen even in the room (Quick Vote's safety check).
+   */
+  paperOnly?: boolean;
 }
 
 type Cells = Record<string, string[]>;
@@ -66,6 +72,7 @@ export function FacilitatorTally({
   minN,
   onSave,
   renderResults,
+  paperOnly = false,
 }: FacilitatorTallyProps) {
   const need = effectiveMinN(minN, tool);
   const [cells, setCells] = useState<Cells>(() => blankCells(questionnaire));
@@ -181,8 +188,10 @@ export function FacilitatorTally({
     <div className="space-y-4">
       <form ref={formRef} onSubmit={showTotals} noValidate className="space-y-4">
         <p className="text-sm text-sub">
-          Count hands or collect paper answers, then enter how many people chose each answer. A
-          blank box counts as nobody. Results show from {need} answers.
+          {paperOnly
+            ? "Collect paper slips, so nobody's answer is seen, count them, then enter how many people chose each answer."
+            : "Count hands or collect paper answers, then enter how many people chose each answer."}{" "}
+          A blank box counts as nobody. Results show from {need} answers.
         </p>
         <ol className="space-y-3">
           {questionnaire.questions.map((q, qi) => (
