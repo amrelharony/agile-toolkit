@@ -377,6 +377,11 @@ describe("AgentConversation hidden under Amr's scenes", () => {
     // Mounted under the scenes (History to Scenes): it can't focus or scroll yet.
     const { rerender } = render(chat(false));
     const composer = screen.getByRole("textbox", { name: "Message" });
+    // jsdom has no layout: the log holds 1000 px in a 200 px view, so a pin
+    // to its end has somewhere to go.
+    const log = screen.getByRole("log", { name: "Conversation" });
+    Object.defineProperty(log, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(log, "clientHeight", { configurable: true, value: 200 });
     act(() =>
       useAgentStore.getState().appendMessage({
         id: "m1",
@@ -385,12 +390,20 @@ describe("AgentConversation hidden under Amr's scenes", () => {
         createdAt: "2026-11-16T08:00:00Z",
       })
     );
+    // The frame the log's writes wait for has run, and wrote nothing.
+    await act(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        )
+    );
     expect(composer).not.toHaveFocus();
     expect(scrollTo).not.toHaveBeenCalled();
 
     rerender(chat(true));
     await waitFor(() => expect(composer).toHaveFocus());
-    expect(scrollTo).toHaveBeenCalled();
+    // The chat frame follows the log from its newest line again.
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 800, behavior: "instant" }));
   });
 });
 

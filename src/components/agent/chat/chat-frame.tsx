@@ -30,6 +30,9 @@
  * the log back into the root's view when the root scrolls, with
  * root.scrollTo, never scrollIntoView. A different chat (a thread opened,
  * the first message) and the reader's own new message follow the log again.
+ * Under Amr's Scenes view the chat stays mounted but hidden
+ * (chat-visibility): nothing scrolls while it is, and when it shows again
+ * the log follows from its newest line and comes back into the root's view.
  *
  * Speaking. Nothing in the log is live; the frame speaks for it through the
  * app's announcer (use-turn-announcer): once when a turn settles (`busy`
@@ -60,6 +63,7 @@ import { ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ChatItem } from "@/lib/agent/chat-view";
 import { cn } from "@/lib/utils";
+import { useChatVisible } from "../chat-visibility";
 import { DOCK_FOOTER_IN_PX3 } from "../mascot/panel-context";
 import { useChat } from "./chat-context";
 import { ChatLog } from "./chat-log";
@@ -95,9 +99,12 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
   const rootRef = useRef<HTMLDivElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  // False while Amr's Scenes view covers the chat (mounted, hidden).
+  const visible = useChatVisible();
   const { atBottom, scrollToLatest, stick, reveal } = useStickToBottom(logRef, {
     contentRef,
     rootRef,
+    visible,
   });
   useTurnAnnouncer({ items, busy, rootRef });
 
@@ -115,12 +122,13 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
     if (sent !== null) stick();
   }, [sent, stick]);
 
-  // Something new: in a short panel, the log back into the root's view
-  // (only while the reader follows; an empty chat stays on the composer).
+  // Something new, or the chat back in view: in a short panel, the log back
+  // into the root's view (only while the reader follows; an empty chat stays
+  // on the composer).
   const count = items.length;
   useEffect(() => {
-    if (count > 0 || busy) reveal();
-  }, [count, busy, reveal]);
+    if (visible && (count > 0 || busy)) reveal();
+  }, [count, busy, reveal, visible]);
 
   // The safety net (see the file comment). The chat context keeps its
   // identity (it changes only with the profile), so this is set up once.

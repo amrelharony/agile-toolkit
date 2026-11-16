@@ -7,7 +7,9 @@
  * the composer (not after a tap on a touch screen, where that would raise the
  * keyboard); scrolls wait for one frame and are instant under reduced
  * motion; a short panel brings the log back with root.scrollTo, never
- * scrollIntoView; and the focus safety net catches a control taken away.
+ * scrollIntoView; a chat hidden under Amr's Scenes view writes nothing and
+ * follows from its end once it shows again; and the focus safety net catches
+ * a control taken away.
  *
  * jsdom has no layout and no ResizeObserver, so each scroller gets a stubbed
  * size and scroll position (clamped as a browser clamps it), and a fake
@@ -17,6 +19,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { useRef, type ReactNode } from "react";
+import { ChatVisibleContext } from "@/components/agent/chat-visibility";
 import { ChatProvider } from "@/components/agent/chat/chat-context";
 import { ChatFrame } from "@/components/agent/chat/chat-frame";
 import { STICK_THRESHOLD, nearestTop } from "@/components/agent/chat/use-stick-to-bottom";
@@ -561,6 +564,50 @@ describe("back to the end without the button", () => {
   });
 });
 
+describe("hidden under Amr's Scenes view", () => {
+  /** The chat as Amr's panel holds it: mounted, and told whether it is in view. */
+  const under = (visible: boolean) => (
+    <ChatVisibleContext.Provider value={visible}>
+      <Chat messages={CHAT} />
+    </ChatVisibleContext.Provider>
+  );
+
+  it("writes nothing while hidden, then follows from the newest line once it shows again", async () => {
+    const { rerender } = render(under(true));
+    const log = layout(theLog(), { height: 1000, client: 200 });
+    await frames();
+    expect(log.top()).toBe(800);
+
+    // A hidden log can't scroll: a reply growing under the scenes moves nothing.
+    rerender(under(false));
+    log.scrollTo.mockClear();
+    log.resize({ height: 1300 });
+    await frames();
+    expect(log.scrollTo).not.toHaveBeenCalled();
+    expect(log.top()).toBe(800);
+
+    rerender(under(true));
+    await frames();
+    expect(log.scrollTo).toHaveBeenLastCalledWith({ top: 1100, behavior: "instant" });
+    expect(log.top()).toBe(1100);
+  });
+
+  it("comes back at the newest line even when the reader had read further up", async () => {
+    const { rerender } = render(under(true));
+    const log = layout(theLog(), { height: 1000, client: 200 });
+    await frames();
+    log.readTo(300);
+    expect(latest()).toBeInTheDocument();
+
+    rerender(under(false));
+    await frames();
+    rerender(under(true));
+    await frames();
+    expect(log.top()).toBe(800);
+    expect(latest()).toBeNull();
+  });
+});
+
 describe("a short panel", () => {
   /**
    * The frame (the chat's root) scrolled to its composer, 240 px down 400 px
@@ -594,6 +641,26 @@ describe("a short panel", () => {
     rerender(<Chat messages={[...CHAT, you("u3", "Next?")]} busy />);
     await frames();
     expect(root.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("brings the log back into the root's view when the chat shows again from under the scenes", async () => {
+    const under = (visible: boolean) => (
+      <ChatVisibleContext.Provider value={visible}>
+        <Chat messages={CHAT} />
+      </ChatVisibleContext.Provider>
+    );
+    // Opened under the scenes: nothing is written while it is hidden.
+    const { rerender } = render(under(false));
+    const log = layout(theLog(), { height: 1000, client: 200 });
+    const root = shortPanel();
+    await frames();
+    expect(log.scrollTo).not.toHaveBeenCalled();
+    expect(root.scrollTo).not.toHaveBeenCalled();
+
+    rerender(under(true));
+    await frames();
+    expect(log.top()).toBe(800);
+    expect(root.scrollTo).toHaveBeenCalledWith({ top: 8, behavior: "instant" });
   });
 
   it("leaves an empty chat on its composer, and a reader reading above where they are", async () => {

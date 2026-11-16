@@ -38,11 +38,16 @@
  * needed ("nearest"). Never scrollIntoView: that scrolls every scroller
  * around the log, the page included, and on iOS pans the visual viewport.
  *
+ * Hidden: under Amr's Scenes view the chat stays mounted but hidden
+ * (`visible` false, from chat-visibility), and a hidden log can't scroll, so
+ * nothing is written while it is. When it is in view again it follows from
+ * its newest line (stick), wherever the reader had been.
+ *
  * Runtime-free (React only), but part of the chat, so it lives in chat/,
  * which every-page code may not reach (test/agent/bundle-boundary.test.ts).
  */
 
-import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 
 /** How close to the end of the log, in px, still counts as being at the end. */
 export const STICK_THRESHOLD = 48;
@@ -78,6 +83,11 @@ export interface StickToBottomOptions {
   contentRef: RefObject<HTMLElement | null>;
   /** The chat's root, which scrolls only when the panel is too short for the log and the footer. */
   rootRef?: RefObject<HTMLElement | null>;
+  /**
+   * Whether the chat is in view (chat-visibility): false while Amr's Scenes
+   * view covers it, mounted. Nothing is written while it is hidden.
+   */
+  visible?: boolean;
 }
 
 interface Seen {
@@ -160,9 +170,13 @@ function isTextField(target: EventTarget | null): boolean {
  */
 export function useStickToBottom(
   scrollRef: RefObject<HTMLElement | null>,
-  { contentRef, rootRef }: StickToBottomOptions
+  { contentRef, rootRef, visible = true }: StickToBottomOptions
 ): StickToBottom {
   const [atBottom, setAtBottom] = useState(true);
+  /** In view; set before paint, so a frame already asked for sees it. */
+  const inView = useRef(visible);
+  /** It was hidden since it last followed from its end. */
+  const wasHidden = useRef(!visible);
   const stuck = useRef(true);
   const shown = useRef(true);
   const seen = useRef<Seen>({ top: 0, height: 0 });
@@ -196,7 +210,8 @@ export function useStickToBottom(
     const { pin, reveal } = pending.current;
     pending.current = { pin: null, reveal: false };
     const el = scrollRef.current;
-    if (!el?.isConnected) return;
+    // Hidden, it can't scroll: it follows from its end once it shows again.
+    if (!el?.isConnected || !inView.current) return;
     // The reader may have left since this was asked for: their scroll wins.
     if (pin && stuck.current) {
       const end = Math.max(0, el.scrollHeight - el.clientHeight);
@@ -259,6 +274,21 @@ export function useStickToBottom(
   const reveal = useCallback(() => {
     if (stuck.current) schedule(pinWay(), true);
   }, [pinWay, schedule]);
+
+  useLayoutEffect(() => {
+    inView.current = visible;
+  }, [visible]);
+
+  // Back from under the Scenes view: follow again from the newest line.
+  useEffect(() => {
+    if (!visible) {
+      wasHidden.current = true;
+      return;
+    }
+    if (!wasHidden.current) return;
+    wasHidden.current = false;
+    stick();
+  }, [visible, stick]);
 
   useEffect(() => {
     const el = scrollRef.current;
