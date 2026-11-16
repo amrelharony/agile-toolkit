@@ -371,4 +371,51 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(h.announce).not.toHaveBeenCalled();
     expect(document.body).toHaveFocus();
   });
+  it("Try again hands focus to the message box with the caret after the draft, before the note goes", async () => {
+    await askInChat("retro");
+    act(() => {
+      useAgentStore.getState().setDraft("visitor", "and the timer?");
+      useAgentStore.getState().setNotice({
+        tone: "error",
+        kind: "upstream_error",
+        text: "Amr's AI service hit an error. Try again in a moment.",
+      });
+    });
+    const tryAgain = await screen.findByRole("button", { name: "Try again" });
+    tryAgain.focus();
+    fireEvent.click(tryAgain);
+    const box = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    expect(box).toHaveFocus();
+    expect(box.selectionStart).toBe("and the timer?".length);
+    expect(box.selectionEnd).toBe("and the timer?".length);
+  });
+
+  it("speaks a settled turn once, with Amr's words, and nothing while it streams", async () => {
+    await askInChat("retro");
+    h.announce.mockClear();
+    act(() => {
+      useAgentStore.setState({ streaming: true });
+      useAgentStore.getState().appendMessage({
+        id: "a1",
+        role: "assistant",
+        content: [{ type: "text", text: "Start" }],
+        createdAt: "2026-11-09T08:00:01Z",
+      });
+      useAgentStore.getState().setStreamingMessageId("a1");
+    });
+    for (const words of ["Start with", "Start with what went", "Start with what went well."]) {
+      act(() => {
+        useAgentStore.getState().patchMessage("a1", [{ type: "text", text: words }]);
+      });
+    }
+    expect(h.announce).not.toHaveBeenCalled();
+    // The log itself never speaks: it is not live, and nothing in it is.
+    const log = screen.getByRole("log", { name: "Conversation" });
+    expect(log).toHaveAttribute("aria-live", "off");
+    act(() => {
+      useAgentStore.getState().setStreaming(false);
+    });
+    expect(h.announce).toHaveBeenCalledTimes(1);
+    expect(h.announce).toHaveBeenCalledWith("Amr said: Start with what went well.");
+  });
 });

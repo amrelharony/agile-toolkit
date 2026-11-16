@@ -394,6 +394,124 @@ describe("AgentConversation hidden under Amr's scenes", () => {
   });
 });
 
+describe("AgentConversation: the comic strip", () => {
+  beforeEach(() => {
+    h.conversations = [];
+    h.goOn.mockClear();
+  });
+
+  afterEach(() => {
+    useAgentStore.getState().reset();
+  });
+
+  const AT = "2026-11-08T09:00:00Z";
+  const box = () => screen.getByRole("textbox", { name: "Message" });
+
+  it("draws the owner's chat in a quiet log: balloons on Amr's side, captions, steps in words with Details", () => {
+    useAgentStore.setState({
+      messages: [
+        {
+          id: "u1",
+          role: "user",
+          content: [{ type: "text", text: "Add flaky CI to my retro" }],
+          createdAt: AT,
+        },
+        {
+          id: "a1",
+          role: "assistant",
+          content: [
+            { type: "text", text: "On it." },
+            {
+              type: "tool_use",
+              id: "c1",
+              name: "tool_retro_add_card",
+              input: { text: "flaky CI" },
+            },
+          ],
+          createdAt: AT,
+        },
+        {
+          id: "t1",
+          role: "tool",
+          content: [{ type: "tool_result", tool_use_id: "c1", content: '{"added":true}' }],
+          createdAt: AT,
+        },
+        {
+          id: "a2",
+          role: "assistant",
+          content: [{ type: "text", text: "Done: it is on the board." }],
+          createdAt: AT,
+        },
+      ],
+    });
+    render(<AgentConversation />);
+    const log = screen.getByRole("log", { name: "Conversation" });
+    expect(log).toHaveAttribute("aria-live", "off");
+    // The frame is the log's direct parent: one column that scrolls in a short panel.
+    expect(log.parentElement).toHaveClass("h-full", "min-h-0", "flex-col", "overflow-y-auto");
+    expect(log.parentElement).toHaveAttribute("data-amr-scroll");
+    // The composer's form sits straight in the frame's shrink-0 footer.
+    expect(box().closest("form")?.parentElement).toHaveClass("shrink-0");
+    expect(box().closest("form")?.parentElement?.parentElement).toBe(log.parentElement);
+
+    const kinds = Array.from(log.querySelectorAll("[data-chat-item]")).map((el) =>
+      el.getAttribute("data-chat-item")
+    );
+    expect(kinds).toEqual(["you", "balloon", "steps", "balloon"]);
+    const caption = log.querySelector('[data-chat-item="you"] .comic-caption');
+    expect(caption).toHaveAttribute("data-voice", "you");
+    expect(caption).toHaveTextContent("You said: Add flaky CI to my retro");
+    for (const balloon of Array.from(log.querySelectorAll(".balloon"))) {
+      expect(balloon).toHaveAttribute("data-tail", "amr");
+      expect(balloon.textContent).toMatch(/^Amr said: /);
+    }
+    // The step in words, Details for the owner, and no JSON in the caption's line.
+    const step = log.querySelector('[data-chat-item="steps"] [data-tool-step]')!;
+    expect(step.querySelector("p")).toHaveTextContent("Retro Board · Add card · Done · “flaky CI”");
+    expect(step.querySelector("p")?.textContent).not.toMatch(/[{}]|tool_retro/);
+    expect(within(step as HTMLElement).getByText("Details")).toBeInTheDocument();
+  });
+
+  it("shows Amr thinking as a wordless balloon in the log, said by a status line outside it", () => {
+    useAgentStore.setState({ streaming: true, messages: [userMsg("u1", "plan it")] });
+    render(<AgentConversation />);
+    const log = screen.getByRole("log", { name: "Conversation" });
+    const thinking = log.querySelector('[data-thinking=""]');
+    expect(thinking).toHaveAttribute("aria-hidden", "true");
+    expect(thinking?.textContent).toBe("");
+    const status = screen.getByText("Amr is thinking…");
+    expect(status).toHaveAttribute("role", "status");
+    expect(log.contains(status)).toBe(false);
+
+    act(() => {
+      useAgentStore.getState().appendMessage({
+        id: "a1",
+        role: "assistant",
+        content: [{ type: "text", text: "Here is a plan." }],
+        createdAt: AT,
+      });
+    });
+    expect(log.querySelector("[data-thinking]")).toBeNull();
+    // Still there, empty, for the next turn.
+    expect(status).toBeInTheDocument();
+    expect(status).toBeEmptyDOMElement();
+  });
+
+  it("Go on hands focus to the message box with the caret after the draft", () => {
+    useAgentStore.getState().setActiveConversation(THREADS[0], [userMsg("m1", "plan it")]);
+    useAgentStore.getState().setDraft("owner", "and the retro");
+    useAgentStore.getState().setNotice({
+      tone: "note",
+      kind: "cut_off",
+      text: "Amr's answer was cut short. Ask him to go on.",
+    });
+    render(<AgentConversation />);
+    fireEvent.click(screen.getByRole("button", { name: "Go on" }));
+    expect(box()).toHaveFocus();
+    expect((box() as HTMLTextAreaElement).selectionStart).toBe("and the retro".length);
+  });
+});
+
 /** A turn under way, as the client registers it: its abort is with the store. */
 function liveTurn() {
   const abortTurn = vi.fn();

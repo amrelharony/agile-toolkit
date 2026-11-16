@@ -579,6 +579,48 @@ describe("every-page bundle", () => {
   });
 });
 
+describe("the chat strip (chat/)", () => {
+  const OWNER_CHAT = "src/components/agent/agent-conversation.tsx";
+  const STRIP = [
+    `${CHAT_DIR}chat-strip.tsx`,
+    `${CHAT_DIR}chat-frame.tsx`,
+    `${CHAT_DIR}chat-log.tsx`,
+    `${CHAT_DIR}chat-items.tsx`,
+    `${CHAT_DIR}chat-context.tsx`,
+    `${CHAT_DIR}use-stick-to-bottom.ts`,
+    `${CHAT_DIR}use-turn-announcer.ts`,
+  ];
+
+  it("is what both chats draw, reached by a static import from each container", () => {
+    const ownerChat = closure([OWNER_CHAT]);
+    for (const file of STRIP) {
+      expect(isFile(path.join(ROOT, file)), `${file} exists`).toBe(true);
+      expect(visitorChat.files.has(file), `the visitor's chat reaches ${file}`).toBe(true);
+      expect(ownerChat.files.has(file), `the owner's chat reaches ${file}`).toBe(true);
+    }
+    expect(staticTargets(VISITOR_CHAT)).toContain(`${CHAT_DIR}chat-strip.tsx`);
+    expect(staticTargets(OWNER_CHAT)).toContain(`${CHAT_DIR}chat-strip.tsx`);
+  });
+
+  it("is reached from no every-page root: the ban covers every file in the folder", () => {
+    const chatFiles = filesUnder(CHAT_DIR);
+    expect(chatFiles).toEqual(expect.arrayContaining(STRIP));
+    for (const file of chatFiles) {
+      expect(everyPage.files.has(file), `${file} stays off every page`).toBe(false);
+      expect(staticShell.files.has(file), `${file} stays out of the static shell`).toBe(false);
+    }
+  });
+
+  it("replaced message-bubble: no file is left, and nothing imports it", () => {
+    expect(isFile(path.join(ROOT, "src/components/agent/message-bubble.tsx"))).toBe(false);
+    const reached = new Set([
+      ...Array.from(visitorChat.files.keys()),
+      ...Array.from(closure([OWNER_CHAT]).files.keys()),
+    ]);
+    expect(Array.from(reached).filter((f) => /message-bubble/.test(f))).toEqual([]);
+  });
+});
+
 describe("comic parts", () => {
   const allowedFile = (f: string) =>
     f === UTILS || f.startsWith(COMIC_DIR) || INK_DIRS.some((dir) => f.startsWith(dir));
