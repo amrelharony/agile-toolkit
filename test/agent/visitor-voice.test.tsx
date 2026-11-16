@@ -232,6 +232,8 @@ describe("the notice's module", () => {
     render(<Fresh initialQuestion="" onOfflineGuide={() => {}} />);
     pressByKey(mic());
     await waitFor(() => expect(note()).toHaveTextContent(VOICE_NOTICE_LOAD_ERROR));
+    // A failure: in the danger colour as well as its words.
+    expect(note()!.firstElementChild).toHaveClass("text-destructive");
     expect(notice()).toBeNull();
     expect(FakeRecognition.last).toBeNull();
     vi.doUnmock("@/components/agent/mascot/voice-notice");

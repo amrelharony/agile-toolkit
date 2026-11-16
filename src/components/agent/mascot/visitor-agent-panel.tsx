@@ -238,7 +238,7 @@ function VisitorDictate(props: ComposerMicProps) {
           />
         );
       },
-      () => onNote(VOICE_NOTICE_LOAD_ERROR)
+      () => onNote(VOICE_NOTICE_LOAD_ERROR, "error")
     );
   };
   return <DictateButton {...props} ask={ask} />;

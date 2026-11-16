@@ -35,8 +35,9 @@
  *            dances" after a chat command, "Listening…", "Cut to 2,000
  *            characters" after a long paste, a dictation error, "Reply
  *            copied" said from the log through the chat context's note),
- *            each note a new node, so the same words twice are said twice;
- *            then, never
+ *            each note a new node, so the same words twice are said twice,
+ *            and an error (a dictation failure, the voice notice not
+ *            loading) in the danger colour as well as its words; then, never
  *            live, the characters left (a chat with a limit, once within
  *            COUNTER_FROM of it), "On {tool}" (the page's tool, whose context
  *            Amr gets) and the chat's own `status` (a visitor's allowance).
@@ -133,8 +134,8 @@ export interface ComposerMicProps {
   draft(): string;
   /** Put this text in the box: cut to the box's limit, with a note when it is. */
   put(text: string): void;
-  /** Show a note in the status row; null takes away one the mic showed. */
-  onNote(note: string | null): void;
+  /** Show a note in the status row ("error": a failure, in the danger colour); null takes away one the mic showed. */
+  onNote(note: string | null, tone?: "error"): void;
   /** Show this under the box's row (a visitor's voice notice); null takes it away. */
   show(node: ReactNode): void;
   /** How many messages the box has sent: a new one ends dictation, and what it hears after is dropped. */
@@ -187,18 +188,25 @@ export function focusComposerAfterNewChat(): void {
 
 /**
  * A note in the status row, whether the mic showed it (only then may the mic
- * take it away), and its number: the same words again (a second Copy reply,
- * dance twice) are a new node, which the live span says again.
+ * take it away), whether it says something failed (drawn in the danger
+ * colour), and its number: the same words again (a second Copy reply, dance
+ * twice) are a new node, which the live span says again.
  */
 interface Note {
   text: string;
   mic: boolean;
+  error: boolean;
   seq: number;
 }
 
 let noteSeq = 0;
 /** A new note: numbered outside any state updater, so a double call stays pure. */
-const noteOf = (text: string, mic = false): Note => ({ text, mic, seq: ++noteSeq });
+const noteOf = (text: string, mic = false, error = false): Note => ({
+  text,
+  mic,
+  error,
+  seq: ++noteSeq,
+});
 
 /** The chat's composer: see the file comment. */
 export function ChatComposer({
@@ -339,8 +347,8 @@ export function ChatComposer({
     },
     [maxLength, setDraft]
   );
-  const micNote = useCallback((text: string | null) => {
-    const next = text ? noteOf(text, true) : null;
+  const micNote = useCallback((text: string | null, tone?: "error") => {
+    const next = text ? noteOf(text, true, tone === "error") : null;
     setNote((shown) => next ?? (shown?.mic ? null : shown));
   }, []);
 
@@ -424,7 +432,11 @@ export function ChatComposer({
         className={cn("text-xs text-sub", note || counter || quiet.length ? "mt-1.5" : "mt-0")}
       >
         <span aria-live="polite" data-composer-note="">
-          {note && <span key={note.seq}>{note.text}</span>}
+          {note && (
+            <span key={note.seq} className={note.error ? "text-destructive" : undefined}>
+              {note.text}
+            </span>
+          )}
         </span>
         {counter && (
           <>

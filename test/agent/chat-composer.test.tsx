@@ -68,6 +68,8 @@ const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAr
 const draft = (profile: ChatProfile = "owner") => useAgentStore.getState().drafts[profile];
 const type = (text: string) => fireEvent.change(box(), { target: { value: text } });
 const sendButton = () => document.querySelector<HTMLButtonElement>("[data-chat-send]")!;
+/** The note's words: the node inside the status row's live span. */
+const noteWords = () => document.querySelector("[data-composer-note]")!.firstElementChild;
 
 /** The page on a touch screen: (pointer: coarse) matches, nothing else does. */
 const touchScreen = () =>
@@ -473,6 +475,8 @@ describe("the mic", () => {
     expect(mic).toHaveAccessibleName(DICTATE_LABEL);
     expect(mic).toHaveAttribute("aria-pressed", "true");
     expect(document.querySelector("[data-composer-note]")).toHaveTextContent(LISTENING_NOTE);
+    // A plain note, not an error.
+    expect(noteWords()).not.toHaveClass("text-destructive");
     expect(view.container.innerHTML).not.toMatch(/animate-/);
     // Listening looks unlike hover (a /10 tint) and keeps a shape cue in
     // forced colours: held flat, a /20 tint, a heavier ink outline.
@@ -562,15 +566,20 @@ describe("the mic", () => {
     act(() => FakeRecognition.last!.hear("a sentence far too long"));
     expect(draft("visitor")).toBe("a sentence");
     expect(document.querySelector("[data-composer-note]")).toHaveTextContent(cutTo(10));
+    expect(noteWords()).not.toHaveClass("text-destructive");
   });
 
-  it("says a failure in plain words in the note", () => {
+  it("says a failure in plain words in the note, in the danger colour", () => {
     render(<Composer mic={DictateButton} />);
     fireEvent.click(screen.getByRole("button", { name: DICTATE_LABEL }));
     act(() => FakeRecognition.last!.onerror?.({ error: "not-allowed" }));
-    expect(document.querySelector("[data-composer-note]")).toHaveTextContent(
-      /Microphone access was blocked\./
-    );
+    const live = document.querySelector("[data-composer-note]")!;
+    expect(live).toHaveTextContent(/Microphone access was blocked\./);
+    // Only the words' colour changes: the polite span stays the one live part.
+    expect(noteWords()).toHaveClass("text-destructive");
+    expect(live).toHaveAttribute("aria-live", "polite");
+    expect(live).not.toHaveClass("text-destructive");
+    expect(document.querySelectorAll("[aria-live]")).toHaveLength(1);
   });
 
   it("sits after the box and before Send, in the DOM as on screen", () => {

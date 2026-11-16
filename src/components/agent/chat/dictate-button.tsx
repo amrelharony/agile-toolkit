@@ -13,7 +13,8 @@
  *            that High contrast and forced colours keep; never a pulse (a
  *            pulse is all a reduced-motion reader would miss, and the
  *            comic's ink never throbs). The composer's status row says
- *            "Listening…" in words, politely, and a failure in plain words.
+ *            "Listening…" in words, politely, and a failure in plain words,
+ *            in the danger colour.
  *   words    added after what the box held when it started (joinDictation),
  *            never in its place, and cut to the box's limit by the composer.
  *            Once the box changes under it (a send, the reader typing) it
@@ -69,7 +70,8 @@ export function DictateButton({ draft, put, onNote, sent, ask }: DictateButtonPr
   const { listening, error, stop } = voice;
 
   useEffect(() => {
-    onNote(listening ? LISTENING_NOTE : error);
+    if (listening) onNote(LISTENING_NOTE);
+    else onNote(error, error ? "error" : undefined);
   }, [listening, error, onNote]);
 
   // A message went out: dictation ends at once, so neither the note nor
