@@ -1,6 +1,11 @@
 {
-  "about": "Amr's live sheet redrawn in the refined style: ten eight-slot sheets L01-L10 (1536 x 1024, eight 384 x 512 slots, the refined release's format and references) whose frames scripts/build-mascot-live.py places, as drawn, into the live sheet's grid (public/mascot/amr.*.webp: 8 columns x 11 rows of 192 x 208 cells, rows and stills as engine/sprite-poses.ts POSES and the look rows). Every slot is a real frame (no calibration slot); each sheet keeps the release's standing scale (435 px, crown about y45, soles about y480). The brief is docs/mascot/AMR-LIVE-SHEET-BRIEF.md. `sha256` is filled in by `build-mascot-live.py --record` when the sheets come back.",
-  "grid": { "columns": 8, "rows": 11, "cellW": 192, "cellH": 208 },
+  "about": "Amr's live sheet redrawn in the refined style: ten eight-slot sheets L01-L10 (1536 x 1024, eight 384 x 512 slots, the refined release's format and references) whose frames scripts/build-mascot-live.py places, as drawn, into the live sheet's grid (public/mascot/amr.*.webp: 8 columns x 11 rows of 192 x 208 cells, rows and stills as engine/sprite-poses.ts POSES and the look rows). Every slot is a real frame (no calibration slot); each sheet keeps the release's standing scale (435 px, crown about y45, soles about y480). A sheet with `register: slots` puts each slot on his own feet line (horizontally) rather than reusing slot 1's place, so a frame drawn a few px aside doesn't slide him; `still_slots` names the slots drawn to stand alone as reduced-motion stills; `feet_x` fixes his line where his hems can't (a run cycle hangs from its hips). The brief is docs/mascot/AMR-LIVE-SHEET-BRIEF.md. `sha256` is filled in by `build-mascot-live.py --record` when the sheets come back.",
+  "grid": {
+    "columns": 8,
+    "rows": 11,
+    "cellW": 192,
+    "cellH": 208
+  },
   "sheets": [
     {
       "id": "L01",
@@ -22,11 +27,13 @@
         [0, 0, 1],
         [0, 1, 2],
         [0, 2, 3],
-        [0, 3, 4],
+        [0, 3, 2],
         [0, 4, 5],
         [0, 5, 6],
         [4, 4, 1]
-      ]
+      ],
+      "sha256": "f95cfec4f3665cc97add809229d981e3d9683be4a917c4aea310b021bdb66ff0",
+      "still_slots": [1]
     },
     {
       "id": "L02",
@@ -53,7 +60,11 @@
         [1, 5, 6],
         [1, 6, 7],
         [1, 7, 8]
-      ]
+      ],
+      "sha256": "9442608a724525f728fc418a91e8fbfc41c342046513259704c7a51aa0e2cfba",
+      "feet_x": 192,
+      "feet_x_why": "a run cycle drawn in place with his hips at the slot's centre (x 192); mid-stride his hems sit between his feet, so they would place him off the line",
+      "still_slots": [2]
     },
     {
       "id": "L03",
@@ -80,7 +91,11 @@
         [2, 5, 6],
         [2, 6, 7],
         [2, 7, 8]
-      ]
+      ],
+      "sha256": "4064b35470b62a333a34995e00536a74d0724163e1eb3faeb462e331f868add0",
+      "feet_x": 192,
+      "feet_x_why": "a run cycle drawn in place with his hips at the slot's centre (x 192); mid-stride his hems sit between his feet, so they would place him off the line",
+      "still_slots": [2]
     },
     {
       "id": "L04",
@@ -107,7 +122,10 @@
         [4, 1, 6],
         [4, 2, 7],
         [4, 3, 8]
-      ]
+      ],
+      "sha256": "1bea53dd806b04e1a8a591253d984258b3e602734609b1e58d3f501c06c626ea",
+      "still_slots": [2, 7],
+      "register": "slots"
     },
     {
       "id": "L05",
@@ -134,7 +152,10 @@
         [5, 5, 6],
         [5, 6, 7],
         [5, 7, 8]
-      ]
+      ],
+      "sha256": "2002c749eca393273213e6abc28fe80dfd3f4be750299ca58f0df597d698843b",
+      "still_slots": [4],
+      "register": "slots"
     },
     {
       "id": "L06",
@@ -156,10 +177,13 @@
         [6, 0, 1],
         [6, 1, 2],
         [6, 2, 3],
-        [6, 3, 4],
+        [6, 3, 8],
         [6, 4, 5],
         [6, 5, 6]
-      ]
+      ],
+      "sha256": "0cf0857d73f0d8c36a4e1086c1d19c4c8667587d52a644c5be29cb50420b293d",
+      "still_slots": [8],
+      "register": "slots"
     },
     {
       "id": "L07",
@@ -178,13 +202,16 @@
       ],
       "precision": "Thoughtful and pleasant, never troubled. The hand at his chin never hides his mouth. Slot 3 is the still shown when motion is reduced.",
       "cells": [
-        [7, 0, 1],
+        [7, 0, 2],
         [7, 1, 2],
-        [7, 2, 3],
+        [7, 2, 4],
         [7, 3, 4],
-        [7, 4, 5],
-        [7, 5, 6]
-      ]
+        [7, 4, 7],
+        [7, 5, 4]
+      ],
+      "sha256": "9db1e3f1e6bc48c06ff39fa3d063942b97b2b94ade0fb48df04862eb4d05a95e",
+      "still_slots": [4],
+      "register": "slots"
     },
     {
       "id": "L08",
@@ -209,7 +236,10 @@
         [8, 3, 4],
         [8, 4, 5],
         [8, 5, 6]
-      ]
+      ],
+      "sha256": "79447e921d95449c578fece210b9f62a5c44e3a1b74f320dae9ba87144d72ef4",
+      "still_slots": [5],
+      "register": "slots"
     },
     {
       "id": "L09",
@@ -236,7 +266,9 @@
         [9, 5, 6],
         [9, 6, 7],
         [9, 7, 8]
-      ]
+      ],
+      "sha256": "2a42993dceb61c066b5cbef47fc297cf979b2ae7a0d809a28592068c6f885df2",
+      "register": "slots"
     },
     {
       "id": "L10",
@@ -263,7 +295,9 @@
         [10, 5, 6],
         [10, 6, 7],
         [10, 7, 8]
-      ]
+      ],
+      "sha256": "e25a14ed596cf617d4d5d802df1fcdfc3941a6716c483f0f6702a11decca6023",
+      "register": "slots"
     }
   ]
 }

@@ -58,15 +58,12 @@ describe("the live sheet's redraw", () => {
       for (const [, , slot] of s.cells) expect(slot, s.id).toBeGreaterThanOrEqual(1);
   });
 
-  it("puts each pose's reduced-motion still on the slot drawn as its clearest frame", () => {
-    // The brief marks those slots "the clearest frame of the sheet" (or a pose that is one on its own).
+  it("puts each pose's reduced-motion still on a slot drawn to stand alone", () => {
     for (const [name, def] of Object.entries(POSES)) {
       const hit = filler(def.row, def.still);
       expect(hit, name).toBeDefined();
-      const beat = hit!.sheet.slots[hit!.slot - 1];
-      if (["failed", "waiting", "running", "review"].includes(name)) {
-        expect(beat, name).toContain("the clearest frame of the sheet");
-      }
+      const stills = (hit!.sheet as { still_slots?: number[] }).still_slots ?? [];
+      expect(stills, name).toContain(hit!.slot);
     }
   });
 

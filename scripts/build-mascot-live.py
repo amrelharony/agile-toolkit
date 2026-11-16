@@ -20,8 +20,11 @@ Each sheet is built as drawn, like the refined release (build-mascot-packs.py
 --as-drawn, build-mascot-expansion.py):
   scale   one for every sheet: the release draws his standing figure 435 px tall, so
           177 / 435, the live idle's height.
-  place   once per sheet, by slot 1: his feet x (his trouser hems, as the expansion
-          builder finds them, else his figure's) on the live feet line and his lowest
+  place   by slot 1 (or, for a sheet whose spec says `register: slots`, each slot by
+          its own feet x, so a standing frame drawn a few px aside doesn't slide him;
+          the floor still comes from slot 1, so a jump keeps its lift): his feet x (his trouser hems, as the expansion
+          builder finds them, else his figure's; or the spec's `feet_x`, as for a run
+          cycle drawn in place, which hangs from its hips) on the live feet line and his lowest
           point on the floor row; the other seven slots get the same transform, so a
           run cycle and a jump keep the motion the artist drew.
   cell    a pack cell (192 x 224, 16 rows of headroom) cut to the live cell's 208 rows;
@@ -70,6 +73,24 @@ SLOTS = 8
 
 # The live sheet's rows (engine/sprite-poses.ts POSES, then the two look rows): frames used.
 ROW_FRAMES = [6, 8, 8, 4, 5, 8, 6, 6, 6, 8, 8]
+
+
+def write_text(path: Path, text: str) -> None:
+    """Write through a temporary file and an atomic replace, retrying a few times: a
+    scanner holding a just-changed file open makes a plain overwrite fail on Windows."""
+    import os
+    import time
+
+    tmp = path.with_name(path.name + ".tmp")
+    for attempt in range(6):
+        try:
+            tmp.write_text(text, encoding="utf-8", newline="\n")
+            os.replace(tmp, path)
+            return
+        except OSError:
+            if attempt == 5:
+                raise
+            time.sleep(0.5 * (attempt + 1))
 
 
 def spec() -> dict:
@@ -135,11 +156,26 @@ def build(src: Path, s: dict, record: bool):
                       (i % 4) * packs.SLOT_W:(i % 4 + 1) * packs.SLOT_W] for i in range(SLOTS)]
         ax, fy, box = scenes.amr_place(slots[0][..., 3], REFINED_STANCE)
         own = expansion.own_feet_x(slots[0])
-        if own is not None and abs(own - ax) > expansion.ANCHOR_SLACK:
+        if "feet_x" in sh:  # the spec's own line for him (a run cycle hangs from its hips)
+            ax = float(sh["feet_x"])
+        elif own is not None and abs(own - ax) > expansion.ANCHOR_SLACK:
             ax = own
-        log.append(f"{sh['id']}: slot 1 {box['floor'] - box['top']} px tall, feet x {ax:.1f}, floor {fy:.0f}")
+        log.append(f"{sh['id']}: slot 1 {box['floor'] - box['top']} px tall, feet x {ax:.1f}"
+                   + (" (the spec's)" if "feet_x" in sh else "") + f", floor {fy:.0f}")
+        per_slot = sh.get("register") == "slots"
+        anchors = {}
+        for i, sl in enumerate(slots, start=1):
+            if not per_slot:
+                anchors[i] = ax
+                continue
+            sax, _, _ = scenes.amr_place(sl[..., 3], REFINED_STANCE)
+            sown = expansion.own_feet_x(sl)
+            anchors[i] = sown if sown is not None and abs(sown - sax) > expansion.ANCHOR_SLACK else sax
+        if per_slot:
+            log.append(f"{sh['id']}: each slot on his own feet line, "
+                       + ", ".join(f"{i}:{anchors[i] - ax:+.0f}" for i in sorted(anchors)) + " px from slot 1")
         for r, c, slot in sh["cells"]:
-            cell = packs.register(Image.fromarray(slots[slot - 1]), scale, ax, fy, 1)
+            cell = packs.register(Image.fromarray(slots[slot - 1]), scale, anchors[slot], fy, 1)
             edges = packs.overflow(cell)
             if edges:
                 notes.append(f"{sh['id']} slot {slot} touches the cell's {', '.join(edges)} edge")
@@ -160,7 +196,7 @@ def write(sheet: Image.Image) -> str:
     (packs.PUBLIC / name).write_bytes(data)
     text = ASSET_TS.read_text(encoding="utf-8")
     text = re.sub(r'MASCOT_SPRITE_URL = "/mascot/amr\.[0-9a-f]{8}\.webp"', f'MASCOT_SPRITE_URL = "/mascot/{name}"', text)
-    ASSET_TS.write_text(text, encoding="utf-8", newline="\n")
+    write_text(ASSET_TS, text)
     return name
 
 
@@ -220,7 +256,7 @@ def main() -> None:
     if "--preview" in args:
         write_preview(sheet, Path(args[args.index("--preview") + 1]))
     if record:
-        SPEC.write_text(json.dumps(s, indent=2, ensure_ascii=False) + "\n", encoding="utf-8", newline="\n")
+        write_text(SPEC, json.dumps(s, indent=2, ensure_ascii=False) + "\n")
         print(f"recorded the approved hashes in {SPEC.relative_to(packs.ROOT)}")
     name = write(sheet)
     print(f"live sheet: {name} ({(packs.PUBLIC / name).stat().st_size // 1024} KB); MASCOT_SPRITE_URL updated")
