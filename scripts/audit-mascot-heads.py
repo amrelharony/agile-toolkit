@@ -68,6 +68,14 @@ SHARP_MIN, SHARP_MAX = 0.90, 1.10  # over all frames
 # sheet drawn with his head up to 15% off passes, and those past 10% are listed to
 # watch (heat, breakfast, evening and four tool sheets at the release of 13 Nov 2026).
 AS_DRAWN = {"skin": 3.0, "garment": 4.5, "hair": 4.5, "size": 0.15, "sharp": (0.90, 1.60), "watch": 0.10}
+# Packs drawn just past those limits, measured against the refined live sheet (16 Nov
+# 2026: its idle's head is 1% bigger than the old idle's and its skin dE 1.3 off it),
+# checked by eye and kept as drawn: {pack: {limit: value, ...}}. A redraw takes its
+# entry out.
+AS_DRAWN_ALLOW = {
+    "scorch": {"skin": 3.6},  # the heat sheet's sun-warmed face measures dE 3.4
+    "interview": {"size": 0.17},  # the interview sheet draws his head at 84%
+}
 HEADS_MIN = 3  # fewer measurable heads than this isn't a pack's size
 # Held up by the collar: lined up on his hair, so his feet are wherever they swing.
 OFF_FLOOR = ("lifted.hang", "lifted.swing-l", "lifted.swing-r", "lifted.flail")
@@ -213,13 +221,14 @@ def main() -> None:
     for pack, rs in out.items():
         m = {k: med(rs, k) for k in ("dE", "shirt", "trousers", "shoes", "hair", "size", "sharp")}
         why = []
-        if over(m["dE"], SKIN_MAX):
+        allow = AS_DRAWN_ALLOW.get(pack, {}) if REFINED.exists() else {}
+        if over(m["dE"], allow.get("skin", SKIN_MAX)):
             why.append("skin")
         why += [g for g in heads.GARMENTS if over(m[g], GARMENT_MAX)]
         if over(m["hair"], HAIR_MAX):
             why.append("hair")
         sized = sum(r["size"] is not None for r in rs)
-        if m["size"] is not None and sized >= HEADS_MIN and abs(m["size"] - 1) > SIZE_OFF:
+        if m["size"] is not None and sized >= HEADS_MIN and abs(m["size"] - 1) > allow.get("size", SIZE_OFF):
             why.append("head")
         off_floor = [r["id"] for r in rs if r["floor"] is not None and abs(r["floor"]) > 1]
         if off_floor:
