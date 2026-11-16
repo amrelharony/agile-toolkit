@@ -152,10 +152,13 @@ describe("recurring themes", () => {
     await waitFor(() =>
       expect(screen.getByTestId("live-polite")).toHaveTextContent("1 theme below.")
     );
-    expect(within(panel()).getByText(/Amr wasn't available/)).toBeInTheDocument();
+    // The no-AI path was chosen, not an outage: no "Amr wasn't available".
+    expect(within(panel()).getByText(/retros \(without AI\)\./)).toBeInTheDocument();
+    expect(within(panel()).queryByText(/Amr wasn't available/)).toBeNull();
     expect(within(panel()).getByText("staging")).toBeInTheDocument();
-    fireEvent.click(within(panel()).getByRole("button", { name: "Show the shared words instead" }));
-    expect(within(panel()).getByRole("button", { name: "Show Amr's themes" })).toBeInTheDocument();
+    // Both views would be the same shared words: no switch between them.
+    expect(within(panel()).queryByRole("button", { name: /shared words instead/ })).toBeNull();
+    expect(within(panel()).queryByRole("button", { name: "Show Amr's themes" })).toBeNull();
   });
 
   it("reads Amr's themes back through the short ids, keeping only those across three retros", async () => {
