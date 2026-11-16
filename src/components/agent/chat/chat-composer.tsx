@@ -23,10 +23,12 @@
  *            a held key's repeats, and any press within SWAP_GUARD_MS of a
  *            swap, so a double press meant for Send never stops the answer it
  *            started, and one meant for Stop never sends the draft.
- *   mic      when the chat hands one in (`mic`): the owner's DictateButton
- *            (chat/dictate-button, kept out of this file so the visitor's
- *            chat doesn't carry dictation it can't use without asking first).
- *            Below 360 px wide it moves to the box's leading side.
+ *   mic      when the chat hands one in (`mic`): chat/dictate-button's
+ *            DictateButton, the owner's as it is and a visitor's asking
+ *            first (visitor-agent-panel's VisitorDictate). Below 360 px wide
+ *            it moves to the box's leading side. What it shows under the
+ *            row (a visitor's voice notice, through `show`) sits between the
+ *            row and the status line.
  *   status   the status row: a note span, its only live part, polite ("Amr
  *            dances" after a chat command, "Listening…", "Cut to 2,000
  *            characters" after a long paste, a dictation error); then, never
@@ -122,6 +124,8 @@ export interface ComposerMicProps {
   put(text: string): void;
   /** Show a note in the status row; null takes away one the mic showed. */
   onNote(note: string | null): void;
+  /** Show this under the box's row (a visitor's voice notice); null takes it away. */
+  show(node: ReactNode): void;
 }
 
 export interface ChatComposerProps {
@@ -197,6 +201,8 @@ export function ChatComposer({
   const [note, setNote] = useState<Note | null>(null);
   // False while Amr's Scenes view covers the chat (mounted, hidden).
   const visible = useChatVisible();
+  // What the mic shows under the row (a visitor's voice notice).
+  const [micShows, setMicShows] = useState<ReactNode>(null);
 
   useAutosize(boxRef, draft);
   useInitialFocus(boxRef, visible);
@@ -342,7 +348,7 @@ export function ChatComposer({
         />
         {Mic && (
           <span className="flex shrink-0 empty:hidden max-[359px]:order-first">
-            <Mic draft={micDraft} put={micPut} onNote={micNote} />
+            <Mic draft={micDraft} put={micPut} onNote={micNote} show={setMicShows} />
           </span>
         )}
         <Button
@@ -367,6 +373,7 @@ export function ChatComposer({
           {busy ? <Square aria-hidden="true" /> : <Send aria-hidden="true" />}
         </Button>
       </form>
+      {micShows}
       <ChatStatus busy={busy} />
       <p
         data-composer-status=""

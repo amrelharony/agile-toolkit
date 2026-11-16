@@ -14,10 +14,11 @@
  *   words    added after what the box held when it started (joinDictation),
  *            never in its place, and cut to the box's limit by the composer.
  *   busy     usable while Amr answers: the box stays editable then too.
- *
- * Handed to the composer by the owner's chat only, so a visitor's chat
- * doesn't carry dictation it may not use before saying yes to it (browser
- * dictation may send the audio to the browser's maker).
+ *   ask      when given, asked before it starts listening, with the start
+ *            to call once the reader says yes: a visitor's chat asks first
+ *            (visitor-agent-panel's VisitorDictate and its voice notice),
+ *            since browser dictation may send the audio to the browser's
+ *            maker. The owner's chat hands it in as it is.
  *
  * Runtime parts, so this lives in chat/, which every-page code may not reach
  * (test/agent/bundle-boundary.test.ts).
@@ -35,8 +36,17 @@ export const DICTATE_LABEL = "Dictate";
 /** The status row's note while it listens. */
 export const LISTENING_NOTE = "Listening…";
 
+export interface DictateButtonProps extends ComposerMicProps {
+  /**
+   * Asked on a press that would start listening: call `start` once the
+   * reader has said yes (`mic` is this button, for focus to come back to).
+   * Without it, a press starts at once.
+   */
+  ask?(start: () => void, mic: HTMLButtonElement): void;
+}
+
 /** The mic: see the file comment. */
-export function DictateButton({ draft, put, onNote }: ComposerMicProps) {
+export function DictateButton({ draft, put, onNote, ask }: DictateButtonProps) {
   // The box's text when dictation started: what it hears goes after this.
   const before = useRef("");
   const voice = useVoiceInput((heard) => put(joinDictation(before.current, heard)));
@@ -56,10 +66,15 @@ export function DictateButton({ draft, put, onNote }: ComposerMicProps) {
       aria-pressed={listening}
       title={listening ? "Stop dictating" : DICTATE_LABEL}
       data-chat-mic=""
-      onClick={() => {
+      onClick={(e) => {
         if (listening) return voice.stop();
-        before.current = draft();
-        voice.start();
+        // What the box holds as it starts, which may be after a yes.
+        const start = () => {
+          before.current = draft();
+          voice.start();
+        };
+        if (ask) ask(start, e.currentTarget);
+        else start();
       }}
       className={cn(listening && "border-accent text-accent")}
     >

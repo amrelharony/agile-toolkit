@@ -29,7 +29,10 @@
  * lib/agent/visitor-starters); a starter fills the message box and never
  * sends, so it spends nothing. The composer is the one both chats share
  * (chat/chat-composer), with the visitor's limit on a message's length, a
- * counter near it, and the allowance in its status row.
+ * counter near it, and the allowance in its status row. Its mic asks first
+ * (VisitorDictate): browser dictation may send the audio to the browser's
+ * maker, so the first press shows the voice notice (./voice-notice, loaded
+ * only then), and only "Use voice" starts it.
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone, never
@@ -49,8 +52,10 @@ import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import { formatPeakTime, peakWindow } from "@/lib/visitor-ai/peak";
 import { cn } from "@/lib/utils";
-import { ChatComposer } from "../chat/chat-composer";
+import { hasVoiceConsent, storeVoiceConsent } from "@/lib/agent/mascot/voice-consent";
+import { ChatComposer, type ComposerMicProps } from "../chat/chat-composer";
 import { ChatProvider } from "../chat/chat-context";
+import { DictateButton } from "../chat/dictate-button";
 import { ChatEmpty } from "../chat/chat-empty";
 import { ThinkingItemView } from "../chat/chat-items";
 import { ChatNotice } from "../chat/chat-notice";
@@ -112,6 +117,56 @@ function subscribeStartingTurn(listener: () => void): () => void {
 }
 
 const turnStarting = () => startingTurn !== null;
+
+/** Said when the voice notice can't load: dictation didn't start. */
+export const VOICE_NOTICE_LOAD_ERROR = "Voice couldn't load. Check your connection and try again.";
+
+let voiceNotice: Promise<typeof import("./voice-notice")> | null = null;
+
+/** The voice notice, loaded on the first press of the mic that needs it. */
+function loadVoiceNotice() {
+  voiceNotice ??= import("./voice-notice").catch((err: unknown) => {
+    // A failed chunk load may succeed on the next press.
+    voiceNotice = null;
+    throw err;
+  });
+  return voiceNotice;
+}
+
+/** A new key for each notice shown, so a press while one shows brings it focus again. */
+let noticeShown = 0;
+
+/**
+ * The visitor's mic: the owner's DictateButton, asking first. Browser
+ * dictation may send the audio to the browser's maker, so until this browser
+ * said "Use voice" (lib/agent/mascot/voice-consent), a press shows the voice
+ * notice under the box's row (./voice-notice, loaded only then) and starts
+ * nothing. Either choice hands focus back to the mic; "Use voice" remembers
+ * the yes and starts dictation.
+ */
+function VisitorDictate(props: ComposerMicProps) {
+  const { show, onNote } = props;
+  const ask = (start: () => void, mic: HTMLButtonElement) => {
+    if (hasVoiceConsent()) return start();
+    loadVoiceNotice().then(
+      ({ VoiceNotice }) =>
+        show(
+          <VoiceNotice
+            key={++noticeShown}
+            onChoose={(yes) => {
+              show(null);
+              mic.focus();
+              if (!yes) return;
+              storeVoiceConsent();
+              start();
+            }}
+          />
+        ),
+      () => onNote(VOICE_NOTICE_LOAD_ERROR)
+    );
+  };
+  return <DictateButton {...props} ask={ask} />;
+}
 
 /** The current time, refreshed every `ms`. */
 function useNow(ms: number): Date {
@@ -305,6 +360,7 @@ export default function VisitorAgentPanel({
       maxLength={VISITOR_LIMITS.userChars}
       tool={tool?.name}
       takeFocus={takeFocus}
+      mic={VisitorDictate}
       // In the status row, never live; it waits while the panel is compact.
       status={
         <span data-testid="visitor-ai-quota">

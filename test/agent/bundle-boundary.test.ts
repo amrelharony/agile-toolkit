@@ -651,16 +651,51 @@ describe("the chat strip (chat/)", () => {
     expect(closure([OWNER_CHAT]).files.has(commands)).toBe(true);
   });
 
-  it("keeps the owner's dictation out of the visitor's chat: only the owner's chat hands the composer a mic", () => {
+  it("hands both chats the mic, and keeps it off every page", () => {
+    const ownerChat = closure([OWNER_CHAT]);
     for (const file of [
       `${CHAT_DIR}dictate-button.tsx`,
       "src/lib/agent/mascot/use-voice-input.ts",
     ]) {
-      expect(closure([OWNER_CHAT]).files.has(file), `the owner's chat reaches ${file}`).toBe(true);
-      expect(visitorChat.files.has(file), `the visitor's chat never reaches ${file}`).toBe(false);
+      expect(ownerChat.files.has(file), `the owner's chat reaches ${file}`).toBe(true);
+      expect(visitorChat.files.has(file), `the visitor's chat reaches ${file}`).toBe(true);
       expect(everyPage.files.has(file), `${file} stays off every page`).toBe(false);
+      expect(staticShell.files.has(file), `${file} stays out of the static shell`).toBe(false);
     }
     expect(staticTargets(OWNER_CHAT)).toContain(`${CHAT_DIR}dictate-button.tsx`);
+    expect(staticTargets(VISITOR_CHAT)).toContain(`${CHAT_DIR}dictate-button.tsx`);
+  });
+
+  it("loads a visitor's voice notice only on a press of the mic: a dynamic import, from the visitor's chat alone", () => {
+    const notice = "src/components/agent/mascot/voice-notice.tsx";
+    const consent = "src/lib/agent/mascot/voice-consent.ts";
+    expect(isFile(path.join(ROOT, notice)), `${notice} exists`).toBe(true);
+    // Not in the visitor's chat chunk: the mic's handler imports it.
+    expect(visitorChat.files.has(notice), "the visitor's chat chunk never carries it").toBe(false);
+    expect(lazyTargets(VISITOR_CHAT)).toContain(notice);
+    // Nowhere else, statically or lazily: the owner never downloads it.
+    const ownerChat = closure([OWNER_CHAT]);
+    const anyRoot = [everyPage, mascotChunk, staticShell, visitorPanel, ownerChat];
+    for (const c of anyRoot) expect(c.files.has(notice)).toBe(false);
+    const loaders = new Set([
+      ...Array.from(everyPage.files.keys()),
+      ...Array.from(visitorPanel.files.keys()),
+      ...Array.from(visitorChat.files.keys()),
+      ...Array.from(ownerChat.files.keys()),
+    ]);
+    const lazyFrom = Array.from(loaders).filter((file) => lazyTargets(file).includes(notice));
+    expect(lazyFrom).toEqual([VISITOR_CHAT]);
+    // Its words come from their own module, with no imports, not through
+    // disclosures.ts: that one rides in chunks the comics pages and the tool
+    // finder load, which would then carry the text too.
+    const words = "src/lib/site/voice-disclosure.ts";
+    expect(staticTargets(notice)).toContain(words);
+    expect(staticTargets(notice)).not.toContain("src/lib/site/disclosures.ts");
+    expect(staticTargets(words)).toEqual([]);
+    // The yes it asks for is the visitor's chat's to keep: the owner's never asks.
+    expect(staticTargets(VISITOR_CHAT)).toContain(consent);
+    expect(ownerChat.files.has(consent), "the owner's chat never reaches it").toBe(false);
+    expect(everyPage.files.has(consent), `${consent} stays off every page`).toBe(false);
   });
 
   it("keeps the owner's step Details out of the visitor's chat: only the owner's chat imports it", () => {
