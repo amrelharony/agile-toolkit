@@ -195,13 +195,20 @@ describe("keys", () => {
     expect(draft()).toBe("日本");
   });
 
-  it("sends once for a held Enter", () => {
+  it("sends once for a held Enter: its repeats are cancelled, so no blank lines either", () => {
     render(<Composer />);
     type("once");
     fireEvent.keyDown(box(), { key: "Enter" });
+    // The box it just emptied: a repeat types no new line into it.
+    expect(fireEvent.keyDown(box(), { key: "Enter", repeat: true })).toBe(false);
+    expect(draft()).toBe("");
     type("twice?");
-    fireEvent.keyDown(box(), { key: "Enter", repeat: true });
+    expect(fireEvent.keyDown(box(), { key: "Enter", repeat: true })).toBe(false);
+    expect(fireEvent.keyDown(box(), { key: "Enter", ctrlKey: true, repeat: true })).toBe(false);
     expect(h.onSend).toHaveBeenCalledTimes(1);
+    expect(draft()).toBe("twice?");
+    // A held Shift+Enter is still the box's own new line.
+    expect(fireEvent.keyDown(box(), { key: "Enter", shiftKey: true, repeat: true })).toBe(true);
   });
 
   it("says the keys on a fine pointer only, and the chat's own words after them", () => {

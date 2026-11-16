@@ -284,9 +284,10 @@ export function ChatComposer({
       },
       onTouchScreen(e.currentTarget.ownerDocument) ? "coarse" : "fine"
     );
-    if (action !== "send") return;
+    // A held sending key's repeats are cancelled too: no second send, no blank lines.
+    if (action !== "send" && action !== "ignore") return;
     e.preventDefault();
-    send(false);
+    if (action === "send") send(false);
   };
 
   // A paste longer than the room left is cut by the box itself: say so.

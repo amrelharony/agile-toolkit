@@ -1,8 +1,8 @@
 /**
  * The message box's keys (design 1.3 item 8): bare Enter sends only with a
  * fine pointer, Ctrl/Cmd+Enter always sends, Shift+Enter and a touch
- * screen's Enter make a new line, and nothing sends while an input method is
- * composing or while a sending key is held down.
+ * screen's Enter make a new line, nothing sends while an input method is
+ * composing, and a sending key held down sends once, its repeats ignored.
  */
 
 import { describe, expect, it } from "vitest";
@@ -63,10 +63,10 @@ describe("composerKey", () => {
     }
   );
 
-  it("sends once for a held key: its repeats send nothing more", () => {
-    expect(composerKey(enter({ repeat: true }), "fine")).toBeNull();
-    expect(composerKey(enter({ repeat: true, ctrlKey: true }), "coarse")).toBeNull();
-    expect(composerKey(enter({ repeat: true, metaKey: true }), "fine")).toBeNull();
+  it("sends once for a held key: its repeats are ignored, neither sent nor typed as new lines", () => {
+    expect(composerKey(enter({ repeat: true }), "fine")).toBe("ignore");
+    expect(composerKey(enter({ repeat: true, ctrlKey: true }), "coarse")).toBe("ignore");
+    expect(composerKey(enter({ repeat: true, metaKey: true }), "fine")).toBe("ignore");
   });
 
   it("keeps a held new line a new line", () => {

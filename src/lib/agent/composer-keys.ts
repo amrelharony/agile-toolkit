@@ -11,16 +11,18 @@
  *            says "new line" there (the box's enterKeyHint is "enter"): the
  *            Send button sends. The box takes the line as it would anyway, so
  *            the composer leaves the event alone.
+ *   ignore   the repeats of a held press that sends: the first keydown sends,
+ *            its repeats do nothing (as the Send button ignores activations
+ *            with `repeat` set). The composer calls preventDefault on them and
+ *            sends nothing, so holding the key down never sends twice, nor
+ *            types blank lines into the box it just emptied. A held
+ *            Shift+Enter, or a touch screen's held Enter, stays `newline`.
  *   null     anything else, which the composer leaves alone too: another key;
  *            every key while an input method is composing (isComposing, or
  *            keyCode 229, which Safari sends for the Enter that ends a
  *            composition after its compositionend), so a half-converted
  *            Japanese, Chinese or Korean word, or an Android keyboard's word,
- *            is never sent; and the repeats of a held press that sends: the
- *            first keydown sends, its repeats send nothing more (as the Send
- *            button ignores activations with `repeat` set), so holding the
- *            key down never sends twice. The box types what a held key types,
- *            as it does for any key held down.
+ *            is never sent.
  *
  * The pointer is read as the key comes (chat-context onTouchScreen), not when
  * the box renders, so plugging a keyboard or a mouse in is picked up and
@@ -31,7 +33,7 @@
  */
 
 /** What a press means in the message box: see the top of this file. */
-export type ComposerKeyAction = "send" | "newline" | null;
+export type ComposerKeyAction = "send" | "newline" | "ignore" | null;
 
 /** The pointer the reader has: a mouse or a trackpad (`fine`), or a finger (`coarse`). */
 export type PointerKind = "fine" | "coarse";
@@ -59,5 +61,5 @@ export function composerKey(press: ComposerKeyPress, pointer: PointerKind): Comp
   if (press.key !== "Enter") return null;
   const sends = !!(press.ctrlKey || press.metaKey) || (!press.shiftKey && pointer === "fine");
   if (!sends) return "newline";
-  return press.repeat ? null : "send";
+  return press.repeat ? "ignore" : "send";
 }
