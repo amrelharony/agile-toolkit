@@ -27,8 +27,11 @@ const toastSpy = vi.hoisted(() =>
   Object.assign(vi.fn(), { dismiss: vi.fn(), error: vi.fn(), success: vi.fn() })
 );
 vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
+const logs = vi.hoisted(() => [] as { action: string; payload?: Record<string, unknown> }[]);
 vi.mock("@/lib/history/use-history-logger", () => ({
-  useHistoryLogger: () => ({ log: () => {} }),
+  useHistoryLogger: () => ({
+    log: (action: string, payload?: Record<string, unknown>) => logs.push({ action, payload }),
+  }),
 }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
@@ -105,6 +108,7 @@ const run = <T,>(verb: string, params: Record<string, unknown> = {}) => {
 
 beforeEach(() => {
   toastSpy.mockReset();
+  logs.length = 0;
   seed();
 });
 
@@ -332,6 +336,28 @@ describe("a card", () => {
     fireEvent.change(result, { target: { value: " " } });
     fireEvent.blur(result);
     expect(one("d")).not.toHaveProperty("actual");
+  });
+
+  it("logs a measured result as recorded and a cleared one apart, so Amr answers only a value", () => {
+    seed(
+      hyp("d", {
+        believe: "fewer days",
+        status: "running",
+        target: { direction: "decrease", value: 3, unit: "days" },
+        actual: 4,
+      })
+    );
+    renderPage();
+    const result = () => within(card("fewer days")).getByLabelText(/^Measured result/);
+    fireEvent.change(result(), { target: { value: "2" } });
+    fireEvent.blur(result());
+    fireEvent.change(result(), { target: { value: "" } });
+    fireEvent.blur(result());
+    expect(one("d")).not.toHaveProperty("actual");
+    expect(logs).toEqual([
+      { action: "result_recorded", payload: { hypothesisId: "d", actual: 2 } },
+      { action: "result_cleared", payload: { hypothesisId: "d" } },
+    ]);
   });
 
   it("keeps a hand-off draft drafted until what we'll do and the metric are in", () => {

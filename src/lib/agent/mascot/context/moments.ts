@@ -9,6 +9,7 @@
  * sunset with the iftar scenes.
  */
 
+import { COMPANION_SCENES, EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
 import { occasionsOn, OCCASION_PRIORITY, type OccasionId } from "./occasions";
 import { CAIRO, sunTimes } from "./sun";
 import { toolForPath } from "./tool-scenes";
@@ -146,11 +147,29 @@ export function pagePastimes(path: string): string[] {
 }
 
 /**
+ * Where the stories are read: /comics?ep=NN and /comics/early?ep=NN (the
+ * middleware rewrites them to their pages, so the address keeps this path, and
+ * the list and its stories share it).
+ */
+const STORY_PATHS: readonly string[] = ["/comics", "/comics/early"];
+
+/**
  * Scenes a page loads ahead, because they play the moment something happens
- * there: on the comics, the idea he takes from a story read to its end.
+ * there: on the comics, the idea he takes from a story read to its end; where
+ * stories are read, the guess and a first love or Seen answer; a flashcard's
+ * lesson, a guestbook note taken in, Which Colleague's answer, a Squad Session
+ * started. A share and a reading milestone are rarer, so their packs load when
+ * they happen (a plain pose stands in for that moment, then the scene plays whole).
  */
 export function pagePreloads(path: string): string[] {
-  return onPage(path, "/comics") ? ["comic"] : [];
+  const out: string[] = [];
+  if (onPage(path, "/comics")) out.push(COMPANION_SCENES.storyRead);
+  if (STORY_PATHS.includes(path)) out.push(EVENT_SCENES.guess, EVENT_SCENES.feedback);
+  if (onPage(path, "/comics/flashcards")) out.push(EVENT_SCENES.flashcard);
+  if (onPage(path, "/comics/guestbook")) out.push(EVENT_SCENES.guestbook);
+  if (onPage(path, "/which-colleague")) out.push(EVENT_SCENES.colleague);
+  if (onPage(path, "/squad-session")) out.push(EVENT_SCENES.squadKit);
+  return out;
 }
 
 /** Scenes he plays to pass the time when the visitor is idle, whatever the day. */

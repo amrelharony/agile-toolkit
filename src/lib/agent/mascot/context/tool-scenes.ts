@@ -14,7 +14,11 @@
  * S65 on). A scene plays only once its sheet has been drawn and built into a pack
  * (shippedScene), so rows can name scenes before their art exists. The More tools
  * shelf's come from the expansion's tool lab (docs/mascot/expansion-sheets.json,
- * X025–X056), each bound only where docs/mascot/expansion-triggers.md says. Pure data.
+ * X025–X056), each bound only where docs/mascot/expansion-triggers.md says. Nine
+ * cast encounters (X085–X104) play on the very action their trigger names, and
+ * never greet: six beside the scene that action already plays, one picked at
+ * random, and three (X097, X103, X104) as the only scene of an action no other
+ * scene answers. Pure data.
  */
 
 export interface ToolScenes {
@@ -111,7 +115,7 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   {
     toolId: "retro-actions",
     open: ["todo"],
-    actions: { action_done: ["todo.done"], action_added: ["todo.take"] },
+    actions: { action_done: ["todo.done", "x100"], action_added: ["todo.take"] },
   },
   {
     toolId: "premortem",
@@ -185,7 +189,7 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   {
     toolId: "dod-builder",
     open: ["done"],
-    actions: { criterion_toggled: ["done.stamp"], criterion_added: ["done.tick"] },
+    actions: { criterion_toggled: ["done.stamp"], criterion_added: ["done.tick", "x085"] },
   },
   {
     toolId: "skills-matrix",
@@ -275,10 +279,18 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: ["nps"],
     actions: { responses_imported: ["nps.read"], survey_added: ["nps.card"] },
   },
+  // A measured result committed against the target is X097's evidence check; it claims no
+  // verdict (validated and invalidated are moments of their own). A result cleared from the
+  // field is logged apart (result_cleared), which nothing here answers.
   {
     toolId: "hypothesis-tracker",
     open: ["lab"],
-    actions: { hypothesis_added: ["lab.pour"], validated: ["lab.yes"], invalidated: ["lab.no"] },
+    actions: {
+      hypothesis_added: ["lab.pour"],
+      result_recorded: ["x097"],
+      validated: ["lab.yes"],
+      invalidated: ["lab.no"],
+    },
   },
   {
     toolId: "user-interviews",
@@ -290,10 +302,12 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: ["tree"],
     actions: { node_added: ["tree.grow"], experiment_sent: ["tree.share"] },
   },
+  // A test created hasn't run: X095 stops before its cart crosses. test_generated, logged in
+  // the same handler, stays unbound, so the test created is what he answers.
   {
     toolId: "riskiest-assumption",
     open: ["assume"],
-    actions: { assumption_added: ["assume.doubt"], test_created: ["assume.test"] },
+    actions: { assumption_added: ["assume.doubt"], test_created: ["assume.test", "x095.setup"] },
   },
   // Quality and risk
   {
@@ -304,12 +318,17 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   {
     toolId: "tech-debt",
     open: ["debt"],
-    actions: { item_added: ["debt.pile"], item_resolved: ["debt.clean"] },
+    actions: { item_added: ["debt.pile"], item_resolved: ["debt.clean", "x099"] },
   },
+  // A test the visitor marks fixed (X090, the repair) or quarantined (X103, set aside safely).
   {
     toolId: "flaky-tests",
     open: ["flaky"],
-    actions: { test_added: ["flaky.wobble"], test_fixed: ["flaky.fixed"] },
+    actions: {
+      test_added: ["flaky.wobble"],
+      test_fixed: ["flaky.fixed", "x090"],
+      test_quarantined: ["x103"],
+    },
   },
 
   // ── Tools that borrow a tool sheet's scenes ──
@@ -340,7 +359,7 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: ["gavel"],
     actions: { decision_added: ["gavel.record"], decision_decided: ["gavel.bang"] },
   },
-  { toolId: "async-standup", open: [], actions: { update_posted: ["timer.standup"] } },
+  { toolId: "async-standup", open: [], actions: { update_posted: ["timer.standup", "x094"] } },
   // wall_saved has no scene: the same tick cheers ("audience-wall", "result").
   { toolId: "audience-wall", open: [], actions: { themes_accepted: ["sticky.think"] } },
   // Amr thinks along while the team asks why or lays out causes.
@@ -513,7 +532,12 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   },
   { toolId: "velocity", open: [], actions: { sprint_closed: ["ship"] } },
   { toolId: "sprint", open: [], actions: { sprint_closed: ["ship"] } },
-  { toolId: "sprint-planning", open: [], actions: { sprint_committed: ["ship.rocket"] } },
+  // A closed sprint's leftovers sent back to the backlog: off the carry-over loop (X104).
+  {
+    toolId: "sprint-planning",
+    open: [],
+    actions: { sprint_committed: ["ship.rocket"], stories_returned: ["x104"] },
+  },
   { toolId: "kudos", open: [], actions: { kudos_sent: ["kudos"] } },
 ];
 

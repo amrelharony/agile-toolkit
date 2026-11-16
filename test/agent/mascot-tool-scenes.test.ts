@@ -7,11 +7,16 @@
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import spec from "../../docs/mascot/context-sheets.json";
 import expansion from "../../docs/mascot/expansion-sheets.json";
 import * as catalogs from "@/lib/history/event-actions";
+import { useHistoryStore } from "@/lib/history/history-store";
 import { tools } from "@/lib/constants/tools";
+import { useMascotStore } from "@/lib/agent/mascot/store";
+import { installToolReactions, sceneForEvent } from "@/lib/agent/mascot/use-tool-reactions";
+import { __resetCelebrationReactionsForTests } from "@/lib/agent/mascot/use-celebration-reactions";
+import { shippedScene } from "@/components/agent/mascot/engine/sprite-poses";
 import {
   EMITTED,
   TOOL_SCENES,
@@ -218,6 +223,149 @@ describe("the tool table", () => {
       expect(SCENES[name].loop, name).toBeUndefined();
       expect(SCENES[name].fallback, name).not.toBe("review");
     }
+  });
+});
+
+describe("the cast encounters in the tool table", () => {
+  /** Each bound cast encounter: its tool, the very action its trigger names, and the row's list. */
+  const CAST: Array<[string, string, readonly string[]]> = [
+    ["dod-builder", "criterion_added", ["done.tick", "x085"]],
+    ["flaky-tests", "test_fixed", ["flaky.fixed", "x090"]],
+    ["async-standup", "update_posted", ["timer.standup", "x094"]],
+    ["riskiest-assumption", "test_created", ["assume.test", "x095.setup"]],
+    ["hypothesis-tracker", "result_recorded", ["x097"]],
+    ["tech-debt", "item_resolved", ["debt.clean", "x099"]],
+    ["retro-actions", "action_done", ["todo.done", "x100"]],
+    ["flaky-tests", "test_quarantined", ["x103"]],
+    ["sprint-planning", "stories_returned", ["x104"]],
+  ];
+  const cast = expansion.sheets.filter((s) => s.family === "cast").map((s) => s.pack);
+
+  it("sit beside the scene each action already plays, on that action alone", () => {
+    for (const [tool, action, scenes] of CAST) {
+      expect(toolActionScenes(tool, action), `${tool}: ${action}`).toEqual(scenes);
+    }
+    const bound = TOOL_SCENES.flatMap((t) =>
+      Object.entries(t.actions).flatMap(([action, scenes]) =>
+        scenes.filter((s) => cast.includes(packOf(s))).map((s) => `${t.toolId}:${action}:${s}`)
+      )
+    );
+    expect(bound.sort()).toEqual(
+      CAST.map(([tool, action, scenes]) => `${tool}:${action}:${scenes.at(-1)}`).sort()
+    );
+  });
+
+  it("never greet: opening a tool isn't a cast encounter", () => {
+    for (const t of TOOL_SCENES) {
+      expect(
+        t.open.filter((s) => cast.includes(packOf(s))),
+        t.toolId
+      ).toEqual([]);
+    }
+  });
+
+  it("are picked at random with the scene already there, once shipped", () => {
+    const all = () => true;
+    for (const [tool, action, scenes] of CAST) {
+      const picked = new Set([0, 0.99].map((r) => sceneForEvent(tool, action, all, () => r)));
+      expect(picked, `${tool}: ${action}`).toEqual(new Set(scenes));
+      for (const s of scenes) expect(shippedScene(s), s).toBeDefined();
+    }
+    // Before a cast pack ships, the action keeps the scene it had.
+    expect(
+      sceneForEvent(
+        "tech-debt",
+        "item_resolved",
+        (s) => s !== "x099",
+        () => 0.99
+      )
+    ).toBe("debt.clean");
+  });
+
+  it("leave a result cleared from the field alone: only a value recorded is X097's check", () => {
+    expect(toolActionScenes("hypothesis-tracker", "result_cleared")).toEqual([]);
+    expect(
+      sceneForEvent(
+        "hypothesis-tracker",
+        "result_cleared",
+        () => true,
+        () => 0
+      )
+    ).toBeNull();
+  });
+
+  it("answer a test created, never the test_generated logged in the same handler", () => {
+    expect(toolActionScenes("riskiest-assumption", "test_generated")).toEqual([]);
+    // X095 stops on its sixth beat: the spacer fitted, before the untested cart crosses.
+    expect(SCENES["x095.setup"].steps.map((st) => st.f)).toEqual(
+      ["1", "2", "3", "4", "5", "6"].map((b) => `x095.${b}`)
+    );
+  });
+
+  describe("as the tool logs them", () => {
+    let uninstall: () => void;
+    const queue = () => useMascotStore.getState().reactionQueue;
+    let n = 0;
+    const log = (toolId: string, action: string) => {
+      n += 1;
+      useHistoryStore.getState().addEvent({
+        id: `cast-${n}`,
+        clientEventId: `cast-${n}`,
+        clientId: "c",
+        toolRunId: "r",
+        userId: null,
+        toolId,
+        action,
+        payload: {},
+        isMilestone: false,
+        occurredAt: new Date().toISOString(),
+        syncedAt: null,
+      });
+    };
+
+    beforeEach(() => {
+      useHistoryStore.setState({ events: [] });
+      useMascotStore.getState().reset();
+      useMascotStore.getState().setReady(true);
+      __resetCelebrationReactionsForTests();
+      uninstall = installToolReactions(
+        (s) => shippedScene(s) !== undefined,
+        () => 0.99
+      );
+    });
+    afterEach(() => {
+      uninstall();
+      useHistoryStore.setState({ events: [] });
+      useMascotStore.getState().reset();
+    });
+
+    it("plays the encounter on its action", async () => {
+      log("flaky-tests", "test_quarantined");
+      await Promise.resolve();
+      expect(queue()).toEqual(["scene:x103"]);
+    });
+
+    it("plays the test created over the test generated logged in the same tick", async () => {
+      log("riskiest-assumption", "test_generated");
+      log("riskiest-assumption", "test_created");
+      await Promise.resolve();
+      expect(queue()).toEqual(["scene:x095.setup"]);
+    });
+
+    it("plays X097 on a result recorded, never on one cleared", async () => {
+      log("hypothesis-tracker", "result_cleared");
+      await Promise.resolve();
+      expect(queue().filter((r) => r.startsWith("scene:x"))).toEqual([]);
+      log("hypothesis-tracker", "result_recorded");
+      await Promise.resolve();
+      expect(queue().filter((r) => r.startsWith("scene:x"))).toEqual(["scene:x097"]);
+    });
+
+    it("leaves a reopened or edited item to its pose", async () => {
+      log("retro-actions", "action_reopened");
+      await Promise.resolve();
+      expect(queue().filter((r) => r.startsWith("scene:x"))).toEqual([]);
+    });
   });
 });
 

@@ -6,6 +6,8 @@ import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { playEventScene } from "@/lib/agent/mascot/event-scenes";
 import type { CastCard } from "@/lib/vip/cast";
 import {
   closestColleague,
@@ -49,6 +51,9 @@ export function WhichColleagueClient({
       if (name) {
         setRound((r) => [...r, name]);
         announce(`${game.resultLead} ${name}.`);
+        // The last answer in: Amr fits the shapes to their places (X005). Each
+        // person's answer, a whole round of questions apart.
+        playEventScene(EVENT_SCENES.colleague);
       }
     }
   };

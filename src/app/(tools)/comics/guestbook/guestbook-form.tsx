@@ -5,6 +5,8 @@ import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { playEventScene } from "@/lib/agent/mascot/event-scenes";
 import {
   EMPTY_GUESTBOOK_DRAFT,
   GUESTBOOK_LIMITS,
@@ -51,6 +53,9 @@ export function GuestbookForm() {
       }
       form.reset();
       setStatus("sent");
+      // Taken in to wait for Amr's approval, not shown yet: he writes his note and
+      // caps the pen, but doesn't present the page (x016.sent).
+      playEventScene(EVENT_SCENES.guestbook);
     } catch {
       setStatus("failed");
     }
@@ -67,48 +72,55 @@ export function GuestbookForm() {
   const { draft, update, errors } = form;
 
   return (
-    <ItemForm form={form} submitLabel={status === "sending" ? "Sending..." : "Sign the guestbook"}>
-      <Field label="Your name" hint="Shown with your note." required error={errors.name}>
-        {(props) => (
-          <Input
-            {...props}
-            autoComplete="nickname"
-            maxLength={GUESTBOOK_LIMITS.name}
-            value={draft.name}
-            onChange={(e) => update({ name: e.target.value })}
-          />
-        )}
-      </Field>
-      <Field label="Your note" required error={errors.message}>
-        {(props) => (
-          <Textarea
-            {...props}
-            rows={4}
-            maxLength={GUESTBOOK_LIMITS.message}
-            value={draft.message}
-            onChange={(e) => update({ message: e.target.value })}
-          />
-        )}
-      </Field>
+    // Amr answers this form's outcome himself, once the server has taken the note,
+    // so its submit gets no fist pump first (engine/interactions/page.ts).
+    <div data-mascot-outcome="">
+      <ItemForm
+        form={form}
+        submitLabel={status === "sending" ? "Sending..." : "Sign the guestbook"}
+      >
+        <Field label="Your name" hint="Shown with your note." required error={errors.name}>
+          {(props) => (
+            <Input
+              {...props}
+              autoComplete="nickname"
+              maxLength={GUESTBOOK_LIMITS.name}
+              value={draft.name}
+              onChange={(e) => update({ name: e.target.value })}
+            />
+          )}
+        </Field>
+        <Field label="Your note" required error={errors.message}>
+          {(props) => (
+            <Textarea
+              {...props}
+              rows={4}
+              maxLength={GUESTBOOK_LIMITS.message}
+              value={draft.message}
+              onChange={(e) => update({ message: e.target.value })}
+            />
+          )}
+        </Field>
 
-      {/* A trap for bots: hidden from people and from screen readers. */}
-      <div aria-hidden="true" className="sr-only">
-        <label>
-          Leave this field empty
-          <input ref={honeypot} type="text" name="website" tabIndex={-1} autoComplete="off" />
-        </label>
-      </div>
+        {/* A trap for bots: hidden from people and from screen readers. */}
+        <div aria-hidden="true" className="sr-only">
+          <label>
+            Leave this field empty
+            <input ref={honeypot} type="text" name="website" tabIndex={-1} autoComplete="off" />
+          </label>
+        </div>
 
-      {status === "sent" ? (
-        <p role="status" className="text-sm font-medium text-text">
-          Thanks for your note. It will appear here once Amr has read it.
-        </p>
-      ) : null}
-      {FAILURE[status] ? (
-        <p role="alert" className="text-sm text-danger">
-          {FAILURE[status]}
-        </p>
-      ) : null}
-    </ItemForm>
+        {status === "sent" ? (
+          <p role="status" className="text-sm font-medium text-text">
+            Thanks for your note. It will appear here once Amr has read it.
+          </p>
+        ) : null}
+        {FAILURE[status] ? (
+          <p role="alert" className="text-sm text-danger">
+            {FAILURE[status]}
+          </p>
+        ) : null}
+      </ItemForm>
+    </div>
   );
 }

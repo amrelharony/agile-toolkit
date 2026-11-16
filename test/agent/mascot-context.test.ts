@@ -358,10 +358,11 @@ describe("installContextSenses", () => {
     path = "/impediments";
     c.check();
     expect(wanted[2]).toEqual(["blocker"]);
-    // The comics load the idea he takes from a story read to its end.
+    // The comics load the idea he takes from a story read to its end, and (stories
+    // are read at /comics?ep=NN) the reader's guess and first feedback.
     path = "/comics";
     c.check();
-    expect(wanted[3]).toEqual(["comic"]);
+    expect(wanted[3]).toEqual(["comic", "x018", "x017"]);
     // A page with no tool loads nothing more.
     path = "/settings";
     c.check();

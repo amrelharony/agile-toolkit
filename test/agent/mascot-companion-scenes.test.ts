@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, renderHook } from "@testing-library/react";
 import { create } from "zustand";
 import spec from "../../docs/mascot/companion-scenes.json";
 import contextSpec from "../../docs/mascot/context-sheets.json";
@@ -6,6 +7,7 @@ import { FRAMES, PACKS, type PackId } from "@/components/agent/mascot/mascot-pac
 import { clipFrames, type FrameRef } from "@/components/agent/mascot/engine/clips";
 import {
   COMPANION_SCENES,
+  EVENT_SCENES,
   HOLD_SCENES,
   SCENES,
   sceneHold,
@@ -41,6 +43,8 @@ import {
   troubleRecent,
 } from "@/lib/agent/mascot/companion";
 import { quietChange, watchQuiet } from "@/lib/agent/mascot/use-quiet-companion";
+import { isMute, watchMute } from "@/lib/agent/mascot/use-mute-scene";
+import { playEventScene, useVisitOnce } from "@/lib/agent/mascot/event-scenes";
 import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
 import {
   PAGE_PASTIMES,
@@ -285,8 +289,40 @@ describe("the page pastimes", () => {
     expect(pagePastimes("/retro-actions")).toEqual(["ahwa"]);
     expect(pagePastimes("/retrospective")).toEqual([]);
     expect(pagePastimes("/comics")).toEqual([]);
-    expect(pagePreloads("/comics/ep/31")).toEqual(["comic"]);
+    expect(pagePreloads("/comics/license")).toEqual(["comic"]);
     expect(pagePreloads("/kanban")).toEqual([]);
+  });
+
+  it("load ahead the scenes a page's likelier moments play, and only there", () => {
+    // Where stories are read (/comics?ep=NN keeps the list's path): the idea from
+    // the end, the guess, a first love or Seen answer.
+    expect(pagePreloads("/comics")).toEqual([
+      COMPANION_SCENES.storyRead,
+      EVENT_SCENES.guess,
+      EVENT_SCENES.feedback,
+    ]);
+    expect(pagePreloads("/comics/early")).toEqual([
+      COMPANION_SCENES.storyRead,
+      EVENT_SCENES.guess,
+      EVENT_SCENES.feedback,
+    ]);
+    expect(pagePreloads("/comics/flashcards")).toEqual([
+      COMPANION_SCENES.storyRead,
+      EVENT_SCENES.flashcard,
+    ]);
+    expect(pagePreloads("/comics/guestbook")).toEqual([
+      COMPANION_SCENES.storyRead,
+      EVENT_SCENES.guestbook,
+    ]);
+    expect(pagePreloads("/which-colleague")).toEqual([EVENT_SCENES.colleague]);
+    expect(pagePreloads("/squad-session")).toEqual([EVENT_SCENES.squadKit]);
+    // A share and a milestone are rare: their packs load when they come.
+    const everywhere = ["/comics", "/comics/early", "/comics/flashcards", "/"].flatMap(
+      pagePreloads
+    );
+    expect(everywhere).not.toContain(EVENT_SCENES.share);
+    expect(everywhere).not.toContain(EVENT_SCENES.milestone);
+    expect(pagePreloads("/comicsx")).toEqual([]);
   });
 
   describe("while he passes the time", () => {
@@ -500,5 +536,132 @@ describe("Quiet Companion", () => {
       useMascotStore.getState().playNow("poke");
       expect(store.getState().celebrationLevel).toBe("quiet");
     });
+  });
+});
+
+describe("a scene played on a real event (event-scenes.ts)", () => {
+  const queue = () => useMascotStore.getState().reactionQueue;
+  beforeEach(() => useMascotStore.getState().reset());
+  afterEach(() => useMascotStore.getState().reset());
+
+  it("waits for him to be on screen", () => {
+    expect(playEventScene(EVENT_SCENES.guess)).toBe(false);
+    expect(queue()).toEqual([]);
+  });
+
+  it("queues the scene once its pack ships, else the stand-in, else nothing", () => {
+    useMascotStore.getState().setReady(true);
+    expect(playEventScene(EVENT_SCENES.guess)).toBe(true);
+    expect(playEventScene("x999", "excited")).toBe(true);
+    expect(playEventScene("x999")).toBe(false);
+    expect(queue()).toEqual([`scene:${EVENT_SCENES.guess}`, "excited"]);
+  });
+
+  describe("once a visit", () => {
+    beforeEach(() => useMascotStore.getState().setReady(true));
+    const play = () => playEventScene(EVENT_SCENES.share);
+
+    it("plays the first time only while the page stays", () => {
+      const { result, unmount } = renderHook(() => useVisitOnce("test-once"));
+      expect(result.current(play)).toBe(true);
+      expect(result.current(play)).toBe(false);
+      expect(queue()).toHaveLength(1);
+      unmount();
+    });
+
+    it("keeps trying until it really plays (he wasn't on screen yet)", () => {
+      useMascotStore.getState().setReady(false);
+      const { result, unmount } = renderHook(() => useVisitOnce("test-late"));
+      expect(result.current(play)).toBe(false);
+      act(() => useMascotStore.getState().setReady(true));
+      expect(result.current(play)).toBe(true);
+      unmount();
+    });
+
+    it("is shared by everything on the page with the same key", () => {
+      const a = renderHook(() => useVisitOnce("test-shared"));
+      const b = renderHook(() => useVisitOnce("test-shared"));
+      expect(a.result.current(play)).toBe(true);
+      expect(b.result.current(play)).toBe(false);
+      a.unmount();
+      // Still on the page: the other one keeps the visit going.
+      expect(b.result.current(play)).toBe(false);
+      b.unmount();
+    });
+
+    it("starts afresh on the next visit, and plays nothing for a page that has gone", () => {
+      const first = renderHook(() => useVisitOnce("test-visit"));
+      expect(first.result.current(play)).toBe(true);
+      const late = first.result.current;
+      first.unmount();
+      expect(late(play)).toBe(false);
+      const next = renderHook(() => useVisitOnce("test-visit"));
+      expect(next.result.current(play)).toBe(true);
+      next.unmount();
+    });
+  });
+});
+
+describe("Make room for silence (X109)", () => {
+  type Sound = { enabled: boolean };
+  let hydrated: boolean;
+  const fakeStore = () => {
+    const store = create<Sound>()(() => ({ enabled: true }));
+    return Object.assign(store, { persist: { hasHydrated: () => hydrated } });
+  };
+  let store: ReturnType<typeof fakeStore>;
+  let plays: number;
+  let stop: () => void;
+  beforeEach(() => {
+    hydrated = true;
+    plays = 0;
+    store = fakeStore();
+    stop = watchMute(store as never, () => {
+      plays += 1;
+      return true;
+    });
+  });
+  afterEach(() => stop());
+
+  it("follows the visitor switching the sounds off", () => {
+    expect(isMute({ enabled: false }, { enabled: true }, true)).toBe(true);
+    store.setState({ enabled: false });
+    expect(plays).toBe(1);
+  });
+
+  it("not switching them on, nor the stored choice arriving as the page loads", () => {
+    expect(isMute({ enabled: true }, { enabled: false }, true)).toBe(false);
+    expect(isMute({ enabled: false }, { enabled: true }, false)).toBe(false);
+    hydrated = false;
+    store.setState({ enabled: false });
+    expect(plays).toBe(0);
+  });
+
+  it("once a page: a second mute there plays nothing, the next page's does", () => {
+    store.setState({ enabled: false });
+    store.setState({ enabled: true });
+    store.setState({ enabled: false });
+    expect(plays).toBe(1);
+    stop();
+    stop = watchMute(store as never, () => {
+      plays += 1;
+      return true;
+    });
+    store.setState({ enabled: true });
+    store.setState({ enabled: false });
+    expect(plays).toBe(2);
+  });
+
+  it("plays the guide itself, silent, only once he's on screen", () => {
+    stop();
+    useMascotStore.getState().reset();
+    stop = watchMute(store as never);
+    store.setState({ enabled: false });
+    expect(useMascotStore.getState().reactionQueue).toEqual([]);
+    store.setState({ enabled: true });
+    useMascotStore.getState().setReady(true);
+    store.setState({ enabled: false });
+    expect(useMascotStore.getState().reactionQueue).toEqual([`scene:${EVENT_SCENES.mute}`]);
+    useMascotStore.getState().reset();
   });
 });

@@ -31,6 +31,8 @@ import { SeenAtWork } from "@/app/(tools)/comics/components/seen-at-work";
 import { StoryNav } from "@/app/(tools)/comics/components/story-nav";
 import { ToolLink } from "@/app/(tools)/comics/components/tool-link";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { useMascotStore } from "@/lib/agent/mascot/store";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
 
 const beacon = vi.fn(() => true);
 
@@ -127,6 +129,52 @@ describe("a share", () => {
       fireEvent.click(screen.getByRole("button", { name: "Share a link" }));
     });
     expect(beacon).toHaveBeenCalledTimes(1);
+  });
+
+  describe("and Amr", () => {
+    const queue = () => useMascotStore.getState().reactionQueue;
+    const offer = `scene:${EVENT_SCENES.share}`;
+    const press = () =>
+      act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: /Share a link|Link copied/ }));
+      });
+    beforeEach(() => useMascotStore.setState({ ready: true, reactionQueue: [] }));
+    afterEach(() => {
+      useMascotStore.setState({ ready: false, reactionQueue: [] });
+      Reflect.deleteProperty(navigator, "clipboard");
+    });
+
+    it("offers his copy of the book once a visit, for a share that went, never a dismissed sheet", async () => {
+      const share = vi.fn(async () => {});
+      share.mockRejectedValueOnce(new Error("AbortError"));
+      Object.defineProperty(navigator, "share", { configurable: true, value: share });
+      const { unmount } = render(
+        <StoryNav ep={30} title="Return Address" prevEp={null} nextEp={null} />
+      );
+      await press();
+      expect(queue()).toEqual([]);
+      await press();
+      expect(queue()).toEqual([offer]);
+      await press();
+      expect(queue()).toEqual([offer]);
+      unmount();
+      render(<StoryNav ep={30} title="Return Address" prevEp={null} nextEp={null} />);
+      await press();
+      expect(queue()).toEqual([offer, offer]);
+    });
+
+    it("for a copied link, never a copy that failed", async () => {
+      const writeText = vi.fn(async () => {});
+      writeText.mockRejectedValueOnce(new Error("denied"));
+      Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+      Object.defineProperty(document, "execCommand", { configurable: true, value: () => false });
+      render(<StoryNav ep={31} title="Return Address" prevEp={null} nextEp={null} />);
+      await press();
+      expect(queue()).toEqual([]);
+      await press();
+      expect(queue()).toEqual([offer]);
+      Reflect.deleteProperty(document, "execCommand");
+    });
   });
 });
 

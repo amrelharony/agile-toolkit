@@ -176,10 +176,16 @@ export function HypothesisTrackerClient() {
       });
     }
     if (what === "result") {
-      record(h.id, HYPOTHESIS_ACTIONS.RESULT_RECORDED, {
-        hypothesisId: h.id,
-        actual: next.actual ?? null,
-      });
+      // A value committed is a measured result; a blank field clears it, logged apart
+      // so result_recorded always means a result is there (Amr answers only that one).
+      if (typeof next.actual === "number") {
+        record(h.id, HYPOTHESIS_ACTIONS.RESULT_RECORDED, {
+          hypothesisId: h.id,
+          actual: next.actual,
+        });
+      } else {
+        record(h.id, HYPOTHESIS_ACTIONS.RESULT_CLEARED, { hypothesisId: h.id });
+      }
     } else if (what !== "status") {
       const fields = (Object.keys(values) as (keyof HypothesisValues)[]).filter(
         (k) => JSON.stringify(next[k]) !== JSON.stringify(h[k])

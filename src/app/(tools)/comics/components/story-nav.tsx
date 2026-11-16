@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, ArrowRight, Check, Share2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { playEventScene, useVisitOnce } from "@/lib/agent/mascot/event-scenes";
 import { COMICS_ROUTE, FIRST_WEEKLY_EP, comicHref } from "@/lib/comics/entry";
 import { beaconStats } from "@/lib/comics/stats-client";
 import { copyToClipboard } from "@/lib/utils/export";
@@ -57,10 +59,15 @@ export function StoryNav({ ep, title, prevEp, nextEp }: StoryNavProps) {
   const { flash, isFlashing } = useFlash();
   const copied = isFlashing();
   const counting = useCounting();
+  const once = useVisitOnce(`story-share:${ep}`);
 
   const share = async () => {
     const went = await shareStory(ep, title, () => flash("Link copied"));
-    if (went && counting && ep >= FIRST_WEEKLY_EP) beaconStats(ep, ["share"]);
+    if (!went) return;
+    if (counting && ep >= FIRST_WEEKLY_EP) beaconStats(ep, ["share"]);
+    // Shared or copied, never a dismissed sheet or a failed copy: Amr offers his copy
+    // of the book with care (X006), once a visit. It shows no one receiving it.
+    once(() => playEventScene(EVENT_SCENES.share));
   };
 
   useEffect(() => {
