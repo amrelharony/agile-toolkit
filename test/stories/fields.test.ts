@@ -343,7 +343,9 @@ describe("workspace.story actions", () => {
 
 describe("share links", () => {
   // A share link carries a tool's Markdown, and is capped at 32 KB: the
-  // four fields (up to 4,550 characters a story) stay out of it.
+  // four fields (up to 4,550 characters a story) stay out of it, except
+  // Refinement's acceptance criteria, which go in kept short (the owner's
+  // call, 2026-11-16; Backlog Health's Markdown does the same).
   const detailed = story({
     status: "todo",
     sprintId: "s2",
@@ -374,13 +376,36 @@ describe("share links", () => {
     for (const marker of markers) expect(md).not.toContain(marker);
   });
 
-  it("Refinement's Markdown leaves them out", () => {
+  it("Refinement's Markdown carries the acceptance criteria and leaves the rest out", () => {
     const md = refinementMarkdown(
       refinementSession([{ ...detailed, sprintId: undefined, status: "backlog" }]),
       [{ id: "c1", label: "Acceptance criteria defined" }],
       []
     );
     expect(md).toContain("| Pay with a saved card | 5 |");
-    for (const marker of markers) expect(md).not.toContain(marker);
+    expect(md).toContain("CRITERIA-MARKER charged once");
+    for (const marker of markers.filter((m) => m !== "CRITERIA-MARKER")) {
+      expect(md).not.toContain(marker);
+    }
+  });
+
+  it("Refinement's Markdown keeps long criteria short", () => {
+    const md = refinementMarkdown(
+      refinementSession([
+        story({
+          acceptanceCriteria: `${"a".repeat(1990)} END`,
+          gwt: [{ id: "g1", given: `${"b".repeat(995)} END`, when: "I pay", then: "it works" }],
+        }),
+      ]),
+      [],
+      []
+    );
+    const lines = md.split("\n");
+    const free = lines.find((l) => l.startsWith("aaa"))!;
+    expect(free).toHaveLength(600);
+    expect(free.endsWith("…")).toBe(true);
+    const given = lines.find((l) => l.startsWith("Given "))!;
+    expect(given).toHaveLength(300);
+    expect(md).not.toContain("END");
   });
 });

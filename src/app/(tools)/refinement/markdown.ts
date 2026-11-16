@@ -1,5 +1,6 @@
 import { isExampleId } from "@/components/tool-frame/example-data";
 import type { Story } from "@/lib/stores/workspace-types";
+import { gwtLines } from "@/lib/stories/fields";
 import { metCriteria, readinessState, type RefinementSession } from "./session";
 import type { Criterion, StorySave } from "./store";
 import { refinementVerdict } from "./verdict";
@@ -15,6 +16,43 @@ function md(v: unknown): string {
     .replace(/\s*[\r\n]+\s*/g, " ")
     .replace(/\|/g, "\\|")
     .trim();
+}
+
+/**
+ * Long text on one line and kept short, as Backlog Health's Markdown does:
+ * the Markdown also travels in a share link, which is capped.
+ */
+function cap(v: string, max: number): string {
+  const t = v.replace(/\s*[\r\n]+\s*/g, " ").trim();
+  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+}
+
+/** A code fence longer than any run of backticks in `lines`, so none can end it early. */
+function fenceFor(lines: readonly string[]): string {
+  const longest = Math.max(0, ...lines.flatMap((l) => (l.match(/`+/g) ?? []).map((m) => m.length)));
+  return "`".repeat(Math.max(3, longest + 1));
+}
+
+/**
+ * Each story's acceptance criteria, both ways: the free text, then the
+ * Given/When/Then scenarios. A story with neither is left out, and with
+ * none at all there is no section.
+ */
+function criteriaSection(stories: readonly Story[]): string[] {
+  const out: string[] = [];
+  for (const s of stories) {
+    const free = s.acceptanceCriteria?.trim();
+    const gwt = gwtLines(s.gwt).map((l) => cap(l, 300));
+    if (!free && gwt.length === 0) continue;
+    out.push("", `### ${cap(s.title, 200)}${isExampleId(s.id) ? " (example)" : ""}`, "");
+    if (free) out.push(cap(free, 600));
+    if (free && gwt.length > 0) out.push("");
+    if (gwt.length > 0) {
+      const fence = fenceFor(gwt);
+      out.push(`${fence}gherkin`, ...gwt, fence);
+    }
+  }
+  return out.length > 0 ? ["", "## Acceptance criteria", ...out] : [];
 }
 
 const points = (s: Story) =>
@@ -50,7 +88,8 @@ function storyTable(stories: readonly Story[], criteria: readonly Criterion[]): 
 /**
  * The session as Markdown, for the refinement notes or the planning thread:
  * the verdict, the Definition of Ready, what's left to refine, what's
- * ready, and the checks saved by name.
+ * ready, each of those stories' acceptance criteria, and the checks saved
+ * by name.
  */
 export function toMarkdown(
   session: RefinementSession,
@@ -87,6 +126,7 @@ export function toMarkdown(
       ...storyTable(session.ready, criteria)
     );
   }
+  lines.push(...criteriaSection([...session.toRefine, ...session.ready]));
   if (history.length > 0) {
     lines.push(
       "",
