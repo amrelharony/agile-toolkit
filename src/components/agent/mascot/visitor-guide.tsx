@@ -212,7 +212,10 @@ export function VisitorGuide({
       data-testid="mascot-visitor-guide"
       // It ends above Amr docked in the phone's sheet: no tile scrolls under him.
       data-amr-scroll=""
-      className={`flex h-full flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-3 focus:outline-none ${DOCK_END_FULL}`}
+      // scroll-py-2: Tab scrolls a tile, a result or AI settings 8 px clear of
+      // the scroller's edge, so its focus ring (drawn up to 5 px outside it, the
+      // only sign of focus in forced colours) is never cut off there.
+      className={`flex h-full scroll-py-2 flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-3 focus:outline-none ${DOCK_END_FULL}`}
     >
       {note}
       {/* The search comes first. A phone shows about 360 px of this panel, and

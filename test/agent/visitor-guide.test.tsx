@@ -481,6 +481,14 @@ describe("VisitorGuide", () => {
       );
     });
 
+    it("leaves room round what Tab scrolls to its edge, so a focus ring is never cut off", () => {
+      // Without scroll padding Tab stopped a tile flush with the scroller's
+      // edge, which clipped the ring drawn outside it: the only sign of focus
+      // in forced colours, where the tile's focus fill is overridden.
+      render(<VisitorGuide />);
+      expect(screen.getByTestId("mascot-visitor-guide")).toHaveClass("scroll-py-2");
+    });
+
     it("lets a tile's words wrap inside it, never spilling into the next tile or cut to an ellipsis", () => {
       render(<VisitorGuide />);
       const list = screen.getByRole("list", { name: "Popular tasks" });
