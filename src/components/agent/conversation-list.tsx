@@ -198,8 +198,10 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
   const remove = (meta: ConversationMeta) => {
     const store = useAgentStore.getState();
     const wasActive = store.activeConversationId === meta.id;
-    // What Undo puts back if this was the open thread.
+    // What Undo puts back if this was the open thread: its messages, and
+    // where a picked-up thread left off (null when it wasn't one).
     const openMessages = wasActive ? store.messages : [];
+    const openResumedAfter = wasActive ? store.resumedAfter : null;
     const index = (items ?? []).findIndex((c) => c.id === meta.id);
     const toastId = undoable({
       label: `Deleted “${meta.title}”`,
@@ -230,6 +232,9 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
         const s = useAgentStore.getState();
         if (wasActive && !s.activeConversationId && s.messages.length === 0) {
           s.setActiveConversation(meta, openMessages);
+          // Undone, not picked up: the reopen counts as a switch, which would
+          // mark it as one, so the strip gets back the captions it had.
+          useAgentStore.setState({ resumedAfter: openResumedAfter });
         }
         // A list reopened since the delete re-reads to show it again.
         listListeners.forEach((fn) => fn());
