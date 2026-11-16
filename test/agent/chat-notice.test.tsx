@@ -5,7 +5,9 @@
  * writes renders, in both chats, with the button its kind calls for (Go on,
  * or Try again only when the client allows it) and none in the first person.
  * Its buttons hand focus to the message box, caret at the end, except after
- * a tap on a touch screen. An error is drawn with its danger line and no
+ * a tap on a touch screen, where the latest question's caption takes it, so
+ * focus never falls to the page as the button goes. An error is drawn with
+ * its danger line and no
  * role="alert": its one assertive announcement is the chat's announcer's.
  */
 
@@ -280,16 +282,55 @@ describe("its buttons", () => {
     expect(screen.queryByRole("button")).toBeNull();
   });
 
-  it("leave focus be after a tap on a touch screen, so no keyboard comes up; a key press still hands it over", () => {
+  it("hand focus to the latest question after a tap on a touch screen, never the box or the page; a key press still hands it to the box", () => {
     onTouchScreen();
     const on = handlers();
-    act(() => store().setNotice(cutOff));
+    // The turn each starts clears the notice, so the button really goes.
+    on.onGoOn.mockImplementation(() => store().setNotice(null));
+    on.onTryAgain.mockImplementation(() => store().setNotice(null));
+    const asked = () =>
+      Array.from(document.querySelectorAll<HTMLElement>('[data-chat-item="you"]'));
+    act(() => {
+      useAgentStore.setState({
+        messages: [
+          ...CHAT,
+          {
+            id: "u2",
+            role: "user",
+            content: [{ type: "text", text: "And the goal?" }],
+            createdAt: AT,
+          },
+        ],
+      });
+      store().setNotice(cutOff);
+    });
     render(<Chat handlers={on} />);
-    const goOn = screen.getByRole("button", { name: "Go on" });
-    fireEvent.click(goOn, { detail: 1 });
+    expect(asked()).toHaveLength(2);
+    const latest = asked()[1];
+    // Nothing in the log takes a tap's focus of its own.
+    expect(latest).not.toHaveAttribute("tabindex");
+
+    fireEvent.click(screen.getByRole("button", { name: "Go on" }), { detail: 1 });
     expect(on.onGoOn).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Go on" })).toBeNull();
+    expect(document.activeElement).toBe(latest);
+    expect(document.activeElement).not.toBe(document.body);
     expect(document.activeElement).not.toBe(box());
-    fireEvent.click(goOn, { detail: 0 });
+    // Focusable only while it holds that focus.
+    expect(latest).toHaveAttribute("tabindex", "-1");
+    act(() => latest.blur());
+    expect(latest).not.toHaveAttribute("tabindex");
+
+    act(() => store().setNotice(failed));
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }), { detail: 1 });
+    expect(on.onTryAgain).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(document.activeElement).toBe(latest);
+    act(() => latest.blur());
+
+    // A key press (detail 0) still hands focus to the box.
+    act(() => store().setNotice(cutOff));
+    fireEvent.click(screen.getByRole("button", { name: "Go on" }), { detail: 0 });
     expect(on.onGoOn).toHaveBeenCalledTimes(2);
     expect(document.activeElement).toBe(box());
   });

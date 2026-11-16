@@ -17,11 +17,13 @@
  *            a second try may get past, only while the client allows it (the
  *            last turn ran no change, so trying again repeats none).
  *
- * The button goes as the turn it starts begins, so it hands focus to the
- * message box first, caret at the end: always after a key press; after a tap
- * on a touch screen it leaves focus be, since the box taking focus would
- * raise the keyboard over the answer just asked for (as chat-frame's Latest
- * and its safety net do).
+ * The button goes as the turn it starts begins, so it hands focus on first,
+ * never leaving it on a button that is about to go: after a key press to the
+ * message box, caret at the end; after a tap on a touch screen to the latest
+ * question's caption (made focusable just for that, chat-context
+ * focusFromCode), since the box taking focus would raise the keyboard over
+ * the answer just asked for. The turn keeps that question: Try again asks it
+ * again, Go on adds one after it.
  *
  * It reads the notice from the store itself, so the container around it
  * never re-renders for one.
@@ -36,7 +38,7 @@ import { noticeAction } from "@/lib/agent/notice-actions";
 import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
 import { Narration } from "../comic/comic-parts";
-import { onTouchScreen, useChat } from "./chat-context";
+import { focusFromCode, onTouchScreen, useChat } from "./chat-context";
 
 export interface ChatNoticeProps {
   /** A button may show: no turn under way, and one can start (the owner is signed in). */
@@ -63,8 +65,16 @@ export function ChatNotice({ ready, canRetry, onTryAgain, onGoOn }: ChatNoticePr
       ? ["Go on", onGoOn]
       : null;
   const press = (e: MouseEvent<HTMLButtonElement>) => {
-    // A key press (detail 0), or any press but a tap on a touch screen.
-    if (!(e.detail > 0 && onTouchScreen(e.currentTarget.ownerDocument))) focusComposer();
+    const button = e.currentTarget;
+    if (e.detail > 0 && onTouchScreen(button.ownerDocument)) {
+      // A tap on a touch screen: the latest question, not the box (file comment).
+      const asked =
+        button.closest('[role="log"]')?.querySelectorAll<HTMLElement>('[data-chat-item="you"]') ??
+        [];
+      focusFromCode(asked[asked.length - 1]);
+    } else {
+      focusComposer();
+    }
     offer?.[1]();
   };
 
