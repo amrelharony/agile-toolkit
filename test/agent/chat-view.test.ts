@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   LEAD_MAX,
   chatView,
@@ -554,6 +554,35 @@ describe("chatView: scene captions for a change of time", () => {
   const dated = <M extends ChatMessage>(m: M, createdAt: string): M => ({ ...m, createdAt });
   const scenes = (items: readonly ChatItem[]) =>
     items.filter((i): i is SceneItem => i.kind === "scene");
+  /** A day's scene item, named as of the pinned clock. */
+  const day = (key: string, createdAt: string): SceneItem => ({
+    kind: "scene",
+    key,
+    at: createdAt,
+    label: dayLabel(createdAt),
+  });
+  const pickUp = (key: string): SceneItem => ({ kind: "scene", key, at: null, label: null });
+
+  // The reader's clock, pinned (a Date subclass, not fake timers): noon on 16 November.
+  let now = new Date(2026, 10, 16, 12, 0).getTime();
+  beforeEach(() => {
+    now = new Date(2026, 10, 16, 12, 0).getTime();
+    const RealDate = Date;
+    vi.stubGlobal(
+      "Date",
+      class extends RealDate {
+        constructor(...args: ConstructorParameters<typeof Date>) {
+          super(...((args.length ? args : [now]) as [number]));
+        }
+        static now() {
+          return now;
+        }
+      }
+    );
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
   it("marks a new day before that day's first message, from the messages' times", () => {
     const items = chatView([
@@ -563,15 +592,14 @@ describe("chatView: scene captions for a change of time", () => {
       dated(assistant("a2", text("Booked.")), at(16, 9)),
     ]);
     expect(kinds(items)).toEqual(["you", "balloon", "scene", "you", "balloon"]);
-    expect(scenes(items)).toEqual([{ kind: "scene", key: "day:u2", at: at(16, 9) }]);
+    expect(scenes(items)).toEqual([day("day:u2", at(16, 9))]);
+    expect(scenes(items)[0].label).toBe("Today");
   });
 
   it("marks nothing for a chat within one day, or for messages with no time", () => {
     expect(scenes(chatView([user("u1", "Hi"), assistant("a1", text("Hello."))]))).toEqual([]);
     const undated = [dated(user("u1", "Hi"), ""), dated(assistant("a1", text("Hello.")), "")];
-    expect(scenes(chatView(undated, { resumedAfter: "a1" }))).toEqual([
-      { kind: "scene", key: "resume:a1", at: null },
-    ]);
+    expect(scenes(chatView(undated, { resumedAfter: "a1" }))).toEqual([pickUp("resume:a1")]);
   });
 
   it("opens a picked-up thread with the day it began and marks where it left off", () => {
@@ -590,9 +618,9 @@ describe("chatView: scene captions for a change of time", () => {
       resumedAfter: "a1",
     });
     expect(scenes(items)).toEqual([
-      { kind: "scene", key: "day:u1", at: at(9, 10) },
-      { kind: "scene", key: "resume:a1", at: null },
-      { kind: "scene", key: "day:u2", at: at(16, 9) },
+      day("day:u1", at(9, 10)),
+      pickUp("resume:a1"),
+      day("day:u2", at(16, 9)),
     ]);
     expect(kinds(items).slice(-3)).toEqual(["scene", "scene", "you"]);
   });
@@ -616,6 +644,31 @@ describe("chatView: scene captions for a change of time", () => {
         { resumedAfter: "u2" }
       )
     ).toBe(first);
+  });
+
+  it("names the day again on the first build after midnight, so Today becomes Yesterday", () => {
+    const view = createChatView();
+    const thread = [
+      dated(user("u1", "Plan the sprint"), at(16, 9)),
+      dated(assistant("a1", text("Planned.")), at(16, 9)),
+    ];
+    const first = scenes(view(thread, { resumedAfter: "a1" }));
+    expect(first.map((s) => s.label)).toEqual(["Today", null]);
+    // Rebuilt the same day: the same objects, so a memoised caption skips it.
+    const again = scenes(view([...thread], { resumedAfter: "a1" }));
+    expect(again[0]).toBe(first[0]);
+    expect(again[1]).toBe(first[1]);
+
+    // The panel stays open past midnight, and the next message rebuilds the view.
+    now = new Date(2026, 10, 17, 0, 10).getTime();
+    const later = scenes(
+      view([...thread, dated(user("u2", "And the retro?"), at(17, 0))], { resumedAfter: "a1" })
+    );
+    expect(later.map((s) => s.label)).toEqual(["Yesterday", null, "Today"]);
+    expect(later[0]).not.toBe(first[0]);
+    expect(later[0].key).toBe(first[0].key);
+    // The pick-up mark says no day, so it is kept.
+    expect(later[1]).toBe(first[1]);
   });
 });
 

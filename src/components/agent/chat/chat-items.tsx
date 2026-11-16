@@ -55,7 +55,6 @@ import { Narration, YouCaption } from "../comic/comic-parts";
 import { AmrBalloon, SceneCaption, ThinkingBalloon } from "../comic/strip-parts";
 import { Markdown } from "../markdown";
 import {
-  dayLabel,
   type BalloonItem,
   type ChatItem,
   type NoteItem,
@@ -155,7 +154,7 @@ export const SceneItemView = memo(function SceneItemView({ item }: { item: Scene
   return (
     <div data-chat-item="scene">
       <SceneCaption>
-        {item.at === null ? PICKED_UP : <time dateTime={item.at}>{dayLabel(item.at)}</time>}
+        {item.at === null ? PICKED_UP : <time dateTime={item.at}>{item.label}</time>}
       </SceneCaption>
     </div>
   );

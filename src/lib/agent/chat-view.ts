@@ -338,10 +338,16 @@ export interface SceneItem {
   kind: "scene";
   key: string;
   /**
-   * The day's first message's createdAt (dayLabel names it), or null for
-   * the place a thread was picked up ("Picking up where you left off").
+   * The day's first message's createdAt, or null for the place a thread was
+   * picked up ("Picking up where you left off").
    */
   at: string | null;
+  /**
+   * The day in words (dayLabel, as of the build that made it), or null for
+   * the pick-up place. Worked out here, not as it draws, so the first build
+   * on a new day makes a new item and "Today" becomes "Yesterday".
+   */
+  label: string | null;
 }
 
 export type ChatItem = YouItem | BalloonItem | StepsItem | NoteItem | SceneItem;
@@ -411,6 +417,8 @@ function build(
   next: Made
 ): ChatItem[] {
   const pairs = pairToolResults(messages);
+  /** The reader's day now, for the scene captions' Today and Yesterday. */
+  const now = new Date();
   const out: ChatItem[] = [];
   let run: ChatStep[] | null = null;
   /** The reader's latest message so far: the turn the steps after it are part of. */
@@ -481,8 +489,13 @@ function build(
 
   const addScene = (key: string, at: string | null) => {
     endRun();
+    const label = at === null ? null : dayLabel(at, now);
     const old = prev.items.get(key);
-    keep(old?.kind === "scene" && old.at === at ? old : { kind: "scene", key, at });
+    keep(
+      old?.kind === "scene" && old.at === at && old.label === label
+        ? old
+        : { kind: "scene", key, at, label }
+    );
   };
 
   // Picked up, while the thread's last message then is still in the chat.
