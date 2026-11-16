@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { navPathname } from "@/lib/comics/entry";
 import { usePersisted } from "@/lib/utils/use-persisted";
+import { APP_RAIL_EVENT, APP_RAIL_VAR } from "@/lib/layout/amr-sheet";
 import { getToolById, getToolByPath, type ToolDefinition } from "@/lib/constants/tools";
 import { isVipHidden } from "@/lib/tools/catalog";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
@@ -268,6 +269,26 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
     if (!isDesktop && !mobileOpen) aside.setAttribute("inert", "");
     else aside.removeAttribute("inert");
   }, [isDesktop, mobileOpen]);
+
+  // From md Amr stands clear of the rail on his left: its right edge goes on
+  // <html> as it pins, widens on hover or meets a notch (lib/layout/amr-sheet).
+  useEffect(() => {
+    const aside = asideRef.current;
+    if (!isDesktop || !aside || typeof ResizeObserver !== "function") return;
+    const root = document.documentElement.style;
+    const ro = new ResizeObserver(() => {
+      const { right, width } = aside.getBoundingClientRect();
+      // Not drawn (presentation mode hides it): no rail.
+      if (width) root.setProperty(APP_RAIL_VAR, `${right}px`);
+      else root.removeProperty(APP_RAIL_VAR);
+      document.dispatchEvent(new Event(APP_RAIL_EVENT));
+    });
+    ro.observe(aside, { box: "border-box" });
+    return () => {
+      ro.disconnect();
+      root.removeProperty(APP_RAIL_VAR);
+    };
+  }, [isDesktop]);
 
   useEffect(() => {
     if (!mobileOpen) return;
