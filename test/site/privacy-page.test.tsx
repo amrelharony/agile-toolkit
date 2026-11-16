@@ -23,6 +23,7 @@ import {
   VISITOR_AI_KEPT,
   VISITOR_AI_SENT,
   VISITOR_ROOM_CONSENT_TEXT,
+  VOICE_INPUT_DISCLOSURE,
   VOTE_ROOM_CONSENT_TEXT,
   WALL_ROOM_CONSENT_TEXT,
   YOUR_DATA_SAVED_HERE,
@@ -154,6 +155,7 @@ describe("the table of parts", () => {
       OWN_KEY_DISCLOSURE,
       VISITOR_AI_SENT,
       VISITOR_AI_KEPT,
+      VOICE_INPUT_DISCLOSURE,
       LICENCE_FORM_NOTE,
       GUESTBOOK_FORM_NOTE,
     ]);
@@ -169,6 +171,7 @@ describe("the table of parts", () => {
     expect(parts).toHaveLength(8);
     expect(container.textContent).not.toContain(VISITOR_ROOM_CONSENT_TEXT);
     expect(container.textContent).not.toContain(VISITOR_AI_SENT);
+    expect(container.textContent).not.toContain(VOICE_INPUT_DISCLOSURE);
     expect(container.textContent).not.toContain("Z.AI, which answer Amr's AI");
   });
 

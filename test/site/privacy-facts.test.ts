@@ -26,6 +26,7 @@ import {
   VISITOR_AI_KEPT,
   VISITOR_AI_SENT,
   VISITOR_ROOM_CONSENT_TEXT,
+  VOICE_INPUT_DISCLOSURE,
   VOTE_ROOM_CONSENT_TEXT,
   WALL_ROOM_CONSENT_TEXT,
   YOUR_DATA_SAVED_HERE,
@@ -82,6 +83,7 @@ describe("the rows of the table", () => {
       "rooms",
       "own-key",
       "amr-ai",
+      "amr-voice",
       "licence",
       "guestbook",
       "book-link",
@@ -94,12 +96,15 @@ describe("the rows of the table", () => {
     const ids = privacyRows().map((r) => r.id);
     expect(ids).not.toContain("rooms");
     expect(ids).not.toContain("amr-ai");
+    expect(ids).not.toContain("amr-voice");
     expect(ids).toHaveLength(8);
     flags(true, false);
     expect(privacyRows().map((r) => r.id)).toContain("rooms");
     expect(privacyRows().map((r) => r.id)).not.toContain("amr-ai");
+    expect(privacyRows().map((r) => r.id)).not.toContain("amr-voice");
     flags(false, true);
     expect(privacyRows().map((r) => r.id)).toContain("amr-ai");
+    expect(privacyRows().map((r) => r.id)).toContain("amr-voice");
     expect(privacyRows().map((r) => r.id)).not.toContain("rooms");
   });
 
@@ -227,6 +232,23 @@ describe("each row, against the site", () => {
     expect(migration).toMatch(
       /visitor_ai_daily\s+site-wide totals per Cairo day, no identifiers; 30 days\./
     );
+  });
+
+  it("dictation in Amr's AI chat: what the voice notice says, and a yes kept per browser", () => {
+    const voice = row("amr-voice");
+    expect(quoted(voice)).toEqual([VOICE_INPUT_DISCLOSURE]);
+    expect(voice.when).toContain("Use voice");
+    expect(said(voice)).toContain("Nothing to this site.");
+    expect(said(voice)).toContain("a backup file never includes that choice");
+    // The notice shows the quoted words, and the yes is kept under a key a
+    // backup leaves out (lib/data/backup names it).
+    expect(read("src/components/agent/mascot/voice-notice.tsx")).toContain(
+      "{VOICE_INPUT_DISCLOSURE}"
+    );
+    expect(read("src/lib/agent/mascot/voice-consent.ts")).toContain(
+      '"agile-toolkit:amr-voice-consent"'
+    );
+    expect(read("src/lib/data/backup.ts")).toContain('"agile-toolkit:amr-voice-consent"');
   });
 
   it("the licence form: every field it asks for, and nothing about the browser", () => {

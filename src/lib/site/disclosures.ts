@@ -1,7 +1,8 @@
 /**
  * What the site tells people about their data, in the words they are shown at
  * the moment it matters: the "Your data" dialog, the consent step before a
- * live room or a vote round, the card before Amr's AI, the note under the
+ * live room or a vote round, the card before Amr's AI and the notice before
+ * a visitor's first dictation in its chat, the note under the
  * comics and kudos pages, the AI settings dialog, and the line under the
  * licence and guestbook forms.
  *
@@ -115,6 +116,17 @@ export const VISITOR_AI_CONSENT_TEXT: readonly string[] = [
   "Don't share personal or confidential information.",
   `You get ${VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons (fewer during busy hours). The tools and the tool finder always work without AI.`,
 ];
+
+// ── Dictation in Amr's AI chat (components/agent/mascot/voice-notice.tsx) ──
+
+/**
+ * What the chat's voice notice says before a visitor's first dictation: the
+ * browser's own speech recognition may send the sound to its maker. A change
+ * that says something new bumps VOICE_CONSENT_VERSION
+ * (lib/agent/mascot/voice-consent), so the notice asks again.
+ */
+export const VOICE_INPUT_DISCLOSURE =
+  "Dictation uses your browser's own speech recognition. To turn what you say into text, your browser may send the sound of your voice to the company that makes it. This site never gets the sound: the words appear in the message box, and nothing goes to Amr until you send the message.";
 
 // ── The count note (components/visits/visit-recorder.tsx) ─────────────────
 
