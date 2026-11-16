@@ -5,11 +5,12 @@
  *
  * The header belongs to the shell, but what it says depends on the view: the
  * owner's thread title and New chat, "Your chats" in History, the visitor's
- * step and a way back. A view renders
+ * step and a way back. A view renders <PanelFill slot> (or panel-fills.tsx's
+ * named wrappers) for
  *
- *   <PanelSubtitle>  the one-line context under the name plate
- *   <PanelBack>      a back control before the plate
- *   <PanelActions>   the view's own icons, before the shell's Enlarge and Close
+ *   subtitle  the one-line context under the name plate
+ *   back      a back control before the plate
+ *   actions   the view's own icons, before the shell's Enlarge and Close
  *
  * anywhere in its tree, and each one draws into the element the header exposes
  * for that slot (a portal), so the view keeps its own state and handlers. Until
@@ -91,7 +92,11 @@ export function usePanelHosts() {
   };
 }
 
-function PanelFill({ slot, children }: { slot: PanelSlot; children?: ReactNode }) {
+/**
+ * Fills one header slot from a view. Only the views (lazy chunks) render it,
+ * through panel-fills.tsx's wrappers, so no wrapper ships on every page.
+ */
+export function PanelFill({ slot, children }: { slot: PanelSlot; children?: ReactNode }) {
   const chrome = useContext(PanelChromeContext);
   const claim = chrome?.claim;
   const given = children != null && children !== false && children !== "";
@@ -113,23 +118,6 @@ export const PANEL_SUBTITLE = {
   consent: "Before you chat",
   chat: "Chat · not saved",
 } as const;
-
-type FillProps = { children?: ReactNode };
-
-/** The one-line context under the name plate: a thread title, "Your chats", a step. */
-export function PanelSubtitle({ children }: FillProps) {
-  return <PanelFill slot="subtitle">{children}</PanelFill>;
-}
-
-/** A back control, drawn before the name plate. */
-export function PanelBack({ children }: FillProps) {
-  return <PanelFill slot="back">{children}</PanelFill>;
-}
-
-/** The view's own header icons, drawn before the shell's Enlarge and Close. */
-export function PanelActions({ children }: FillProps) {
-  return <PanelFill slot="actions">{children}</PanelFill>;
-}
 
 /**
  * A header icon's size: 36 px with a mouse and 44 px on a touch screen, at any

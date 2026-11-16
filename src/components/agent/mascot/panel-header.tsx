@@ -3,7 +3,7 @@
 /**
  * The top row of Amr's chat panel (DNA-SPEC §6 "Chat strip").
  *
- *   back slot   a view's way back (panel-chrome's <PanelBack>)
+ *   back slot   a view's way back (panel-fills' <PanelBack>)
  *   name plate  "Amr", lettered: the dialog's title, an h2 that can take focus
  *               (tabIndex -1) when a keyboard opens a view with no field to
  *               start in. Always his name, never a role or "assistant".

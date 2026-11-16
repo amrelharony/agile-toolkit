@@ -1,8 +1,9 @@
 /**
  * The header of Amr's chat panel (src/components/agent/mascot/panel-header.tsx),
- * the slots a view fills in it (panel-chrome.tsx) and the panel context a view
- * reads (panel-context.ts). These pin the lettered name plate (always "Amr",
- * the dialog's title, able to take focus), the subtitle that shows the step's
+ * the slots a view fills in it (panel-chrome.tsx, by name in panel-fills.tsx)
+ * and the panel context a view reads (panel-context.ts). These pin the
+ * lettered name plate (always "Amr", the dialog's title, able to take focus),
+ * the subtitle that shows the step's
  * default until the view fills it, the back and action slots, the More menu
  * (its keyboard, its Escape that leaves the panel open, the labelled tilt
  * switch and the shortcut), Enlarge as a toggle that only md and up see, the
@@ -23,14 +24,8 @@ import {
 } from "@/components/agent/mascot/panel-header";
 import type { AmrCorner } from "@/components/agent/mascot/amr-geometry";
 import { platformShortcut } from "@/components/agent/mascot/panel-ids";
-import {
-  PANEL_ICON,
-  PanelActions,
-  PanelBack,
-  PanelChrome,
-  PanelIconButton,
-  PanelSubtitle,
-} from "@/components/agent/mascot/panel-chrome";
+import { PANEL_ICON, PanelChrome, PanelIconButton } from "@/components/agent/mascot/panel-chrome";
+import { PanelActions, PanelBack, PanelSubtitle } from "@/components/agent/mascot/panel-fills";
 import {
   AmrPanelContext,
   NO_AMR_PANEL,

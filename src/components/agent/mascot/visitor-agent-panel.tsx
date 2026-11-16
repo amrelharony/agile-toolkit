@@ -92,7 +92,8 @@ import { ChatStrip, useAwaitingReply } from "../chat/chat-strip";
 import type { ReplyEndProps } from "../chat/reply-end";
 import type { ReadOnlyFooterProps } from "./visitor-chat-footer";
 import { Narration } from "../comic/comic-parts";
-import { PanelActions, PanelBack, PanelIconButton } from "./panel-chrome";
+import { PanelIconButton } from "./panel-chrome";
+import { PanelActions, PanelBack } from "./panel-fills";
 
 /** The busy-hours note, here since before it moved to lib/visitor-ai/allowance. */
 export { peakNote } from "@/lib/visitor-ai/allowance";

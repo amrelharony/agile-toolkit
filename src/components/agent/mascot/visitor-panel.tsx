@@ -60,7 +60,8 @@ import type { VisitorErrorCode } from "@/lib/visitor-ai/contract";
 import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { VisitorGuide } from "./visitor-guide";
 import { VisitorAiConsent, hasVisitorAiConsent } from "./visitor-ai-consent";
-import { PANEL_SUBTITLE, PanelSubtitle } from "./panel-chrome";
+import { PANEL_SUBTITLE } from "./panel-chrome";
+import { PanelSubtitle } from "./panel-fills";
 import { PanelLoading } from "./panel-parts";
 
 type ChatModule = typeof import("./visitor-agent-panel");
