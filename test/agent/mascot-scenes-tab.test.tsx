@@ -46,11 +46,11 @@ vi.mock("@/components/agent/mascot/mascot-sprite", async () => {
 });
 // The owner's chat, with the real confirmation card in it.
 vi.mock("@/components/agent/agent-conversation", async () => {
-  const { ConfirmAction } = await import("@/components/agent/confirm-action");
+  const { ConfirmCard } = await import("@/components/agent/chat/confirm-card");
   return {
     AgentConversation: () => (
       <div data-testid="agent-conversation">
-        <ConfirmAction />
+        <ConfirmCard allowApproveAll />
       </div>
     ),
   };
@@ -323,7 +323,13 @@ describe("the Scenes button in Amr's panel", () => {
     actionId: "workspace_sprint_create",
     resolvedActionId: "workspace.sprint.create",
     input: {},
-    summary: "Create Sprint 47",
+    prompt: {
+      verb: "Create sprint",
+      title: "Workspace",
+      question: "Create Sprint 47?",
+      detail: "",
+      destructive: false,
+    },
     resolve,
   });
 
@@ -356,14 +362,14 @@ describe("the Scenes button in Amr's panel", () => {
     act(() => useAgentStore.getState().setPendingToolUse(confirmation(resolve)));
     // The card shows in the chat, and the scenes can't cover it while it waits.
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
-    expect(screen.getByText("Create Sprint 47")).toBeVisible();
+    expect(screen.getByText("Create Sprint 47?")).toBeVisible();
     expect(scenesButton()).toBeDisabled();
     fireEvent.click(scenesButton());
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
     expect(resolve).not.toHaveBeenCalled();
 
     // Answered, the panel stays on the chat; the scenes open again on request.
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create sprint" }));
     expect(resolve).toHaveBeenCalledWith(true);
     act(() => useAgentStore.setState({ pendingToolUse: null }));
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
