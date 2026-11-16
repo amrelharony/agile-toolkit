@@ -179,6 +179,55 @@ describe("the state slot", () => {
   });
 });
 
+describe("the caption's line", () => {
+  const caption = () => log().querySelector("[data-tool-steps]")!;
+  /** A loaded thread whose one call came back with this. */
+  const loaded = (...results: ToolResultBlock[]) =>
+    act(() => {
+      useAgentStore.setState({
+        messages: [
+          user("u1"),
+          assistant("a1", ...results.map((r) => add(r.tool_use_id))),
+          toolMsg("t1", ...results),
+        ],
+      });
+    });
+
+  it.each([
+    ["failed", "Handler error: Retro not found"],
+    ["unavailable", "Tool not available: tool_retro_add_card"],
+    ["timeout", "Handler error: Handler timeout after 30000ms"],
+  ])("takes the danger line for a step that %s, and still says it in words", (state, content) => {
+    loaded(ok("c1", content, true));
+    render(<StoreStrip />);
+    expect(lines()[0]).toHaveAttribute("data-tool-step", state);
+    expect(caption()).toHaveAttribute("data-tone", "error");
+    expect(lines()[0].querySelector(".text-danger")?.textContent).toMatch(/\w/);
+  });
+
+  it("takes it for a run where one step of several went wrong", () => {
+    loaded(ok("c1"), ok("c2", "Handler error: boom", true));
+    render(<StoreStrip />);
+    expect(lines().map((l) => l.getAttribute("data-tool-step"))).toEqual(["done", "failed"]);
+    expect(caption()).toHaveAttribute("data-tone", "error");
+  });
+
+  it("stays quiet for a change that worked, a no and a stop", () => {
+    loaded(
+      ok("c1"),
+      ok("c2", "User denied execution of tool.retro.add_card.", true),
+      ok("c3", "Cancelled.", true)
+    );
+    render(<StoreStrip />);
+    expect(lines().map((l) => l.getAttribute("data-tool-step"))).toEqual([
+      "done",
+      "denied",
+      "stopped",
+    ]);
+    expect(caption()).toHaveAttribute("data-tone", "note");
+  });
+});
+
 describe("the ink tick", () => {
   it("inks for a change that worked while it was on screen, and is still on a remount", () => {
     running([user("u1"), assistant("a1", add("c1"))]);

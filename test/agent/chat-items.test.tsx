@@ -441,8 +441,10 @@ describe("tool steps", () => {
       "failed",
     ]);
     expect(lines[1]).toHaveTextContent("Retro Board · Add card · Didn't work · “slow build”");
-    // Trouble is said in words, with the danger colour as a second cue.
+    // Trouble is said in words, with the caption's danger line and the
+    // danger colour as second cues.
     expect(screen.getByText("Didn't work")).toHaveClass("text-danger");
+    expect(captions[0].querySelector("[data-tool-steps]")).toHaveAttribute("data-tone", "error");
   });
 
   it("keeps a streaming call at Getting ready…, without its arguments", () => {

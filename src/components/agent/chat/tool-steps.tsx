@@ -9,8 +9,11 @@
  *            Waiting for you, Working…, Done, You said no, Didn't work, Not
  *            available here, Stopped, Took too long) and what it touched
  *            ("flaky CI"): "Retro Board · Add card · Done · “flaky CI”".
- *            Never the wire name, the arguments or the result string; trouble
- *            is said in words, the danger colour only a second cue.
+ *            Never the wire name, the arguments or the result string. Trouble
+ *            (didn't work, not available, took too long) is said in words, and
+ *            also gives the caption the narration's danger line
+ *            (data-tone="error", DNA-SPEC section 6), the danger colour on
+ *            the word only a second cue; a "no" or a stop is no trouble.
  *   slot     a 20 px box before the words, always there, so nothing moves as
  *            the call goes from one state to the next: a pen at work while it
  *            gets ready or runs, then an ink tick once a change has worked. A
@@ -167,12 +170,18 @@ export const cardUnderStep = (items: readonly ChatItem[]) =>
  */
 export function ToolSteps({ steps }: { steps: readonly ChatStep[] }) {
   const { profile, StepDetails } = useChat();
+  const trouble = steps.some((s) => s.state != null && TROUBLE_STATES.has(s.state));
   return (
     <>
       {/* Focusable from code only: on a touch screen the card hands focus
           here once decided (confirm-card); 1 px in, so High contrast's ring
           isn't clipped. */}
-      <Narration data-tool-steps="" tabIndex={-1} className="mx-px">
+      <Narration
+        data-tool-steps=""
+        tabIndex={-1}
+        tone={trouble ? "error" : "note"}
+        className="mx-px"
+      >
         <div className="space-y-1">
           {steps.map((step) => (
             <StepLine key={step.key} step={step} Details={StepDetails} />
