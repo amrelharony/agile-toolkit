@@ -3,7 +3,7 @@ import {
   VOTE_LIMITS,
   VOTE_ROOM_EVENTS,
   VOTE_ROOM_TOOLS,
-  VOTE_ROUND_KIND,
+  VOTE_ROUND_KINDS,
   isAllocationRoomTool,
   isPairRoomTool,
   isScaleRoomTool,
@@ -100,21 +100,24 @@ const FIVE = [
 ];
 
 describe("kinds", () => {
-  it("VOTE_ROUND_KIND covers every vote tool, and the guards follow it", () => {
-    expect(Object.keys(VOTE_ROUND_KIND).sort()).toEqual([...VOTE_ROOM_TOOLS].sort());
-    expect(VOTE_ROUND_KIND).toEqual({
-      "health-check": "scale",
-      "psych-safety": "scale",
-      "mood-tracker": "scale",
-      "kano-model": "pair",
-      "buy-a-feature": "allocation",
-      "hundred-dollar-test": "allocation",
+  // A tool lists the kinds it may run (per-round kinds); the six tools from
+  // before keep exactly the one kind they always ran.
+  it("VOTE_ROUND_KINDS covers every vote tool, and the guards follow it", () => {
+    expect(Object.keys(VOTE_ROUND_KINDS).sort()).toEqual([...VOTE_ROOM_TOOLS].sort());
+    expect(VOTE_ROUND_KINDS).toMatchObject({
+      "health-check": ["scale"],
+      "psych-safety": ["scale"],
+      "mood-tracker": ["scale"],
+      "kano-model": ["pair"],
+      "buy-a-feature": ["allocation"],
+      "hundred-dollar-test": ["allocation"],
     });
     for (const t of VOTE_ROOM_TOOLS) {
+      const kinds: readonly string[] = VOTE_ROUND_KINDS[t];
       expect([isScaleRoomTool(t), isPairRoomTool(t), isAllocationRoomTool(t)]).toEqual([
-        VOTE_ROUND_KIND[t] === "scale",
-        VOTE_ROUND_KIND[t] === "pair",
-        VOTE_ROUND_KIND[t] === "allocation",
+        kinds.includes("scale"),
+        kinds.includes("pair"),
+        kinds.includes("allocation"),
       ]);
     }
     for (const t of ["retro", "moscow", "", null, 1]) {

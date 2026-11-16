@@ -27,49 +27,93 @@ export const YOUR_DATA_ROOMS =
   "If you start or join a live room, what you type there passes through our realtime provider (Supabase) to everyone with the link, and we don't store it.";
 
 export const YOUR_DATA_AI =
-  "If you choose to chat with Amr's AI, your messages and what Amr reads from your tools to answer are sent to write the reply, and the site keeps only a daily message count.";
+  "If you choose to chat with Amr's AI or press Ask Amr in a tool, what you type and the tool content you choose or Amr reads to answer are sent to write the reply, and the site keeps only a daily count of AI uses. A tool sends nothing until you press Ask Amr.";
 
 // ── Live rooms and vote rounds (components/collab/visitor-room-consent.tsx) ─
+// Every room has emoji reactions, and each one carries its sender's room id
+// on the channel (lib/realtime/room-reactions.ts), so all three notices say
+// so in the same sentence, without promising anything about anonymity.
 
 /** What the dialog tells people before any channel opens. */
 export const VISITOR_ROOM_CONSENT_TEXT =
   "What you type passes through our realtime provider (Supabase) to everyone with the link. " +
   "We don't store it; the room disappears when everyone leaves. " +
+  "The host may send the room's answers, without names, to an AI service for a summary. " +
+  "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
   "Share the link only with your team.";
 
 /**
  * The vote-round variant: answers are numbers, encrypted to the host's
  * browser, and only totals are kept and shown. It promises no more than
- * that: the totals of a unanimous question show everyone's answer.
+ * that: the totals of a unanimous question show everyone's answer. A number
+ * round is the exception it names, from its first sentence on: the host
+ * keeps the numbers (sorted, with no sender) until Reveal, and the median,
+ * lowest and highest it shows are each someone's exact answer
+ * (lib/realtime/vote-room/number.ts).
  */
 export const VOTE_ROOM_CONSENT_TEXT =
   "Answers are encrypted in each person's browser, so only the host's browser can read them, " +
-  "and it keeps the totals only. They pass through our realtime provider (Supabase). " +
+  "and, outside a number round, it keeps the totals only. " +
+  "They pass through our realtime provider (Supabase). " +
   "Others in the room see your name and whether you've answered, not what. " +
   "After the host reveals the results, everyone in the room sees the totals, for questions " +
   "with enough answers; if everyone gives the same answer, the totals show it. " +
+  "In a number round the host's browser keeps the numbers without names, and the results show " +
+  "the median, lowest and highest answers as they are. " +
+  "The host may send the room's answers, without names, to an AI service for a summary. " +
+  "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
   "Share the link only with your team.";
 
-// ── Amr's AI for visitors (components/agent/mascot/visitor-ai-consent.tsx) ──
+/**
+ * The wall-room variant (Audience Wall): people post short text, which the
+ * host's browser puts on the wall without a name, and the host may save
+ * the posts and their votes as anonymous text. A raised hand is named: it
+ * is a queue to speak. The AI sentence says what the host may do with the
+ * posts (Audience Wall groups them); keep it in step with the AI line the
+ * room and vote texts carry. A post or an upvote that shows the moment it
+ * arrives (a live round, or one the host opened again after Reveal) can be
+ * matched to its sender's request on the channel, so the text says so
+ * (lib/realtime/wall-room/protocol.ts, "What it doesn't cover").
+ */
+export const WALL_ROOM_CONSENT_TEXT =
+  "Your posts travel encrypted to the host's browser, which puts them on the wall without your name. " +
+  "When the host shows posts as they arrive, others in the room could tell who sent a post or an upvote. " +
+  "Everyone in the room sees the wall, and the host can save the posts and their votes as anonymous text; no names are kept. " +
+  "Others in the room see your name, and see it in the queue if you raise your hand. " +
+  "It all passes through our realtime provider (Supabase), and we don't store it. " +
+  "The host may send the posts, without names, to an AI service, for example to group them. " +
+  "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
+  "Share the link only with your team.";
 
-/** The daily allowance the card names (the server's config row is what counts). */
+// ── Amr's AI for visitors ──────────────────────────────────────────────────
+// The card in the mascot panel (components/agent/mascot/visitor-ai-consent.tsx)
+// and the compact one before a tool's first Ask Amr
+// (components/ai/ai-consent-compact.tsx). One agreement covers both (v2 of
+// the card, lib/visitor-ai/consent.ts); the wording below is a draft the owner
+// approves.
+
+/**
+ * The daily allowance the card names: AI uses, shared by the chat and the Ask
+ * Amr buttons (the server's config row, visitor_ai_config.turns_per_visitor,
+ * is what counts).
+ */
 export const VISITOR_AI_DAILY_MESSAGES = 100;
 
 /** The card's first point: what is sent, and to whom. */
 export const VISITOR_AI_SENT =
-  "When you chat with Amr's AI, your messages, the tool you're on, and anything Amr reads from your tools to answer are sent through this site and Amr's own AI server to Z.AI, the AI provider, to write a reply.";
+  "When you chat with Amr's AI or press Ask Amr in a tool, what you type, the tool you're on, and the tool content you choose or Amr reads to answer are sent through this site and Amr's own AI server to Z.AI, the AI provider, to write a reply.";
 
 /** The card's second point: what the site keeps. */
 export const VISITOR_AI_KEPT =
-  "The site keeps none of it. It keeps only a count of today's messages, under a code made from your IP address that changes every day and is deleted the next day.";
+  "The site keeps none of it. It keeps only a count of today's AI uses, under a code made from your IP address that changes every day and is deleted the next day.";
 
 /** What the visitor agrees to, one point per line. */
 export const VISITOR_AI_CONSENT_TEXT: readonly string[] = [
   VISITOR_AI_SENT,
   VISITOR_AI_KEPT,
-  "Amr asks before he changes anything in your tools.",
+  "Amr never changes your work without you accepting it.",
   "Don't share personal or confidential information.",
-  `You get ${VISITOR_AI_DAILY_MESSAGES} messages a day (fewer during busy hours). The offline guide is always free.`,
+  `You get ${VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons (fewer during busy hours). The tools and the offline guide always work without AI.`,
 ];
 
 // ── The count note (components/visits/visit-recorder.tsx) ─────────────────

@@ -41,6 +41,7 @@ import { EXAMPLE_MEMBERS, buildExample, buildExampleBoard } from "./example";
 import { toMarkdown, weeklyMarkdown } from "./markdown";
 import {
   CSV_HEADERS,
+  NOT_SHUFFLED,
   NO_ONE_AWAY,
   awayOn,
   csvRows,
@@ -50,11 +51,14 @@ import {
   personKey,
   postedEntry,
   sameEntryText,
+  shuffledOn,
+  shuffledOrder,
   speakingOrder,
   withAway,
   type AwayDay,
   type EntryDraft,
   type EntryValues,
+  type ShuffleDay,
 } from "./model";
 import { ModeSwitch } from "./mode-switch";
 import { NotPostedPanel } from "./people";
@@ -64,6 +68,8 @@ import { publishTurn, useStandupWalk } from "./walk";
 
 /** Who is out of today's standup, per browser (removes nothing; see model.AwayDay). */
 export const AWAY_KEY = "agile-toolkit:standup:away";
+/** Whether today's speaking order is shuffled, per browser (see model.ShuffleDay). */
+export const SHUFFLE_KEY = "agile-toolkit:standup:shuffle";
 
 const NO_ENTRIES: StandupEntry[] = [];
 const NO_UPDATES: AsyncUpdate[] = [];
@@ -148,10 +154,22 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
     [rosterNames, away]
   );
   const notYet = useMemo(() => notPostedYet(entries, expected, today), [entries, expected, today]);
-  const order = useMemo(
-    () => speakingOrder(rosterNames, entries, today, away),
-    [rosterNames, entries, today, away]
-  );
+  // Shuffled for the day (seeded by the date, so a reload or another screen
+  // shows the same order), or the roster's order.
+  const [shuffleState, setShuffleState] = usePersistedLocal<ShuffleDay>(SHUFFLE_KEY, NOT_SHUFFLED);
+  const shuffled = shuffledOn(shuffleState, today);
+  const order = useMemo(() => {
+    const base = speakingOrder(rosterNames, entries, today, away);
+    return shuffled ? shuffledOrder(base, today) : base;
+  }, [rosterNames, entries, today, away, shuffled]);
+  const shuffle = () => {
+    setShuffleState({ date: today, on: true });
+    announce("Speaking order shuffled for today");
+  };
+  const rosterOrder = () => {
+    setShuffleState({ date: today, on: false });
+    announce("Speaking order back in roster order");
+  };
 
   // Out for the day only: the team, and everyone's stories and links, stay.
   const markAway = (name: string) =>
@@ -647,6 +665,9 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
             <div className="min-w-0 lg:col-span-3">
               <BoardWalk
                 order={order}
+                shuffled={shuffled}
+                onShuffle={shuffle}
+                onRosterOrder={rosterOrder}
                 away={away}
                 entries={entries}
                 today={today}

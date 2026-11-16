@@ -15,18 +15,34 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { cleanName, MAX_NAME_LENGTH } from "@/lib/realtime/sanitize";
 import { VISITOR_LIMITS, visitorRoomsEnabled } from "@/lib/realtime/visitor-rooms";
-import { VISITOR_ROOM_CONSENT_TEXT, VOTE_ROOM_CONSENT_TEXT } from "@/lib/site/disclosures";
+import {
+  VISITOR_ROOM_CONSENT_TEXT,
+  VOTE_ROOM_CONSENT_TEXT,
+  WALL_ROOM_CONSENT_TEXT,
+} from "@/lib/site/disclosures";
 
 // What the dialog tells people before any channel opens, per variant. The
 // wording is lib/site/disclosures.ts's, which the privacy page quotes too;
 // re-exported here for the tests and callers that read it beside the dialog.
-export { VISITOR_ROOM_CONSENT_TEXT, VOTE_ROOM_CONSENT_TEXT };
+export { VISITOR_ROOM_CONSENT_TEXT, VOTE_ROOM_CONSENT_TEXT, WALL_ROOM_CONSENT_TEXT };
 
 /** The box people tick, per variant. */
 const CONSENT_CHECKBOX = {
   board: "I understand that anyone with the link can see what I type.",
   vote: "I understand that everyone in the room sees my name and whether I've answered.",
+  show: "I understand that everyone in the room sees my name.",
+  wall: "I understand that everyone in the room sees my posts, without my name, and the host may keep them.",
 } as const;
+
+/** The notice per variant: a show room's participants type nothing but their name. */
+const CONSENT_TEXT = {
+  board: VISITOR_ROOM_CONSENT_TEXT,
+  vote: VOTE_ROOM_CONSENT_TEXT,
+  show: VISITOR_ROOM_CONSENT_TEXT,
+  wall: WALL_ROOM_CONSENT_TEXT,
+} as const;
+
+export type VisitorRoomConsentVariant = keyof typeof CONSENT_TEXT;
 
 export interface VisitorRoomConsentProps {
   open: boolean;
@@ -40,8 +56,10 @@ export interface VisitorRoomConsentProps {
   /**
    * "board" (default): Poker and Retro, where what people type is shared.
    * "vote": an anonymous vote round, where only encrypted numbers are.
+   * "show": a show room, where only the host shows anything.
+   * "wall": a wall room, where posts are shared without names.
    */
-  variant?: "board" | "vote";
+  variant?: VisitorRoomConsentVariant;
   /** A line about this room in particular, under the notice (the Retro room's "no author"). */
   note?: string;
   /**
@@ -101,7 +119,7 @@ export function VisitorRoomConsent({
   };
 
   const action = mode === "start" ? "Start room" : "Join room";
-  const consentText = variant === "vote" ? VOTE_ROOM_CONSENT_TEXT : VISITOR_ROOM_CONSENT_TEXT;
+  const consentText = CONSENT_TEXT[variant];
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

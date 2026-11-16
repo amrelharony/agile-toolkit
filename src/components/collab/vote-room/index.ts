@@ -5,18 +5,28 @@
  * round has its own form, results and count entry: scale (`Vote*`,
  * `FacilitatorTally`), pair (`Pair*`, `FacilitatorPair`) and allocation
  * (`Allocation*`, `FacilitatorAllocation`).
+ *
+ * The two live rooms, `HostVoteRoom` and `VoteJoinRoom`, are not exported
+ * from here, only their types: a tool page that imports this file would
+ * otherwise download both rooms (their timer, reactions and QR code) up
+ * front, though they load only once a room opens. Import them from their
+ * own files.
  */
 
 export {
   VoteRoundPanel,
   unavailableReason,
+  liveOnlyReason,
   type VoteRoundPanelProps,
   type ScaleVoteRoundPanelProps,
   type PairVoteRoundPanelProps,
   type AllocationVoteRoundPanelProps,
+  type ChoiceVoteRoundPanelProps,
+  type RankVoteRoundPanelProps,
+  type NumberVoteRoundPanelProps,
 } from "./vote-round-panel";
-export { HostVoteRoom, type HostVoteRoomProps, type HostVoteSession } from "./host-vote-room";
-export { VoteJoinRoom, IncompleteLinkPanel, type VoteJoinRoomProps } from "./vote-join-room";
+export type { HostVoteRoomProps, HostVoteSession } from "./host-vote-room";
+export type { VoteJoinRoomProps } from "./vote-join-room";
 export { VoteAnswerForm, submitError, type VoteAnswerFormProps } from "./vote-answer-form";
 export { VoteLiveCount, liveCountText, type VoteLiveCountProps } from "./vote-live-count";
 export {
@@ -47,12 +57,31 @@ export {
   type AllocationResultsProps,
 } from "./allocation-results";
 export { FacilitatorAllocation, type FacilitatorAllocationProps } from "./facilitator-allocation";
-export { SavedRoundResults, resultKeepable, roundMarkdown } from "./round-views";
+export {
+  ChoiceAnswerForm,
+  choiceInstruction,
+  dotsLeftText,
+  type ChoiceAnswerFormProps,
+} from "./choice-answer-form";
+export { ChoiceResults, choiceSummary, type ChoiceResultsProps } from "./choice-results";
+export { RankAnswerForm, ordinal, type RankAnswerFormProps } from "./rank-answer-form";
+export { RankResults, rankSummary, type RankResultsProps } from "./rank-results";
+export {
+  NumberAnswerForm,
+  numberRangeText,
+  readNumberBox,
+  type NumberAnswerFormProps,
+} from "./number-answer-form";
+export { NumberResults, numberSummary, type NumberResultsProps } from "./number-results";
+export { SavedRoundResults, kindSpreadNote, resultKeepable, roundMarkdown } from "./round-views";
 export {
   useSaveRound,
   type SaveRound,
   type SaveVoteRound,
   type SavePairRound,
   type SaveAllocationRound,
+  type SaveChoiceRound,
+  type SaveRankRound,
+  type SaveNumberRound,
   type SaveRoundState,
 } from "./save-round";

@@ -7,12 +7,15 @@ import aiFeatureSpec from "./ai-feature-spec";
 import aiRedTeam from "./ai-red-team";
 import aiSafetyChecklist from "./ai-safety-checklist";
 import asyncStandup from "./async-standup";
+import audienceWall from "./audience-wall";
+import backlogHealth from "./backlog-health";
 import book from "./book";
 import burndown from "./burndown";
 import burnup from "./burnup";
 import buyAFeature from "./buy-a-feature";
 import canvas from "./canvas";
 import capacityPlanner from "./capacity-planner";
+import cardDecks from "./card-decks";
 import ceremonyTimer from "./ceremony-timer";
 import codeReviewMetrics from "./code-review-metrics";
 import comics from "./comics";
@@ -31,6 +34,7 @@ import doraScorecard from "./dora-scorecard";
 import eisenhower from "./eisenhower";
 import epicRoadmap from "./epic-roadmap";
 import estimationGuide from "./estimation-guide";
+import facilitatorTimers from "./facilitator-timers";
 import featureFlagTracker from "./feature-flag-tracker";
 import flakyTests from "./flaky-tests";
 import hallucinationLog from "./hallucination-log";
@@ -43,6 +47,7 @@ import iceScore from "./ice-score";
 import icebreaker from "./icebreaker";
 import impediments from "./impediments";
 import incidentCommander from "./incident-commander";
+import interruptBuffer from "./interrupt-buffer";
 import jtbdMapper from "./jtbd-mapper";
 import kanban from "./kanban";
 import kanoModel from "./kano-model";
@@ -51,6 +56,7 @@ import liberatingStructures from "./liberating-structures";
 import llmEvalTracker from "./llm-eval-tracker";
 import maturity from "./maturity";
 import meetTheCast from "./meet-the-cast";
+import meetingAudit from "./meeting-audit";
 import modelCard from "./model-card";
 import modelComparison from "./model-comparison";
 import modelMigration from "./model-migration";
@@ -63,16 +69,20 @@ import oncallRoster from "./oncall-roster";
 import oneOnOne from "./one-on-one";
 import oodaLoop from "./ooda-loop";
 import opportunityTree from "./opportunity-tree";
+import parkingLot from "./parking-lot";
 import piPlanning from "./pi-planning";
+import picker from "./picker";
 import planningPoker from "./planning-poker";
 import platformMaturity from "./platform-maturity";
 import polarityMap from "./polarity-map";
 import postMortem from "./post-mortem";
 import premortem from "./premortem";
 import prioritizer from "./prioritizer";
+import productGoal from "./product-goal";
 import promptRegistry from "./prompt-registry";
 import psychSafety from "./psych-safety";
 import qualityCost from "./quality-cost";
+import quickVote from "./quick-vote";
 import raci from "./raci";
 import rapidDecision from "./rapid-decision";
 import refinement from "./refinement";
@@ -85,11 +95,13 @@ import riceScoring from "./rice-scoring";
 import riskRegister from "./risk-register";
 import riskiestAssumption from "./riskiest-assumption";
 import rlhfLog from "./rlhf-log";
+import rootCause from "./root-cause";
 import runbookScorer from "./runbook-scorer";
 import scrumOfScrums from "./scrum-of-scrums";
 import sixHats from "./six-hats";
 import skillsMatrix from "./skills-matrix";
 import sloBuilder from "./slo-builder";
+import smNotebook from "./sm-notebook";
 import spacePulse from "./space-pulse";
 import sprint from "./sprint";
 import sprintCompare from "./sprint-compare";
@@ -102,6 +114,7 @@ import staceyMatrix from "./stacey-matrix";
 import stakeholderMap from "./stakeholder-map";
 import standup from "./standup";
 import storyMapper from "./story-mapper";
+import teamMixer from "./team-mixer";
 import techDebt from "./tech-debt";
 import techRadar from "./tech-radar";
 import testPyramid from "./test-pyramid";
@@ -133,12 +146,15 @@ export const TOOL_ART: Record<string, InkDrawing> = {
   "ai-red-team": aiRedTeam,
   "ai-safety-checklist": aiSafetyChecklist,
   "async-standup": asyncStandup,
+  "audience-wall": audienceWall,
+  "backlog-health": backlogHealth,
   book: book,
   burndown: burndown,
   burnup: burnup,
   "buy-a-feature": buyAFeature,
   canvas: canvas,
   "capacity-planner": capacityPlanner,
+  "card-decks": cardDecks,
   "ceremony-timer": ceremonyTimer,
   "code-review-metrics": codeReviewMetrics,
   comics: comics,
@@ -157,6 +173,7 @@ export const TOOL_ART: Record<string, InkDrawing> = {
   eisenhower: eisenhower,
   "epic-roadmap": epicRoadmap,
   "estimation-guide": estimationGuide,
+  "facilitator-timers": facilitatorTimers,
   "feature-flag-tracker": featureFlagTracker,
   "flaky-tests": flakyTests,
   "hallucination-log": hallucinationLog,
@@ -169,6 +186,7 @@ export const TOOL_ART: Record<string, InkDrawing> = {
   icebreaker: icebreaker,
   impediments: impediments,
   "incident-commander": incidentCommander,
+  "interrupt-buffer": interruptBuffer,
   "jtbd-mapper": jtbdMapper,
   kanban: kanban,
   "kano-model": kanoModel,
@@ -177,6 +195,7 @@ export const TOOL_ART: Record<string, InkDrawing> = {
   "llm-eval-tracker": llmEvalTracker,
   maturity: maturity,
   "meet-the-cast": meetTheCast,
+  "meeting-audit": meetingAudit,
   "model-card": modelCard,
   "model-comparison": modelComparison,
   "model-migration": modelMigration,
@@ -189,16 +208,20 @@ export const TOOL_ART: Record<string, InkDrawing> = {
   "one-on-one": oneOnOne,
   "ooda-loop": oodaLoop,
   "opportunity-tree": opportunityTree,
+  "parking-lot": parkingLot,
   "pi-planning": piPlanning,
+  picker: picker,
   "planning-poker": planningPoker,
   "platform-maturity": platformMaturity,
   "polarity-map": polarityMap,
   "post-mortem": postMortem,
   premortem: premortem,
   prioritizer: prioritizer,
+  "product-goal": productGoal,
   "prompt-registry": promptRegistry,
   "psych-safety": psychSafety,
   "quality-cost": qualityCost,
+  "quick-vote": quickVote,
   raci: raci,
   "rapid-decision": rapidDecision,
   refinement: refinement,
@@ -211,11 +234,13 @@ export const TOOL_ART: Record<string, InkDrawing> = {
   "risk-register": riskRegister,
   "riskiest-assumption": riskiestAssumption,
   "rlhf-log": rlhfLog,
+  "root-cause": rootCause,
   "runbook-scorer": runbookScorer,
   "scrum-of-scrums": scrumOfScrums,
   "six-hats": sixHats,
   "skills-matrix": skillsMatrix,
   "slo-builder": sloBuilder,
+  "sm-notebook": smNotebook,
   "space-pulse": spacePulse,
   sprint: sprint,
   "sprint-compare": sprintCompare,
@@ -228,6 +253,7 @@ export const TOOL_ART: Record<string, InkDrawing> = {
   "stakeholder-map": stakeholderMap,
   standup: standup,
   "story-mapper": storyMapper,
+  "team-mixer": teamMixer,
   "tech-debt": techDebt,
   "tech-radar": techRadar,
   "test-pyramid": testPyramid,

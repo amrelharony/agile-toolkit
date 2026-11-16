@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Sprint, Story } from "@/lib/stores/workspace-types";
+import type { Sprint, Story, StoryGwt } from "@/lib/stores/workspace-types";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 
 /**
@@ -82,6 +82,17 @@ const STORIES: Story[] = [
   { id: "b", title: "Refund flow", status: "backlog", priorityScore: 20 },
   { id: "c", title: "Gift cards", status: "backlog", priorityScore: 10 },
 ];
+
+/** A check saved by name, which has no story behind it. */
+const CHECK_BY_NAME = {
+  id: "h1",
+  storyName: "Other team's story",
+  date: "2026-10-10",
+  checks: [],
+  totalCriteria: 2,
+  metCount: 1,
+  passRate: 50,
+};
 
 const ws = () => useWorkspaceStore.getState();
 const story = (id: string) => ws().stories.find((s) => s.id === id);
@@ -211,6 +222,23 @@ describe("the story being refined", () => {
     });
   });
 
+  it("undoing a scenario delete puts back the story's earlier refinement stamp", () => {
+    const old = "2026-05-01T09:00:00.000Z";
+    const gwt = [{ id: "g1", given: "a saved card", when: "I pay", then: "I'm charged once" }];
+    useWorkspaceStore.setState({
+      stories: STORIES.map((s) => (s.id === "a" ? { ...s, refinedAt: old, gwt } : { ...s })),
+    });
+    renderPage();
+    fireEvent.click(
+      within(details("Pay with a saved card")).getByRole("button", { name: "Delete scenario 1" })
+    );
+    expect(story("a")?.gwt).toBeUndefined();
+    expect(story("a")?.refinedAt).not.toBe(old);
+    undoLast();
+    expect(story("a")?.gwt).toEqual(gwt);
+    expect(story("a")?.refinedAt).toBe(old);
+  });
+
   it("offers to add details to a story that has none, and stays put when cancelled", () => {
     renderPage();
     fireEvent.click(
@@ -240,10 +268,14 @@ describe("the story being refined", () => {
     ).toHaveFocus();
   });
 
-  it("keeps the details out of the Markdown and the CSV", () => {
+  it("puts its acceptance criteria in the Markdown and the CSV, and keeps the other details out", () => {
+    // The owner's call (2026-11-16): the criteria go in both exports. The
+    // notes, the ticket and the link still stay out.
     renderPage();
     expect(exported.props?.markdown).toContain("Pay with a saved card");
-    for (const text of ["security code", "stored by the provider", "PAY-12", "tracker.example"]) {
+    expect(exported.props?.markdown).toContain("security code");
+    expect(JSON.stringify(exported.props?.csvData)).toContain("security code");
+    for (const text of ["stored by the provider", "PAY-12", "tracker.example"]) {
       expect(exported.props?.markdown).not.toContain(text);
       expect(JSON.stringify(exported.props?.csvData)).not.toContain(text);
     }
@@ -298,6 +330,180 @@ describe("the story being refined", () => {
     expect(
       within(details("Partner refunds")).getByText("Refunds paid out by a partner bank.")
     ).toBeInTheDocument();
+  });
+});
+
+/* ── Acceptance criteria in the exports ──────────────────────────────── */
+
+describe("acceptance criteria in the Markdown and the CSV", () => {
+  const FREE = STORIES[0].acceptanceCriteria!;
+  const GWT: StoryGwt[] = [
+    { id: "g1", given: "a saved card", when: "I pay", then: "it is charged once" },
+    { id: "g2", given: "an expired card", when: "I pay", then: "I am asked for a new one" },
+  ];
+  const GWT_CELL =
+    "Given a saved card, when I pay, then it is charged once. | Given an expired card, when I pay, then I am asked for a new one.";
+  const GWT_BLOCK = [
+    "```gherkin",
+    "Given a saved card",
+    "When I pay",
+    "Then it is charged once",
+    "",
+    "Given an expired card",
+    "When I pay",
+    "Then I am asked for a new one",
+    "```",
+  ].join("\n");
+  /** The stories, with some fields changed, or taken away when set to undefined. */
+  const setStories = (patch: Record<string, Partial<Story>>) =>
+    useWorkspaceStore.setState({
+      stories: STORIES.map((s) => {
+        const next = { ...s, ...patch[s.id] };
+        for (const [k, v] of Object.entries(patch[s.id] ?? {}))
+          if (v === undefined) delete next[k as keyof Story];
+        return next;
+      }),
+    });
+  const markdown = () => exported.props!.markdown;
+  /** One CSV row, by its column names. */
+  const csvRow = (title: string) => {
+    const { headers, rows } = exported.props!.csvData;
+    const row = rows.find((r) => r[0] === title)!;
+    return Object.fromEntries(headers.map((h, i) => [h, row[i]]));
+  };
+
+  it("adds the two criteria columns at the end of the CSV", () => {
+    renderPage();
+    expect(exported.props!.csvData.headers).toEqual([
+      "Story",
+      "Source",
+      "Points",
+      "Criteria met",
+      "Total criteria",
+      "% ready",
+      "Status",
+      "Checked on",
+      "Acceptance criteria",
+      "Given / When / Then",
+    ]);
+  });
+
+  it("exports free-text criteria: its own lines in the Markdown, whole in the CSV", () => {
+    renderPage();
+    // A list stays a list: each criterion is its own "- " line.
+    expect(markdown()).toContain(
+      [
+        "## Acceptance criteria",
+        "",
+        "### Pay with a saved card",
+        "",
+        "- A saved card shows at checkout",
+        "- Only the security code is asked",
+      ].join("\n")
+    );
+    expect(markdown()).not.toContain("```");
+    expect(csvRow("Pay with a saved card")).toMatchObject({
+      "Acceptance criteria": FREE,
+      "Given / When / Then": "",
+    });
+  });
+
+  it("exports Given/When/Then scenarios: a Gherkin block in the Markdown, sentences in the CSV", () => {
+    setStories({ a: { acceptanceCriteria: undefined }, b: { gwt: GWT } });
+    renderPage();
+    expect(markdown()).toContain(`### Refund flow\n\n${GWT_BLOCK}`);
+    expect(markdown()).not.toContain("### Pay with a saved card");
+    expect(csvRow("Refund flow")).toMatchObject({
+      "Acceptance criteria": "",
+      "Given / When / Then": GWT_CELL,
+    });
+  });
+
+  it("exports both kinds for a story that has both, the free text first", () => {
+    setStories({ a: { gwt: GWT } });
+    useRefinementStore.setState({ history: [CHECK_BY_NAME] });
+    renderPage();
+    const md = markdown();
+    expect(md).toContain(
+      [
+        "### Pay with a saved card",
+        "",
+        "- A saved card shows at checkout",
+        "- Only the security code is asked",
+        "",
+        GWT_BLOCK,
+      ].join("\n")
+    );
+    expect(csvRow("Pay with a saved card")).toMatchObject({
+      "Acceptance criteria": FREE,
+      "Given / When / Then": GWT_CELL,
+    });
+    // After the story tables, before the checks by name.
+    expect(md.indexOf("## Acceptance criteria")).toBeGreaterThan(md.indexOf("## To refine"));
+    expect(md.indexOf("## Acceptance criteria")).toBeLessThan(md.indexOf("## Earlier checks"));
+  });
+
+  it("leaves a story with no criteria as it was", () => {
+    renderPage();
+    expect(markdown()).not.toContain("### Refund flow");
+    expect(markdown()).toContain("| Refund flow | Unsized | — | Not checked |");
+    expect(csvRow("Refund flow")).toMatchObject({
+      "Acceptance criteria": "",
+      "Given / When / Then": "",
+    });
+  });
+
+  it("adds no criteria section, and leaves the criteria cells blank, when no story has any", () => {
+    setStories({ a: { acceptanceCriteria: undefined } });
+    useRefinementStore.setState({ history: [CHECK_BY_NAME] });
+    renderPage();
+    expect(markdown()).not.toContain("## Acceptance criteria");
+    expect(markdown()).not.toContain("###");
+    for (const title of ["Pay with a saved card", "Refund flow", "Other team's story"]) {
+      expect(csvRow(title)).toMatchObject({
+        "Acceptance criteria": "",
+        "Given / When / Then": "",
+      });
+    }
+  });
+
+  it("counts the stories whose criteria don't fit in the Markdown, and the CSV has them all", () => {
+    // The Markdown travels in a share link too, so its criteria have a limit.
+    const long = "x".repeat(1990);
+    const gwt = [
+      { id: "g1", given: "g".repeat(900), when: "w".repeat(900), then: "t".repeat(900) },
+    ];
+    useWorkspaceStore.setState({
+      stories: Array.from({ length: 20 }, (_, i) => ({
+        id: `s${i}`,
+        title: `Story ${i}`,
+        status: "backlog" as const,
+        acceptanceCriteria: `${i} ${long}`,
+        gwt,
+      })),
+    });
+    renderPage();
+    const shown = markdown().match(/^### .*$/gm) ?? [];
+    expect(shown).toEqual(Array.from({ length: shown.length }, (_, i) => `### Story ${i}`));
+    expect(shown.length).toBeGreaterThan(1);
+    expect(shown.length).toBeLessThan(20);
+    expect(markdown()).toContain(
+      `_Acceptance criteria for ${20 - shown.length} more stories are in the CSV export._`
+    );
+    for (let i = 0; i < 20; i++) {
+      expect(csvRow(`Story ${i}`)).toMatchObject({
+        "Acceptance criteria": `${i} ${long}`,
+        "Given / When / Then": `Given ${gwt[0].given}, when ${gwt[0].when}, then ${gwt[0].then}.`,
+      });
+    }
+  });
+
+  it("keeps a scenario's backticks from closing the Gherkin block early", () => {
+    setStories({
+      a: { acceptanceCriteria: undefined, gwt: [{ id: "g1", given: "```", when: "", then: "x" }] },
+    });
+    renderPage();
+    expect(markdown()).toContain("````gherkin\nGiven ```\nThen x\n````");
   });
 });
 

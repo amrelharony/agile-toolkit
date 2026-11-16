@@ -127,7 +127,7 @@ export const GUIDES: ToolGuide[] = [
       "Under Create a post-mortem, enter a Title, the Incident date and a one-line description, then click Create post-mortem.",
       "Write the Summary: what happened and how users were affected, in plain language.",
       "Rebuild the Timeline, one entry per significant event. Set Event time to when it happened (leave it blank for now); the timeline sorts itself by event time.",
-      "Add Contributing factors. Aim for at least two or three; a single root cause usually hides part of the story.",
+      "Add Contributing factors. Aim for at least two or three; a single root cause usually hides part of the story. Analyze in Root Cause takes a factor to 5 Whys or a fishbone, and the factor then links to its analysis.",
       "Add Action items with an owner and due date, and move each through Open, In progress and Done.",
       "Move the status from Draft to In review to Published, and check Overdue actions at every review.",
     ],

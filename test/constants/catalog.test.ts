@@ -46,7 +46,7 @@ describe("the More tools shelf", () => {
 
   it("holds the off-audience tools and nothing from the Scrum core", () => {
     const shelf = getShelfTools().map((t) => t.id);
-    expect(shelf).toHaveLength(32);
+    expect(shelf).toHaveLength(33);
     expect(shelf).toEqual(
       expect.arrayContaining([
         "model-card",
@@ -64,7 +64,7 @@ describe("the More tools shelf", () => {
 
   it("is hidden by default and listed once Show all tools is on", () => {
     expect(getVisibleTools().some(isShelved)).toBe(false);
-    expect(getVisibleTools(true).filter(isShelved)).toHaveLength(32);
+    expect(getVisibleTools(true).filter(isShelved)).toHaveLength(33);
     expect(getVisibleCategories()).not.toContain("AI / LLM Product Management");
     expect(getVisibleCategories(true)).toContain("AI / LLM Product Management");
     expect(getVisibleToolsByCategory("Security & Compliance")).toEqual([]);
@@ -78,6 +78,6 @@ describe("the More tools shelf", () => {
     const groups = getShelfToolsByCategory();
     expect(groups.length).toBeGreaterThan(1);
     expect(groups.every((g) => g.tools.length > 0)).toBe(true);
-    expect(groups.flatMap((g) => g.tools)).toHaveLength(32);
+    expect(groups.flatMap((g) => g.tools)).toHaveLength(33);
   });
 });

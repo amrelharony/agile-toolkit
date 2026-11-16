@@ -407,6 +407,7 @@ describe("bypass paths", () => {
     "/api/mcp/x",
     "/api/agent/stream",
     "/api/agent/visitor",
+    "/api/ai/tool/visitor",
     "/api/guest/redeem",
     "/api/comics/hit",
     "/api/comics/licence",
@@ -449,6 +450,13 @@ describe("bypass paths", () => {
     "/api/agent/visitor/x",
     "/api/agent/visitors",
     "/api/agent",
+    // The tools' visitor AI is one exact path too; the owner's route beside it
+    // and anything under either stay checked.
+    "/api/ai/tool",
+    "/api/ai/tool/",
+    "/api/ai/tool/visitor/x",
+    "/api/ai/tool/visitors",
+    "/api/ai",
   ]) {
     it(`${path} is checked like any other API route`, async () => {
       signedInAs(STRANGER);
