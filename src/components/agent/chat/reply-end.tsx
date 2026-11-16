@@ -12,8 +12,9 @@
  *               With no composer there, the app's announcer says it
  *   Try again   when the turn ran no change (the client's canRetry, as the
  *               notice's Try again: the container hands both the same one),
- *               so trying again repeats none. A visitor's says it spends one
- *               of the messages left. It goes as the turn it starts begins,
+ *               so trying again repeats none. A visitor's says what it
+ *               spends (`cost`, in the visitor chat's words from
+ *               lib/visitor-ai/allowance). It goes as the turn it starts begins,
  *               so it hands focus on first, as the notice's does (chat-context
  *               focusBeforeTurn)
  *   follow-ups  up to two (lib/agent/follow-ups: no model call, so a
@@ -53,21 +54,16 @@ export const COPY_FAILED = "Couldn't copy the reply";
 /** The follow-ups' list, as a screen reader names it. */
 export const FOLLOW_UPS_LABEL = "Ways to follow up";
 
-/** What Try again costs a visitor with `left` messages (null: not known yet), on its button. */
-export const retryCost = (left: number | null) =>
-  left === null
-    ? "uses 1 message"
-    : left === 1
-      ? "uses your last message"
-      : `uses 1 of your ${left} left`;
-
 /**
  * The chat's Try again under its latest reply: the notice's own wiring
  * (chat-notice), so both run the client's one retry, only while it allows.
  */
 export interface ReplyRetry extends Pick<ChatNoticeProps, "canRetry" | "onTryAgain"> {
-  /** A visitor's messages left (null: not known yet), which the button says it spends one of. The owner's is left out. */
-  left?: number | null;
+  /**
+   * What a visitor's Try again spends, in brackets after its name ("uses 1 of
+   * your 12 left": lib/visitor-ai/allowance retryCost). The owner's is left out.
+   */
+  cost?: string;
 }
 
 export interface ReplyEndProps {
@@ -118,7 +114,7 @@ export function ReplyEnd({ turn, retry }: ReplyEndProps) {
         </Button>
         {retry && retryable && (
           <Button type="button" variant="ghost" size="sm" onClick={again}>
-            {retry.left === undefined ? "Try again" : `Try again (${retryCost(retry.left)})`}
+            {retry.cost === undefined ? "Try again" : `Try again (${retry.cost})`}
           </Button>
         )}
       </div>

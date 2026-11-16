@@ -794,7 +794,30 @@ describe("MascotAssistant — visitor AI", () => {
         peakEndsAt: null,
       });
     });
-    expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent("62 of 100 left today");
+    const line = screen.getByTestId("visitor-ai-quota");
+    expect(line).toHaveTextContent("62 of 100 left today");
+    // In the status row, outside its one live span.
+    expect(line.closest("[aria-live]")).toBeNull();
+    expect(line.closest("[data-composer-status]")).not.toBeNull();
+    expect(line).not.toHaveClass("font-medium");
+
+    // Busy hours join the same line, and a few left stands out.
+    const ends = new Date(Date.now() + 90 * 60_000);
+    act(() => {
+      useAgentStore.getState().setVisitorQuota({
+        remaining: 40,
+        limit: 100,
+        peak: true,
+        peakRemaining: 2,
+        peakLimit: 25,
+        peakEndsAt: ends.toISOString(),
+      });
+    });
+    expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent(
+      `40 of 100 left today · Busy hours until ${formatPeakTime(ends)}: 2 of 25 messages left in this window`
+    );
+    expect(screen.getByTestId("visitor-ai-quota")).toHaveClass("font-medium", "text-text");
+    expect(screen.getAllByText(/Busy hours until/)).toHaveLength(1);
   });
 
   it("goes back to the tool finder when Amr can't answer any more", async () => {

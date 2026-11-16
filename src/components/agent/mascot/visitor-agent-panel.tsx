@@ -33,7 +33,10 @@
  * lib/agent/visitor-starters); a starter fills the message box and never
  * sends, so it spends nothing. The composer is the one both chats share
  * (chat/chat-composer), with the visitor's limit on a message's length, a
- * counter near it, and the allowance in its status row. Its mic asks first
+ * counter near it, and the allowance in its status row: one line, never live
+ * (lib/visitor-ai/allowance: the day's messages, busy hours while they are
+ * on, that Amr asks before a change, that nothing is saved), standing out
+ * when only a few are left. Its mic asks first
  * (VisitorDictate): browser dictation may send the audio to the browser's
  * maker, so the first press shows the voice notice (./voice-notice, loaded
  * only then), and only "Use voice" starts it.
@@ -54,16 +57,15 @@ import {
 import { usePathname } from "next/navigation";
 import { BookOpen, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
+import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
 import { resolvePageTool, toolIdForPath } from "@/lib/agent/page-tool";
 import { VISITOR_EMPTY, visitorStarters } from "@/lib/agent/visitor-starters";
 import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { isVipHidden } from "@/lib/tools/catalog";
 import { useVipHint } from "@/lib/vip/use-vip-hint";
+import { allowanceLine, lowOnMessages, messagesLeft, retryCost } from "@/lib/visitor-ai/allowance";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
-import { formatPeakTime, peakWindow } from "@/lib/visitor-ai/peak";
-import { cn } from "@/lib/utils";
 import { hasVoiceConsent, storeVoiceConsent } from "@/lib/agent/mascot/voice-consent";
 import { ChatComposer, type ComposerMicProps } from "../chat/chat-composer";
 import { ChatProvider } from "../chat/chat-context";
@@ -73,12 +75,11 @@ import { ThinkingItemView } from "../chat/chat-items";
 import { ChatNotice } from "../chat/chat-notice";
 import { ChatStrip, useAwaitingReply } from "../chat/chat-strip";
 import type { ReplyEndProps } from "../chat/reply-end";
-import { COMPACT_HIDDEN } from "./panel-context";
-import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
 
-/** The per-window allowance the busy-hours note names before the route reports one. */
-const PEAK_MESSAGES = 25;
-/** How often the busy-hours note re-checks the clock. */
+/** The busy-hours note, here since before it moved to lib/visitor-ai/allowance. */
+export { peakNote } from "@/lib/visitor-ai/allowance";
+
+/** How often the allowance line re-checks the clock (busy hours start and end). */
 const CLOCK_TICK_MS = 60_000;
 /** Said when the runtime can't load: nothing was sent. */
 export const VISITOR_RUNTIME_LOAD_ERROR =
@@ -174,14 +175,6 @@ function VisitorReplyEnd(props: ReplyEndProps) {
   return End ? <End {...props} /> : null;
 }
 
-/** A visitor's messages left now: today's, or fewer in busy hours. Null before the route has said. */
-function messagesLeft(quota: VisitorQuota | null): number | null {
-  if (!quota) return null;
-  return quota.peak && quota.peakRemaining !== null
-    ? Math.min(quota.remaining, quota.peakRemaining)
-    : quota.remaining;
-}
-
 /** Said when the voice notice can't load: dictation didn't start. */
 export const VOICE_NOTICE_LOAD_ERROR = "Voice couldn't load. Check your connection and try again.";
 
@@ -252,37 +245,6 @@ function useNow(ms: number): Date {
     return () => window.clearInterval(id);
   }, [ms]);
   return now;
-}
-
-/**
- * The busy-hours note, in the visitor's own time ("Busy hours until 12:00: 25
- * messages in this window"), or null outside Z.AI's peak window.
- *
- * The route's word wins once it has answered, either way: busy hours it
- * reports run until the end it gave; and "not busy hours" from it, given
- * during the window the clock expects, means the owner moved or emptied the
- * window (visitor_ai_config), so no note until the route says otherwise.
- * Before the route has answered in the current window, the clock (the default
- * window in lib/visitor-ai/peak) decides, naming the route's per-window limit
- * when it has sent one.
- */
-export function peakNote(quota: VisitorQuota | null, now: Date): string | null {
-  const reported = quota?.peak && quota.peakEndsAt ? new Date(quota.peakEndsAt) : null;
-  if (quota && reported && reported > now) {
-    const allowance =
-      quota.peakRemaining != null && quota.peakLimit != null
-        ? `${quota.peakRemaining} of ${quota.peakLimit} messages left in this window`
-        : `${quota.peakLimit ?? PEAK_MESSAGES} messages in this window`;
-    return `Busy hours until ${formatPeakTime(reported)}: ${allowance}`;
-  }
-  const win = peakWindow(now);
-  if (!win.on || !win.endsAt) return null;
-  if (quota && !quota.peak) {
-    const then = peakWindow(quota.receivedAt === undefined ? now : new Date(quota.receivedAt));
-    // Answered inside this same window: the route knows better than the clock.
-    if (then.on && then.endsAt?.getTime() === win.endsAt.getTime()) return null;
-  }
-  return `Busy hours until ${formatPeakTime(win.endsAt)}: ${quota?.peakLimit ?? PEAK_MESSAGES} messages in this window`;
 }
 
 interface VisitorAgentPanelProps {
@@ -394,7 +356,7 @@ export default function VisitorAgentPanel({
     onTryAgain: tryAgain,
   };
   // Under the reply it says what it spends; with no message left, it isn't offered.
-  const left = messagesLeft(quota);
+  const left = messagesLeft(quota, now);
 
   // The message box (the composer) is where the panel's focus owner puts
   // focus when the chat opens, and again when it comes back from under the
@@ -431,7 +393,6 @@ export default function VisitorAgentPanel({
   // The thinking balloon, until the reply's first words or steps arrive (or
   // between tool rounds). The log follows itself (chat-frame).
   const awaiting = useAwaitingReply(busy);
-  const peak = peakNote(quota, now);
 
   // The composer's row: the frame keeps it shrink-0 (the form its direct
   // child) and makes room beside it for docked Amr.
@@ -447,16 +408,16 @@ export default function VisitorAgentPanel({
       takeFocus={takeFocus}
       mic={VisitorDictate}
       // In the status row, never live; it waits while the panel is compact.
+      // With only a few left it stands out (weight and ink), and is never announced.
       status={
-        <span data-testid="visitor-ai-quota">
-          {quota
-            ? `${quota.remaining} of ${quota.limit} left today`
-            : `${VISITOR_AI_DAILY_MESSAGES} AI uses a day`}
-          {inLiveRoom ? " · Not saved" : " · Amr asks before changing anything · Not saved"}
+        <span
+          data-testid="visitor-ai-quota"
+          className={lowOnMessages(left) ? "font-medium text-text" : undefined}
+        >
+          {allowanceLine(quota, now, inLiveRoom)}
         </span>
       }
     >
-      {peak && <p className={cn("mt-1 text-xs text-sub", COMPACT_HIDDEN)}>{peak}</p>}
       {inLiveRoom && (
         <p className="mt-1 text-xs text-sub" data-testid="visitor-ai-live-room">
           You&apos;re in a live room, so Amr only answers questions here: he won&apos;t read or
@@ -496,7 +457,7 @@ export default function VisitorAgentPanel({
         footer={footer}
         className="px-3 py-2"
         replyEnd={VisitorReplyEnd}
-        retry={left === 0 ? undefined : { ...retry, left }}
+        retry={left === 0 ? undefined : { ...retry, cost: retryCost(left) }}
       >
         {empty && !busy && (
           <ChatEmpty line={VISITOR_EMPTY.line} short={VISITOR_EMPTY.short} starters={starters} />
