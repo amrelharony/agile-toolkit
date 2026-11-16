@@ -187,6 +187,12 @@ describe("the owner's first open after a page load", () => {
     const starters = screen.getByRole("list", { name: "Ways to start" });
     const chip = within(pickUpList()!).getByRole("button", { name: pickUpLabel("Sprint plan") });
     expect(chip).toHaveTextContent("Pick up “Sprint plan”");
+    // Only the title takes its own direction (an Arabic one, say): the words
+    // and quotes around it stay as they are.
+    const title = chip.querySelector("bdi");
+    expect(title).toHaveTextContent(/^Sprint plan$/);
+    expect(title?.parentElement).not.toHaveAttribute("dir");
+    expect(chip.querySelector("[dir]")).toBeNull();
     expect(starters.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     // The starters' recipe: outline, 44 px on a touch screen, never a pill.
     expect(chip.className).not.toMatch(/rounded-full|uppercase/);
@@ -229,7 +235,13 @@ describe("the owner's first open after a page load", () => {
     vi.mocked(h.loadMessages).mockResolvedValueOnce({ ok: false, data: [] });
     const chip = screen.getByRole("button", { name: pickUpLabel("Sprint plan") });
     fireEvent.click(chip, { detail: 1 });
-    const caption = await screen.findByText(pickUpFailed("Sprint plan"));
+    await waitFor(() =>
+      expect(document.querySelector("[data-chat-pick-up-failed]")).not.toBeNull()
+    );
+    const caption = document.querySelector<HTMLElement>("[data-chat-pick-up-failed]")!;
+    expect(caption).toHaveTextContent(pickUpFailed("Sprint plan"));
+    // The title isolated, as on the chip.
+    expect(caption.querySelector("bdi")).toHaveTextContent(/^Sprint plan$/);
     expect(caption.closest('[data-voice="narration"]')).toHaveAttribute("data-tone", "error");
     expect(useAgentStore.getState().activeConversationId).toBeNull();
     expect(chip).toBeInTheDocument();

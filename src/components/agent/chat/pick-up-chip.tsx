@@ -41,11 +41,14 @@ import type { ConversationMeta } from "@/lib/agent/types";
 import { Narration } from "../comic/comic-parts";
 import { tapOnTouchScreen, useChat } from "./chat-context";
 
-/** The chip's words. */
+/**
+ * The chip's words. It draws the same words with the title in a <bdi>, so an
+ * Arabic title takes its own direction and the quotes around it stay put.
+ */
 export const pickUpLabel = (title: string) => `Pick up “${title}”`;
 /** Its list's name. */
 export const PICK_UP_LIST = "Your last chat";
-/** The thread couldn't be read (narration, said once): History's words for the same. */
+/** The thread couldn't be read (narration, said once): History's words for the same, the title isolated as on the chip. */
 export const pickUpFailed = (title: string) =>
   `Amr couldn't open “${title}”. Check your connection and try again.`;
 
@@ -99,13 +102,15 @@ export function PickUpChip({ thread, onDone }: PickUpChipProps) {
             onClick={(e) => void pick(e)}
           >
             <History aria-hidden="true" className="shrink-0" />
-            <span dir="auto">{pickUpLabel(thread.title)}</span>
+            <span>
+              Pick up “<bdi>{thread.title}</bdi>”
+            </span>
           </Button>
         </li>
       </ul>
       {failed && (
         <Narration tone="error" data-chat-pick-up-failed="">
-          {pickUpFailed(thread.title)}
+          Amr couldn&apos;t open “<bdi>{thread.title}</bdi>”. Check your connection and try again.
         </Narration>
       )}
     </div>
