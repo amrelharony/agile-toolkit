@@ -28,7 +28,10 @@
  * people write never reaches the room's phones. While the vote is open,
  * the host's screen shows how many voted, not the split, so a shared
  * screen can't tie a thumb to whoever just tapped, with a button to close
- * it, before and after time's up.
+ * it, before and after time's up. A vote closed with fewer than 3 voters
+ * (THUMBS_MIN_VOTERS) shows no split anywhere, only a line saying why;
+ * Keep going and Move on still work. The one-screen hand count has no
+ * minimum: everyone in the room saw the hands.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -58,7 +61,7 @@ import { cn } from "@/lib/utils";
 import type { BoardState, RetroCard } from "../types";
 import { useLeanCoffeeSettings } from "../lean-coffee-store";
 import type { RetroThumbsHost } from "../room/use-retro-room";
-import { thumbsVerdict } from "../room/thumbs-vote-card";
+import { shownTotals, thumbsHiddenLine, thumbsVerdict } from "../room/thumbs-vote-card";
 
 /** History actions the runner logs, from RETRO_ACTIONS (lib/history/event-actions.ts). */
 export const LEAN_COFFEE_LOG = {
@@ -412,13 +415,17 @@ export function LeanCoffeeRunner({
   if (state.phase !== "discuss") return null;
 
   // ── Discuss: one topic at a time ──
-  // The room's split counts once its vote is closed; until then the host's
-  // screen shows only how many voted.
-  const tally = thumbs ? (roomPoll && !roomPoll.open ? roomPoll : null) : timeUp ? hand : null;
+  // The room's split counts once its vote is closed, and only with at
+  // least THUMBS_MIN_VOTERS voters; until then the host's screen shows only
+  // how many voted, and with fewer no button is picked out for it.
+  const roomTotals = roomPoll ? shownTotals(roomPoll) : null;
+  const tally = thumbs ? roomTotals : timeUp ? hand : null;
   const decision = tally ? thumbsDecision(tally) : "none";
+  const totalsClass =
+    "rounded-sm text-sm text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring";
   // The room's vote as the host sees it: how many voted while it's open
-  // (with Close), the totals once closed. Shown whether it opened at
-  // time's up or early, with "Ask the room now".
+  // (with Close), the totals once closed (or why there are none). Shown
+  // whether it opened at time's up or early, with "Ask the room now".
   const roomPollStatus =
     thumbs && roomPoll ? (
       <div className="flex flex-wrap items-center gap-2">
@@ -426,26 +433,34 @@ export function LeanCoffeeRunner({
           <p role="status" className="text-sm text-text">
             {roomPoll.voters} {roomPoll.voters === 1 ? "person has" : "people have"} voted so far.
           </p>
-        ) : (
-          <p
-            ref={totalsRef}
-            role="status"
-            tabIndex={-1}
-            className="rounded-sm text-sm text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
+        ) : roomTotals ? (
+          <p ref={totalsRef} role="status" tabIndex={-1} className={totalsClass}>
             <ThumbsUp className="mr-1 inline h-4 w-4" aria-hidden="true" />
-            Keep going {roomPoll.keep} ·{" "}
+            Keep going {roomTotals.keep} ·{" "}
             <ThumbsDown className="mr-1 inline h-4 w-4" aria-hidden="true" />
-            Move on {roomPoll.move}{" "}
+            Move on {roomTotals.move}{" "}
             <span className="text-xs text-sub">({roomPoll.voters} voted)</span>
+          </p>
+        ) : (
+          <p ref={totalsRef} role="status" tabIndex={-1} className={totalsClass}>
+            {thumbsHiddenLine(roomPoll.voters, true)}
           </p>
         )}
         {roomPoll.open ? (
           <Button ref={closeRef} type="button" size="sm" variant="outline" onClick={closeVote}>
             Close the vote and show everyone
           </Button>
+        ) : roomTotals ? (
+          <span className="text-xs text-sub">{thumbsVerdict(roomTotals)}</span>
         ) : (
-          <span className="text-xs text-sub">{thumbsVerdict(roomPoll)}</span>
+          // The hidden line says "or ask again": at time's up this is the
+          // way to (before then, Ask the room again sits beside Done).
+          timeUp &&
+          current && (
+            <Button type="button" size="sm" variant="outline" onClick={() => askRoom(current.text)}>
+              Ask the room again
+            </Button>
+          )
         )}
       </div>
     ) : null;

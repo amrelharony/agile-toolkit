@@ -4,14 +4,41 @@
  * A participant's view of the host's thumbs vote (Lean Coffee): "Keep going
  * or move on?" about the topic being discussed. Thumb up or down while it's
  * open, and change it if you change your mind; once the host closes it,
- * the totals and what they say. The screen never shows who voted what
- * (the thumb itself isn't sealed on the wire: see thumbs.ts).
+ * the totals and what they say, or, with fewer than THUMBS_MIN_VOTERS
+ * voters, a line that the totals stay hidden. The screen never shows who
+ * voted what (the thumb itself isn't sealed on the wire: see thumbs.ts).
  */
 
 import { ThumbsDown, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { thumbsDecision } from "@/lib/retro/lean-coffee";
 import type { RoomPoll, ThumbChoice } from "./protocol";
+import { thumbsTotalsShown } from "./thumbs";
+
+/**
+ * What a vote closed with fewer than THUMBS_MIN_VOTERS voters shows instead
+ * of its totals. `canAsk`: the host, who can ask the room again; the phones
+ * and the big screen leave that out.
+ */
+export function thumbsHiddenLine(voters: number, canAsk: boolean): string {
+  const why =
+    voters === 0
+      ? "Nobody voted, so there are no totals."
+      : `Only ${voters} ${voters === 1 ? "person" : "people"} voted, so the totals stay hidden.`;
+  return `${why} ${canAsk ? "Decide together, or ask again." : "Decide together."}`;
+}
+
+/** A closed vote's totals, or null when too few voted for them to show. */
+export function shownTotals(poll: {
+  open: boolean;
+  voters: number;
+  keep?: number;
+  move?: number;
+}): { keep: number; move: number } | null {
+  if (poll.open || !thumbsTotalsShown(poll.voters)) return null;
+  if (poll.keep === undefined || poll.move === undefined) return null;
+  return { keep: poll.keep, move: poll.move };
+}
 
 /** What the totals say, in a line. */
 export function thumbsVerdict(tally: { keep: number; move: number }): string {
@@ -39,6 +66,7 @@ export function ThumbsVoteCard({
   onThumb: (choice: ThumbChoice) => void;
 }) {
   const voted = `${poll.voters} ${poll.voters === 1 ? "person has" : "people have"} voted.`;
+  const totals = shownTotals(poll);
   return (
     <section
       aria-label="Keep going or move on?"
@@ -78,12 +106,16 @@ export function ThumbsVoteCard({
               : voted}
           </p>
         </>
-      ) : (
+      ) : totals ? (
         <p role="status" className="text-sm text-text">
           <span className="font-semibold">
-            Keep going {poll.keep ?? 0} · Move on {poll.move ?? 0}.
+            Keep going {totals.keep} · Move on {totals.move}.
           </span>{" "}
-          {thumbsVerdict({ keep: poll.keep ?? 0, move: poll.move ?? 0 })}
+          {thumbsVerdict(totals)}
+        </p>
+      ) : (
+        <p role="status" className="text-sm text-text">
+          {thumbsHiddenLine(poll.voters, false)}
         </p>
       )}
     </section>

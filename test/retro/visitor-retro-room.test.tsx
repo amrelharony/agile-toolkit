@@ -619,14 +619,48 @@ describe("VisitorRetroRoom (participant)", () => {
     // A later snapshot of the same open vote says nothing new.
     act(() => ch.deliver("retro:state", withPoll(3, { ...open, voters: 1 })));
     act(() =>
-      ch.deliver("retro:state", withPoll(4, { ...open, open: false, voters: 2, keep: 2, move: 0 }))
+      ch.deliver("retro:state", withPoll(4, { ...open, open: false, voters: 3, keep: 3, move: 0 }))
     );
     await waitFor(() =>
       expect(screen.getByTestId("live-polite")).toHaveTextContent(
-        "The vote is closed. Keep going 2, move on 0. Most want to keep going."
+        "The vote is closed. Keep going 3, move on 0. Most want to keep going."
       )
     );
   });
+
+  it.each([
+    ["no voters", 0, "Nobody voted, so there are no totals. Decide together."],
+    ["1 voter", 1, "Only 1 person voted, so the totals stay hidden. Decide together."],
+    ["2 voters", 2, "Only 2 people voted, so the totals stay hidden. Decide together."],
+  ])(
+    "closes a vote with %s with no totals, on the card and said aloud",
+    async (_label, n, line) => {
+      render(
+        <LiveAnnouncerProvider>
+          <VisitorRetroRoom code={CODE} identity={identity} onLeave={() => {}} />
+        </LiveAnnouncerProvider>
+      );
+      const ch = fakeRealtime.last();
+      act(() => {
+        ch.connect();
+        ch.setPresence([HOST, ME]);
+      });
+      const board = makeBoard({ phase: "discuss" });
+      act(() => ch.deliver("retro:state", hostSnapshot(board)));
+      const open = { id: "poll_0000000001", topic: "Standups", open: true, voters: n };
+      act(() => ch.deliver("retro:state", { ...hostSnapshot(board, 2), poll: open }));
+      act(() =>
+        ch.deliver("retro:state", { ...hostSnapshot(board, 3), poll: { ...open, open: false } })
+      );
+      const card = screen.getByRole("region", { name: "Keep going or move on?" });
+      expect(within(card).getByRole("status")).toHaveTextContent(line);
+      expect(card).not.toHaveTextContent(/Keep going \d|Move on \d|Most want|a tie/);
+      await waitFor(() =>
+        expect(screen.getByTestId("live-polite")).toHaveTextContent(`The vote is closed. ${line}`)
+      );
+      expect(screen.getByTestId("live-polite")).not.toHaveTextContent(/Keep going|move on \d/);
+    }
+  );
 
   it("takes my vote back", () => {
     render(<VisitorRetroRoom code={CODE} identity={identity} onLeave={() => {}} />);

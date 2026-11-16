@@ -27,9 +27,12 @@
  * keep sharing a room. Both new parts are optional and additive:
  *  - the snapshot's `poll` (`RoomPoll`), present only while the host runs a
  *    vote: the topic, whether it is open, how many voted, and once it is
- *    closed the totals; no snapshot says who voted what. A tab on the earlier build
- *    rebuilds its snapshot from known fields only, so it ignores `poll`,
- *    and this build leaves out a poll it can't read rather than the room;
+ *    closed the totals, but only with at least 3 voters (THUMBS_MIN_VOTERS
+ *    in thumbs.ts: with fewer, a closed poll carries the count alone and
+ *    the split is never sent); no snapshot says who voted what. A tab on
+ *    the earlier build rebuilds its snapshot from known fields only, so it
+ *    ignores `poll`, and this build leaves out a poll it can't read rather
+ *    than the room;
  *  - the intent `thumb`, which a host on the earlier build refuses on its
  *    `t` like any unknown intent. A tab only sends one while the host's
  *    snapshot carries an open poll, which only this build's host sends.
@@ -133,9 +136,9 @@ export type ThumbChoice = "keep" | "move";
 
 /**
  * Revision 2: the host's thumbs vote as the room shares it. While open it
- * says only how many have voted; once closed, the totals as well. It never
- * says who voted, or what (though the thumb intents themselves aren't
- * sealed: see thumbs.ts).
+ * says only how many have voted; once closed, the totals as well, when at
+ * least THUMBS_MIN_VOTERS (3) voted. It never says who voted, or what
+ * (though the thumb intents themselves aren't sealed: see thumbs.ts).
  */
 export interface RoomPoll {
   /** The poll's id (an intent-id-shaped random id). */
@@ -144,7 +147,7 @@ export interface RoomPoll {
   topic: string;
   open: boolean;
   voters: number;
-  /** Closed polls only. */
+  /** Closed polls with at least THUMBS_MIN_VOTERS voters only. */
   keep?: number;
   move?: number;
 }

@@ -5,15 +5,15 @@
  * many cards each column holds, and from Discuss on the top-voted cards,
  * everyone's (cards hide only in Write, where the screen shows no card text,
  * only the counts, as on everyone's phone). A Lean Coffee thumbs vote shows above them: how many voted while
- * it's open, the totals once it's closed. Card text renders as React text
- * only.
+ * it's open, the totals once it's closed (if at least 3 voted). Card text
+ * renders as React text only.
  */
 
 import { useMemo, useRef } from "react";
 import type { RoomTimer } from "@/lib/realtime/room-timer";
 import { PHASES, type BoardState, type RetroCard } from "../types";
 import type { RoomPoll } from "./protocol";
-import { thumbsVerdict } from "./thumbs-vote-card";
+import { shownTotals, thumbsHiddenLine, thumbsVerdict } from "./thumbs-vote-card";
 
 /** Top cards the big screen lists from Discuss on. */
 const TOP_CARDS = 6;
@@ -46,8 +46,13 @@ export function useBoardTimer(board: Pick<BoardState, "timerSeconds" | "timerRun
   }, [running, seconds]);
 }
 
-/** The thumbs vote on the big screen: the question, then a count or the totals. */
+/**
+ * The thumbs vote on the big screen: the question, then a count or the
+ * totals, or, closed with fewer than THUMBS_MIN_VOTERS voters, a line that
+ * the totals stay hidden.
+ */
 function BigScreenPoll({ poll }: { poll: RoomPoll }) {
+  const totals = shownTotals(poll);
   return (
     <section
       aria-label="Keep going or move on?"
@@ -55,15 +60,17 @@ function BigScreenPoll({ poll }: { poll: RoomPoll }) {
     >
       <p className="text-2xl font-bold">Keep going or move on?</p>
       <p className="break-words text-xl text-sub">{poll.topic}</p>
-      <p className="font-data text-3xl">
-        {poll.open
-          ? `${poll.voters} ${poll.voters === 1 ? "person has" : "people have"} voted`
-          : `Keep going ${poll.keep ?? 0} · Move on ${poll.move ?? 0}`}
-      </p>
-      {!poll.open && (
-        <p className="text-xl text-sub">
-          {thumbsVerdict({ keep: poll.keep ?? 0, move: poll.move ?? 0 })}
+      {poll.open ? (
+        <p className="font-data text-3xl">
+          {`${poll.voters} ${poll.voters === 1 ? "person has" : "people have"} voted`}
         </p>
+      ) : totals ? (
+        <>
+          <p className="font-data text-3xl">{`Keep going ${totals.keep} · Move on ${totals.move}`}</p>
+          <p className="text-xl text-sub">{thumbsVerdict(totals)}</p>
+        </>
+      ) : (
+        <p className="text-2xl">{thumbsHiddenLine(poll.voters, false)}</p>
       )}
     </section>
   );

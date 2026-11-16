@@ -28,6 +28,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story, StoryGwt } from "@/lib/stores/workspace-types";
 import { deleteStoryKeepingUndo } from "@/lib/stories/delete";
 import {
+  gwtCell,
   withStoryDetails,
   withStoryGwt,
   type GwtWrite,
@@ -491,6 +492,10 @@ export function RefinementClient() {
         STATE_LABEL[readinessState(s, criteria)],
         // The local day, as on the page and in the pass-rate trend (not UTC).
         localDateOf(s.readiness?.updatedAt),
+        // Its acceptance criteria both ways, whole: a download isn't capped
+        // the way the share link is.
+        s.acceptanceCriteria ?? "",
+        gwtCell(s.gwt),
       ];
     });
     const checkRows = history.map((h) => [
@@ -502,6 +507,8 @@ export function RefinementClient() {
       h.passRate,
       h.passRate === 100 ? "Ready" : h.passRate > 0 ? "Partial" : "Not ready",
       h.date,
+      "",
+      "",
     ]);
     return {
       headers: [
@@ -513,6 +520,8 @@ export function RefinementClient() {
         "% ready",
         "Status",
         "Checked on",
+        "Acceptance criteria",
+        "Given / When / Then",
       ],
       rows: [...storyRows, ...checkRows],
     };
