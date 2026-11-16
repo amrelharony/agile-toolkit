@@ -24,25 +24,32 @@
  * caption under the strip (chat/chat-notice), the narrator's line and never
  * Amr's own words, with "Try again" or "Go on" when the notice calls for one;
  * the chat's status line (chat/chat-status) says what Amr is doing while he
- * answers.
+ * answers. An empty chat shows a narration line and up to three starters for
+ * the page the visitor is on (chat/chat-empty, words in
+ * lib/agent/visitor-starters); a starter fills the message box and never
+ * sends, so it spends nothing.
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone, never
  * this view or its composer.
  */
 
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { BookOpen, Eraser, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
-import { toolIdForPath } from "@/lib/agent/page-tool";
+import { resolvePageTool, toolIdForPath } from "@/lib/agent/page-tool";
+import { VISITOR_EMPTY, visitorStarters } from "@/lib/agent/visitor-starters";
 import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
+import { isVipHidden } from "@/lib/tools/catalog";
+import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import { formatPeakTime, peakWindow } from "@/lib/visitor-ai/peak";
 import { cn } from "@/lib/utils";
 import { useChatVisible } from "../chat-visibility";
 import { ChatProvider } from "../chat/chat-context";
+import { ChatEmpty } from "../chat/chat-empty";
 import { ThinkingItemView } from "../chat/chat-items";
 import { ChatNotice } from "../chat/chat-notice";
 import { ChatStatus } from "../chat/chat-status";
@@ -173,6 +180,13 @@ export default function VisitorAgentPanel({
   // False while Amr's Scenes view covers the chat (mounted, hidden).
   const visible = useChatVisible();
   const empty = useAgentStore((s) => s.messages.length === 0);
+  const vip = useVipHint();
+  // The empty chat's starters, for the page's tool when the visitor may see
+  // it (the menus' rule: a lock panel or a tool not out yet goes unnamed).
+  const starters = useMemo(() => {
+    const tool = resolvePageTool(toolIdForPath(pathname));
+    return visitorStarters(tool && !isVipHidden(tool, vip) ? tool : null, inLiveRoom);
+  }, [pathname, vip, inLiveRoom]);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const sentInitialRef = useRef(false);
 
@@ -378,19 +392,7 @@ export default function VisitorAgentPanel({
     <ChatProvider profile="visitor" composerRef={composerRef}>
       <ChatStrip busy={busy} footer={footer} className="px-3 py-2">
         {empty && !busy && (
-          <div className="space-y-2 py-10 text-center text-sm text-sub">
-            <p>Ask Amr about agile, or about the tool you&apos;re on.</p>
-            <ul className="space-y-1 text-xs">
-              <li>&quot;How do I run a good retro?&quot;</li>
-              <li>&quot;Which tool helps me prioritize a backlog?&quot;</li>
-              {/* In a live room Amr changes nothing, so the third example is a question. */}
-              {inLiveRoom ? (
-                <li>&quot;What makes a good sprint goal?&quot;</li>
-              ) : (
-                <li>&quot;Add a card &lsquo;flaky CI&rsquo; to my retro.&quot;</li>
-              )}
-            </ul>
-          </div>
+          <ChatEmpty line={VISITOR_EMPTY.line} short={VISITOR_EMPTY.short} starters={starters} />
         )}
         {awaiting && <ThinkingItemView />}
         <ChatNotice

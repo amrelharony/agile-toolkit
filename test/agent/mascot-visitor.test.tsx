@@ -67,8 +67,17 @@ import { LIVE_ROOM_KEY_PREFIX, enterLiveVisitorRoom } from "@/lib/realtime/live-
 import { OWNER_UNVERIFIED } from "@/lib/auth/owner-check";
 import { PRIVACY_PATH, PRIVACY_TITLE } from "@/lib/site/owner";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
+import { VISITOR_EMPTY, visitorStarters } from "@/lib/agent/visitor-starters";
+import { tools } from "@/lib/constants/tools";
+import { toolIdForPath } from "@/lib/agent/page-tool";
 
 const OWNER = { status: "authenticated", user: { id: "u1" } };
+
+/** The empty chat's starters, by name, in order. */
+const starterNames = () =>
+  within(screen.getByRole("list", { name: "Ways to start" }))
+    .getAllByRole("button")
+    .map((b) => b.textContent);
 
 function stubPhoneWidth(isPhone: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -994,7 +1003,11 @@ describe("MascotAssistant — visitor AI", () => {
       );
       // Nothing else in the chat promises a change the room rules out.
       expect(screen.queryByText(/Add a card/)).toBeNull();
-      expect(screen.getByText(/What makes a good sprint goal\?/)).toBeInTheDocument();
+      expect(starterNames()).toEqual([
+        "How does Retro Board work?",
+        "What makes a good retro?",
+        "Which tool helps prioritize a backlog?",
+      ]);
       const quota = screen.getByTestId("visitor-ai-quota");
       expect(quota).not.toHaveTextContent("Amr asks before changing anything");
       expect(quota).toHaveTextContent("Not saved");
@@ -1006,6 +1019,54 @@ describe("MascotAssistant — visitor AI", () => {
     expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent(
       "Amr asks before changing anything"
     );
+  });
+
+  it("opens an empty chat on a narration line and the page's starters, which fill the box and never send", async () => {
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    await renderAmr();
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await screen.findByRole("button", { name: "Tool finder" });
+
+    const line = screen.getByText(VISITOR_EMPTY.line);
+    expect(line.closest(".comic-caption")).toHaveAttribute("data-voice", "narration");
+    expect(screen.getByRole("log")).toContainElement(line);
+    expect(starterNames()).toEqual([
+      "How does Retro Board work?",
+      "Add a card “flaky CI” to this retro",
+      "What makes a good retro?",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "How does Retro Board work?" }));
+    const box = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    expect(box).toHaveValue("How does Retro Board work?");
+    expect(box).toHaveFocus();
+    expect(box.selectionStart).toBe(box.value.length);
+    expect(useAgentStore.getState().drafts.visitor).toBe("How does Retro Board work?");
+    // Nothing went out, so nothing was spent.
+    expect(h.sendVisitorMessage).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("offers questions for any page off a tool, and names no tool the visitor may not see", async () => {
+    h.pathname = "/";
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    const view = await renderAmr();
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await screen.findByRole("button", { name: "Tool finder" });
+    expect(starterNames()).toEqual(visitorStarters(null, false));
+    expect(starterNames().some((s) => /^How does/.test(s))).toBe(false);
+    view.unmount();
+
+    // A tool for the book's readers goes unnamed without their link, as in the menus.
+    const hidden = tools.find((t) => t.access === "vip");
+    expect(hidden).toBeDefined();
+    // The page is that tool's: only the visitor's view of the menus leaves it out.
+    expect(toolIdForPath(hidden!.path)).toBe(hidden!.id);
+    h.pathname = hidden!.path;
+    await renderAmr();
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await screen.findByRole("button", { name: "Tool finder" });
+    expect(starterNames()).toEqual(visitorStarters(null, false));
   });
 
   it("says the same when the live room is open in another tab of this browser", async () => {

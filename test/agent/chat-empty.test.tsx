@@ -11,6 +11,41 @@
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRef, type FormEvent } from "react";
+import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
+
+// The owner's chat, for its resume check: Supabase and the agent client are
+// stand-ins, and the thread list answers when the test says so.
+const h = vi.hoisted(() => ({
+  answerList: (() => {}) as (list: unknown[]) => void,
+  messages: [] as unknown[],
+  sendUserMessage: vi.fn(async () => {}),
+}));
+vi.mock("@/lib/agent/persist", () => ({
+  listConversations: vi.fn(
+    () =>
+      new Promise((resolve) => {
+        h.answerList = resolve;
+      })
+  ),
+  loadMessages: vi.fn(async () => h.messages),
+  createConversation: vi.fn(async () => null),
+  deleteConversation: vi.fn(async () => {}),
+  renameConversation: vi.fn(async () => {}),
+  conversationTitle: (t: string) => t,
+}));
+vi.mock("@/lib/agent/client", () => ({
+  sendUserMessage: h.sendUserMessage,
+  abortInFlight: vi.fn(),
+  generateTitle: vi.fn(async () => null),
+  retryLastTurn: vi.fn(async () => true),
+  goOn: vi.fn(async () => true),
+  canRetryLastTurn: () => false,
+}));
+vi.mock("@/lib/auth/auth-provider", () => ({ useAuth: () => ({ user: { id: "owner-1" } }) }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/retro/board-1" }));
+
+import { AgentConversation } from "@/components/agent/agent-conversation";
+import { PICKED_UP } from "@/components/agent/chat/chat-items";
 import { ChatProvider } from "@/components/agent/chat/chat-context";
 import { ChatEmpty, MAX_STARTERS } from "@/components/agent/chat/chat-empty";
 import { filledDraft } from "@/components/agent/chat/suggestion-chips";
@@ -297,5 +332,53 @@ describe("the words of both chats' empty state", () => {
     const retro = tools.find((t) => t.id === "retro")!;
     expect(changes(visitorStarters(retro, true))).toEqual([]);
     expect(visitorStarters(retro, true)[0]).toBe("How does Retro Board work?");
+  });
+});
+
+describe("the owner's empty chat", () => {
+  const meta: ConversationMeta = {
+    id: "c1",
+    title: "Sprint plan",
+    toolId: null,
+    createdAt: "2026-11-16T08:00:00Z",
+    updatedAt: "2026-11-16T08:00:00Z",
+    lastMessageAt: "2026-11-16T08:01:00Z",
+  };
+  const said = (id: string, role: "user" | "assistant", text: string): ChatMessage => ({
+    id,
+    role,
+    content: [{ type: "text", text }],
+    createdAt: new Date().toISOString(),
+  });
+
+  it("waits for the resume check, picks the thread up with a scene caption, and starts afresh with the page's starters", async () => {
+    logHeight = 400;
+    h.messages = [said("u1", "user", "Plan the sprint"), said("a1", "assistant", "Planned.")];
+    render(<AgentConversation />);
+    // Looking for a thread to resume: no line, no starters that a thread would replace.
+    expect(screen.queryByText(OWNER_EMPTY.line)).toBeNull();
+    expect(screen.queryByRole("list", { name: "Ways to start" })).toBeNull();
+
+    await act(async () => h.answerList([meta]));
+    expect(await screen.findByText("Planned.")).toBeInTheDocument();
+    const scenes = Array.from(document.querySelectorAll('[data-chat-item="scene"]'));
+    expect(scenes.map((s) => s.textContent)).toEqual(["Today", PICKED_UP]);
+    expect(screen.queryByRole("list", { name: "Ways to start" })).toBeNull();
+
+    // New chat: the check is long settled, so the starters show at once,
+    // in the third person and led by this page's tool (a sub-page counts).
+    act(() => useAgentStore.getState().reset());
+    expect(screen.getByText(OWNER_EMPTY.line)).toBeInTheDocument();
+    expect(document.querySelector('[data-chat-item="scene"]')).toBeNull();
+    expect(starterButtons().map((b) => b.textContent)).toEqual(
+      ownerStarters(tools.find((t) => t.id === "retro"))
+    );
+    expect(starterButtons()[0]).toHaveTextContent("What can you do in Retro Board?");
+
+    fireEvent.click(starterButtons()[0]);
+    expect(box()).toHaveValue("What can you do in Retro Board?");
+    expect(box()).toHaveFocus();
+    expect(box().selectionStart).toBe(box().value.length);
+    expect(h.sendUserMessage).not.toHaveBeenCalled();
   });
 });

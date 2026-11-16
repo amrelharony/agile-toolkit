@@ -589,6 +589,8 @@ describe("the chat strip (chat/)", () => {
     `${CHAT_DIR}chat-items.tsx`,
     `${CHAT_DIR}tool-steps.tsx`,
     `${CHAT_DIR}chat-context.tsx`,
+    `${CHAT_DIR}chat-empty.tsx`,
+    `${CHAT_DIR}suggestion-chips.tsx`,
     `${CHAT_DIR}use-stick-to-bottom.ts`,
     `${CHAT_DIR}use-turn-announcer.ts`,
   ];
@@ -635,6 +637,17 @@ describe("the chat strip (chat/)", () => {
       expect(visitorChat.files.has(file), `the visitor's chat never reaches ${file}`).toBe(false);
     }
     expect(staticTargets(OWNER_CHAT)).toContain(`${CHAT_DIR}step-details.tsx`);
+  });
+
+  it("gives each chat its own empty-chat words: the owner's never reach the visitor's chat", () => {
+    const owner = "src/lib/agent/owner-starters.ts";
+    const visitor = "src/lib/agent/visitor-starters.ts";
+    expect(staticTargets(OWNER_CHAT)).toContain(owner);
+    expect(staticTargets(VISITOR_CHAT)).toContain(visitor);
+    expect(visitorChat.files.has(owner), "the visitor's chat never reaches the owner's").toBe(
+      false
+    );
+    expect(closure([OWNER_CHAT]).files.has(visitor)).toBe(false);
   });
 
   it("replaced message-bubble: no file is left, and nothing imports it", () => {
