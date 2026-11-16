@@ -473,6 +473,15 @@ describe("the mic", () => {
     expect(mic).toHaveAttribute("aria-pressed", "true");
     expect(document.querySelector("[data-composer-note]")).toHaveTextContent(LISTENING_NOTE);
     expect(view.container.innerHTML).not.toMatch(/animate-/);
+    // Listening looks unlike hover (a /10 tint) and keeps a shape cue in
+    // forced colours: held flat, a /20 tint, a heavier ink outline.
+    expect(mic).toHaveClass(
+      "aria-pressed:border-2",
+      "aria-pressed:border-accent",
+      "aria-pressed:bg-accent/20",
+      "aria-pressed:text-accent",
+      "aria-pressed:shadow-none"
+    );
     // Pressed again, it stops, and the note goes with it.
     fireEvent.click(mic);
     expect(FakeRecognition.last?.stop).toHaveBeenCalled();

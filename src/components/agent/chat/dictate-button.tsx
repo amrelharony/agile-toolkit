@@ -7,7 +7,10 @@
  *
  *   name     "Dictate", always, with aria-pressed saying whether it listens;
  *            its tooltip says how to stop.
- *   look     still: an accent outline while it listens, never a pulse (a
+ *   look     still: while it listens (aria-pressed), held flat with no
+ *            shadow, a /20 accent tint (hover's is /10, so a pointer resting
+ *            on it still shows which) and a heavier ink outline, a shape cue
+ *            that High contrast and forced colours keep; never a pulse (a
  *            pulse is all a reduced-motion reader would miss, and the
  *            comic's ink never throbs). The composer's status row says
  *            "Listening…" in words, politely, and a failure in plain words.
@@ -31,7 +34,6 @@ import { useEffect, useRef } from "react";
 import { Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { joinDictation, useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
-import { cn } from "@/lib/utils";
 import type { ComposerMicProps } from "./chat-composer";
 
 /** The mic's name, the same whether or not it listens (aria-pressed says which). */
@@ -99,7 +101,7 @@ export function DictateButton({ draft, put, onNote, sent, ask }: DictateButtonPr
         if (ask) ask(start, e.currentTarget);
         else start();
       }}
-      className={cn(listening && "border-accent text-accent")}
+      className="aria-pressed:border-2 aria-pressed:border-accent aria-pressed:bg-accent/20 aria-pressed:text-accent aria-pressed:shadow-none"
     >
       <Mic aria-hidden="true" />
     </Button>
