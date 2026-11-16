@@ -44,7 +44,7 @@ import {
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
-import { X, Plus, History, Sparkles, Smartphone } from "lucide-react";
+import { X, Plus, History, Sparkles, Smartphone, Clapperboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
@@ -611,12 +611,22 @@ const OwnerAgentPanel = dynamic(() => import("./owner-agent-panel"), {
   ssr: false,
   loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
 });
+// Amr's scenes: its titles and thumbnail atlas load only when the view first opens.
+const ScenesTab = dynamic(() => import("./scenes-tab"), {
+  ssr: false,
+  loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
+});
 
 export function MascotAssistant() {
   const open = useAgentStore((s) => s.open);
   const toggleSheet = useAgentStore((s) => s.toggleSheet);
   const closeSheet = useAgentStore((s) => s.closeSheet);
   const [showHistory, setShowHistory] = useState(false);
+  const [showScenes, setShowScenes] = useState(false);
+  // The panel opens on the chat or the guide again, not on the scenes it closed on.
+  useEffect(() => {
+    if (!open) setShowScenes(false);
+  }, [open]);
   // `settled` keeps the owner from seeing the visitor notice flash while
   // auth is still loading; no chat component mounts until it's settled.
   const { isOwner, settled, visitor } = useOwnerState();
@@ -1048,6 +1058,7 @@ export function MascotAssistant() {
                     onClick={() => {
                       useAgentStore.getState().reset();
                       setShowHistory(false);
+                      setShowScenes(false);
                     }}
                     aria-label="New chat"
                     title="New chat"
@@ -1057,7 +1068,10 @@ export function MascotAssistant() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowHistory((v) => !v)}
+                    onClick={() => {
+                      setShowHistory((v) => !v);
+                      setShowScenes(false);
+                    }}
                     aria-label="Conversation history"
                     title="History"
                     aria-pressed={showHistory}
@@ -1069,6 +1083,21 @@ export function MascotAssistant() {
                   </button>
                 </>
               )}
+              <button
+                type="button"
+                onClick={() => {
+                  setShowScenes((v) => !v);
+                  setShowHistory(false);
+                }}
+                aria-label="Amr's scenes"
+                title="Scenes"
+                aria-pressed={showScenes}
+                className={`min-touch-coarse inline-flex items-center justify-center rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
+                  showScenes ? "text-accent" : "text-sub"
+                }`}
+              >
+                <Clapperboard className="h-4 w-4" aria-hidden="true" />
+              </button>
               {motionAvailable && (
                 <button
                   type="button"
@@ -1097,21 +1126,26 @@ export function MascotAssistant() {
               </button>
             </div>
           </div>
-          {!isOwner ? (
-            <div className="min-h-0 flex-1" aria-busy={!settled}>
-              {settled &&
-                (visitorAi ? (
-                  <VisitorPanel onNavigate={closeSheet} />
-                ) : (
-                  <VisitorGuide onNavigate={closeSheet} />
-                ))}
-            </div>
-          ) : (
-            <OwnerAgentPanel
-              showHistory={showHistory}
-              onCloseHistory={() => setShowHistory(false)}
-            />
-          )}
+          {showScenes && <ScenesTab onPlay={closeSheet} />}
+          {/* Under the scenes the chat or guide stays mounted (a turn in flight goes on),
+              hidden; otherwise `contents` keeps its layout exactly as before. */}
+          <div hidden={showScenes} className={showScenes ? "hidden" : "contents"}>
+            {!isOwner ? (
+              <div className="min-h-0 flex-1" aria-busy={!settled}>
+                {settled &&
+                  (visitorAi ? (
+                    <VisitorPanel onNavigate={closeSheet} />
+                  ) : (
+                    <VisitorGuide onNavigate={closeSheet} />
+                  ))}
+              </div>
+            ) : (
+              <OwnerAgentPanel
+                showHistory={showHistory}
+                onCloseHistory={() => setShowHistory(false)}
+              />
+            )}
+          </div>
         </div>
       )}
 

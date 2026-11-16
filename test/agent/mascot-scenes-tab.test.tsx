@@ -1,0 +1,308 @@
+/**
+ * Amr's scenes (src/components/agent/mascot/scenes-tab.tsx): the gallery of every
+ * story he can act out on request, and the header button that opens it.
+ */
+
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import companion from "../../docs/mascot/companion-scenes.json";
+
+const h = vi.hoisted(() => ({
+  auth: null as { status: string; user: { id: string } | null } | null,
+  /** Scenes the test pretends have no pack yet. */
+  unshipped: new Set<string>(),
+}));
+
+vi.mock("@/components/agent/mascot/engine/sprite-poses", async (importOriginal) => {
+  const real =
+    await importOriginal<typeof import("@/components/agent/mascot/engine/sprite-poses")>();
+  return {
+    ...real,
+    shippedScene: (name: string) => (h.unshipped.has(name) ? undefined : real.shippedScene(name)),
+  };
+});
+vi.mock("@/lib/auth/auth-provider", () => ({ useAuthOptional: () => h.auth }));
+vi.mock("next/navigation", () => ({ usePathname: () => "/" }));
+vi.mock("@/lib/agent/client", () => ({ abortInFlight: vi.fn() }));
+vi.mock("@/lib/actions/register-all", () => ({}));
+vi.mock("@/lib/agent/visitor-runtime", () => ({
+  sendVisitorMessage: vi.fn(async () => {}),
+  abortInFlight: vi.fn(),
+}));
+vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
+  default: () => <div data-testid="mascot-sprite" />,
+}));
+vi.mock("@/components/agent/agent-conversation", () => ({
+  AgentConversation: () => <div data-testid="agent-conversation" />,
+}));
+vi.mock("@/components/agent/conversation-list", () => ({
+  ConversationList: () => <div data-testid="conversation-list" />,
+}));
+vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
+  RateLimitBar: () => <div data-testid="rate-limit-bar" />,
+}));
+
+import ScenesTab, { COMPANION_TITLES } from "@/components/agent/mascot/scenes-tab";
+import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
+import { EXPANSION_SHEETS } from "@/components/agent/mascot/engine/expansion-table";
+import { EXPANSION_TITLES } from "@/components/agent/mascot/engine/expansion-titles";
+import { SCENE_THUMBS, THUMB_INDEX } from "@/components/agent/mascot/engine/scene-thumbs";
+import { COMPANION_SCENES, galleryScene } from "@/components/agent/mascot/engine/scenes";
+import { useMascotStore } from "@/lib/agent/mascot/store";
+import { useAgentStore } from "@/lib/agent/store";
+
+const FAMILY_HEADINGS: Array<[string, string]> = [
+  ["reading", "Reading"],
+  ["tools", "Tool lab"],
+  ["team", "Team and decisions"],
+  ["cast", "Cast encounters"],
+  ["guides", "Guides"],
+  ["play", "Play"],
+];
+
+/** The scene buttons in one family's list, by their labels. */
+const labelsIn = (list: HTMLElement) =>
+  within(list)
+    .getAllByRole("button")
+    .map((b) => b.getAttribute("aria-label"));
+
+const play = (title: string) => screen.getByRole("button", { name: `Play: ${title}` });
+
+beforeEach(() => {
+  h.unshipped = new Set();
+  useMascotStore.getState().reset();
+});
+
+describe("the companion stories' titles", () => {
+  it("are the ones docs/mascot/companion-scenes.json gives the stories /play takes", () => {
+    const titles = Object.fromEntries(companion.sheets.map((s) => [s.pack, s.title]));
+    expect(COMPANION_TITLES).toEqual(
+      Object.fromEntries(COMPANION_SCENES.play.map((name) => [name, titles[name]]))
+    );
+  });
+});
+
+describe("the Scenes tab", () => {
+  it("lists the companion stories, then each expansion family in turn", () => {
+    render(<ScenesTab onPlay={() => {}} />);
+    expect(screen.getAllByRole("heading").map((el) => el.textContent)).toEqual([
+      "Companion stories",
+      ...FAMILY_HEADINGS.map(([, title]) => title),
+    ]);
+    expect(labelsIn(screen.getByRole("list", { name: "Companion stories" }))).toEqual(
+      COMPANION_SCENES.play.map((name) => `Play: ${COMPANION_TITLES[name]}`)
+    );
+    for (const [family, title] of FAMILY_HEADINGS) {
+      expect(labelsIn(screen.getByRole("list", { name: title })), family).toEqual(
+        EXPANSION_SHEETS.filter((s) => s.family === family).map(
+          (s) => `Play: ${EXPANSION_TITLES[s.pack]}`
+        )
+      );
+    }
+    expect(screen.getByRole("status")).toHaveTextContent(
+      `${COMPANION_SCENES.play.length + EXPANSION_SHEETS.length} scenes.`
+    );
+  });
+
+  it("leaves out a scene whose pack doesn't ship, and a family with none", () => {
+    h.unshipped = new Set([
+      "x002",
+      "rabbit",
+      ...EXPANSION_SHEETS.filter((s) => s.family === "guides").map((s) => galleryScene(s.pack)),
+    ]);
+    render(<ScenesTab onPlay={() => {}} />);
+    expect(screen.queryByRole("button", { name: `Play: ${EXPANSION_TITLES.x002}` })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Play: Deadline Rabbit Rush" })).toBeNull();
+    expect(play(EXPANSION_TITLES.x001)).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Guides" })).toBeNull();
+    expect(screen.queryByRole("list", { name: "Guides" })).toBeNull();
+  });
+
+  it("asks X112's pack for the filter variant it plays", () => {
+    h.unshipped = new Set(["x112.filter"]);
+    render(<ScenesTab onPlay={() => {}} />);
+    expect(screen.queryByRole("button", { name: `Play: ${EXPANSION_TITLES.x112}` })).toBeNull();
+  });
+
+  it("narrows to the titles that match, and says how many", () => {
+    render(<ScenesTab onPlay={() => {}} />);
+    const filter = screen.getByLabelText("Find a scene");
+
+    fireEvent.change(filter, { target: { value: "KEYSTONE" } });
+    expect(screen.getAllByRole("button", { name: /^Play: / })).toHaveLength(1);
+    expect(play(EXPANSION_TITLES.x120)).toBeInTheDocument();
+    expect(screen.getAllByRole("heading").map((el) => el.textContent)).toEqual(["Play"]);
+    expect(screen.getByRole("status")).toHaveTextContent("1 scene matches “KEYSTONE”.");
+
+    // A straight apostrophe finds a curly one.
+    fireEvent.change(filter, { target: { value: "model's limits" } });
+    expect(play(EXPANSION_TITLES.x053)).toBeInTheDocument();
+
+    fireEvent.change(filter, { target: { value: "story" } });
+    const matching = [
+      ...COMPANION_SCENES.play.map((n) => COMPANION_TITLES[n]),
+      ...Object.values(EXPANSION_TITLES),
+    ].filter((t) => t.toLowerCase().includes("story"));
+    expect(matching.length).toBeGreaterThan(1);
+    expect(screen.getAllByRole("button", { name: /^Play: / })).toHaveLength(matching.length);
+    expect(screen.getByRole("status")).toHaveTextContent(
+      `${matching.length} scenes match “story”.`
+    );
+
+    fireEvent.change(filter, { target: { value: "zzqx" } });
+    expect(screen.queryAllByRole("button", { name: /^Play: / })).toEqual([]);
+    expect(screen.queryAllByRole("list")).toEqual([]);
+    expect(screen.getByRole("status")).toHaveTextContent("No scenes match “zzqx”.");
+  });
+
+  it("plays the scene tapped, then closes the panel so he's in view", () => {
+    const onPlay = vi.fn();
+    render(<ScenesTab onPlay={onPlay} />);
+
+    fireEvent.click(play(EXPANSION_TITLES.x001));
+    expect(useMascotStore.getState().reactionQueue).toEqual(["scene:x001"]);
+    expect(onPlay).toHaveBeenCalledTimes(1);
+
+    // X112 plays its explanatory filter moment, not the reset after it.
+    fireEvent.click(play(EXPANSION_TITLES.x112));
+    expect(useMascotStore.getState().reactionQueue).toEqual(["scene:x112.filter"]);
+
+    fireEvent.click(play("AI Reviewer"));
+    expect(useMascotStore.getState().reactionQueue).toEqual(["scene:reviewer"]);
+    expect(onPlay).toHaveBeenCalledTimes(3);
+  });
+
+  it("shows each scene's picture from the one atlas, scaled to fit", () => {
+    render(<ScenesTab onPlay={() => {}} />);
+    const thumb = (title: string) => play(title).querySelector<HTMLElement>("[data-amr-thumb]")!;
+    const x025 = thumb(EXPANSION_TITLES.x025);
+    expect(x025).toHaveAttribute("aria-hidden", "true");
+    expect(x025.style.backgroundImage).toContain(SCENE_THUMBS.src);
+    expect(x025.style.width).toBe("54px");
+    expect(x025.style.height).toBe("63px");
+    expect(x025.style.backgroundSize).toBe(
+      `${SCENE_THUMBS.columns * 54}px ${SCENE_THUMBS.rows * 63}px`
+    );
+    const cell = THUMB_INDEX.x025;
+    const col = cell % SCENE_THUMBS.columns;
+    const row = Math.floor(cell / SCENE_THUMBS.columns);
+    expect(x025.style.backgroundPosition).toBe(`-${col * 54}px -${row * 63}px`);
+    expect(thumb("AI Reviewer").style.backgroundImage).toContain(SCENE_THUMBS.src);
+  });
+
+  it("gives every scene a touch-sized button with a visible focus ring", () => {
+    render(<ScenesTab onPlay={() => {}} />);
+    for (const button of screen.getAllByRole("button", { name: /^Play: / })) {
+      expect(button).toHaveClass("min-touch-coarse", "focus-visible:ring-2");
+    }
+  });
+
+  it("moves through the list with the arrow keys, from the field and back to it", () => {
+    render(<ScenesTab onPlay={() => {}} />);
+    const filter = screen.getByLabelText("Find a scene");
+    const buttons = screen.getAllByRole("button", { name: /^Play: / });
+
+    filter.focus();
+    fireEvent.keyDown(filter, { key: "ArrowDown" });
+    expect(buttons[0]).toHaveFocus();
+    fireEvent.keyDown(buttons[0], { key: "ArrowDown" });
+    expect(buttons[1]).toHaveFocus();
+    fireEvent.keyDown(buttons[1], { key: "End" });
+    expect(buttons.at(-1)).toHaveFocus();
+    fireEvent.keyDown(buttons.at(-1)!, { key: "Home" });
+    expect(buttons[0]).toHaveFocus();
+    fireEvent.keyDown(buttons[0], { key: "ArrowUp" });
+    expect(filter).toHaveFocus();
+  });
+});
+
+function stubDesktop() {
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }));
+}
+
+describe("the Scenes button in Amr's panel", () => {
+  beforeEach(() => {
+    vi.stubGlobal("fetch", vi.fn());
+    stubDesktop();
+    useAgentStore.getState().reset();
+    useAgentStore.setState({ open: true, chatProfile: "owner", visitorQuota: null });
+  });
+
+  afterEach(() => {
+    useAgentStore.getState().reset();
+    useAgentStore.setState({ open: false, chatProfile: "owner", visitorQuota: null });
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  const scenesButton = () => screen.getByRole("button", { name: "Amr's scenes" });
+
+  it("opens the scenes for the owner in place of the chat, and gives way to History", async () => {
+    h.auth = { status: "authenticated", user: { id: "u1" } };
+    render(<MascotAssistant />);
+    expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
+    expect(scenesButton()).toHaveAttribute("title", "Scenes");
+    expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
+    expect(scenesButton()).toHaveClass("min-touch-coarse");
+
+    fireEvent.click(scenesButton());
+    expect(await screen.findByTestId("mascot-scenes")).toBeInTheDocument();
+    expect(scenesButton()).toHaveAttribute("aria-pressed", "true");
+    // The chat stays mounted underneath, hidden, so a turn in flight goes on.
+    expect(screen.getByTestId("agent-conversation")).not.toBeVisible();
+
+    const history = screen.getByRole("button", { name: "Conversation history" });
+    fireEvent.click(history);
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
+    expect(history).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("conversation-list")).toBeVisible();
+
+    fireEvent.click(scenesButton());
+    expect(await screen.findByTestId("mascot-scenes")).toBeInTheDocument();
+    expect(history).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("opens them for a visitor too, and toggles back to the guide", async () => {
+    h.auth = { status: "anonymous", user: null };
+    render(<MascotAssistant />);
+    const guide = screen.getByTestId("mascot-visitor-guide");
+
+    fireEvent.click(scenesButton());
+    expect(await screen.findByTestId("mascot-scenes")).toBeInTheDocument();
+    expect(guide).not.toBeVisible();
+
+    fireEvent.click(scenesButton());
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(guide).toBeVisible();
+  });
+
+  it("shows for a visitor with Amr's AI, plays the scene tapped and closes the panel", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+    h.auth = { status: "anonymous", user: null };
+    const { rerender } = render(<MascotAssistant />);
+    expect(screen.getByRole("button", { name: "Chat with Amr" })).toBeInTheDocument();
+
+    fireEvent.click(scenesButton());
+    await screen.findByTestId("mascot-scenes");
+    fireEvent.click(play(EXPANSION_TITLES.x112));
+    expect(useMascotStore.getState().reactionQueue).toEqual(["scene:x112.filter"]);
+    expect(useAgentStore.getState().open).toBe(false);
+
+    // Opened again, the panel starts on the guide, not on the scenes.
+    useAgentStore.setState({ open: true });
+    rerender(<MascotAssistant />);
+    expect(screen.getByTestId("mascot-visitor-guide")).toBeVisible();
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
+  });
+});
