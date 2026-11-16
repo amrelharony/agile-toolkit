@@ -16,7 +16,7 @@ import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 // The owner's chat, for its resume check: Supabase and the agent client are
 // stand-ins, and the thread list answers when the test says so.
 const h = vi.hoisted(() => ({
-  answerList: (() => {}) as (list: unknown[]) => void,
+  answerList: (() => {}) as (list: { ok: boolean; data: unknown[] }) => void,
   messages: [] as unknown[],
   sendUserMessage: vi.fn(async () => {}),
 }));
@@ -27,7 +27,7 @@ vi.mock("@/lib/agent/persist", () => ({
         h.answerList = resolve;
       })
   ),
-  loadMessages: vi.fn(async () => h.messages),
+  loadMessages: vi.fn(async () => ({ ok: true, data: h.messages })),
   createConversation: vi.fn(async () => null),
   deleteConversation: vi.fn(async () => {}),
   renameConversation: vi.fn(async () => {}),
@@ -393,7 +393,7 @@ describe("the owner's empty chat", () => {
     expect(screen.queryByText(OWNER_EMPTY.line)).toBeNull();
     expect(screen.queryByRole("list", { name: "Ways to start" })).toBeNull();
 
-    await act(async () => h.answerList([meta]));
+    await act(async () => h.answerList({ ok: true, data: [meta] }));
     expect(await screen.findByText("Planned.")).toBeInTheDocument();
     const scenes = Array.from(document.querySelectorAll('[data-chat-item="scene"]'));
     expect(scenes.map((s) => s.textContent)).toEqual(["Today", PICKED_UP]);

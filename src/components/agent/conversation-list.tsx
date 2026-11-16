@@ -129,7 +129,7 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
 
   const refresh = useCallback(() => {
-    void listConversations().then((list) =>
+    void listConversations().then(({ data: list }) =>
       setItems(list.filter((c) => !pendingDeletes.has(c.id)))
     );
   }, []);
@@ -181,7 +181,7 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
     // Another thread: the answer under way belongs to the one being left, so
     // the store stops it now, not once the new thread has loaded.
     if (!isOpen) store.abortTurn("thread");
-    const msgs = await loadMessages(meta.id);
+    const { data: msgs } = await loadMessages(meta.id);
     useAgentStore.getState().setActiveConversation(meta, msgs);
     onClose();
   };
@@ -260,7 +260,7 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
   };
 
   const exportThread = async (meta: ConversationMeta) => {
-    const msgs = await loadMessages(meta.id);
+    const { data: msgs } = await loadMessages(meta.id);
     downloadText(`${titleSlug(meta.title)}.md`, conversationToMarkdown(meta.title, msgs));
   };
 

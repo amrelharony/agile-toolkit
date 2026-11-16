@@ -131,10 +131,11 @@ export function AgentConversation() {
     // local state), so completing after unmount is safe; the blank() re-checks
     // prevent clobbering a chat the user started while it loaded.
     void listConversations()
-      .then(async (list) => {
+      .then(async ({ data: list }) => {
         if (list.length === 0 || !blank()) return;
+        // A thread that couldn't be read stays shut, never opened empty.
         const msgs = await loadMessages(list[0].id);
-        if (blank()) useAgentStore.getState().setActiveConversation(list[0], msgs);
+        if (msgs.ok && blank()) useAgentStore.getState().setActiveConversation(list[0], msgs.data);
       })
       // Settled either way: a failed look leaves the chat empty, its starters shown.
       .finally(() => setResumeCheck("done"));

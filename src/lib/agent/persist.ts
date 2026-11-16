@@ -42,27 +42,47 @@ export async function fetchChatUsage(): Promise<RateLimitInfo | null> {
  * reloading a thread on next open.
  */
 
-export async function listConversations(): Promise<ConversationMeta[]> {
+/**
+ * What a read gave back. `ok` is false when Supabase couldn't be reached or
+ * refused the read, and `data` is then the empty value, so a caller can tell
+ * "no conversations" from "couldn't look" (History says which; the chat's
+ * own look for a thread to resume stays quiet either way).
+ */
+export interface Persisted<T> {
+  ok: boolean;
+  data: T;
+}
+
+export async function listConversations(): Promise<Persisted<ConversationMeta[]>> {
   const supabase = getAuthBrowserClient();
-  if (!supabase) return [];
-  const { data, error } = await supabase
-    .from("agent_conversations")
-    .select("id, title, tool_id, created_at, updated_at, last_message_at")
-    .order("last_message_at", { ascending: false })
-    .limit(100);
-  if (error) {
+  if (!supabase) return { ok: false, data: [] };
+  try {
+    const { data, error } = await supabase
+      .from("agent_conversations")
+      .select("id, title, tool_id, created_at, updated_at, last_message_at")
+      .order("last_message_at", { ascending: false })
+      .limit(100);
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.warn("[agent] listConversations failed", error.message);
+      return { ok: false, data: [] };
+    }
+    return {
+      ok: true,
+      data: (data ?? []).map((row) => ({
+        id: row.id as string,
+        title: row.title as string,
+        toolId: (row.tool_id as string | null) ?? null,
+        createdAt: row.created_at as string,
+        updatedAt: row.updated_at as string,
+        lastMessageAt: row.last_message_at as string,
+      })),
+    };
+  } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn("[agent] listConversations failed", error.message);
-    return [];
+    console.warn("[agent] listConversations failed", err);
+    return { ok: false, data: [] };
   }
-  return (data ?? []).map((row) => ({
-    id: row.id as string,
-    title: row.title as string,
-    toolId: (row.tool_id as string | null) ?? null,
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
-    lastMessageAt: row.last_message_at as string,
-  }));
 }
 
 export async function createConversation(opts: {
@@ -98,26 +118,35 @@ export async function createConversation(opts: {
   };
 }
 
-export async function loadMessages(conversationId: string): Promise<ChatMessage[]> {
+export async function loadMessages(conversationId: string): Promise<Persisted<ChatMessage[]>> {
   const supabase = getAuthBrowserClient();
-  if (!supabase) return [];
-  const { data, error } = await supabase
-    .from("agent_messages")
-    .select("id, role, content, created_at")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-    .limit(1000);
-  if (error) {
+  if (!supabase) return { ok: false, data: [] };
+  try {
+    const { data, error } = await supabase
+      .from("agent_messages")
+      .select("id, role, content, created_at")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true })
+      .limit(1000);
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.warn("[agent] loadMessages failed", error.message);
+      return { ok: false, data: [] };
+    }
+    return {
+      ok: true,
+      data: (data ?? []).map((row) => ({
+        id: row.id as string,
+        role: row.role as ChatMessage["role"],
+        content: row.content as ChatMessage["content"],
+        createdAt: row.created_at as string,
+      })),
+    };
+  } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn("[agent] loadMessages failed", error.message);
-    return [];
+    console.warn("[agent] loadMessages failed", err);
+    return { ok: false, data: [] };
   }
-  return (data ?? []).map((row) => ({
-    id: row.id as string,
-    role: row.role as ChatMessage["role"],
-    content: row.content as ChatMessage["content"],
-    createdAt: row.created_at as string,
-  }));
 }
 
 /** Schema constraint on agent_messages.content: octet_length <= 262144.

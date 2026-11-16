@@ -28,8 +28,8 @@ const h = vi.hoisted(() => ({
 }));
 
 vi.mock("@/lib/agent/persist", () => ({
-  listConversations: vi.fn(async () => h.conversations),
-  loadMessages: vi.fn(async () => []),
+  listConversations: vi.fn(async () => ({ ok: true, data: h.conversations })),
+  loadMessages: vi.fn(async () => ({ ok: true, data: [] })),
   deleteConversation: h.deleteConversation,
   renameConversation: vi.fn(async () => {}),
   createConversation: h.createConversation,

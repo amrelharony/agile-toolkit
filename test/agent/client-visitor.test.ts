@@ -29,9 +29,9 @@ import { z } from "zod";
 const h = vi.hoisted(() => ({
   persist: {
     fetchChatUsage: vi.fn(async () => null),
-    listConversations: vi.fn(async () => []),
+    listConversations: vi.fn(async () => ({ ok: true, data: [] })),
     createConversation: vi.fn(async () => null),
-    loadMessages: vi.fn(async () => []),
+    loadMessages: vi.fn(async () => ({ ok: true, data: [] })),
     appendMessages: vi.fn(async () => {}),
     recordChatUsage: vi.fn(async () => {}),
     deleteConversation: vi.fn(async () => {}),
