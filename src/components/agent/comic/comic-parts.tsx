@@ -2,15 +2,16 @@
  * The chat strip's comic parts (DNA-SPEC §6 "Chat strip"): the markup every
  * Amr surface shares, from the owner's chat to the visitor's tool finder.
  *
- *   AmrBalloon       only the model's own words, in a speech balloon whose
- *                    tail points at the real Amr beside the panel
- *   ThinkingBalloon  the same balloon with a pen scribble and no words, while
- *                    a reply is on its way (the status line says it in words)
  *   YouCaption       the reader's own words, in a squared caption box
  *   Narration        every line that isn't Amr's own words, told in the third
  *                    person ("Amr is working in Retro Board..."): status,
  *                    tool steps, notes, errors, limits, empty and resume lines
- *   SceneCaption     a change of time or place: a quiet centred rule
+ *
+ * The parts only the chat strip draws (AmrBalloon, ThinkingBalloon and
+ * SceneCaption) live in strip-parts.tsx. Every-page code imports this file,
+ * and webpack keeps every export some chunk uses inside the module that holds
+ * it, so a part kept here ships on every page as soon as the chat uses it.
+ * Keep a part here only when every-page code draws it.
  *
  * Runtime-free on purpose: no hooks, no stores, no agent code, and imports from
  * react, @/lib/utils and the ink art only (test/agent/bundle-boundary.test.ts
@@ -22,82 +23,22 @@
  * outside the `dir="auto"` element, so an English prefix never decides the
  * direction of an Arabic message. Everything is Inter at text-sm; only a
  * balloon's lead is lettered (`font-display`), and data stays in `font-data`.
- *
- * A balloon's tail stands 0.8rem out from its edge: the call site leaves that
- * room on Amr's side (a scroller would clip it).
  */
 
 import type { HTMLAttributes, ReactNode } from "react";
-import { InkScribble } from "@/components/ink/ink-scribble";
 import { cn } from "@/lib/utils";
 
-type DivProps = Omit<HTMLAttributes<HTMLDivElement>, "children" | "dir">;
+/** A part's own div props: it sets the children and the reading direction. */
+export type DivProps = Omit<HTMLAttributes<HTMLDivElement>, "children" | "dir">;
 
 /** An optional slot was given something to draw. */
-const given = (node: ReactNode) => node != null && node !== false && node !== "";
+export const given = (node: ReactNode) => node != null && node !== false && node !== "";
 
 /**
  * The words a part's body shares: Inter (named, so a lettered parent such as a
  * card title can't pass Shantell down), small, roomy, long words wrap.
  */
-const BODY = "font-sans text-sm leading-relaxed break-words";
-
-export interface AmrBalloonProps extends DivProps {
-  /** The reply: markdown or plain text, laid out by the caller. */
-  children: ReactNode;
-  /**
-   * A lettered opening drawn first, in Shantell: the reply's first sentence,
-   * cut by the caller by character position so streamed text never changes
-   * face. Leave it out when the reply has no short Latin-script opener.
-   */
-  lead?: ReactNode;
-}
-
-/** Amr's own words, in a balloon whose tail points at him. */
-export function AmrBalloon({ children, lead, className, ...rest }: AmrBalloonProps) {
-  return (
-    <div
-      {...rest}
-      className={cn("balloon min-w-0 px-3 py-2", BODY, className)}
-      data-tail="amr"
-      data-speaker="amr"
-    >
-      <span className="sr-only">Amr said: </span>
-      <div dir="auto" data-comic-content="">
-        {/* A real space after the lead, so a reader, copy and find never run it
-            into the first word; it collapses before a block such as <p>. */}
-        {given(lead) && (
-          <>
-            <span className="font-display text-[0.9375rem]" data-balloon-lead="">
-              {lead}
-            </span>{" "}
-          </>
-        )}
-        {children}
-      </div>
-    </div>
-  );
-}
-
-/**
- * Amr is about to answer: his balloon with a pen scribbling in it and no
- * words. Hidden from assistive tech, because the always-mounted status line
- * says it in words; the scribble is drawn still under reduced motion.
- */
-export function ThinkingBalloon({ className, ...rest }: DivProps) {
-  return (
-    <div
-      {...rest}
-      className={cn("balloon flex w-fit items-center px-3 py-2.5", className)}
-      data-tail="amr"
-      data-speaker="amr"
-      data-thinking=""
-      aria-hidden="true"
-    >
-      <InkScribble className="h-4 w-12" />
-    </div>
-  );
-}
+export const BODY = "font-sans text-sm leading-relaxed break-words";
 
 export interface YouCaptionProps extends DivProps {
   /** The reader's words, shown as typed (line breaks kept). */
@@ -174,26 +115,5 @@ export function Narration({
         </div>
       )}
     </div>
-  );
-}
-
-export interface SceneCaptionProps extends Omit<HTMLAttributes<HTMLParagraphElement>, "children"> {
-  /** The change: "Earlier today", "Picked up where you left off". */
-  children: ReactNode;
-}
-
-/** A change of time or place in the strip: no paper, a quiet rule, centred. */
-export function SceneCaption({ children, className, ...rest }: SceneCaptionProps) {
-  return (
-    <p
-      {...rest}
-      className={cn(
-        "comic-caption mx-auto w-fit max-w-full px-3 py-1 font-sans text-xs leading-relaxed",
-        className
-      )}
-      data-voice="scene"
-    >
-      {children}
-    </p>
   );
 }

@@ -21,7 +21,7 @@
  *   (parseBlocks with a cache), so while a reply streams only its last block
  *   re-renders.
  * - `lead` letters a reply's opening sentence (DNA-SPEC section 5) inside its
- *   first paragraph, in Shantell at a rem size, as comic-parts' AmrBalloon
+ *   first paragraph, in Shantell at a rem size, as strip-parts' AmrBalloon
  *   letters its own: lib/agent/chat-view decides it (findLead), by character
  *   position, so once given it never moves as the reply streams on. Inline
  *   code in it stays `font-data`. It is drawn in the paragraph rather than
@@ -269,7 +269,7 @@ function ParagraphView({ text, lead }: { text: string; lead?: string | null }) {
     <p dir="auto" className="whitespace-pre-wrap break-words">
       {cut ? (
         <>
-          {/* The face AmrBalloon gives its lead (comic/comic-parts.tsx). */}
+          {/* The face AmrBalloon gives its lead (comic/strip-parts.tsx). */}
           <span className="font-display text-[0.9375rem]" data-balloon-lead="">
             <Inline text={cut[0]} />
           </span>

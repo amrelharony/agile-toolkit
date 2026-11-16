@@ -50,7 +50,8 @@
 
 import { memo, useId } from "react";
 import { ChevronDown } from "lucide-react";
-import { AmrBalloon, Narration, ThinkingBalloon, YouCaption } from "../comic/comic-parts";
+import { Narration, YouCaption } from "../comic/comic-parts";
+import { AmrBalloon, ThinkingBalloon } from "../comic/strip-parts";
 import { Markdown } from "../markdown";
 import type {
   BalloonItem,
