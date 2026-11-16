@@ -87,6 +87,18 @@ describe("cast-rig.json", () => {
     }
   });
 
+  it("says what each colleague's face cells hold, from pieces it has", () => {
+    // face_base, from each brief's FACE PIECE: the head (ears drawn on it or left
+    // off), the head with its ear pieces, the whole body, or the top of the body.
+    for (const c of spec.characters) {
+      const all = [...c.parts, ...(c.parts2 ?? [])];
+      expect(["head", "head+ears", "body", "body-top"], c.id).toContain(c.face_base);
+      expect(String(c.face_base).startsWith("body"), c.id).toBe(!all.includes("head"));
+      if (c.face_base === "head+ears")
+        expect(all, c.id).toEqual(expect.arrayContaining(["ear-r", "ear-l"]));
+    }
+  });
+
   it("shows ChatGPT only tolerances that exist", () => {
     for (const k of spec.shown_to_chatgpt) expect(spec.tolerances).toHaveProperty(k);
   });
