@@ -450,8 +450,17 @@ export function LeanCoffeeRunner({
           <Button ref={closeRef} type="button" size="sm" variant="outline" onClick={closeVote}>
             Close the vote and show everyone
           </Button>
+        ) : roomTotals ? (
+          <span className="text-xs text-sub">{thumbsVerdict(roomTotals)}</span>
         ) : (
-          roomTotals && <span className="text-xs text-sub">{thumbsVerdict(roomTotals)}</span>
+          // The hidden line says "or ask again": at time's up this is the
+          // way to (before then, Ask the room again sits beside Done).
+          timeUp &&
+          current && (
+            <Button type="button" size="sm" variant="outline" onClick={() => askRoom(current.text)}>
+              Ask the room again
+            </Button>
+          )
         )}
       </div>
     ) : null;

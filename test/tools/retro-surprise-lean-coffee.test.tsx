@@ -643,6 +643,10 @@ describe("Lean Coffee: Discuss", () => {
       expect(status).toHaveAttribute("role", "status");
       expect(document.activeElement).toBe(status);
       expect(screen.queryByText(/Keep going \d|Move on \d|voted\)|Most want|a tie/)).toBeNull();
+      // The line says "or ask again", and at time's up the host can.
+      fireEvent.click(screen.getByRole("button", { name: "Ask the room again" }));
+      expect(closed.open).toHaveBeenCalledTimes(1);
+      expect(closed.open).toHaveBeenCalledWith("Our standups run too long");
       // No button is picked out for the room, and both still work.
       for (const name of [/Keep going \(3 min\)/, /Move on to the next topic/]) {
         expect(screen.getByRole("button", { name })).not.toHaveClass("bg-primary");
@@ -679,6 +683,8 @@ describe("Lean Coffee: Discuss", () => {
     expect(screen.getByRole("button", { name: /Move on to the next topic/ })).toHaveClass(
       "bg-primary"
     );
+    // As before, no Ask button once the totals show at time's up.
+    expect(screen.queryByRole("button", { name: /Ask the room/ })).toBeNull();
     // A tie, as before.
     const tie = fakeThumbs({ id: "p1", topic: "x", open: false, keep: 2, move: 2, voters: 4 });
     view.rerun({ timeUp: true, thumbs: tie });
