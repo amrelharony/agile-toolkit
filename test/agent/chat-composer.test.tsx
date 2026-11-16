@@ -293,13 +293,41 @@ describe("the Send/Stop button", () => {
     expect(box()).not.toHaveFocus();
   });
 
-  it("keeps focus where it was after a click with a mouse", () => {
-    render(<Composer />);
+  it("keeps focus and the caret in the box through a click with a mouse, on Send and on Stop", () => {
+    const clock = handClock();
+    const view = render(<Composer />);
     box().focus();
     type("from a desk");
+    // Chromium and Firefox would move focus to the button on mousedown: cancelled.
+    expect(fireEvent.mouseDown(sendButton(), { button: 0 })).toBe(false);
     fireEvent.click(sendButton(), { detail: 1 });
     expect(h.onSend).toHaveBeenCalledTimes(1);
     expect(box()).toHaveFocus();
+
+    // The button is Stop now: typing goes on in the box, and a click stops.
+    view.rerender(<Composer busy />);
+    expect(box()).toHaveFocus();
+    type("and then");
+    box().setSelectionRange(3, 3);
+    clock.tick(SWAP_GUARD_MS);
+    expect(fireEvent.mouseDown(sendButton(), { button: 0 })).toBe(false);
+    fireEvent.click(sendButton(), { detail: 1 });
+    expect(h.onStop).toHaveBeenCalledTimes(1);
+    expect(box()).toHaveFocus();
+    expect(box().selectionStart).toBe(3);
+
+    // Another mouse button, or focus elsewhere, is left alone.
+    expect(fireEvent.mouseDown(sendButton(), { button: 2 })).toBe(true);
+    sendButton().focus();
+    expect(fireEvent.mouseDown(sendButton(), { button: 0 })).toBe(true);
+  });
+
+  it("leaves a touch screen's mousedown alone, so a tap still lets go of the box", () => {
+    touchScreen();
+    render(<Composer />);
+    box().focus();
+    type("from a phone");
+    expect(fireEvent.mouseDown(sendButton(), { button: 0 })).toBe(true);
   });
 
   it("is 44 px on a touch screen, and so is the mic", () => {

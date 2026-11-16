@@ -49,7 +49,9 @@
  * goes to `onSend` with the trimmed text and the box's text as it was (to put
  * back if the message can't go out). After a tap on Send on a touch screen
  * the box lets go of focus, so the keyboard goes down and the reply gets the
- * panel; with a mouse, or from a key press, focus stays where it was.
+ * panel; from a key press, focus stays where it was; and with a mouse the box
+ * keeps it, caret and all, since the button's mousedown is cancelled while
+ * the box has focus (for Stop too), so typing goes on in the box.
  *
  * Focus. The box is the chat's first target when the panel opens, and again
  * when the chat comes back from under Amr's Scenes view (chat-visibility), on
@@ -367,6 +369,18 @@ export function ChatComposer({
           onKeyDown={(e) => {
             // A held Enter or Space presses once: its repeats click nothing.
             if (e.repeat && (e.key === "Enter" || e.key === " ")) e.preventDefault();
+          }}
+          onMouseDown={(e) => {
+            // With a mouse, Chromium and Firefox move focus to a button on
+            // mousedown: keep it in the box, caret and all (design 1.3 item 8).
+            const box = boxRef.current;
+            if (
+              !e.button &&
+              box &&
+              box.ownerDocument.activeElement === box &&
+              !onTouchScreen(box.ownerDocument)
+            )
+              e.preventDefault();
           }}
           onClick={press}
           className={cn(
