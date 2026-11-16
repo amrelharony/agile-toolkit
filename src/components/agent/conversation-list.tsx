@@ -16,7 +16,9 @@
  *     in from the chat (`takeFocus`), on a fine pointer only: on a touch
  *     screen it would raise the keyboard over the list. Enter goes to the
  *     first thread; Escape with words in it clears them, and from an empty
- *     one the panel's own Escape order goes on (back to the chat)
+ *     one the panel's own Escape order goes on (back to the chat). With no
+ *     threads there is no search, so focus in it goes on to New chat when it
+ *     goes
  *   - the threads under Today, Yesterday, Last 7 days and Earlier
  *     (lib/agent/history-groups), each row its title (dir="auto"), its tool
  *     and a <time> line in words; the open thread says so (aria-current, and
@@ -241,8 +243,15 @@ export function ConversationList({ onClose, takeFocus = false }: ConversationLis
         // focus, so the first thread takes it.
         const retry = retryRef.current;
         if (retry && retry === retry.ownerDocument.activeElement) handTo.current = "first";
+        const kept = data.filter((c) => !pendingDeletes.has(c.id));
+        // An empty list takes the search away (with no words in it): focus in
+        // it goes on to New chat.
+        const search = searchRef.current;
+        if (kept.length === 0 && search && search === search.ownerDocument.activeElement) {
+          handTo.current ??= "new";
+        }
         setFailed(false);
-        setItems(data.filter((c) => !pendingDeletes.has(c.id)));
+        setItems(kept);
       });
     },
     [announce]
@@ -467,8 +476,10 @@ export function ConversationList({ onClose, takeFocus = false }: ConversationLis
         rootRef.current?.querySelector<HTMLElement>(`[data-thread-open="${first.id}"]`)?.focus();
       }
     } else if (e.key === "Escape" && query) {
-      // Clears the words first; the panel's Escape skips a used key.
+      // Clears the words first; the panel's Escape skips a used key. Over an
+      // empty list the search goes with them, and focus on to New chat.
       e.preventDefault();
+      if (items?.length === 0) handTo.current = "new";
       setQuery("");
     }
   };
@@ -519,7 +530,11 @@ export function ConversationList({ onClose, takeFocus = false }: ConversationLis
             ref={searchRef}
             type="search"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              // Emptied over an empty list, the search goes: focus on to New chat.
+              if (!e.target.value && items?.length === 0) handTo.current = "new";
+              setQuery(e.target.value);
+            }}
             onKeyDown={onSearchKey}
             placeholder="Search conversations…"
             aria-label="Search conversations"

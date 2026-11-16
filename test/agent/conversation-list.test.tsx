@@ -687,6 +687,42 @@ describe("focus going in and out of History", () => {
     expect(within(header()).getByRole("button", { name: "Conversation history" })).toHaveFocus();
   });
 
+  it("hands the search's focus on to New chat when the list comes back empty", async () => {
+    h.list.mockImplementation(async () => ok([]));
+    render(<Shell />);
+    const history = within(header()).getByRole("button", { name: "Conversation history" });
+    history.focus();
+    fireEvent.click(history);
+    expect(screen.getByLabelText("Search conversations")).toHaveFocus();
+    await screen.findByText(HISTORY_EMPTY);
+    // Nothing to search: the search goes, and its focus to New chat, not the page or the plate.
+    expect(screen.queryByLabelText("Search conversations")).toBeNull();
+    expect(document.querySelector('[data-history-focus="new"]')).toHaveFocus();
+  });
+
+  it("keeps words typed while the list loads, and hands focus to New chat once they are cleared over an empty list", async () => {
+    for (const clear of ["Escape", "emptied"] as const) {
+      const read = later<Read<ConversationMeta[]>>();
+      h.list.mockImplementation(() => read.promise);
+      const { unmount } = render(
+        <LiveAnnouncerProvider>
+          <ConversationList onClose={vi.fn()} />
+        </LiveAnnouncerProvider>
+      );
+      const search = screen.getByLabelText("Search conversations");
+      search.focus();
+      fireEvent.change(search, { target: { value: "retro" } });
+      await act(async () => read.settle(ok([])));
+      // Words in it: it stays, with focus.
+      expect(search).toHaveFocus();
+      if (clear === "Escape") fireEvent.keyDown(search, { key: "Escape" });
+      else fireEvent.change(search, { target: { value: "" } });
+      expect(screen.queryByLabelText("Search conversations")).toBeNull();
+      expect(document.querySelector('[data-history-focus="new"]')).toHaveFocus();
+      unmount();
+    }
+  });
+
   it("raises no keyboard on a touch screen: focus stays on the button", async () => {
     touchScreen();
     render(<Shell />);
