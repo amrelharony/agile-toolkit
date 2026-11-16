@@ -174,7 +174,8 @@ export function ReadOnlyFooter({
         if (!q?.peak || q.peakEndsAt !== peakEndsAt) return;
         const refusal = s.visitorFallback;
         const refused = refusal === "visitor_peak_limit" || refusal === "site_peak_limit";
-        const waited = refused || (q.peakRemaining === 0 && q.remaining > 0);
+        // Said only when the end gives the box back: the day's messages remain.
+        const waited = (refused || q.peakRemaining === 0) && q.remaining > 0;
         s.setVisitorQuota({ ...q, peak: false, peakRemaining: null, peakEndsAt: null });
         if (refused) {
           s.setVisitorFallback(null);

@@ -263,6 +263,23 @@ describe("the read-only footer", () => {
     expect(screen.getByLabelText("Message")).toBeInTheDocument();
     expect(h.announce).toHaveBeenCalledWith(BUSY_HOURS_OVER);
   });
+
+  it("stays when the busy hours end with none of the day's messages left either, and says nothing", async () => {
+    const ends = new Date(Date.now() + 1500);
+    await chatAsked(
+      quota(0, { peak: true, peakRemaining: 0, peakLimit: 5, peakEndsAt: ends.toISOString() })
+    );
+    act(() => useAgentStore.getState().setVisitorFallback("visitor_peak_limit"));
+    await until(footer);
+    await waitFor(() => expect(useAgentStore.getState().visitorQuota?.peak).toBe(false), {
+      timeout: 5000,
+    });
+    // The busy hours' refusal goes with them; the day's limit holds the footer.
+    expect(useAgentStore.getState().visitorFallback).toBeNull();
+    expect(footer()).toHaveTextContent("You've used all of today's messages with Amr.");
+    expect(screen.queryByLabelText("Message")).toBeNull();
+    expect(h.announce).not.toHaveBeenCalledWith(BUSY_HOURS_OVER);
+  });
 });
 
 describe("readOnlyNote", () => {
