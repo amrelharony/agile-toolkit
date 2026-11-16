@@ -18,7 +18,9 @@
  *   Latest   while the reader is not at the end: a button in the flow just
  *            before the composer (never over the log or under docked Amr).
  *            It takes the log back to its newest line and hands focus to the
- *            composer, since it goes away as it does.
+ *            composer, since it goes away as it does; not after a tap on a
+ *            touch screen, where the box taking focus would raise the
+ *            keyboard over the very lines the reader asked for.
  *   footer   the composer's row (`footer`: the message form and the lines
  *            under it), shrink-0 so it never gives up its height; while Amr
  *            is docked in the phone's sheet it makes room for him on his side
@@ -36,7 +38,9 @@
  *
  * Focus. A control that takes itself away hands focus to the composer, caret
  * at the end, before it goes (the chat context's focusComposer): Latest does
- * here; Try again, Go on, starters and follow-ups do where they are drawn.
+ * here, except after a tap on a touch screen (a key press there still hands
+ * focus over); Try again, Go on, starters and follow-ups do where they are
+ * drawn.
  * The safety net catches any other case: when what had focus inside the
  * frame is taken out of the page and focus is left on nothing (the body),
  * the composer takes it, except on a coarse pointer, where a text field
@@ -51,7 +55,7 @@
  * (test/agent/bundle-boundary.test.ts).
  */
 
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, type MouseEvent, type ReactNode } from "react";
 import { ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { ChatItem } from "@/lib/agent/chat-view";
@@ -61,6 +65,13 @@ import { useChat } from "./chat-context";
 import { ChatLog } from "./chat-log";
 import { useStickToBottom } from "./use-stick-to-bottom";
 import { useTurnAnnouncer } from "./use-turn-announcer";
+
+/**
+ * A touch screen: a text field taking focus there raises the keyboard. Kept
+ * here, not panel-context's helper, so nothing new reaches mascot code.
+ */
+const onTouchScreen = (doc: Document | undefined) =>
+  doc?.defaultView?.matchMedia?.("(pointer: coarse)")?.matches === true;
 
 export interface ChatFrameProps {
   /** The strip's items, from lib/agent/chat-view. */
@@ -133,7 +144,7 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
       // On a touch screen a text field taking focus raises the keyboard over
       // the strip the reader was looking at (a tapped Approve on Android):
       // leave focus where the removal left it.
-      if (doc.defaultView?.matchMedia?.("(pointer: coarse)")?.matches === true) return;
+      if (onTouchScreen(doc)) return;
       focusComposer();
     };
     const onFocusIn = (e: FocusEvent) => {
@@ -162,9 +173,14 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
     };
   }, [focusComposer]);
 
-  const latest = () => {
-    // Focus first: the button goes as the log reaches its end.
-    focusComposer();
+  const latest = (e: MouseEvent) => {
+    // Focus first: the button goes as the log reaches its end. Not after a
+    // tap on a touch screen: there a tap means "show me the newest", and the
+    // box taking focus would raise the keyboard (compact mode, the log at its
+    // floor) over it; as with the safety net, focus stays where the tap left
+    // it. A key press (detail 0) still hands focus over.
+    const tap = e.detail > 0 && onTouchScreen(rootRef.current?.ownerDocument);
+    if (!tap) focusComposer();
     scrollToLatest();
   };
 

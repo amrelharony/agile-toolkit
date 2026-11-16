@@ -4,7 +4,8 @@
  * growing reply only while the reader is at its end; a resize re-pins a
  * following log and is never taken for the reader going up; reading further
  * up, nothing moves it; the Latest button takes it back and hands focus to
- * the composer; scrolls wait for one frame and are instant under reduced
+ * the composer (not after a tap on a touch screen, where that would raise the
+ * keyboard); scrolls wait for one frame and are instant under reduced
  * motion; a short panel brings the log back with root.scrollTo, never
  * scrollIntoView; and the focus safety net catches a control taken away.
  *
@@ -171,6 +172,18 @@ function Chat({
 const theLog = () => screen.getByRole("log", { name: "Conversation" });
 const latest = () => screen.queryByRole("button", { name: "Latest" });
 const composer = () => screen.getByLabelText("Message") as HTMLTextAreaElement;
+
+/** The page on a touch screen: (pointer: coarse) matches, nothing else does. */
+const touchScreen = () =>
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (query: string) =>
+      ({
+        matches: query.includes("pointer: coarse"),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      }) as unknown as MediaQueryList
+  );
 
 /** A chat whose log is 1000 px of content in a 200 px view, settled at its end. */
 async function settled(messages: readonly ChatMessage[] = CHAT) {
@@ -411,7 +424,8 @@ describe("the Latest button", () => {
     log.readTo(300);
     log.scrollTo.mockClear();
 
-    fireEvent.click(latest()!);
+    // A mouse click (a fine pointer).
+    fireEvent.click(latest()!, { detail: 1 });
     // Focus moved before the button went.
     expect(composer()).toHaveFocus();
     expect(composer().selectionStart).toBe(DRAFT.length);
@@ -427,6 +441,38 @@ describe("the Latest button", () => {
     log.resize({ height: 1200 });
     await frames();
     expect(log.top()).toBe(1000);
+  });
+
+  it("leaves focus where the tap left it on a touch screen, so no keyboard rises over the newest lines", async () => {
+    touchScreen();
+    const { log } = await settled();
+    log.readTo(300);
+    log.scrollTo.mockClear();
+
+    fireEvent.click(latest()!, { detail: 1 });
+    expect(composer()).not.toHaveFocus();
+    expect(latest()).toBeNull();
+    // The removed button leaves focus on nothing, which the safety net keeps.
+    await act(async () => {});
+    expect(composer()).not.toHaveFocus();
+    expect(document.activeElement).toBe(document.body);
+
+    // The log still goes to its end.
+    await frames();
+    expect(log.scrollTo).toHaveBeenCalledWith({ top: 800, behavior: "smooth" });
+    expect(log.top()).toBe(log.end());
+  });
+
+  it("still hands focus to the composer from a key press on a touch screen", async () => {
+    touchScreen();
+    const { log } = await settled();
+    log.readTo(300);
+
+    // Enter or Space on the button: a click with no pointer behind it.
+    fireEvent.click(latest()!, { detail: 0 });
+    expect(composer()).toHaveFocus();
+    expect(composer().selectionStart).toBe(DRAFT.length);
+    expect(latest()).toBeNull();
   });
 
   it("keeps gliding as its row goes and the log grows: pins re-aim the glide until it lands, then jump again", async () => {
@@ -580,15 +626,7 @@ describe("the focus safety net", () => {
   });
 
   it("leaves focus where the removal left it on a touch screen, so no keyboard rises from a tap", async () => {
-    vi.spyOn(window, "matchMedia").mockImplementation(
-      (query: string) =>
-        ({
-          matches: query.includes("pointer: coarse"),
-          media: query,
-          addEventListener: () => {},
-          removeEventListener: () => {},
-        }) as unknown as MediaQueryList
-    );
+    touchScreen();
     const { rerender } = render(
       <Chat messages={CHAT} extra={<button type="button">Not now</button>} />
     );
