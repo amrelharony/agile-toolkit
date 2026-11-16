@@ -593,6 +593,8 @@ describe("the chat strip (chat/)", () => {
     `${CHAT_DIR}suggestion-chips.tsx`,
     `${CHAT_DIR}use-stick-to-bottom.ts`,
     `${CHAT_DIR}use-turn-announcer.ts`,
+    `${CHAT_DIR}chat-composer.tsx`,
+    `${CHAT_DIR}use-autosize.ts`,
   ];
 
   it("is what both chats draw, reached by a static import from each container", () => {
@@ -626,6 +628,39 @@ describe("the chat strip (chat/)", () => {
     );
     expect(visitorChat.files.has(STRIP_PARTS)).toBe(true);
     expect(closure([OWNER_CHAT]).files.has(STRIP_PARTS)).toBe(true);
+  });
+
+  it("draws one composer in both chats, and each container's form is gone", () => {
+    // The key rule is plain code with no imports, which both reach.
+    const keys = "src/lib/agent/composer-keys.ts";
+    expect(staticTargets(`${CHAT_DIR}chat-composer.tsx`)).toContain(keys);
+    expect(staticTargets(keys)).toEqual([]);
+    expect(visitorChat.files.has(keys)).toBe(true);
+    for (const container of [OWNER_CHAT, VISITOR_CHAT]) {
+      expect(staticTargets(container)).toContain(`${CHAT_DIR}chat-composer.tsx`);
+      const source = readFileSync(path.join(ROOT, container), "utf8");
+      expect(source, container).not.toMatch(/<form|<textarea/);
+    }
+  });
+
+  it("keeps the chat commands off every page: only the chat imports them, not the Konami module", () => {
+    const commands = "src/components/agent/mascot/engine/customization/chat-commands.ts";
+    expect(everyPage.files.has(commands), "chat-commands stays off every page").toBe(false);
+    expect(mascotChunk.files.has(commands)).toBe(false);
+    expect(visitorChat.files.has(commands)).toBe(true);
+    expect(closure([OWNER_CHAT]).files.has(commands)).toBe(true);
+  });
+
+  it("keeps the owner's dictation out of the visitor's chat: only the owner's chat hands the composer a mic", () => {
+    for (const file of [
+      `${CHAT_DIR}dictate-button.tsx`,
+      "src/lib/agent/mascot/use-voice-input.ts",
+    ]) {
+      expect(closure([OWNER_CHAT]).files.has(file), `the owner's chat reaches ${file}`).toBe(true);
+      expect(visitorChat.files.has(file), `the visitor's chat never reaches ${file}`).toBe(false);
+      expect(everyPage.files.has(file), `${file} stays off every page`).toBe(false);
+    }
+    expect(staticTargets(OWNER_CHAT)).toContain(`${CHAT_DIR}dictate-button.tsx`);
   });
 
   it("keeps the owner's step Details out of the visitor's chat: only the owner's chat imports it", () => {
