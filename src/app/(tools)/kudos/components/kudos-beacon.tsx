@@ -20,8 +20,9 @@
 
 import { useEffect, useState } from "react";
 import { Sparkles } from "lucide-react";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { usePrefersReducedMotion } from "@/hooks/use-media-query";
 import { useSignal } from "@/lib/signals/signal-bus";
 import { cn } from "@/lib/utils";
 
@@ -63,7 +64,7 @@ function scrollToForm() {
 }
 
 export function KudosBeacon() {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = usePrefersReducedMotion();
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
   const [idleGlow, setIdleGlow] = useState(false);
