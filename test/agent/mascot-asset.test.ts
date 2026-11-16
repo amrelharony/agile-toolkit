@@ -12,6 +12,7 @@ import {
   type PackId,
 } from "@/components/agent/mascot/mascot-packs";
 import contextSpec from "../../docs/mascot/context-sheets.json";
+import companionSpec from "../../docs/mascot/companion-scenes.json";
 import { SHEET } from "@/components/agent/mascot/engine/sprite-poses";
 
 const onDisk = (url: string) => path.join(process.cwd(), "public", url);
@@ -26,6 +27,7 @@ function webpCanvas(bytes: Buffer): { w: number; h: number } {
 
 /** The packs of the context sheets S11–S64, which ship as their sheets come back. */
 const CONTEXT_PACKS = new Set<string>(contextSpec.sheets.map((s) => s.pack));
+const COMPANION_PACKS = new Set<string>(companionSpec.sheets.map((s) => s.pack));
 
 const hashOf = (bytes: Buffer) => createHash("sha256").update(bytes).digest("hex").slice(0, 8);
 
@@ -83,7 +85,8 @@ describe("Amr's lazy packs", () => {
   });
 
   it("stays small: the ten core packs together weigh about what the live sheet does", () => {
-    const core = packs.filter(([id]) => !CONTEXT_PACKS.has(id));
+    const core = packs.filter(([id]) => !CONTEXT_PACKS.has(id) && !COMPANION_PACKS.has(id));
+    expect(core).toHaveLength(10);
     const total = core.reduce((sum, [, p]) => sum + p.bytes, 0);
     expect(total).toBeLessThan(700 * 1024);
     for (const [, p] of packs) expect(p.bytes2x).toBeLessThan(400 * 1024);
@@ -92,6 +95,15 @@ describe("Amr's lazy packs", () => {
   it("keeps each context pack small: one loads only on its day, its weather or its moment", () => {
     for (const [id, p] of packs) {
       if (CONTEXT_PACKS.has(id)) expect(p.bytes, id).toBeLessThan(100 * 1024);
+    }
+  });
+
+  it("keeps each companion scene's pack small too: one loads only for its moment", () => {
+    for (const id of Array.from(COMPANION_PACKS)) {
+      const p = PACKS[id as PackId];
+      expect(p, id).toBeDefined();
+      expect(p.bytes, id).toBeLessThan(100 * 1024);
+      expect(p.frames, id).toBe(7);
     }
   });
 

@@ -24,8 +24,30 @@ const swing = (a: string, b: string, ms: number, n: number): Step[] => times(n, 
 
 type Fallback = SpritePose;
 
-function scene(name: string, fallback: Fallback, steps: Step[]): [string, Clip] {
-  return [name, clip(`scene:${name}`, fallback, steps)];
+function scene(
+  name: string,
+  fallback: Fallback,
+  steps: Step[],
+  extra: Partial<Pick<Clip, "loop" | "still">> = {}
+): [string, Clip] {
+  return [name, clip(`scene:${name}`, fallback, steps, extra)];
+}
+
+/**
+ * A companion scene (docs/mascot/companion-scenes.json, N01–N10): its pack's
+ * frames as [pose, ms], in story order. `hold` frames repeat for as long as the
+ * scene is held (HOLD_SCENES), and the first of them is the reduced-motion still.
+ */
+function companion(
+  pack: string,
+  fallback: Fallback,
+  frames: Array<[string, number]>,
+  hold?: Array<[string, number]>
+): [string, Clip] {
+  const step = ([pose, ms]: [string, number]) => f(`${pack}.${pose}`, ms);
+  if (!hold) return scene(pack, fallback, frames.map(step));
+  const loop = hold.map(step);
+  return scene(pack, fallback, frames.map(step), { loop, still: loop[0].f });
 }
 
 /** A tool sheet's scene (S65 on): its frames as [pose, ms], from the pack it's named after. */
@@ -1260,6 +1282,114 @@ const LIST: Array<[string, Clip]> = [
     ["fixed", 1200],
     ["wipe", 1100],
   ]),
+
+  // ── Companion scenes (N01–N10, docs/mascot/companion-scenes.json) ───────────
+  // Baked scenes, a colleague beside him in most. When each may play is the
+  // sheet's `gate`; the hooks are listed in COMPANION_SCENES below.
+  companion("reviewer", "review", [
+    ["offer", 600],
+    ["book", 600],
+    ["compare", 600],
+    ["correct", 600],
+    ["show", 600],
+    ["approve", 600],
+    ["present", 1050],
+  ]),
+  companion("dino", "review", [
+    ["offer", 600],
+    ["take", 600],
+    ["consider", 600],
+    ["choose", 600],
+    ["return", 600],
+    ["keep", 600],
+    ["present", 1050],
+  ]),
+  companion("rabbit", "waiting", [
+    ["arrive", 400],
+    ["pause", 400],
+    ["reassure", 400],
+    ["card", 400],
+    ["present", 500],
+    ["encourage", 500],
+    ["relax", 500],
+  ]),
+  companion("octopus", "waiting", [
+    ["offer", 600],
+    ["pause", 600],
+    ["collect", 600],
+    ["organise", 600],
+    ["focus", 600],
+    ["park", 600],
+    ["handle", 1050],
+  ]),
+  companion("ahwa", "idle", [
+    ["after", 600],
+    ["glance", 600],
+    ["look", 600],
+    ["chuckle", 600],
+    ["relax", 600],
+    ["settle", 600],
+    ["calm", 1050],
+  ]),
+  companion("escape", "jumping", [
+    ["slip", 600],
+    ["reach", 600],
+    ["catch", 600],
+    ["examine", 600],
+    ["place", 600],
+    ["pin", 600],
+    ["show", 1050],
+  ]),
+  companion("comic", "review", [
+    ["hold", 600],
+    ["read", 600],
+    ["idea", 600],
+    ["take", 600],
+    ["close", 600],
+    ["offer", 600],
+    ["encourage", 1050],
+  ]),
+  companion("retry", "waiting", [
+    ["notice", 600],
+    ["sympathy", 600],
+    ["unfold", 600],
+    ["smooth", 600],
+    ["show", 600],
+    ["offer", 600],
+    ["encourage", 1050],
+  ]),
+  // Held while a two-choice card waits: the offer once, then waiting, no default.
+  companion(
+    "decide",
+    "waiting",
+    [
+      ["present", 600],
+      ["blue", 600],
+      ["purple", 600],
+      ["both", 600],
+      ["step", 600],
+    ],
+    [
+      ["wait-a", 1500],
+      ["wait-b", 1500],
+    ]
+  ),
+  // Held while the visitor's own Quiet setting applies: the bell covered, then calm.
+  companion(
+    "quiet",
+    "idle",
+    [
+      ["bell", 600],
+      ["notice", 600],
+      ["cover", 600],
+      ["hush", 600],
+      ["away", 600],
+    ],
+    [
+      ["settle-a", 3000],
+      ["settle-b", 3000],
+    ]
+  ),
 ];
 
 /** Every scene, by name (`sun`, `rain.under`, `poker.reveal`, …). */
@@ -1269,3 +1399,35 @@ export type SceneName = string;
 
 /** The reaction that plays a scene. */
 export const sceneReaction = (name: SceneName) => `scene:${name}` as const;
+
+/**
+ * Scenes that are held, not played once, and where they stand among his poses
+ * (engine/sprite-poses.ts): a `decision` wait beats talking and the idle poses
+ * (only being handled, a reaction or a phone tilt shows over it); `calm` gives
+ * way to talking too.
+ */
+export const HOLD_SCENES: Readonly<Record<string, "decision" | "calm">> = {
+  decide: "decision",
+  quiet: "calm",
+};
+
+/** The hold that keeps a scene up (store.ts MascotHold). */
+export const sceneHold = (name: SceneName) => `scene:${name}` as const;
+
+/**
+ * The companion scenes, by when they truthfully play (docs/mascot/companion-scenes.json
+ * `gate`). `play` are the ones the visitor may ask for with /play: illustrations,
+ * never standing for something that happened.
+ */
+export const COMPANION_SCENES = {
+  /** Played only when the visitor asks (/play): no real review or retry exists to bind to. */
+  play: ["reviewer", "dino", "rabbit", "octopus", "ahwa", "escape", "comic", "retry", "quiet"],
+  /** The stuck offer: the rabbit's worry, his calm, one next step; help shows at once. */
+  stuck: "rabbit",
+  /** A story read to its end for the first time: an idea to try, in place of the jump. */
+  storyRead: "comic",
+  /** Held while a real two-choice card waits for the visitor. */
+  decision: "decide",
+  /** Held after the visitor turns him down to Quiet, while it lasts. */
+  quiet: "quiet",
+} as const;

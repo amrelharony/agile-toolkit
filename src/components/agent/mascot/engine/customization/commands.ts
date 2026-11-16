@@ -7,19 +7,65 @@
  */
 
 import { useMascotStore } from "@/lib/agent/mascot/store";
+import { COMPANION_SCENES, sceneReaction } from "../scenes";
+import { shippedScene } from "../sprite-poses";
 
 const RAINBOW = ["#ff0000", "#ff8800", "#ffff00", "#00ff00", "#0088ff", "#8800ff"];
+
+/** Names a visitor may give /play, besides the scenes' own (engine/scenes.ts COMPANION_SCENES.play). */
+const STORY_NAMES: Readonly<Record<string, string>> = {
+  ai: "reviewer",
+  review: "reviewer",
+  robot: "reviewer",
+  dinosaur: "dino",
+  priorities: "dino",
+  deadline: "rabbit",
+  overload: "octopus",
+  tea: "ahwa",
+  debrief: "ahwa",
+  sticky: "escape",
+  idea: "comic",
+  retry: "retry",
+  bell: "quiet",
+};
+
+/**
+ * The story `/play <name>` asks for, or (no name, or one he doesn't know) the
+ * next one in turn after `last`. Only shipped scenes; null when none has shipped.
+ */
+export function storyFor(name: string | undefined, last: string | null): string | null {
+  const stories = COMPANION_SCENES.play.filter((s) => shippedScene(s) !== undefined);
+  if (!stories.length) return null;
+  const wanted = name ? (STORY_NAMES[name] ?? name) : undefined;
+  if (wanted && stories.includes(wanted as (typeof stories)[number])) return wanted;
+  const i = last ? stories.indexOf(last as (typeof stories)[number]) : -1;
+  return stories[(i + 1) % stories.length];
+}
+
+let lastStory: string | null = null;
 
 /**
  * Parse + execute a mascot chat command. Returns true if the text was a mascot
  * command (and should NOT be forwarded to the agent).
  *
- * Supported: `/mascot-aura <#rrggbb|none>`, `/dance`.
+ * Supported: `/mascot-aura <#rrggbb|none>`, `/dance`, and `/play [story]`: one of
+ * his little companion stories, acted out because the visitor asked. They are
+ * illustrations (the AI reviewer checks nothing; the retry retries nothing).
  */
 export function handleMascotCommand(text: string): boolean {
   const raw = text.trim();
   const t = raw.toLowerCase();
   const store = useMascotStore.getState();
+
+  const play = t.match(/^\/play(?:\s+([a-z-]+))?$/);
+  if (play) {
+    const story = storyFor(play[1], lastStory);
+    if (story) {
+      lastStory = story;
+      store.playNow(sceneReaction(story));
+    }
+    return true;
+  }
 
   if (t === "/dance" || t === "dance") {
     store.queueReaction("wave");

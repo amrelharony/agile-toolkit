@@ -179,7 +179,8 @@ describe("reading a story", () => {
     ]);
     // XP comes from the ledger, once per story.
     expect(h.outcomes).toEqual([{ id: "story-read", opts: { key: "story:30", meta: { ep: 30 } } }]);
-    expect(useMascotStore.getState().reactionQueue).toEqual(["excited"]);
+    // Amr takes an idea from it to try (Comic to Action), in place of the old jump.
+    expect(useMascotStore.getState().reactionQueue).toEqual(["scene:comic"]);
   });
 
   it("doesn't count an end that scrolled away before the wait was over", () => {

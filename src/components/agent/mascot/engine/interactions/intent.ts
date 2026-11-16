@@ -121,6 +121,14 @@ export interface IntentHooks {
   path(): string;
   /** Offer a hand (a bubble; tapping it opens his panel). False when he may not speak. */
   offerHelp(): boolean;
+  /**
+   * The scene he plays for someone stuck, its pack asked for (the deadline
+   * rabbit's worry, his calm, one next step), or null for the concerned look.
+   * With a scene the offer of help comes at once: it never waits for the story.
+   */
+  stuckScene?(): MascotReaction | null;
+  /** Something went wrong, or someone's stuck: light-hearted scenes keep away a while. */
+  trouble?(): void;
   /** Suggest a stretch (a bubble). */
   suggestStretch(): void;
   /** Whether a tap landed on a control (a button, a link, a field): those answer for themselves. */
@@ -139,6 +147,8 @@ export interface IntentSenses {
 const HELPED_KEY = "mascot_helped";
 /** He offers a hand this long after looking concerned. */
 const OFFER_AFTER_MS = 1200;
+/** With a story for it, the offer comes at once and the story this long after. */
+export const STORY_AFTER_MS = 600;
 
 function readHelped(storage: IntentHooks["storage"]): string[] {
   try {
@@ -172,6 +182,19 @@ export function installIntentSenses(hooks: IntentHooks): IntentSenses {
       storage?.setItem(HELPED_KEY, JSON.stringify([...helped, path].slice(-50)));
     } catch {
       /* he may offer again on this page */
+    }
+    hooks.trouble?.();
+    const scene = hooks.stuckScene?.() ?? null;
+    if (scene) {
+      // The story stands beside an offer of help; with no offer (Quiet, Focus,
+      // quiet hours) it would act out help nobody was given, so it's the look.
+      if (hooks.offerHelp()) {
+        // A moment for its pack to come in, so the story plays from its start.
+        timers.push(later(() => !disposed && hooks.act(scene), STORY_AFTER_MS));
+      } else {
+        hooks.act("concerned");
+      }
+      return;
     }
     hooks.act("concerned");
     timers.push(later(() => !disposed && hooks.offerHelp(), OFFER_AFTER_MS));

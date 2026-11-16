@@ -1,5 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { createPackLoader, DECODE_WAIT_MS } from "@/components/agent/mascot/engine/packs";
+import {
+  createPackLoader,
+  DECODE_WAIT_MS,
+  MAX_TRIES,
+  RETRY_MS,
+} from "@/components/agent/mascot/engine/packs";
 
 /** An image that loads at once and decodes when told to (or never). */
 class FakeImage {
@@ -59,5 +64,29 @@ describe("the pack loader", () => {
     loader.ensure(["touch", "touch"]);
     loader.ensure(["touch"]);
     expect(FakeImage.made).toHaveLength(1);
+  });
+
+  it("asks again for a pack that failed, a while later and a few times at most", () => {
+    let t = 0;
+    const loader = createPackLoader(
+      false,
+      () => undefined,
+      () => t
+    );
+    const fail = () => FakeImage.made.at(-1)!.onerror?.();
+    loader.ensure(["touch"]);
+    fail();
+    loader.ensure(["touch"]); // too soon: the stand-in pose carries on
+    expect(FakeImage.made).toHaveLength(1);
+    for (let n = 2; n <= MAX_TRIES; n++) {
+      t += RETRY_MS;
+      loader.ensure(["touch"]);
+      expect(FakeImage.made).toHaveLength(n);
+      fail();
+    }
+    t += RETRY_MS;
+    loader.ensure(["touch"]);
+    expect(FakeImage.made).toHaveLength(MAX_TRIES);
+    expect(loader.isReady("touch")).toBe(false);
   });
 });

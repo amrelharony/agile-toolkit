@@ -103,6 +103,56 @@ const PAGE_SCENES: Array<{ id: string; match: (path: string) => boolean; scenes:
   },
 ];
 
+/**
+ * Companion scenes (docs/mascot/companion-scenes.json) he now and then passes the
+ * time with on a page they fit: a little story beside a colleague, never
+ * standing for anything the visitor did. On those pages each joins his pastimes
+ * once, where the day's own scenes count twice, so it stays occasional; and it
+ * never greets (a moment's first scene does).
+ */
+export const PAGE_PASTIMES: ReadonlyArray<{ scene: string; paths: readonly string[] }> = [
+  {
+    // The Dinosaur's stack of priorities, one card kept: the prioritisation tools.
+    scene: "dino",
+    paths: [
+      "/prioritizer",
+      "/wsjf",
+      "/moscow",
+      "/eisenhower",
+      "/cost-of-delay",
+      "/value-effort-matrix",
+      "/rice-scoring",
+      "/ice-score",
+      "/kano-model",
+      "/buy-a-feature",
+      "/hundred-dollar-test",
+    ],
+  },
+  // The Octopus's many tasks, one at a time: the flow tools.
+  { scene: "octopus", paths: ["/kanban", "/cumulative-flow", "/cycle-time", "/value-stream"] },
+  // A knowing look with the ahwa cup after the hard part: the retrospectives.
+  { scene: "ahwa", paths: ["/retro", "/retro-actions"] },
+  // The sticky note that got away, pinned back: the boards.
+  { scene: "escape", paths: ["/kanban", "/canvas", "/retro", "/story-mapper"] },
+];
+
+const onPage = (path: string, page: string) => path === page || path.startsWith(`${page}/`);
+
+/** The companion pastimes of this page (PAGE_PASTIMES). */
+export function pagePastimes(path: string): string[] {
+  return PAGE_PASTIMES.filter((p) => p.paths.some((page) => onPage(path, page))).map(
+    (p) => p.scene
+  );
+}
+
+/**
+ * Scenes a page loads ahead, because they play the moment something happens
+ * there: on the comics, the idea he takes from a story read to its end.
+ */
+export function pagePreloads(path: string): string[] {
+  return onPage(path, "/comics") ? ["comic"] : [];
+}
+
 /** Scenes he plays to pass the time when the visitor is idle, whatever the day. */
 export const PLAY_SCENES: readonly string[] = [
   "ball",
