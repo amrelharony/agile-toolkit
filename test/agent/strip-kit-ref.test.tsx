@@ -58,12 +58,20 @@ describe("the strip kit's holder", () => {
     expect(seen).toEqual([before, kit]);
   });
 
-  it("is filled by evaluating the kit, with the parts that draw messages", async () => {
+  it("is filled by evaluating the kit, with the parts that draw and read messages", async () => {
     const { STRIP_KIT } = await import("@/components/agent/chat/strip-kit");
     expect(currentStripKit()).toBe(STRIP_KIT);
     expect(Object.isFrozen(STRIP_KIT)).toBe(true);
     expect(Object.keys(STRIP_KIT).sort()).toEqual(
-      ["ChatItemView", "ConfirmCard", "cardUnderStep", "latestReply", "toolLabel"].sort()
+      [
+        "ChatItemView",
+        "ConfirmCard",
+        "cardUnderStep",
+        "latestReply",
+        "toolLabel",
+        "createChatView",
+        "turnAnnouncement",
+      ].sort()
     );
   });
 });

@@ -7,14 +7,15 @@
  * agreed to the consent card, and this chunk loads the agent runtime
  * (lib/agent/visitor-runtime: the action registry and the streaming client)
  * only on the first message, with a dynamic import. The same import brings
- * the strip kit (chat/strip-kit: the parts that draw messages, the markdown
- * renderer, the steps, the confirm card and the tools' names), through
+ * the strip kit (chat/strip-kit: the parts that draw and read messages, the
+ * chat view and the markdown parser, the markdown renderer, the steps, the
+ * confirm card, the words a settled turn says and the tools' names), through
  * ./visitor-chat-runtime, and hands it to the log's holder before the turn
  * starts, so the chat's first paint carries none of it. Until then the chat
  * has no message to draw: its messages come only from that runtime. What it
  * draws before (the empty line and starters, the thinking balloon while the
  * runtime loads, a notice such as the runtime's load error, and the status
- * line's "Amr is thinking…") needs no kit.
+ * line's "Amr is thinking…") and what it says (that notice) need no kit.
  *
  * The chat lives in memory (useAgentStore) and is never saved. Leaving it, by
  * closing the panel or going back to the tool finder, stops nothing: an

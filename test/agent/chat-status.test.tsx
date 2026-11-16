@@ -30,7 +30,8 @@ import {
 } from "@/components/agent/chat/chat-status";
 import { ChatStrip, useAwaitingReply } from "@/components/agent/chat/chat-strip";
 import { ThinkingItemView } from "@/components/agent/chat/chat-items";
-import { NEEDS_OK, SPEAKER } from "@/components/agent/chat/use-turn-announcer";
+import { SPEAKER } from "@/components/agent/chat/spoken-text";
+import { NEEDS_OK } from "@/components/agent/chat/use-turn-announcer";
 import { useAgentStore } from "@/lib/agent/store";
 import { toolLabel } from "@/lib/agent/tool-label";
 import type { ChatMessage, ContentBlock, PendingToolUse } from "@/lib/agent/types";

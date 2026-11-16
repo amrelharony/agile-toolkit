@@ -1,9 +1,10 @@
 /**
  * What the chat says out loud (src/components/agent/chat/use-turn-announcer.ts,
- * wired into chat-frame.tsx): one polite announcement per settled turn, with
- * the turn's own words as plain text, cut to a sensible length; nothing while
- * a reply streams; nothing for a waiting card that took focus, and "Amr needs
- * your OK: ..." for one that didn't; an error at once and assertively, with
+ * wired into chat-frame.tsx, with a turn's words from chat/spoken-text through
+ * the strip kit): one polite announcement per settled turn, with the turn's
+ * own words as plain text, cut to a sensible length; nothing while a reply
+ * streams; nothing for a waiting card that took focus, and "Amr needs your
+ * OK: ..." for one that didn't; an error at once and assertively, with
  * nothing more for its turn; nothing for a thread loaded or a chat swapped
  * under its turn.
  *
@@ -23,14 +24,14 @@ import { ChatFrame } from "@/components/agent/chat/chat-frame";
 import {
   ANNOUNCE_MAX,
   CODE_WORDS,
-  NEEDS_OK,
   REST_IN_LOG,
   SPEAKER,
   TABLE_WORDS,
   clipSpoken,
   spokenText,
   turnAnnouncement,
-} from "@/components/agent/chat/use-turn-announcer";
+} from "@/components/agent/chat/spoken-text";
+import { NEEDS_OK } from "@/components/agent/chat/use-turn-announcer";
 import { createChatView } from "@/lib/agent/chat-view";
 import { useAgentStore, type AgentNotice } from "@/lib/agent/store";
 import type {

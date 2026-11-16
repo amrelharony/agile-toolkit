@@ -552,6 +552,11 @@ describe("import graph walk (self-tests)", () => {
     expect(closure([OWNER_CHAT]).files.has(MARKDOWN_VIEW)).toBe(true);
     expect(closure([VISITOR_CHAT_RUNTIME]).files.has(MARKDOWN_VIEW)).toBe(true);
     expect(visitorChat.files.has(MARKDOWN_VIEW)).toBe(false);
+    // And it reads messages, so it reaches the parser; a visitor's gets that
+    // with the strip kit too.
+    expect(closure([OWNER_CHAT]).files.has(MARKDOWN_PARSER)).toBe(true);
+    expect(closure([VISITOR_CHAT_RUNTIME]).files.has(MARKDOWN_PARSER)).toBe(true);
+    expect(visitorChat.files.has(MARKDOWN_PARSER)).toBe(false);
     expect(visitorPanel.files.has(VISITOR_GUIDE)).toBe(true);
     expect(visitorPanel.files.has(VISITOR_CONSENT)).toBe(true);
     expect(comicFiles).toContain("src/components/agent/comic/comic-parts.tsx");
@@ -619,8 +624,9 @@ describe("the chat strip (chat/)", () => {
   });
 
   /**
-   * The strip kit: the parts that draw messages, which the log and the status
-   * line take from the kit's holder (strip-kit-ref) instead of importing.
+   * The strip kit: the parts that draw and read messages, which the strip,
+   * the log, the status line and the announcer take from the kit's holder
+   * (strip-kit-ref) instead of importing.
    */
   const KIT = [
     `${CHAT_DIR}chat-items.tsx`,
@@ -629,9 +635,14 @@ describe("the chat strip (chat/)", () => {
     STRIP_KIT,
     MARKDOWN_VIEW,
     "src/lib/agent/tool-label.ts",
+    // The reading layer: the chat view, the parser, the results' words, the spoken words.
+    "src/lib/agent/chat-view.ts",
+    MARKDOWN_PARSER,
+    "src/lib/agent/tool-result-text.ts",
+    `${CHAT_DIR}spoken-text.ts`,
   ];
 
-  it("hands the parts that draw messages to the owner's chat statically, and to a visitor's only with the runtime", () => {
+  it("hands the parts that draw and read messages to the owner's chat statically, and to a visitor's only with the runtime", () => {
     const ownerChat = closure([OWNER_CHAT]);
     const withRuntime = closure([VISITOR_CHAT_RUNTIME]);
     for (const file of KIT) {
@@ -644,9 +655,17 @@ describe("the chat strip (chat/)", () => {
     }
     // The owner's chat imports the kit itself, so it fills the holder on its first render.
     expect(staticTargets(OWNER_CHAT)).toContain(STRIP_KIT);
-    // The holder is all the strip's log and status line import: React and the kit's type.
+    // The parser above all: a visitor's first paint never carries it.
+    expect(visitorChat.files.has(MARKDOWN_PARSER)).toBe(false);
+    // The holder is all the strip, its log, its status line and its announcer
+    // import: React and the kit's type.
     expect(staticTargets(`${CHAT_DIR}strip-kit-ref.ts`)).toEqual(["react"]);
-    for (const file of [`${CHAT_DIR}chat-log.tsx`, `${CHAT_DIR}chat-status.tsx`]) {
+    for (const file of [
+      `${CHAT_DIR}chat-strip.tsx`,
+      `${CHAT_DIR}chat-log.tsx`,
+      `${CHAT_DIR}chat-status.tsx`,
+      `${CHAT_DIR}use-turn-announcer.ts`,
+    ]) {
       expect(staticTargets(file), file).toContain(`${CHAT_DIR}strip-kit-ref.ts`);
     }
     // The kit draws messages only: it never reaches the registry or the client.
