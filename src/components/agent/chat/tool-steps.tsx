@@ -28,6 +28,8 @@
  *            about (the step reads "Waiting for you"), with Approve all in the
  *            owner's chat only. A card whose call isn't in the chat shows after
  *            the log's items instead (chat-log), so a turn never waits unseen.
+ *            On a touch screen the caption takes focus once the card is
+ *            decided (confirm-card), so the keyboard stays down.
  *
  * The marks are aria-hidden: the words say it all. Each line is memoised on
  * its step, which the chat view keeps until it changes, so a streamed flush
@@ -167,7 +169,10 @@ export function ToolSteps({ steps }: { steps: readonly ChatStep[] }) {
   const { profile, StepDetails } = useChat();
   return (
     <>
-      <Narration data-tool-steps="">
+      {/* Focusable from code only: on a touch screen the card hands focus
+          here once decided (confirm-card); 1 px in, so High contrast's ring
+          isn't clipped. */}
+      <Narration data-tool-steps="" tabIndex={-1} className="mx-px">
         <div className="space-y-1">
           {steps.map((step) => (
             <StepLine key={step.key} step={step} Details={StepDetails} />

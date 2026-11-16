@@ -255,13 +255,20 @@ export function AgentConversation() {
             size="icon"
             onClick={() => abortInFlight()}
             aria-label="Stop generating"
+            data-chat-send=""
             title="Stop"
             className="border-destructive text-destructive hover:bg-destructive/10"
           >
             <Square className="w-4 h-4" aria-hidden="true" />
           </Button>
         ) : (
-          <Button type="submit" disabled={!input.trim()} size="icon" aria-label="Send">
+          <Button
+            type="submit"
+            disabled={!input.trim()}
+            size="icon"
+            aria-label="Send"
+            data-chat-send=""
+          >
             <Send className="w-4 h-4" aria-hidden="true" />
           </Button>
         )}

@@ -42,8 +42,10 @@
  * Focus. A control that takes itself away hands focus to the composer, caret
  * at the end, before it goes (the chat context's focusComposer): Latest does
  * here, except after a tap on a touch screen (a key press there still hands
- * focus over); Try again, Go on, starters and follow-ups do where they are
- * drawn.
+ * focus over); Try again and Go on do the same in the notice (chat-notice),
+ * starters and follow-ups where they are drawn, and a decided confirm card
+ * hands it to the composer, or on a touch screen to its step's caption
+ * (confirm-card).
  * The safety net catches any other case: when what had focus inside the
  * frame is taken out of the page and focus is left on nothing (the body),
  * the composer takes it, except on a coarse pointer, where a text field

@@ -312,13 +312,20 @@ export default function VisitorAgentPanel({
             size="icon"
             onClick={() => loadedRuntime?.abortInFlight()}
             aria-label="Stop generating"
+            data-chat-send=""
             title="Stop"
             className="border-destructive text-destructive hover:bg-destructive/10"
           >
             <Square className="h-4 w-4" aria-hidden="true" />
           </Button>
         ) : (
-          <Button type="submit" disabled={!input.trim() || busy} size="icon" aria-label="Send">
+          <Button
+            type="submit"
+            disabled={!input.trim() || busy}
+            size="icon"
+            aria-label="Send"
+            data-chat-send=""
+          >
             <Send className="h-4 w-4" aria-hidden="true" />
           </Button>
         )}
