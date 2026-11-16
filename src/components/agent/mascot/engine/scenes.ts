@@ -1426,6 +1426,8 @@ const LIST: Array<[string, Clip]> = [
   expansion("x112", "waiting", 5, "x112.filter"),
   // The tool lab's previews (context/tool-scenes.ts): each stops before the outcome its
   // trigger keeps for an event the tool doesn't record.
+  // Tech Radar's ring and direction are in the payload: the peg drawn free, not yet seated.
+  expansion("x025", "idle", 3, "x025.lift"),
   // Vuln Burndown has no recheck: the tile mended, the collar raised, before the fit check.
   expansion("x036", "idle", 4, "x036.preview"),
   // A11y Tracker has no keyboard retest: the lip folded down (the fix), before the retest.

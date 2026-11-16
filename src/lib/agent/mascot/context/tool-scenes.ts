@@ -336,10 +336,12 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   // catalog's illustrative preview; an action plays it only where the tool logs the very
   // event its trigger names (docs/mascot/expansion-triggers.md). A `.preview` stops
   // before an outcome the trigger keeps for an event the tool doesn't record.
+  // The ring a new blip lands in, and which way a move goes, are only in the payload: a
+  // blip added or moved to any ring, Hold included, plays the peg lifted, never seated inward.
   {
     toolId: "tech-radar",
     open: ["x025"],
-    actions: { blip_added: ["x025"], blip_moved: ["x025"] },
+    actions: { blip_added: ["x025.lift"], blip_moved: ["x025.lift"] },
   },
   // "Enters review" is rfc_updated, shared with reviewer and comment edits; a new RFC is
   // a draft, and rfc_decided is a decision, not the review offer the scene ends on.
@@ -390,9 +392,11 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   { toolId: "token-cost-tracker", open: ["x044"], actions: { spend_logged: ["x044"] } },
   // model_added is also logged when Run all starts a live compare, before any result.
   { toolId: "model-comparison", open: ["x045"], actions: {} },
-  // A checklist update, ticked or unticked alike: the scene keeps a check open, never closes one.
+  // A checklist update, ticked or unticked alike (which one is only in the payload, which
+  // Amr never hears): the scene keeps a check open, never closes one.
   { toolId: "ai-safety-checklist", open: ["x046"], actions: { item_toggled: ["x046"] } },
-  // step_toggled says neither which step nor whether it's now done.
+  // step_toggled carries only the step's id, not whether it's now done, and Amr hears no
+  // payload anyway.
   { toolId: "model-migration", open: ["x047"], actions: {} },
   { toolId: "agentic-workflow", open: ["x048"], actions: { workflow_added: ["x048"] } },
   // No rerun of the attack is recorded: a resolved finding gets the procedure up to it.
