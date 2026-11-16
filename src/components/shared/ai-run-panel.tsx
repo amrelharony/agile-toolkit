@@ -15,6 +15,10 @@ import { toast } from "@/lib/utils/toast";
 import { cn } from "@/lib/utils";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { todayLocalISO } from "@/lib/utils/formatters";
+import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { TOOL_AI_OWNER_PATH, toolAiErrorText } from "@/lib/ai/contract";
+import { PROMPT_RUN_MAX_CHARS, PROMPT_RUN_TASK, parsePromptRunEvent } from "@/lib/ai/prompt-run";
+import { pumpSseStream } from "@/lib/llm/stream-sse";
 
 /**
  * Optional provider override. When set, AiRunPanel runs against this
@@ -67,8 +71,10 @@ interface AiRunPanelProps {
  *
  * Two call shapes:
  *   - **Default** (no `providerOverride`) — reads from `useActiveLlm()`,
- *     used by the AI Prompts drawer in every tool. Falls back to a
- *     no-provider error toast when the user hasn't configured BYOK.
+ *     used by the AI Prompts drawer in every tool. For the signed-in owner
+ *     with no personal key ready, it runs on the owner's own gateway instead:
+ *     POST /api/ai/tool with the special task "prompt.run", streamed back as
+ *     plain text (lib/ai/prompt-run.ts). Visitors keep their own key.
  *   - **Override** (with `providerOverride`) — runs against the explicit
  *     provider/key/model. Used by the model-comparison A/B grid to fire
  *     the same prompt across multiple configured providers in parallel.
@@ -85,6 +91,7 @@ export default function AiRunPanel({
   onResult,
 }: AiRunPanelProps) {
   const active = useActiveLlm();
+  const { isOwner } = useOwnerState();
   const maxOutputTokens = useLlmStore((s) => s.maxOutputTokens);
   const [running, setRunning] = useState(false);
   const [text, setText] = useState("");
@@ -93,6 +100,8 @@ export default function AiRunPanel({
   const [ttftMs, setTtftMs] = useState<number | null>(null);
   const [totalMs, setTotalMs] = useState<number | null>(null);
   const [copied, setCopied] = useState(false);
+  /** Set when a server run's answer stopped before its end. */
+  const [stoppedEarly, setStoppedEarly] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Latest-onResult ref. The callback isn't in `run`'s dep list because we
@@ -101,13 +110,17 @@ export default function AiRunPanel({
   const onResultRef = useRef(onResult);
   onResultRef.current = onResult;
 
+  // The owner with no personal key ready runs on the owner's gateway.
+  const serverRun = !providerOverride && !active.isReady && isOwner;
   // Resolved provider — explicit override wins over active.
   const providerId: ProviderId | null = providerOverride?.provider ?? active.provider;
   const modelId: string | null = providerOverride?.model ?? active.model;
-  const providerName: string | null = providerOverride
-    ? PROVIDER_META[providerOverride.provider].name
-    : active.providerName;
-  const canRun = providerOverride ? true : active.isReady;
+  const providerName: string | null = serverRun
+    ? "Amr's AI"
+    : providerOverride
+      ? PROVIDER_META[providerOverride.provider].name
+      : active.providerName;
+  const canRun = providerOverride ? true : active.isReady || serverRun;
 
   // Cancel any in-flight stream + clear timers if the panel unmounts.
   useEffect(() => {
@@ -125,7 +138,93 @@ export default function AiRunPanel({
   const estMaxOut =
     providerId && modelId ? estimateCostUsd(providerId, modelId, 0, maxOutputTokens) : 0;
 
+  /** The owner's run on the gateway: the same panel states, the text streamed from the route. */
+  const runOnServer = useCallback(async () => {
+    abortRef.current?.abort();
+    setRunning(true);
+    setError(null);
+    setText("");
+    setUsage(null);
+    setTtftMs(null);
+    setTotalMs(null);
+    setStoppedEarly(false);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const startedAt = performance.now();
+    let firstChunkAt: number | null = null;
+    let accumulated = "";
+    try {
+      if (prompt.length > PROMPT_RUN_MAX_CHARS) {
+        throw new Error(
+          `This prompt is longer than Amr's AI takes (${PROMPT_RUN_MAX_CHARS.toLocaleString()} characters). Copy it into your own AI assistant instead.`
+        );
+      }
+      const res = await fetch(TOOL_AI_OWNER_PATH, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          task: PROMPT_RUN_TASK,
+          input: {
+            prompt,
+            ...(toolName?.trim() ? { toolName: toolName.trim().slice(0, 120) } : {}),
+          },
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        let code = res.status === 401 ? "unauthenticated" : "upstream_error";
+        try {
+          const body = (await res.json()) as { error?: unknown };
+          if (typeof body.error === "string") code = body.error;
+        } catch {
+          /* no JSON body */
+        }
+        throw new Error(toolAiErrorText(code));
+      }
+      let ending: string | null = null;
+      await pumpSseStream(res, controller.signal, ({ data }) => {
+        const event = parsePromptRunEvent(data);
+        if (!event) return;
+        if ("error" in event) {
+          ending = event.error;
+          return;
+        }
+        if (firstChunkAt === null) {
+          firstChunkAt = performance.now();
+          setTtftMs(Math.round(firstChunkAt - startedAt));
+        }
+        accumulated += event.text;
+        setText((prev) => prev + event.text);
+      });
+      setTotalMs(Math.round(performance.now() - startedAt));
+      if (ending && !accumulated) throw new Error(toolAiErrorText("upstream_error"));
+      if (ending) setStoppedEarly(true);
+      try {
+        onResultRef.current?.({ text: accumulated, usage: { inputTokens: -1, outputTokens: -1 } });
+      } catch {
+        /* swallow — the run itself succeeded */
+      }
+    } catch (err) {
+      if ((isLlmError(err) && err.code === "abort") || controller.signal.aborted) {
+        // Stopped by the owner, or replaced by a fresh run.
+      } else {
+        const message = describeError(err);
+        setError(message);
+        toast.error(`AI run failed: ${message}`);
+      }
+    } finally {
+      if (abortRef.current === controller) {
+        setRunning(false);
+        abortRef.current = null;
+      }
+    }
+  }, [prompt, toolName]);
+
   const run = useCallback(async () => {
+    if (serverRun) {
+      await runOnServer();
+      return;
+    }
     if (!providerId || !modelId) {
       toast.error("No AI provider configured");
       return;
@@ -144,6 +243,7 @@ export default function AiRunPanel({
     setUsage(null);
     setTtftMs(null);
     setTotalMs(null);
+    setStoppedEarly(false);
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -292,7 +392,16 @@ export default function AiRunPanel({
         abortRef.current = null;
       }
     }
-  }, [providerId, modelId, providerOverride, prompt, toolName, maxOutputTokens]);
+  }, [
+    serverRun,
+    runOnServer,
+    providerId,
+    modelId,
+    providerOverride,
+    prompt,
+    toolName,
+    maxOutputTokens,
+  ]);
 
   // Parent-triggered runs. Skip the very first render (runTrigger=0 or
   // undefined) so the panel doesn't auto-fire on mount. Subsequent
@@ -344,8 +453,14 @@ export default function AiRunPanel({
           )}
         </div>
         <div className="text-sub font-mono">
-          ~{inputTokens.toLocaleString()} in · {formatCostUsd(estIn)} + {formatCostUsd(estMaxOut)}{" "}
-          max out
+          {serverRun ? (
+            <>~{inputTokens.toLocaleString()} in · your gateway</>
+          ) : (
+            <>
+              ~{inputTokens.toLocaleString()} in · {formatCostUsd(estIn)} +{" "}
+              {formatCostUsd(estMaxOut)} max out
+            </>
+          )}
         </div>
       </div>
 
@@ -423,6 +538,10 @@ export default function AiRunPanel({
             text
           )}
         </div>
+      )}
+
+      {stoppedEarly && !running && (
+        <p className="text-xs text-sub">The answer stopped early. Run it again for the rest.</p>
       )}
 
       {usage && usage.inputTokens >= 0 && usage.outputTokens >= 0 && providerId && modelId && (

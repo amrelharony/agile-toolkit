@@ -5,7 +5,10 @@
  * `workspace.story.*` actions stamp a change the same way. Its sprint moves
  * are stamped too (`stampStoryMembership`), by the workspace store on every
  * local write and by the agents' writes, so a burnup can tell when scope
- * joined or left a sprint.
+ * joined or left a sprint. So are its refinements (`stampRefinedWrite`): a
+ * write that changes what the story says stamps `refinedAt`, which Backlog
+ * Health's stale check reads; an Undo that takes back only its own change
+ * puts the earlier stamp back (`withRefinedPutBack`).
  *
  *   - Into in progress, review or done from the backlog or to do: `startedAt`.
  *   - Back to the backlog or to do: `startedAt` and `doneAt` are cleared (the
@@ -177,20 +180,93 @@ function same(a: unknown, b: unknown): boolean {
   return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
+const REFINED_FIELDS = ["title", "points", "notes", "acceptanceCriteria", "gwt"] as const;
+
+/** Stamps `refinedAt` when a write changes what the story says (not on create, nor when the write sets it itself). */
+export function stampRefinedWrite(
+  next: Story,
+  prev: Story | undefined,
+  at: string = new Date().toISOString()
+): Story {
+  if (!prev || next.refinedAt !== prev.refinedAt) return next;
+  return REFINED_FIELDS.some((k) => !same(next[k], prev[k])) ? { ...next, refinedAt: at } : next;
+}
+
+/**
+ * For an Undo (or Redo) that rebuilds a story from its current copy and
+ * takes back only its own change: `from` is the `refinedAt` the change being
+ * taken back left, `to` the one the story had before it (undefined: none).
+ * While the story still carries `from`, it gets `to`, which the write then
+ * keeps as written (`stampRefinedWrite`), so undoing a fix leaves a stale
+ * story stale. A newer edit's stamp is left alone.
+ */
+export function withRefinedPutBack(
+  next: Story,
+  from: string | undefined,
+  to: string | undefined
+): Story {
+  if (from === to || next.refinedAt !== from) return next;
+  const out: Story = { ...next };
+  if (to === undefined) delete out.refinedAt;
+  else out.refinedAt = to;
+  return out;
+}
+
+/** At most this many writes' stamps are kept for a later Undo (the latest). */
+const REFINED_MARKS_CAP = 50;
+
+/**
+ * The `refinedAt` stamps of writes an Undo may take back later, by key, for
+ * a page whose Undo arrives as a plain write (the Given/When/Then editor's
+ * delete): `note` after the write, with the stamp the story had before it
+ * and the one it left; `putBack` on the Undo's write, which then keeps the
+ * earlier stamp (`withRefinedPutBack`). Each key is used once.
+ */
+export interface RefinedMarks {
+  note(key: string, before: string | undefined, after: string | undefined): void;
+  putBack(key: string, next: Story): Story;
+}
+
+export function createRefinedMarks(): RefinedMarks {
+  const marks = new Map<string, { before: string | undefined; after: string | undefined }>();
+  return {
+    note(key, before, after) {
+      marks.delete(key);
+      marks.set(key, { before, after });
+      while (marks.size > REFINED_MARKS_CAP) {
+        const oldest = marks.keys().next().value;
+        if (oldest === undefined) break;
+        marks.delete(oldest);
+      }
+    },
+    putBack(key, next) {
+      const mark = marks.get(key);
+      if (!mark) return next;
+      marks.delete(key);
+      return withRefinedPutBack(next, mark.after, mark.before);
+    },
+  };
+}
+
 /**
  * Stamps for a story an agent wrote: `next` is the record about to be saved
  * and `prev` the stored one (undefined for a new story). A status change is
  * stamped like `withStoryStatus`, except that a stamp the write set itself
  * (a backfilled `doneAt`, say) is kept as written. A new story that starts
- * out in progress or done gets the start and done times it lacks; nothing
- * else changes.
+ * out in progress or done gets the start and done times it lacks. A change
+ * to its title, points, notes or criteria stamps `refinedAt`
+ * (`stampRefinedWrite`); nothing else changes.
  */
 export function stampStoryWrite(
   next: Story,
   prev: Story | undefined,
   at: string = new Date().toISOString()
 ): Story {
-  return stampStoryMembership(stampStatusWrite(next, prev, at), prev, at);
+  return stampRefinedWrite(
+    stampStoryMembership(stampStatusWrite(next, prev, at), prev, at),
+    prev,
+    at
+  );
 }
 
 function stampStatusWrite(next: Story, prev: Story | undefined, at: string): Story {

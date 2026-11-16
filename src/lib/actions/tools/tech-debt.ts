@@ -83,6 +83,8 @@ import {
   withPendingTechDebt,
 } from "@/lib/tech-debt/legacy";
 import { buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
+import { stampStoryWrite } from "@/lib/sprints/story-status";
+import { cleanStoryFields } from "@/lib/stories/fields";
 import { addDays } from "@/lib/impediments/model";
 import { isExampleId } from "@/lib/utils/example-id";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -177,8 +179,14 @@ export function serverTechDebtStore(userId: string): TechDebtStore {
       await serverDeleteEntity(userId, KIND_TECH_DEBT, id);
     },
     stories: async () => serverListEntities<Story>(userId, KIND_STORY),
+    // A new backlog story (the only put): stamped as the browser's store
+    // stamps one (createdAt), so Backlog Health can date it.
     putStory: async (s) => {
-      await serverUpsertEntity<Story>(userId, KIND_STORY, s);
+      await serverUpsertEntity<Story>(
+        userId,
+        KIND_STORY,
+        stampStoryWrite(cleanStoryFields(s), undefined)
+      );
     },
     sprintLengthDays: async () =>
       normalizeCadence(

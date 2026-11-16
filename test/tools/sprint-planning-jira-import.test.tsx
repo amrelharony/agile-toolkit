@@ -226,12 +226,15 @@ describe("importing a Jira export", () => {
 
     expect(ids()).toHaveLength(count);
     expect(byKey("PAY-13")?.points).toBe(8);
+    expect(byKey("PAY-13")?.refinedAt).toEqual(expect.any(String));
     expect(story(pay12.id)).toMatchObject({ title: "Saved cards", sprintId: "s2", points: 5 });
     expect(lastToast()[0]).toBe("Updated points on 1 story from the Jira CSV");
     expect(logs.at(-1)?.payload).toEqual({ sprintId: "s2", added: 0, updated: 1 });
 
     undoLast();
     expect(byKey("PAY-13")?.points).toBe(3);
+    // The points were its only refinement, so the Undo takes the stamp back too.
+    expect(byKey("PAY-13")).not.toHaveProperty("refinedAt");
     expect(ids()).toHaveLength(count);
   });
 
