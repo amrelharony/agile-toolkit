@@ -133,19 +133,31 @@ const turnStarting = () => startingTurn !== null;
 
 let LoadedReplyEnd: ComponentType<ReplyEndProps> | null = null;
 let replyEndLoad: Promise<void> | null = null;
+const replyEndListeners = new Set<() => void>();
+
+function subscribeReplyEnd(listener: () => void): () => void {
+  replyEndListeners.add(listener);
+  return () => {
+    replyEndListeners.delete(listener);
+  };
+}
+
+const loadedReplyEnd = () => LoadedReplyEnd;
 
 /**
  * The end of a reply (chat/reply-end: Copy reply, Try again, the follow-ups
  * and their rules), loaded as the first message goes out: nothing needs it
  * before a reply, so the chat's first paint doesn't carry it. Never in a
- * turn's way, and in long before the reply it ends (it is small, and the turn
- * waits on the runtime, loading beside it). If it fails to load, a reply has
- * no end until the next message tries again.
+ * turn's way: it is small and loads beside the runtime, so it is nearly
+ * always in before the reply it ends, and a reply that settles first gets it
+ * as it arrives. If it fails to load, a reply has no end until the next
+ * message tries again.
  */
 function loadReplyEnd(): void {
   replyEndLoad ??= import("../chat/reply-end").then(
     (m) => {
       LoadedReplyEnd = m.ReplyEnd;
+      replyEndListeners.forEach((listener) => listener());
     },
     () => {
       replyEndLoad = null;
@@ -153,9 +165,13 @@ function loadReplyEnd(): void {
   );
 }
 
-/** The end of a visitor's reply, once it has loaded (nothing before). Stable, so the strip keeps it. */
+/**
+ * The end of a visitor's reply, once it has loaded (nothing before); only it
+ * draws again as it arrives. Stable, so the strip keeps it.
+ */
 function VisitorReplyEnd(props: ReplyEndProps) {
-  return LoadedReplyEnd ? <LoadedReplyEnd {...props} /> : null;
+  const End = useSyncExternalStore(subscribeReplyEnd, loadedReplyEnd, () => null);
+  return End ? <End {...props} /> : null;
 }
 
 /** A visitor's messages left now: today's, or fewer in busy hours. Null before the route has said. */
