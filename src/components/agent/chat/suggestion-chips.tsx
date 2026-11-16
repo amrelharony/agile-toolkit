@@ -4,7 +4,8 @@
  * Starters, shared by both chats' empty state (chat-empty): a few ways to
  * begin, written as the reader's own questions ("How does Retro Board
  * work?"), never in Amr's voice and never with I, me or my in them (a chat
- * line in the first person reads as his).
+ * line in the first person reads as his). The follow-ups under the latest
+ * reply (chat-items ReplyEnd) are these chips too, in a list of their own.
  *
  * A starter fills the message box and never sends: the reader reads it,
  * changes it or sends it (a change would still ask first, and a visitor's
@@ -32,6 +33,7 @@ import { flushSync } from "react-dom";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Button } from "@/components/ui/button";
 import { useAgentStore } from "@/lib/agent/store";
+import { cn } from "@/lib/utils";
 import { tapOnTouchScreen, useChat } from "./chat-context";
 
 /**
@@ -46,8 +48,19 @@ export function filledDraft(draft: string, starter: string, starters: readonly s
 /** What the announcer says after a tap put `starter` in the box: no speaker, no I, me or my. */
 export const inTheBox = (starter: string) => `In the message box: ${starter}`;
 
+export interface SuggestionChipsProps {
+  starters: readonly string[];
+  /** The list's name: "Ways to start", or the follow-ups' under a reply (chat-items ReplyEnd). */
+  label?: string;
+  className?: string;
+}
+
 /** The starters, as buttons that fill the message box (see the file comment). */
-export function SuggestionChips({ starters }: { starters: readonly string[] }) {
+export function SuggestionChips({
+  starters,
+  label = "Ways to start",
+  className,
+}: SuggestionChipsProps) {
   const { profile, focusComposer } = useChat();
   const announce = useAnnounce();
   const pick = (e: MouseEvent<HTMLButtonElement>, starter: string) => {
@@ -60,7 +73,11 @@ export function SuggestionChips({ starters }: { starters: readonly string[] }) {
   };
   return (
     // 1 px in from the log's edge, so High contrast's focus ring (5 px out) isn't clipped.
-    <ul aria-label="Ways to start" className="mx-px flex flex-wrap gap-2" data-chat-starters="">
+    <ul
+      aria-label={label}
+      className={cn("mx-px flex flex-wrap gap-2", className)}
+      data-chat-starters=""
+    >
       {starters.map((starter) => (
         <li key={starter} className="max-w-full">
           <Button

@@ -45,24 +45,37 @@
  *
  * Nothing moves when an item arrives: it is simply there, in every mode.
  *
+ * Under the latest reply, once its turn has settled, the log adds the reply's
+ * end (ReplyEnd, below): Copy reply, Try again and up to two follow-ups.
+ *
  * Runtime parts (the markdown renderer and its panel context), so this lives
  * in chat/, which every-page code may not reach
  * (test/agent/bundle-boundary.test.ts).
  */
 
-import { memo } from "react";
+import { memo, useRef, type MouseEvent } from "react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { Button } from "@/components/ui/button";
 import { Narration, YouCaption } from "../comic/comic-parts";
 import { AmrBalloon, SceneCaption, ThinkingBalloon } from "../comic/strip-parts";
 import { Markdown } from "../markdown";
+import { COMPACT_HIDDEN } from "../mascot/panel-context";
 import {
   type BalloonItem,
   type ChatItem,
+  type ChatStep,
   type NoteItem,
   type SceneItem,
   type StepsItem,
   type YouItem,
 } from "@/lib/agent/chat-view";
+import type { FollowUpTurn } from "@/lib/agent/follow-ups";
+import { useAgentStore } from "@/lib/agent/store";
 import { cn } from "@/lib/utils";
+import { copyToClipboard } from "@/lib/utils/clipboard";
+import { focusBeforeTurn, useChat } from "./chat-context";
+import type { ChatNoticeProps } from "./chat-notice";
+import { SuggestionChips } from "./suggestion-chips";
 import { ToolSteps } from "./tool-steps";
 
 /** The scene caption where a picked-up thread's last message was. */
@@ -78,6 +91,10 @@ const YOU_SIDE =
 
 /** How far a balloon or caption that doesn't run full width may reach across the log. */
 const NARROW = "max-w-[85%]";
+
+/** A row under Amr's balloon, lined up with it on his side. */
+const AMR_ROW =
+  "ml-3.5 group-data-[amr-side=right]/amr:ml-0 group-data-[amr-side=right]/amr:mr-3.5 group-data-[amr-side=right]/amr:justify-end";
 
 /** The reader's words, in a you caption across from Amr. */
 export const YouItemView = memo(function YouItemView({ item }: { item: YouItem }) {
@@ -159,6 +176,137 @@ export const SceneItemView = memo(function SceneItemView({ item }: { item: Scene
     </div>
   );
 });
+
+// ── The reply's end ─────────────────────────────────────────────────────
+
+/** Said in the composer's status note once Copy reply put the reply on the clipboard. */
+export const REPLY_COPIED = "Reply copied";
+/** Said there when the clipboard wouldn't take it. */
+export const COPY_FAILED = "Couldn't copy the reply";
+
+/** What Try again costs a visitor with `left` messages (null: not known yet), on its button. */
+export const retryCost = (left: number | null) =>
+  left === null
+    ? "uses 1 message"
+    : left === 1
+      ? "uses your last message"
+      : `uses 1 of your ${left} left`;
+
+/**
+ * The chat's Try again under its latest reply: the notice's own wiring
+ * (chat-notice), so both run the client's one retry, only while it allows.
+ */
+export interface ReplyRetry extends Pick<ChatNoticeProps, "canRetry" | "onTryAgain"> {
+  /** A visitor's messages left (null: not known yet), which the button says it spends one of. The owner's is left out. */
+  left?: number | null;
+}
+
+/** The chat's follow-ups for a turn (lib/agent/follow-ups), handed in by its container. */
+export type FollowUpsFor = (turn: FollowUpTurn) => readonly string[];
+
+/** The latest reply, with what its turn ran and asked: what its end works from. */
+export interface ReplyTurn {
+  reply: BalloonItem;
+  /** The turn's tool calls, oldest first. */
+  steps: ChatStep[];
+  /** The reader's question the turn answers, or null. */
+  asked: string | null;
+}
+
+/**
+ * The latest reply, when it is the strip's last word: the last item but for
+ * scene captions (a picked-up thread's), a balloon that is done growing.
+ * Null when the strip ends on a question, steps or a note instead.
+ */
+export function latestReply(items: readonly ChatItem[]): ReplyTurn | null {
+  let at = items.length - 1;
+  while (at >= 0 && items[at].kind === "scene") at--;
+  const reply = items[at];
+  if (reply?.kind !== "balloon" || reply.streaming || reply.held) return null;
+  const turn: ReplyTurn = { reply, steps: [], asked: null };
+  while (--at >= 0) {
+    const item = items[at];
+    if (item.kind === "you") {
+      turn.asked = item.text;
+      break;
+    }
+    if (item.kind === "steps") turn.steps.unshift(...item.steps);
+  }
+  return turn;
+}
+
+export interface ReplyEndProps {
+  turn: ReplyTurn;
+  /** Try again, when the chat can run one now; it shows only while canRetry says the turn ran no change. */
+  retry?: ReplyRetry;
+  followUps?: FollowUpsFor;
+}
+
+/**
+ * The end of Amr's latest reply, once its turn has settled, on his side under
+ * the balloon (design 1.2, "Under the latest reply"):
+ *
+ *   Copy reply  the reply's markdown on the clipboard (lib/utils/clipboard),
+ *               said in the composer's status note ("Reply copied"), its one
+ *               live span; never a toast
+ *   Try again   when the turn ran no change (the client's canRetry, as the
+ *               notice's Try again), so trying again repeats none. A visitor's
+ *               says it spends one of the messages left. It goes as the turn
+ *               it starts begins, so it hands focus on first, as the notice's
+ *               does (chat-context focusBeforeTurn)
+ *   follow-ups  up to two, from the chat's rules (no model call), as the
+ *               reader's own words: suggestion chips that fill the message box
+ *               and never send. They wait while the panel is compact
+ *
+ * While a notice shows, it is the turn's end and has its own button, so this
+ * draws nothing. Ghost buttons, 44 px on a touch screen; nothing moves in.
+ */
+export function ReplyEnd({ turn, retry, followUps }: ReplyEndProps) {
+  const { focusComposer, note } = useChat();
+  const announce = useAnnounce();
+  const noticed = useAgentStore((s) => s.notice !== null);
+  const canRetry = retry?.canRetry;
+  const retryable = useAgentStore((s) => !!canRetry && canRetry(s.messages));
+  const copying = useRef(false);
+  if (noticed) return null;
+
+  const { reply, steps, asked } = turn;
+  const next = followUps?.({ reply: reply.text, steps, asked }) ?? [];
+  const copy = async () => {
+    if (copying.current) return;
+    copying.current = true;
+    const said = (await copyToClipboard(reply.text)) ? REPLY_COPIED : COPY_FAILED;
+    copying.current = false;
+    // No composer (a read-only chat): the app's announcer says it instead.
+    if (!note(said)) announce(said);
+  };
+  const again = (e: MouseEvent<HTMLButtonElement>) => {
+    focusBeforeTurn(e, focusComposer);
+    retry?.onTryAgain();
+  };
+
+  return (
+    <div data-chat-reply-end="" data-message-id={reply.messageId}>
+      <div className={cn("flex flex-wrap gap-1", AMR_ROW)}>
+        <Button type="button" variant="ghost" size="sm" onClick={() => void copy()}>
+          Copy reply
+        </Button>
+        {retry && retryable && (
+          <Button type="button" variant="ghost" size="sm" onClick={again}>
+            {retry.left === undefined ? "Try again" : `Try again (${retryCost(retry.left)})`}
+          </Button>
+        )}
+      </div>
+      {next.length > 0 && (
+        <SuggestionChips
+          starters={next}
+          label="Ways to follow up"
+          className={cn("mt-2", AMR_ROW, COMPACT_HIDDEN)}
+        />
+      )}
+    </div>
+  );
+}
 
 /** One item of the strip, whatever its kind: what the log draws for each chatView item. */
 export function ChatItemView({ item }: { item: ChatItem }) {

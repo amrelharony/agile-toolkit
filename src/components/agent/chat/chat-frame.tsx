@@ -45,9 +45,10 @@
  * at the end, before it goes (the chat context's focusComposer): Latest does
  * here, except that a tap on a touch screen hands it to the newest item (a
  * key press there still hands it to the composer); Try again and Go on do the
- * same in the notice (chat-notice),
- * except that a tap on a touch screen hands focus to the latest question's
- * caption; starters and follow-ups do where they are drawn, and a decided
+ * same in the notice (chat-notice), and Try again under the latest reply
+ * (chat-items ReplyEnd), except that a tap on a touch screen hands focus to
+ * the latest question's caption; starters and follow-ups do where they are
+ * drawn, and a decided
  * confirm card hands it to the composer, or on a touch screen to its step's
  * caption (confirm-card).
  * The safety net catches any other case: when what had focus inside the
@@ -72,11 +73,11 @@ import { cn } from "@/lib/utils";
 import { useChatVisible } from "../chat-visibility";
 import { DOCK_FOOTER_IN_PX3 } from "../mascot/panel-context";
 import { focusFromCode, onTouchScreen, tapOnTouchScreen, useChat } from "./chat-context";
-import { ChatLog } from "./chat-log";
+import { ChatLog, type ReplyEndWiring } from "./chat-log";
 import { useStickToBottom } from "./use-stick-to-bottom";
 import { useTurnAnnouncer } from "./use-turn-announcer";
 
-export interface ChatFrameProps {
+export interface ChatFrameProps extends ReplyEndWiring {
   /** The strip's items, from lib/agent/chat-view. */
   items: readonly ChatItem[];
   /**
@@ -100,7 +101,15 @@ export interface ChatFrameProps {
 const NEWEST_ITEM = '[data-chat-item]:not([data-chat-item="thinking"]):not([data-held])';
 
 /** The log, the Latest button and the composer's footer, as one scrolling column. */
-export function ChatFrame({ items, busy = false, children, footer, className }: ChatFrameProps) {
+export function ChatFrame({
+  items,
+  busy = false,
+  retry,
+  followUps,
+  children,
+  footer,
+  className,
+}: ChatFrameProps) {
   const chat = useChat();
   const rootRef = useRef<HTMLDivElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -210,7 +219,14 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
       data-chat-frame=""
       className={cn("flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain", className)}
     >
-      <ChatLog ref={logRef} contentRef={contentRef} items={items}>
+      <ChatLog
+        ref={logRef}
+        contentRef={contentRef}
+        items={items}
+        busy={busy}
+        retry={retry}
+        followUps={followUps}
+      >
         {children}
       </ChatLog>
       {!atBottom && (
