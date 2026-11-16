@@ -1,5 +1,6 @@
 import type { Sprint, Story } from "@/lib/stores/workspace-types";
 import { storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
+import { gwtCell } from "@/lib/stories/fields";
 import {
   actionMeta,
   hasImprovements,
@@ -139,4 +140,35 @@ export function planToMarkdown({
     }
   }
   return `${lines.join("\n")}\n`;
+}
+
+/**
+ * The sprint's stories as a CSV, with each one's acceptance criteria both
+ * ways: the free text and the Given/When/Then scenarios (one cell each).
+ * A download, so the text fields the share link leaves out are in it.
+ */
+export function planCsv(stories: readonly Story[]): {
+  headers: string[];
+  rows: (string | number)[][];
+} {
+  return {
+    headers: [
+      "Story",
+      "Points",
+      "Status",
+      "Owner",
+      "Ticket",
+      "Acceptance criteria",
+      "Given / When / Then",
+    ],
+    rows: stories.map((s) => [
+      s.title,
+      storyPoints(s) > 0 ? storyPoints(s) : "",
+      s.status.replace("_", " "),
+      s.owner ?? "",
+      s.ticketKey ?? "",
+      s.acceptanceCriteria ?? "",
+      gwtCell(s.gwt),
+    ]),
+  };
 }

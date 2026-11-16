@@ -120,24 +120,24 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "release-planner",
     summary:
-      "The Release Planner forecasts when a release will be done by replaying your past sprints 10,000 times (a Monte Carlo simulation). Instead of one date you get a range, the date to commit to, and the chance of hitting the date stakeholders ask about.",
+      "The Release Planner forecasts when a release will be done by replaying your past sprints' velocity, or items finished a week, 10,000 times (a Monte Carlo simulation). You get a range, the date to commit to, and the chance of hitting a target date.",
     whenToUse: [
       "When stakeholders ask “when will it be done?” about a release or a story-map slice.",
       "Before committing to a date, to see how likely it is.",
-      "When scope changes and you need to show what that does to the date.",
+      "When scope changes, to show what that does to the date.",
     ],
     steps: [
-      "Under Scope, choose where it comes from: Backlog (the open stories' points), Story-map slice (pick one; Plan this release in the Story Mapper opens it here) or Type it.",
-      "Set Expected scope change for work not found yet (negative for planned cuts). Scope to forecast shows the total.",
+      "Under Forecast by, keep Story points, or pick Item count to forecast from items finished a week, with no points.",
+      "Under Scope, pick Backlog (open stories' points), Story-map slice (Plan this release in the Story Mapper opens one here) or Type it. Expected scope change adds work not found yet.",
       "Under Velocity, use From completed sprints, or Type them: points per sprint, oldest first.",
-      "Under Dates, check the Start and the Sprint length (from the team's cadence unless you type one), and add a Target date (optional) if stakeholders have one.",
-      "Read the Forecast: the verdict, Coin flip (P50), Commit (P85), the chart of sprints needed, and the dates at 50%, 75%, 85% and 95% confidence.",
-      "With a target date, read the Probability of finishing by then and the Scope we can deliver by then.",
-      "Re-run it every sprint as the remaining scope and the velocity change.",
+      "Under Dates, check the Start and Sprint length, and add a Target date if there is one.",
+      "Read the Forecast: the verdict, Coin flip (P50), Commit (P85), the chart and the dates at 50% to 95% confidence; with a target date, the Probability of finishing by then and the Scope we can deliver by then.",
+      "In Item count, take Items left from Open backlog stories or Type a number, and the weekly counts under Throughput from the Sprint board, Flow board or Type them, over your Weeks of history. A week with no finish counts as 0. The Forecast adds Safe (P95) and, with a target date, By the target.",
+      "Under Features in order, add each feature's Items or pick an epic, and order them. Each shows its coin-flip and commit dates, counting the ones above, and the target date draws the cut line. An epic with nothing left, or off the roadmap, counts 0.",
     ],
     tips: [
-      "Commit to the P85 date, not the P50 one. P50 is a coin flip.",
-      "It needs at least 4 sprints of velocity, completed or typed. Stories or cards without points are left out of the scope, so estimate them first.",
+      "Commit to the P85 date, not the P50 one (a coin flip), and re-run it every sprint.",
+      "Story points need at least 4 sprints of velocity, completed or typed; Item count, 4 complete weeks with at least one finish. Unpointed stories or cards are left out of a points scope, so estimate them first.",
       "If Change in pace (CUSUM) under Advanced analysis says the velocity shifted, forecast from the sprints since the change.",
     ],
     scales: [
@@ -300,5 +300,51 @@ export const GUIDES: ToolGuide[] = [
       "Use “informs” for nice-to-know links. They don't count toward circular waits or the critical path.",
       "Dependencies from PI Planning and the Scrum of Scrums land here too and link back. Take overdue ones to the next Scrum of Scrums.",
     ],
+  },
+  // ── Phase 42: the research top 10 (Plan) ──
+  {
+    toolId: "product-goal",
+    summary:
+      "Product Goal holds the one long-term goal your sprints work towards, with why it matters and how you'll know you're there. It shows on Sprint Goal, Sprint Planning and the team charter, so each sprint can say how it moves the goal.",
+    whenToUse: [
+      "When the Product Owner sets or revisits where the product is going.",
+      "At Sprint Planning, to check that the sprint goal moves the Product Goal.",
+      "When a goal is reached or stops being worth chasing, to record that and set the next one.",
+    ],
+    steps: [
+      "Write the goal as one sentence about the outcome you want, not a list of features.",
+      "Add why it matters and two or three measures that show progress, and a target date if there is one.",
+      "Keep one goal active at a time. Earlier goals stay listed as achieved or abandoned, with their dates.",
+      "Sprint Goal and Sprint Planning show the active goal beside the sprint goal you're writing.",
+      "When the goal is reached, mark it achieved. If it stops making sense, mark it abandoned and say why.",
+      "Ask Amr drafts a goal from your product vision and backlog. You change it or start again, and nothing is saved until you save it.",
+    ],
+    tips: [
+      "The Product Goal is what the Product Backlog commits to: the backlog should be the work that gets you there.",
+      "If a sprint can't say how it moves the goal, ask whether the goal or the sprint is wrong.",
+    ],
+    timebox: "Thirty minutes to write; a minute at each Sprint Planning.",
+  },
+  {
+    toolId: "backlog-health",
+    summary:
+      "Backlog Health checks whether your backlog is DEEP: detailed enough near the top, estimated, emergent and prioritized. It flags vague, unsized and stale stories, suggests splits and helps write acceptance criteria as Given, When, Then.",
+    whenToUse: [
+      "Before refinement, to choose the stories that need the team's time.",
+      "Before Sprint Planning, to check the top of the backlog can be pulled in.",
+      "When the backlog has grown so long that nobody trusts it.",
+    ],
+    steps: [
+      "Open it: it reads the stories and backlog items you already have, so there's nothing to type.",
+      "Read each of the four DEEP checks and the stories behind its flags: a vague title, no points or no acceptance criteria near the top, too big, or stale (not changed for weeks). Stories that share a place in the order show in the Prioritized check.",
+      "Open a flagged story to fix it: give it points, split it with a suggested pattern, or write its criteria as Given, When, Then. Each line is saved on the story, beside its free-text acceptance criteria.",
+      "Drop stale stories, with Undo, or refine them: a change to the title, points or criteria counts as touching them.",
+      "Ask Amr flags vague stories, suggests splits and drafts Given, When, Then lines. You accept the ones you want, and each change goes through the story with Undo.",
+    ],
+    tips: [
+      "Only the top of the backlog needs detail; stories further down can stay rough.",
+      "A long tail of stale items is a decision waiting to be made, usually to drop them.",
+    ],
+    timebox: "Ten minutes before each refinement.",
   },
 ];

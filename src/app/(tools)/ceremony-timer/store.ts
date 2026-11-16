@@ -5,18 +5,31 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { createPersistedStore } from "@/lib/stores/create-persisted-store";
 import { nameKey } from "@/lib/team/use-team-roster";
 import { useDockTimer } from "@/lib/timer/dock-timer";
-import { isAgendaId, type AgendaId, type SavedAgendas } from "./agenda";
+import {
+  isAgendaId,
+  isAgendaKey,
+  type AgendaKey,
+  type AgendaLayouts,
+  type NamedAgenda,
+  type SavedAgendas,
+} from "./agenda";
+import { DEFAULT_SHARE_RUNS, isShareRuns, type KeptRun, type ShareRuns } from "./history";
 import { followDock, type Run, type SegmentRun } from "./run";
 import type { Participant, Turn } from "./speakers";
+
+export { normalizeLayouts, normalizeNamedAgendas } from "./agenda";
+export { normalizeHistory } from "./history";
 
 /**
  * The Ceremony Timer's two stores.
  *
  * - Settings (`agile-toolkit:ceremony-timer`, synced like other tool
- *   stores): the team's edits to each agenda, the speaking order and the
- *   opt-in chime. The timer kept nothing between visits before agendas, so
- *   there is no older shape to read; every field is normalised on the way
- *   out because a synced or hand-edited value can hold anything.
+ *   stores): the team's edits to each agenda (and the order of its
+ *   segments), the agendas saved by name, the speaking order, the opt-in
+ *   chime, and the finished meetings kept for speaking time across runs.
+ *   The timer kept nothing between visits before agendas, so there is no
+ *   older shape to read; every field is normalised on the way out because
+ *   a synced or hand-edited value can hold anything.
  * - Session (sessionStorage, per tab like the docked timer): the agenda on
  *   screen and the run in progress, so leaving the page or reloading keeps
  *   the meeting where it was, and a new tab starts fresh.
@@ -28,13 +41,37 @@ import type { Participant, Turn } from "./speakers";
 export interface TimerSettings {
   /** Per agenda, the team's segments; absent means the defaults. */
   agendas: SavedAgendas;
+  /** Per built-in agenda, its segments' order once the team changed which it has. */
+  layouts: AgendaLayouts;
+  /** Agendas saved under a name, in the order they were saved. */
+  named: NamedAgenda[];
   /** The speaking order for rounds of turns. */
   speakers: Participant[];
   /** Chime (and vibrate) when time is up. Off unless the team turns it on. */
   chime: boolean;
+  /** Finished meetings, oldest first, for speaking time across runs. */
+  history: KeptRun[];
+  /** How many recent meetings with turns the speaking-time view averages. */
+  shareRuns: ShareRuns;
+  /** Name people in the export's speaking-time section. Off unless the facilitator turns it on. */
+  exportNames: boolean;
 }
 
-export const SETTINGS_INITIAL: TimerSettings = { agendas: {}, speakers: [], chime: false };
+export const SETTINGS_INITIAL: TimerSettings = {
+  agendas: {},
+  layouts: {},
+  named: [],
+  speakers: [],
+  chime: false,
+  history: [],
+  shareRuns: DEFAULT_SHARE_RUNS,
+  exportNames: false,
+};
+
+/** The stored choice of how many meetings to average, or the default. */
+export function normalizeShareRuns(raw: unknown): ShareRuns {
+  return isShareRuns(raw) ? raw : DEFAULT_SHARE_RUNS;
+}
 
 export const useTimerSettings = createPersistedStore<TimerSettings>(
   "ceremony-timer",
@@ -78,8 +115,8 @@ export function normalizeAgendas(raw: unknown): SavedAgendas {
 /* -------------------------------------------------------------------------- */
 
 export interface TimerSession {
-  /** The agenda on screen; null until one is picked. */
-  agendaId: AgendaId | null;
+  /** The agenda on screen; null until one is picked. A saved one may since have been deleted. */
+  agendaId: AgendaKey | null;
   /** The run of that agenda, once started. */
   run: Run | null;
 }
@@ -119,7 +156,7 @@ function normalizeSegmentRun(raw: unknown): SegmentRun | null {
 export function normalizeRun(raw: unknown): Run | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Record<string, unknown>;
-  if (!isAgendaId(r.agendaId) || !Array.isArray(r.segments) || !num(r.baseMs)) return null;
+  if (!isAgendaKey(r.agendaId) || !Array.isArray(r.segments) || !num(r.baseMs)) return null;
   const segments = r.segments.map(normalizeSegmentRun);
   if (segments.length === 0 || segments.some((s) => s === null)) return null;
   const index = Number.isInteger(r.index)
@@ -137,7 +174,7 @@ export function normalizeRun(raw: unknown): Run | null {
 
 export function normalizeSession(raw: unknown): TimerSession {
   const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
-  const agendaId = isAgendaId(r.agendaId) ? r.agendaId : null;
+  const agendaId = isAgendaKey(r.agendaId) ? r.agendaId : null;
   const run = normalizeRun(r.run);
   return { agendaId, run: run && run.agendaId === agendaId ? run : null };
 }

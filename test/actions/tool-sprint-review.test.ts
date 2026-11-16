@@ -6,12 +6,35 @@
  *      minutes, and velocity completion %
  *   3. add_feedback appends an item (creating the review if absent) and
  *      requires a category (no silent default)
+ *   4. send_feedback_to_backlog over MCP dates the story it makes
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+import type { SprintReview, Story } from "@/lib/stores/workspace-types";
+
+const server = vi.hoisted(() => ({ rows: new Map<string, { id: string }>() }));
+
+vi.mock("@/lib/actions/server-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
+  const key = (kind: string, id: string) => `${kind}/${id}`;
+  return {
+    ...actual,
+    serverGetEntity: vi.fn(
+      async (_u: string, kind: string, id: string) => server.rows.get(key(kind, id)) ?? null
+    ),
+    serverListEntities: vi.fn(async (_u: string, kind: string) =>
+      Array.from(server.rows.entries())
+        .filter(([k]) => k.startsWith(`${kind}/`))
+        .map(([, v]) => v)
+    ),
+    serverUpsertEntity: vi.fn(async (_u: string, kind: string, e: { id: string }) => {
+      server.rows.set(key(kind, e.id), e);
+    }),
+  };
+});
+
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { SprintReview } from "@/lib/stores/workspace-types";
 
 import "@/lib/actions/tools/sprint-review";
 
@@ -152,5 +175,38 @@ describe("tool.sprint_review.add_feedback", () => {
       reason: "category_required",
     });
     expect(useWorkspaceStore.getState().sprintReviews).toEqual([]);
+  });
+});
+
+describe("tool.sprint_review.send_feedback_to_backlog over MCP", () => {
+  beforeEach(() => server.rows.clear());
+
+  it("writes the user's story with the date it was added", async () => {
+    server.rows.set(
+      `workspace:sprintReview/${SR_ID}`,
+      review({
+        feedbackItems: [
+          {
+            id: "f1",
+            stakeholder: "Dana",
+            feedback: "Let customers refund a payment themselves",
+            category: "suggestion",
+          },
+        ],
+      })
+    );
+    const action = registry.get("tool.sprint_review.send_feedback_to_backlog")!;
+    const r = (await action.mcpHandler!(action.paramsSchema.parse({ feedbackId: "f1" }), {
+      ...ctx(),
+      source: "mcp" as const,
+    })) as { sent: boolean; storyId: string };
+    expect(r.sent).toBe(true);
+    const story = server.rows.get(`workspace:story/${r.storyId}`) as Story;
+    expect(story).toMatchObject({
+      status: "backlog",
+      sourceRef: { tool: "sprint-review", id: "f1" },
+    });
+    // Dated as a story the browser adds, so Backlog Health can call it stale later.
+    expect(Date.parse(story.createdAt ?? "")).not.toBeNaN();
   });
 });

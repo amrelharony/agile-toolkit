@@ -1,6 +1,7 @@
 import { exampleId } from "@/components/tool-frame/example-data";
 import type {
   Impediment,
+  InterruptItem,
   RetroBoard,
   RetroCard,
   SprintReview,
@@ -23,6 +24,9 @@ import { dayDate, todayIso } from "@/lib/sprints/series";
  * escalated and the legal copy is a day overdue; a third impediment was
  * resolved on day 1. Three of the five people have posted today. Sprint 4's
  * retro left two open actions, and Sprint 5 has no review or retro yet.
+ * Sprint 5 keeps a 5-point interrupt buffer, and two interrupts have used 4
+ * of it, so the goal check says to watch the buffer, the blocked story and
+ * the impediments.
  */
 export interface CockpitExample extends ExampleSprints {
   stories: Story[];
@@ -31,11 +35,20 @@ export interface CockpitExample extends ExampleSprints {
   teamMembers: TeamMember[];
   retroBoards: RetroBoard[];
   reviews: SprintReview[];
+  interruptItems: InterruptItem[];
 }
 
+/** The example's interrupt buffer on Sprint 5. */
+export const EXAMPLE_BUFFER_POINTS = 5;
+
 export function buildExample(today: string = todayIso()): CockpitExample {
-  const base = exampleSprints(today);
-  const { current } = base;
+  const sprints = exampleSprints(today);
+  const current = { ...sprints.current, interruptBuffer: { points: EXAMPLE_BUFFER_POINTS } };
+  const base: ExampleSprints = {
+    ...sprints,
+    current,
+    sprints: sprints.sprints.map((s) => (s.id === current.id ? current : s)),
+  };
   // Noon UTC is the same calendar day in nearly every time zone.
   const onDay = (day: number) => `${dayDate(current, day) ?? today}T12:00:00.000Z`;
   const daysAgo = (n: number) => dayDate({ startDate: today }, -n) ?? today;
@@ -174,5 +187,36 @@ export function buildExample(today: string = todayIso()): CockpitExample {
     },
   ];
 
-  return { ...base, stories, impediments, standupEntries, teamMembers, retroBoards, reviews: [] };
+  const interruptItems: InterruptItem[] = [
+    {
+      id: exampleId("int1"),
+      sprintId: current.id,
+      title: "Card payments failing for one bank",
+      kind: "incident",
+      size: 3,
+      emergency: true,
+      loggedAt: onDay(2),
+      resolvedAt: onDay(3),
+    },
+    {
+      id: exampleId("int2"),
+      sprintId: current.id,
+      title: "Support asks for a refunds export",
+      kind: "request",
+      size: 1,
+      emergency: false,
+      loggedAt: onDay(4),
+    },
+  ];
+
+  return {
+    ...base,
+    stories,
+    impediments,
+    standupEntries,
+    teamMembers,
+    retroBoards,
+    reviews: [],
+    interruptItems,
+  };
 }

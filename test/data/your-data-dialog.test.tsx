@@ -26,7 +26,7 @@ function description(): string {
 const ROOMS =
   "If you start or join a live room, what you type there passes through our realtime provider (Supabase) to everyone with the link, and we don't store it.";
 const AI =
-  "If you choose to chat with Amr's AI, your messages and what Amr reads from your tools to answer are sent to write the reply, and the site keeps only a daily message count.";
+  "If you choose to chat with Amr's AI or press Ask Amr in a tool, what you type and the tool content you choose or Amr reads to answer are sent to write the reply, and the site keeps only a daily count of AI uses. A tool sends nothing until you press Ask Amr.";
 
 // What the dialog tells a visitor must stay true when live rooms or visitor AI
 // are on: both send what the visitor types off this browser.

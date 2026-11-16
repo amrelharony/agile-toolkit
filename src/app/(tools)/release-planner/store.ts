@@ -24,6 +24,19 @@ import { safeJSONStorage } from "@/lib/stores/safe-storage";
 import { isExampleId } from "@/components/tool-frame/example-data";
 import type { ScopeSource } from "./scope-source";
 import { isStarterVelocityInput, type VelocitySource } from "./velocity-source";
+import {
+  FEATURE_ITEMS_MAX,
+  FEATURES_MAX,
+  THROUGHPUT_WINDOWS,
+  type ThroughputWindow,
+} from "@/lib/sprints/throughput-forecast";
+import {
+  FEATURE_NAME_MAX,
+  type ForecastMode,
+  type ItemsSource,
+  type ReleaseFeature,
+  type ThroughputSource,
+} from "./throughput";
 
 export interface ReleasePlannerConfig {
   /** Where the scope comes from. Unset until picked: see `resolveScopeSource`. */
@@ -57,6 +70,23 @@ export interface ReleasePlannerConfig {
    * instead of blanking it. Only kept while `example` is set.
    */
   beforeExample?: ExampleFields;
+
+  /* The "count items" mode (./throughput). Each field is absent until set. */
+
+  /** "items" forecasts by items finished a week; absent: story points and velocity. */
+  mode?: Extract<ForecastMode, "items">;
+  /** Where the weekly throughput comes from. Unset until picked: see `resolveThroughputSource`. */
+  throughputSource?: ThroughputSource;
+  /** Typed items finished per week, oldest first. */
+  throughputInput?: string;
+  /** How many complete weeks of a board's history to replay. */
+  throughputWeeks?: ThroughputWindow;
+  /** Where the items left come from. Unset until picked: see `resolveItemsSource`. */
+  itemsSource?: ItemsSource;
+  /** Typed items left. */
+  itemsCount?: number;
+  /** The features in order, for the cut line. */
+  features?: ReleaseFeature[];
 }
 
 /** The fields the example fills in (see example.ts). */
@@ -67,6 +97,11 @@ export const EXAMPLE_FIELDS = [
   "velocitySource",
   "velocityInput",
   "targetDate",
+  "throughputSource",
+  "throughputInput",
+  "itemsSource",
+  "itemsCount",
+  "features",
 ] as const;
 
 export type ExampleFields = Pick<ReleasePlannerConfig, (typeof EXAMPLE_FIELDS)[number]>;
@@ -102,8 +137,72 @@ export function isEmptyConfig(c: ReleasePlannerConfig): boolean {
     c.startDate === "" &&
     c.targetDate === "" &&
     !c.sprintsToReleaseTarget &&
-    c.example === undefined
+    c.example === undefined &&
+    c.mode === undefined &&
+    c.throughputSource === undefined &&
+    !c.throughputInput?.trim() &&
+    c.throughputWeeks === undefined &&
+    c.itemsSource === undefined &&
+    c.itemsCount === undefined &&
+    !c.features?.length
   );
+}
+
+const THROUGHPUT_SOURCES: readonly ThroughputSource[] = ["stories", "cards", "typed"];
+
+/** The stored features that are features: an id, a name, and an item count or an epic. */
+function normalizeFeatures(raw: unknown): ReleaseFeature[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ReleaseFeature[] = [];
+  const seen = new Set<string>();
+  for (const f of raw as unknown[]) {
+    if (!f || typeof f !== "object") continue;
+    const r = f as Record<string, unknown>;
+    if (typeof r.id !== "string" || !r.id || seen.has(r.id)) continue;
+    const name = typeof r.name === "string" ? r.name.slice(0, FEATURE_NAME_MAX) : "";
+    const items =
+      typeof r.items === "number" &&
+      Number.isInteger(r.items) &&
+      r.items >= 0 &&
+      r.items <= FEATURE_ITEMS_MAX
+        ? r.items
+        : undefined;
+    const epicId = typeof r.epicId === "string" && r.epicId ? r.epicId : undefined;
+    if (items === undefined && !epicId) continue;
+    seen.add(r.id);
+    out.push({
+      id: r.id,
+      name,
+      ...(items !== undefined ? { items } : {}),
+      ...(epicId ? { epicId } : {}),
+    });
+    if (out.length >= FEATURES_MAX) break;
+  }
+  return out;
+}
+
+/** The "count items" fields of a stored config, each kept only when it is valid. */
+function normalizeItemsFields(r: Record<string, unknown>): Partial<ReleasePlannerConfig> {
+  const out: Partial<ReleasePlannerConfig> = {};
+  // Points is the default, so only the items mode is stored.
+  if (r.mode === "items") out.mode = "items";
+  if (THROUGHPUT_SOURCES.includes(r.throughputSource as ThroughputSource)) {
+    out.throughputSource = r.throughputSource as ThroughputSource;
+  }
+  if (typeof r.throughputInput === "string" && r.throughputInput.trim()) {
+    out.throughputInput = r.throughputInput;
+  }
+  if (THROUGHPUT_WINDOWS.includes(r.throughputWeeks as ThroughputWindow)) {
+    out.throughputWeeks = r.throughputWeeks as ThroughputWindow;
+  }
+  if (r.itemsSource === "backlog" || r.itemsSource === "typed") out.itemsSource = r.itemsSource;
+  const count = finite(r.itemsCount);
+  if (count !== null && Number.isInteger(count) && count >= 1 && count <= 100_000) {
+    out.itemsCount = count;
+  }
+  const features = normalizeFeatures(r.features);
+  if (features.length > 0) out.features = features;
+  return out;
 }
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -136,6 +235,7 @@ export function normalizeConfig(raw: unknown): ReleasePlannerConfig {
   }
   const target = text(r.sprintsToReleaseTarget).trim();
   if (target) config.sprintsToReleaseTarget = target;
+  Object.assign(config, normalizeItemsFields(r));
   if (typeof r.example === "string" && isExampleId(r.example)) {
     config.example = r.example;
     if (r.beforeExample && typeof r.beforeExample === "object") {

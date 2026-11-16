@@ -951,14 +951,19 @@ describe("writeLiveCardEdit", () => {
     const { effect } = writeLiveCardEdit(liveCard(), { title: "Checkout", points: undefined });
     expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Updated the story “Checkout”.");
     expect(stored("a")?.points).toBeUndefined();
+    const stamp = stored("a")?.refinedAt;
+    expect(stamp).toEqual(expect.any(String));
     effect!.undo();
     expect(stored("a")).toMatchObject({ title: "Story a", points: 3 });
+    // Not refined any more: the Undo takes the edit's stamp back too.
+    expect(stored("a")).not.toHaveProperty("refinedAt");
     // The toast's Undo after Cmd+Z's changes nothing more.
     lastUndo()();
     expect(stored("a")).toMatchObject({ title: "Story a", points: 3 });
     effect!.redo();
     expect(stored("a")?.title).toBe("Checkout");
     expect(stored("a")?.points).toBeUndefined();
+    expect(stored("a")?.refinedAt).toBe(stamp);
     // Someone renames it again: Undo keeps their title, puts the points back.
     useWorkspaceStore.getState().upsertStory({ ...stored("a")!, title: "Pay by card" });
     effect!.undo();

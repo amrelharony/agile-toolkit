@@ -15,6 +15,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { safeJSONStorage } from "@/lib/stores/safe-storage";
+import { DEFAULT_WAITING, cleanStageIds } from "@/lib/flow";
 import { SLE_PERCENTILES, type CycleTimeStore, type SlePercentile, type WorkItem } from "./types";
 
 /** A row nobody filled in: no name and no dates. */
@@ -25,12 +26,13 @@ export const isBlankItem = (i: Pick<WorkItem, "name" | "startDate" | "endDate">)
 
 /**
  * Stored state from any earlier version, made safe to read: blank rows
- * dropped, rows that aren't rows skipped, the settings defaulted. Never
+ * dropped, rows that aren't rows skipped, the settings defaulted (the
+ * waiting statuses to lib/flow DEFAULT_WAITING when none were kept). Never
  * throws, and running it twice changes nothing.
  */
 export function migrateCycleTimeState(
   stored: unknown
-): Pick<CycleTimeStore, "items" | "targetPct" | "sleTargetDays"> {
+): Pick<CycleTimeStore, "items" | "targetPct" | "sleTargetDays" | "waitingStages"> {
   const s = (typeof stored === "object" && stored !== null ? stored : {}) as Record<
     string,
     unknown
@@ -55,7 +57,11 @@ export function migrateCycleTimeState(
   const days = s.sleTargetDays;
   const sleTargetDays =
     typeof days === "number" && Number.isInteger(days) && days > 0 ? days : null;
-  return { items, targetPct, sleTargetDays };
+  // Absent (stored before it existed): the default. An empty list is a choice and stays.
+  const waitingStages = Array.isArray(s.waitingStages)
+    ? cleanStageIds(s.waitingStages)
+    : [...DEFAULT_WAITING];
+  return { items, targetPct, sleTargetDays, waitingStages };
 }
 
 export const useCycleTimeStore = create<CycleTimeStore>()(
@@ -64,6 +70,7 @@ export const useCycleTimeStore = create<CycleTimeStore>()(
       items: [],
       targetPct: 85,
       sleTargetDays: null,
+      waitingStages: [...DEFAULT_WAITING],
 
       addItem: (values) => {
         const item: WorkItem = { ...values, id: crypto.randomUUID() };
@@ -83,6 +90,8 @@ export const useCycleTimeStore = create<CycleTimeStore>()(
       setSleTargetDays: (days) =>
         set({ sleTargetDays: days !== null && Number.isInteger(days) && days > 0 ? days : null }),
 
+      setWaitingStages: (stages) => set({ waitingStages: cleanStageIds(stages) }),
+
       reset: () => set({ items: [] }),
 
       restoreItems: (items) => set({ items }),
@@ -97,6 +106,7 @@ export const useCycleTimeStore = create<CycleTimeStore>()(
         items: s.items,
         targetPct: s.targetPct,
         sleTargetDays: s.sleTargetDays,
+        waitingStages: s.waitingStages,
       }),
     }
   )
