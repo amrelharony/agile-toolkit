@@ -272,6 +272,21 @@ export function WeekView({
   // Queried each time: the kit's button is re-created when it can be used again.
   const askButton = () => askRef.current?.querySelector<HTMLElement>("button");
 
+  // Undo of "Keep as a note" takes the kept summary, and its focused
+  // heading, away: focus goes back to the button that summed up the week,
+  // not to the page (nor stays on the closing toast's Undo).
+  const keptCount = week.summaries.length;
+  const hadKept = useRef(keptCount);
+  useEffect(() => {
+    const before = hadKept.current;
+    hadKept.current = keptCount;
+    if (keptCount > 0 || before === 0) return;
+    const active = document.activeElement;
+    if (!active || active === document.body || active.closest("[data-sonner-toaster]")) {
+      askButton()?.focus();
+    }
+  });
+
   const go = (start: string) => {
     setWeekStart(start);
     setReview(null);

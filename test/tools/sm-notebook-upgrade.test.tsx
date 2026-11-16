@@ -741,6 +741,20 @@ describe("the week", () => {
     fireEvent.click(keep);
     expect(screen.queryByTestId("weekly-review")).not.toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: "Kept summary" }));
+    // Undo takes the kept summary and its focused heading away: focus goes
+    // back to the button that summed up the week, not to the page.
+    undoLast();
+    expect(screen.queryByRole("heading", { name: "Kept summary" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Sum up this week" }));
+  });
+
+  it("puts the New note form in the tools' ink card, still a named region", () => {
+    renderPage();
+    const card = screen.getByRole("region", { name: "New note" });
+    expect(card).toHaveClass("panel");
+    expect(within(card).getByRole("heading", { level: 2, name: "New note" })).toHaveClass(
+      "font-display"
+    );
   });
 
   it("puts focus back on the button that asked when the read is dismissed", () => {

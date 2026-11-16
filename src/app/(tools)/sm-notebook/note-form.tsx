@@ -11,7 +11,7 @@
  */
 
 import { useId, useRef, useState, type ReactNode } from "react";
-import { FileText, Plus } from "lucide-react";
+import { FileText, NotebookPen, Plus } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { AiButton, AiSuggestions } from "@/components/ai";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
@@ -284,18 +284,24 @@ export function NoteForm({
   );
 }
 
-/** The card around the new-note form. */
+/**
+ * The card around the new-note form: the ink panel, display heading and icon
+ * the other tools' main cards wear (SectionCard's look), kept a named region.
+ */
 export function NewNoteCard({ children, className }: { children: ReactNode; className?: string }) {
   const headingId = useId();
   return (
-    <section
-      aria-labelledby={headingId}
-      className={cn("rounded-lg border border-border bg-card p-4", className)}
-    >
-      <h2 id={headingId} className="mb-3 text-base font-semibold text-text">
-        New note
-      </h2>
-      {children}
+    <section aria-labelledby={headingId} className={cn("panel text-card-foreground", className)}>
+      <div className="p-6 pb-3">
+        <h2
+          id={headingId}
+          className="flex items-center gap-2 font-display text-base font-semibold leading-tight text-text"
+        >
+          <NotebookPen className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+          New note
+        </h2>
+      </div>
+      <div className="p-6 pt-0">{children}</div>
     </section>
   );
 }
