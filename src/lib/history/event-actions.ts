@@ -54,7 +54,6 @@ export const IMPEDIMENT_ACTIONS = {
 export const STANDUP_ACTIONS = {
   ENTRY_ADDED: "entry_added",
   ENTRY_REMOVED: "entry_removed",
-  ORDER_SHUFFLED: "order_shuffled",
   STANDUP_RESET: "standup_reset", // milestone
 } as const;
 

@@ -606,6 +606,107 @@ describe("Lean Coffee: Discuss", () => {
     expect(closed.clear).toHaveBeenCalled();
   });
 
+  it.each([
+    ["no voters", 0, "Nobody voted, so there are no totals. Decide together, or ask again."],
+    [
+      "1 voter",
+      1,
+      "Only 1 person voted, so the totals stay hidden. Decide together, or ask again.",
+    ],
+    [
+      "2 voters",
+      2,
+      "Only 2 people voted, so the totals stay hidden. Decide together, or ask again.",
+    ],
+  ])(
+    "in a live room, a vote closed with %s shows no totals, and the host still decides",
+    (_label, n, line) => {
+      const started = leanBoard({
+        cards: [
+          topic("t2", "Our standups run too long", 4, {
+            columnKey: "discussing",
+            discussing: true,
+          }),
+          topic("t3", "Lunch and learn ideas", 2),
+        ],
+      });
+      const open = fakeThumbs({ id: "p1", topic: "x", open: true, keep: n, move: 0, voters: n });
+      const view = runner(started, { timeUp: true, thumbs: open });
+      const close = screen.getByRole("button", { name: "Close the vote and show everyone" });
+      close.focus();
+      fireEvent.click(close);
+      // The room hook hands over the count only (use-retro-room); even given
+      // a split, the runner keeps it hidden.
+      const closed = fakeThumbs({ id: "p1", topic: "x", open: false, keep: n, move: 0, voters: n });
+      view.rerun({ timeUp: true, thumbs: closed });
+      const status = screen.getByText(line);
+      expect(status).toHaveAttribute("role", "status");
+      expect(document.activeElement).toBe(status);
+      expect(screen.queryByText(/Keep going \d|Move on \d|voted\)|Most want|a tie/)).toBeNull();
+      // The line says "or ask again", and at time's up the host can.
+      fireEvent.click(screen.getByRole("button", { name: "Ask the room again" }));
+      expect(closed.open).toHaveBeenCalledTimes(1);
+      expect(closed.open).toHaveBeenCalledWith("Our standups run too long");
+      // No button is picked out for the room, and both still work.
+      for (const name of [/Keep going \(3 min\)/, /Move on to the next topic/]) {
+        expect(screen.getByRole("button", { name })).not.toHaveClass("bg-primary");
+        expect(screen.getByRole("button", { name })).toBeEnabled();
+      }
+      fireEvent.click(screen.getByRole("button", { name: /Keep going \(3 min\)/ }));
+      expect(closed.clear).toHaveBeenCalled();
+      // The history entry says what was decided, never how the room voted.
+      expect(view.log).toHaveBeenCalledWith(LEAN_COFFEE_LOG.TOPIC_EXTENDED, {
+        cardId: "t2",
+        minutes: 3,
+      });
+      for (const [, payload] of view.log.mock.calls) {
+        expect(JSON.stringify(payload ?? {})).not.toMatch(/keep|move|voter|thumb/i);
+      }
+    }
+  );
+
+  it("in a live room, a vote closed with 3 voters shows the totals and picks out the room's choice", () => {
+    const started = leanBoard({
+      cards: [
+        topic("t2", "Our standups run too long", 4, { columnKey: "discussing", discussing: true }),
+        topic("t3", "Lunch and learn ideas", 2),
+      ],
+    });
+    const closed = fakeThumbs({ id: "p1", topic: "x", open: false, keep: 1, move: 2, voters: 3 });
+    const view = runner(started, { timeUp: true, thumbs: closed });
+    expect(
+      screen.getByText(
+        (_, el) => el?.tagName === "P" && el.textContent === "Keep going 1 · Move on 2 (3 voted)"
+      )
+    ).toHaveAttribute("role", "status");
+    expect(screen.getByText("Most want to move on.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Move on to the next topic/ })).toHaveClass(
+      "bg-primary"
+    );
+    // As before, no Ask button once the totals show at time's up.
+    expect(screen.queryByRole("button", { name: /Ask the room/ })).toBeNull();
+    // A tie, as before.
+    const tie = fakeThumbs({ id: "p1", topic: "x", open: false, keep: 2, move: 2, voters: 4 });
+    view.rerun({ timeUp: true, thumbs: tie });
+    expect(screen.getByText("It's a tie: the facilitator decides.")).toBeInTheDocument();
+    expect(screen.queryByText(/stay hidden|no totals/)).toBeNull();
+  });
+
+  it("on one screen, the hand count has no minimum", () => {
+    const started = leanBoard({
+      cards: [
+        topic("t2", "Our standups run too long", 4, { columnKey: "discussing", discussing: true }),
+        topic("t3", "Lunch and learn ideas", 2),
+      ],
+    });
+    runner(started, { timeUp: true });
+    const count = screen.getByRole("group", { name: "Count the thumbs" });
+    fireEvent.click(within(count).getByRole("button", { name: /One more thumb up/ }));
+    expect(screen.getByText("Most want to keep going.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Keep going \(3 min\)/ })).toHaveClass("bg-primary");
+    expect(screen.queryByText(/stay hidden|no totals/)).toBeNull();
+  });
+
   it("shows a vote asked early with its count and Close, and time's up doesn't replace it", () => {
     const started = leanBoard({
       cards: [
@@ -896,6 +997,39 @@ describe("a participant's thumbs vote", () => {
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.getByRole("status")).toHaveTextContent(
       "Keep going 2 · Move on 2. It's a tie: the facilitator decides."
+    );
+  });
+
+  it.each([
+    ["no voters", 0, "Nobody voted, so there are no totals. Decide together."],
+    ["1 voter", 1, "Only 1 person voted, so the totals stay hidden. Decide together."],
+    ["2 voters", 2, "Only 2 people voted, so the totals stay hidden. Decide together."],
+  ])("shows no totals for a vote closed with %s", (_label, n, line) => {
+    // Even a split a host sent anyway isn't shown.
+    wrap(
+      <ThumbsVoteCard
+        poll={{ ...poll, open: false, voters: n, keep: n, move: 0 }}
+        myThumb="keep"
+        canVote
+        onThumb={() => {}}
+      />
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(line);
+    expect(screen.getByRole("status")).not.toHaveTextContent(/Keep going|Move on|Most want/);
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it("shows the totals for a vote closed with 3 voters", () => {
+    wrap(
+      <ThumbsVoteCard
+        poll={{ ...poll, open: false, voters: 3, keep: 2, move: 1 }}
+        myThumb={null}
+        canVote
+        onThumb={() => {}}
+      />
+    );
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "Keep going 2 · Move on 1. Most want to keep going."
     );
   });
 });

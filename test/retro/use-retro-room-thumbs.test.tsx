@@ -14,7 +14,8 @@ import { fakeRealtime, type FakeMember } from "./fake-realtime";
  * The Lean Coffee thumbs vote in the Retro room hook (protocol revision 2),
  * against a fake Realtime channel: the host opens a vote and its snapshot
  * says how many voted, never who; a member's thumb counts once and only
- * their own tab can change it; closing shares the totals; a member who
+ * their own tab can change it; closing shares the totals, with at least 3
+ * voters (with fewer, nobody gets them, the host included); a member who
  * leaves takes their thumb; and a participant's thumb travels with a lock,
  * a change with the key behind it.
  */
@@ -34,9 +35,11 @@ const NOW = Date.parse("2026-11-12T10:00:00.000Z");
 const HOST: FakeMember = { id: "host_00000000000", name: "Hana", joinedAt: "2026-11-12T09:00:00Z" };
 const ME: FakeMember = { id: "self_00000000000", name: "Pat", joinedAt: "2026-11-12T09:01:00Z" };
 const OTHER: FakeMember = { id: "other_0000000000", name: "Olu", joinedAt: "2026-11-12T09:02:00Z" };
+const THIRD: FakeMember = { id: "third_0000000000", name: "Tam", joinedAt: "2026-11-12T09:03:00Z" };
 const KEY_ME = "kme_0123456789abcdef";
 const KEY_ME_2 = "kme_fedcba9876543210";
 const KEY_OTHER = "kot_0123456789abcdef";
+const KEY_THIRD = "kth_0123456789abcdef";
 
 const lean = retroFormats.find((f) => f.id === "lean-coffee") ?? retroFormats[0];
 const board = (over: Partial<BoardState> = {}): BoardState => ({
@@ -127,7 +130,7 @@ describe("hosting the thumbs vote", () => {
     const ch = fakeRealtime.last();
     act(() => {
       ch.connect();
-      ch.setPresence([HOST, ME, OTHER]);
+      ch.setPresence([HOST, ME, OTHER, THIRD]);
     });
     flush();
     act(() => view.result.current.room.thumbs.open("Our standups run too long"));
@@ -182,6 +185,7 @@ describe("hosting the thumbs vote", () => {
     act(() => {
       ch.deliver("retro:intent", thumb(ME.id, pollId, "keep", KEY_ME));
       ch.deliver("retro:intent", thumb(OTHER.id, pollId, "keep", KEY_OTHER));
+      ch.deliver("retro:intent", thumb(THIRD.id, pollId, "move", KEY_THIRD));
     });
     act(() => result.current.room.thumbs.close());
     flush();
@@ -189,13 +193,14 @@ describe("hosting the thumbs vote", () => {
       id: pollId,
       topic: "Our standups run too long",
       open: false,
-      voters: 2,
+      voters: 3,
       keep: 2,
-      move: 0,
+      move: 1,
     });
+    expect(result.current.room.poll).toEqual(states().at(-1)!.poll);
     // A late thumb doesn't count once it's closed.
     act(() => ch.deliver("retro:intent", thumb(ME.id, pollId, "move", KEY_ME_2, KEY_ME)));
-    expect(result.current.room.thumbs.poll).toMatchObject({ keep: 2, move: 0 });
+    expect(result.current.room.thumbs.poll).toMatchObject({ keep: 2, move: 1 });
     act(() => result.current.room.thumbs.clear());
     flush();
     expect(result.current.room.thumbs.poll).toBeNull();
@@ -219,19 +224,56 @@ describe("hosting the thumbs vote", () => {
     act(() => {
       ch.deliver("retro:intent", thumb(ME.id, pollId, "keep", KEY_ME));
       ch.deliver("retro:intent", thumb(OTHER.id, pollId, "move", KEY_OTHER));
+      ch.deliver("retro:intent", thumb(THIRD.id, pollId, "move", KEY_THIRD));
     });
     act(() => result.current.room.thumbs.close());
     flush();
     const shown = states().at(-1)!.poll;
-    expect(shown).toMatchObject({ open: false, keep: 1, move: 1, voters: 2 });
+    expect(shown).toMatchObject({ open: false, keep: 1, move: 2, voters: 3 });
     // Recounting would show the room how the one who left had voted.
     act(() => ch.setPresence([HOST, ME]));
     flush();
-    expect(result.current.room.thumbs.poll).toMatchObject({ keep: 1, move: 1, voters: 2 });
+    expect(result.current.room.thumbs.poll).toMatchObject({ keep: 1, move: 2, voters: 3 });
     expect(states().at(-1)!.poll).toEqual(shown);
     act(() => result.current.room.kick(ME.id));
     flush();
     expect(states().at(-1)!.poll).toEqual(shown);
+  });
+
+  it.each([
+    ["no voters", 0],
+    ["1 voter", 1],
+    ["2 voters", 2],
+  ])("closes a vote with %s with the count only, for the room and the host alike", (_label, n) => {
+    const { result, ch, pollId } = opened();
+    const voters = [
+      [ME, KEY_ME, "keep"],
+      [OTHER, KEY_OTHER, "move"],
+    ] as const;
+    act(() => {
+      for (const [m, key, choice] of voters.slice(0, n)) {
+        ch.deliver("retro:intent", thumb(m.id, pollId, choice, key));
+      }
+    });
+    // While it's open nothing changes: the host's own view counts as before.
+    expect(result.current.room.thumbs.poll).toMatchObject({ open: true, voters: n });
+    act(() => result.current.room.thumbs.close());
+    flush();
+    const closed = { id: pollId, topic: "Our standups run too long", open: false, voters: n };
+    expect(states().at(-1)!.poll).toEqual(closed);
+    expect(result.current.room.thumbs.poll).toEqual(closed);
+    expect(result.current.room.poll).toEqual(closed);
+    // No snapshot from the close on carries a split, and nothing is saved.
+    for (const s of states().filter((x) => x.poll && !x.poll.open)) {
+      expect(s.poll).not.toHaveProperty("keep");
+      expect(s.poll).not.toHaveProperty("move");
+    }
+    expect(result.current.board.cards).toEqual([]);
+    expect(useWorkspaceStore.getState().retroBoards).toEqual([]);
+    // Someone leaving afterwards changes nothing.
+    act(() => ch.setPresence([HOST]));
+    flush();
+    expect(states().at(-1)!.poll).toEqual(closed);
   });
 
   it("starts a fresh vote each time it asks", () => {
@@ -313,15 +355,34 @@ describe("a participant's thumb", () => {
     act(() =>
       ch.deliver(
         "retro:state",
-        snap(HOST.id, { ...POLL, open: false, voters: 1, keep: 1, move: 0 }, 2)
+        snap(HOST.id, { ...POLL, open: false, voters: 3, keep: 1, move: 2 }, 2)
       )
     );
-    expect(result.current.poll).toMatchObject({ open: false, keep: 1 });
+    expect(result.current.poll).toMatchObject({ open: false, keep: 1, move: 2 });
     expect(result.current.thumb("move")).toBe(false);
     act(() =>
       ch.deliver("retro:state", snap(HOST.id, { ...POLL, id: "poll_2", topic: "Next" }, 3))
     );
     expect(result.current.myThumb).toBeNull();
+  });
+
+  it("keeps no totals for a vote closed with fewer than 3, even from a host that sends them", () => {
+    const { result, ch } = joined();
+    act(() => ch.deliver("retro:state", snap(HOST.id, POLL)));
+    act(() => {
+      result.current.thumb("keep");
+    });
+    // This build's host sends the count only.
+    act(() => ch.deliver("retro:state", snap(HOST.id, { ...POLL, open: false, voters: 1 }, 2)));
+    expect(result.current.poll).toEqual({ ...POLL, open: false, voters: 1 });
+    // A host built before the minimum sends the split anyway: it isn't kept.
+    act(() =>
+      ch.deliver(
+        "retro:state",
+        snap(HOST.id, { ...POLL, open: false, voters: 2, keep: 1, move: 1 }, 3)
+      )
+    );
+    expect(result.current.poll).toEqual({ ...POLL, open: false, voters: 2 });
   });
 
   it("drops the old host's vote when it takes over the room", () => {

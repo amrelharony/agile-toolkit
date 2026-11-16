@@ -5,7 +5,7 @@
  */
 
 import { storyPoints } from "@/lib/sprints/plan";
-import { gwtCell, gwtLines } from "@/lib/stories/fields";
+import { criteriaMarkdownLines, gwtCell, gwtLines } from "@/lib/stories/fields";
 import { STORY_FLAG_LABEL, type BacklogHealth } from "@/lib/backlog/health";
 
 const line = (s: string) => s.replace(/\s*[\r\n]+\s*/g, " ").trim();
@@ -52,7 +52,7 @@ export function toMarkdown(health: BacklogHealth, today: string): string {
     const free = s.story.acceptanceCriteria?.trim();
     const gwt = gwtLines(s.story.gwt);
     if (!free && gwt.length === 0) lines.push("No acceptance criteria yet.");
-    if (free) lines.push(cap(free, 600));
+    if (free) lines.push(...criteriaMarkdownLines(free));
     if (free && gwt.length > 0) lines.push("");
     if (gwt.length > 0) lines.push("```gherkin", ...gwt.map((l) => cap(l, 300)), "```");
     lines.push("");

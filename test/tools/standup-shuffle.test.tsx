@@ -41,7 +41,6 @@ import {
   speakingOrder,
 } from "@/app/(tools)/standup/model";
 import { resetStandupWalk } from "@/app/(tools)/standup/walk";
-import { STANDUP_ACTIONS } from "@/lib/history/event-actions";
 
 vi.setConfig({ testTimeout: 20_000 });
 
@@ -182,16 +181,14 @@ describe("Shuffle on the standup page", () => {
     expect(screen.getByRole("button", { name: "Back to roster order" })).toBeInTheDocument();
   });
 
-  it("logs a shuffle to history, and nothing for going back to roster order", () => {
+  it("logs nothing to history for a shuffle or for going back to roster order", () => {
+    // The same as the Ceremony Timer's Shuffle: the order is a moment's
+    // choice, not something the team looks back on.
     renderStandup();
     fireEvent.click(screen.getByRole("button", { name: "Shuffle" }));
-    expect(logSpy).toHaveBeenCalledTimes(1);
-    expect(logSpy).toHaveBeenCalledWith(STANDUP_ACTIONS.ORDER_SHUFFLED, {
-      date: TODAY,
-      speakers: TEAM.length,
-    });
     fireEvent.click(screen.getByRole("button", { name: "Back to roster order" }));
-    expect(logSpy).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: "Shuffle" }));
+    expect(logSpy).not.toHaveBeenCalled();
   });
 
   it("offers no Shuffle with one person to call on", () => {

@@ -9,6 +9,9 @@
  * `toRoomPoll`: while the vote is open, how many have voted; once closed,
  * the totals too, frozen from then on (a member who leaves after the close
  * keeps their thumb in the totals, or the change would show how they voted).
+ * A vote that closes with fewer than THUMBS_MIN_VOTERS voters has no totals
+ * at all, on the host's screen or on the wire: with one or two voters the
+ * split would say how each of them voted.
  *
  * Not anonymous on the wire: like a card's vote, a thumb is a `thumb`
  * intent broadcast on the room's channel with the sender's member id in
@@ -34,6 +37,18 @@ import {
   type RoomPoll,
   type ThumbChoice,
 } from "./protocol";
+
+/**
+ * Fewest voters for a closed vote to show its totals. With fewer, nobody
+ * sees the split (the host, the phones, the big screen) and it isn't sent:
+ * "Keep going 1 · Move on 1" would tell two voters how the other voted.
+ */
+export const THUMBS_MIN_VOTERS = 3;
+
+/** Whether a closed vote with this many voters shows its totals. */
+export function thumbsTotalsShown(voters: number): boolean {
+  return voters >= THUMBS_MIN_VOTERS;
+}
 
 /** The host's poll, in memory. */
 export interface ThumbPoll {
@@ -131,20 +146,23 @@ export function thumbTally(poll: Pick<ThumbPoll, "votes">): ThumbTally {
   return { keep, move, voters: keep + move };
 }
 
-/** The poll as the snapshot carries it: totals only once it's closed. */
+/**
+ * The poll as the snapshot carries it: totals only once it's closed, and
+ * only with at least THUMBS_MIN_VOTERS voters (with fewer, the count alone).
+ */
 export function toRoomPoll(poll: ThumbPoll): RoomPoll {
   const t = thumbTally(poll);
   const voters = Math.min(t.voters, VISITOR_LIMITS.maxMembers);
-  return poll.open
-    ? { id: poll.id, topic: poll.topic, open: true, voters }
-    : {
-        id: poll.id,
-        topic: poll.topic,
-        open: false,
-        voters,
-        keep: Math.min(t.keep, voters),
-        move: Math.min(t.move, voters),
-      };
+  if (poll.open) return { id: poll.id, topic: poll.topic, open: true, voters };
+  if (!thumbsTotalsShown(voters)) return { id: poll.id, topic: poll.topic, open: false, voters };
+  return {
+    id: poll.id,
+    topic: poll.topic,
+    open: false,
+    voters,
+    keep: Math.min(t.keep, voters),
+    move: Math.min(t.move, voters),
+  };
 }
 
 const isCount = (v: unknown): v is number =>
@@ -153,7 +171,11 @@ const isCount = (v: unknown): v is number =>
 /**
  * A snapshot's poll, rebuilt from known fields, or null when it's malformed:
  * an id shaped like an intent id, clean topic text, a voter count within
- * the room, and totals only on a closed poll, adding up to the voters.
+ * the room, and totals only on a closed poll, adding up to the voters. A
+ * closed poll with fewer than THUMBS_MIN_VOTERS voters reads without
+ * totals: this build's host sends none, and totals a host sends anyway (a
+ * build from before the minimum) are dropped, not shown. Malformed ones
+ * still refuse the poll.
  */
 export function readRoomPoll(raw: unknown): RoomPoll | null {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
@@ -166,6 +188,12 @@ export function readRoomPoll(raw: unknown): RoomPoll | null {
     if (p.keep !== undefined || p.move !== undefined) return null;
     return { id: p.id, topic: p.topic, open: true, voters: p.voters };
   }
-  if (!isCount(p.keep) || !isCount(p.move) || p.keep + p.move !== p.voters) return null;
-  return { id: p.id, topic: p.topic, open: false, voters: p.voters, keep: p.keep, move: p.move };
+  const { keep, move } = p;
+  const totals = isCount(keep) && isCount(move) && keep + move === p.voters;
+  if (!thumbsTotalsShown(p.voters)) {
+    if (!totals && (keep !== undefined || move !== undefined)) return null;
+    return { id: p.id, topic: p.topic, open: false, voters: p.voters };
+  }
+  if (!isCount(keep) || !isCount(move) || keep + move !== p.voters) return null;
+  return { id: p.id, topic: p.topic, open: false, voters: p.voters, keep, move };
 }
