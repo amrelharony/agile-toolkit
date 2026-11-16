@@ -497,9 +497,11 @@ describe("VisitorGuide", () => {
       for (const tile of within(list).getAllByRole("link")) {
         const [title, subtitle] = Array.from(tile.querySelectorAll("span[dir]"));
         expect(title).toHaveClass("break-words", "hyphens-auto", "[overflow-wrap:anywhere]");
-        expect(subtitle).toHaveClass("line-clamp-2", "[overflow-wrap:anywhere]");
+        // The tool's name is never cut: no ellipsis and no clamp (at 200% text
+        // "Backlog Prioritizer" takes three lines of half the panel).
+        expect(subtitle).toHaveClass("break-words", "hyphens-auto", "[overflow-wrap:anywhere]");
         expect(subtitle).not.toHaveClass("truncate");
-        expect(subtitle).not.toHaveClass("block");
+        expect(subtitle.className).not.toMatch(/line-clamp/);
       }
     });
   });

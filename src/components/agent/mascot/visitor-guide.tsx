@@ -458,14 +458,18 @@ function ToolLink({
       >
         {/* Half the panel wide: a long word (or 200% text) breaks inside the
             tile rather than run into the next one, and the tool's name takes
-            two lines rather than lose its end to an ellipsis. */}
+            the lines it needs rather than lose its end to an ellipsis or a
+            clamp (at 200% "Backlog Prioritizer" needs three). */}
         <span
           dir="auto"
           className="break-words text-sm font-medium leading-snug text-text hyphens-auto [overflow-wrap:anywhere] group-hover:text-accent"
         >
           {title}
         </span>
-        <span dir="auto" className="line-clamp-2 text-xs text-sub [overflow-wrap:anywhere]">
+        <span
+          dir="auto"
+          className="break-words text-xs text-sub hyphens-auto [overflow-wrap:anywhere]"
+        >
           {subtitle}
         </span>
       </Link>
