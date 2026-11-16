@@ -17,6 +17,7 @@ import { useId, useRef, useState } from "react";
 import Link from "next/link";
 import { ListPlus, RotateCcw } from "lucide-react";
 import { AiButton, AiSuggestions } from "@/components/ai";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -67,6 +68,9 @@ const DECIMALS = [
 
 const NUMBER_CLASS = "w-28";
 
+const NO_IDEAS =
+  "Without AI, only a yes-or-no or a how-sure question gets options. Type yours, one per line.";
+
 export function RoundComposer({
   draft,
   preset,
@@ -80,8 +84,13 @@ export function RoundComposer({
 }: RoundComposerProps) {
   const [touched, setTouched] = useState<ReadonlySet<DraftField>>(() => new Set());
   const [suggested, setSuggested] = useState<{ items: string[]; source: AiSource } | null>(null);
-  /** Without AI, a question the rules can't read gets no options, and a line says so. */
-  const [noIdeas, setNoIdeas] = useState(false);
+  const announce = useAnnounce();
+  /**
+   * Without AI, a question the rules can't read gets no options, and a line
+   * says so: the question it was for, so the line goes when the question
+   * changes.
+   */
+  const [noIdeasFor, setNoIdeasFor] = useState<string | null>(null);
   /** Around the suggest buttons: where focus goes back to when the list is dismissed. */
   const askRef = useRef<HTMLDivElement>(null);
   const itemSelectId = useId();
@@ -150,8 +159,9 @@ export function RoundComposer({
               onResult={(data, meta) => {
                 // Blanks to fill in ("First option") aren't options to add.
                 const blank = meta.source === "fallback" && isBlankOptions(data.options);
-                setNoIdeas(blank);
+                setNoIdeasFor(blank ? question : null);
                 setSuggested(blank ? null : { items: data.options, source: meta.source });
+                if (blank) announce(NO_IDEAS);
               }}
             />
             {sources.backlog.length >= 2 && (
@@ -181,10 +191,9 @@ export function RoundComposer({
               </Button>
             )}
           </div>
-          {noIdeas && options.length === 0 && (
+          {noIdeasFor === question && (
             <p role="status" className="text-xs text-sub">
-              Without AI, only a yes-or-no or a how-sure question gets options. Type yours, one per
-              line.
+              {NO_IDEAS}
             </p>
           )}
           {suggested && (
