@@ -6,7 +6,8 @@
  * Backing store: the tool's own store of saved walls
  *   (`agile-toolkit:audience-wall`, lib/audience-wall/store; the user_state
  *   row of that key over MCP), and the live wall on the page
- *   (lib/audience-wall/live), which only the host's tab holds.
+ *   (lib/audience-wall/live: the Audience Wall page's, or Sprint Review's
+ *   feedback room), which only the host's tab holds.
  *
  *   1. list_state      — the saved walls in short, and the live wall's counts.
  *   2. list_sessions   — the saved walls with their posts (anonymous).
@@ -232,7 +233,7 @@ registry.register({
 const NO_ROOM = {
   ok: false as const,
   error: "no_live_wall" as const,
-  hint: "Open a live wall on the Audience Wall page first.",
+  hint: "Open a live wall on the Audience Wall page, or Sprint Review's feedback room, first.",
 };
 const BROWSER_ONLY = {
   ok: false as const,

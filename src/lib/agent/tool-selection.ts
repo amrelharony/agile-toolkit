@@ -181,6 +181,8 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
     "tool.interrupt_buffer",
     "tool.product_goal",
   ],
+  // The feedback room is an Audience Wall room, and Amr's room verbs reach it.
+  "sprint-review": ["tool.audience_wall"],
   standup: ["workspace.standup_entry"],
   "story-mapper": ["workspace.story_map"],
   // Groups are mixed from the team roster, by role or skill.

@@ -11,15 +11,19 @@
  *
  * Sprint Review hosts no room of its own: this is the Audience Wall's room
  * kind and channel (`tool="audience-wall"`), loaded only when asked for.
+ * While it's live it registers with Amr's live-wall registry, as the
+ * Audience Wall page does, so his room verbs reach it (counts only).
  */
 
 import { useEffect, useId, useRef, useState } from "react";
 import { WallRoomHost } from "@/components/collab/wall-room/wall-room-host";
 import { useAnnounce } from "@/components/a11y/live-announcer";
+import { registerLiveWall } from "@/lib/audience-wall/live";
 import { SPRINT_REVIEW_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import type { VoteCrypto } from "@/lib/realtime/vote-room/crypto";
 import type { WallRoundResult } from "@/lib/realtime/wall-room/protocol";
+import type { WallRoom } from "@/lib/realtime/wall-room/use-wall-room";
 import { CATEGORY_LABELS, FEEDBACK_CATEGORIES } from "../constants";
 import { shortName } from "../doc";
 import type { FeedbackCategory, FeedbackItem, ReviewSource } from "../types";
@@ -27,6 +31,9 @@ import { FEEDBACK_MAX } from "./feedback-form";
 
 /** Who the imported feedback is from: the room, never a person. */
 export const FEEDBACK_ROOM_STAKEHOLDER = "Feedback room";
+
+/** The room's kind of wall, as Amr's room_status reports it. */
+export const FEEDBACK_ROOM_KIND = "sprint-review-feedback";
 
 /** The whole increment's prompt, and one per demo item with a name. */
 export function feedbackRoomPrompts(features: readonly { name: string }[]): string[] {
@@ -113,7 +120,9 @@ export function FeedbackRoom({
         crypto={cryptoImpl}
         onSave={save}
       >
-        {() => <RoomStarted onStart={() => setStarted(true)} />}
+        {(room, { unsaved }) => (
+          <LiveRoom room={room} unsaved={unsaved} onStart={() => setStarted(true)} />
+        )}
       </WallRoomHost>
       {started && (
         // Outside the room's panel, so it stays for a Save round after the room ends.
@@ -155,10 +164,54 @@ export function FeedbackRoom({
   );
 }
 
-/** Tells the panel the room is live (its controls mount only then). */
-function RoomStarted({ onStart }: { onStart: () => void }) {
-  const ref = useRef(onStart);
-  ref.current = onStart;
-  useEffect(() => ref.current(), []);
+/**
+ * Mounted only while the room is live (the kit's controls mount only then):
+ * tells the panel it started, and registers the room for Amr.
+ */
+function LiveRoom({
+  room,
+  unsaved,
+  onStart,
+}: {
+  room: WallRoom;
+  unsaved: boolean;
+  onStart: () => void;
+}) {
+  const startRef = useRef(onStart);
+  startRef.current = onStart;
+  const roomRef = useRef(room);
+  roomRef.current = room;
+  const unsavedRef = useRef(unsaved);
+  unsavedRef.current = unsaved;
+
+  useEffect(() => startRef.current(), []);
+
+  // Amr's room verbs reach this room through the registry: counts only.
+  useEffect(
+    () =>
+      registerLiveWall({
+        status: () => {
+          const r = roomRef.current;
+          return {
+            prompt: r.round?.prompt ?? null,
+            open: r.round?.open ?? false,
+            mode: r.round?.mode ?? "hidden",
+            posts: r.round?.count ?? 0,
+            shown: Boolean(r.round && r.round.posts !== null),
+            hands: r.hands.length,
+            people: r.members.length,
+            scoring: r.round?.scoring ?? null,
+            kind: FEEDBACK_ROOM_KIND,
+            unsaved: unsavedRef.current,
+          };
+        },
+        openRound: (prompt, mode) => roomRef.current.openRound(prompt, mode),
+        setOpen: (open) => roomRef.current.setOpen(open),
+        reveal: () => roomRef.current.reveal(),
+        lowerAllHands: () => roomRef.current.lowerAllHands(),
+      }),
+    []
+  );
+
   return null;
 }

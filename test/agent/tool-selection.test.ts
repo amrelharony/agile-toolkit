@@ -328,6 +328,12 @@ describe("selectTurnToolIds on the real registry", () => {
       expect(pick({ toolId: "stakeholder-map", text: "add one" })).toContain(
         "workspace.team_member.list"
       );
+      // Sprint Review's feedback room is an Audience Wall room.
+      const review = pick({ toolId: "sprint-review", text: "reveal the posts" });
+      for (const verb of ["room_status", "open_round", "set_open", "reveal", "lower_hands"]) {
+        expect(review, verb).toContain(`tool.audience_wall.${verb}`);
+      }
+      expect(review).toContain("tool.sprint_review.add_feedback");
     });
 
     it("gives Quick Vote the reads of the places its options come from, after its own", () => {

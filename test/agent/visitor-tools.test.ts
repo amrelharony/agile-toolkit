@@ -170,6 +170,20 @@ describe("buildVisitorTurnTools on the real registry", () => {
     }
   });
 
+  it("on Sprint Review, never offers the live wall's room verbs", () => {
+    const room = ["room_status", "open_round", "set_open", "reveal", "lower_hands", "scoring"].map(
+      (verb) => `tool_audience_wall_${verb}`
+    );
+    for (const text of ["zzqx", "reveal the posts on the feedback wall"]) {
+      const offered = names(text, "sprint-review");
+      expect(offered, text).toContain("tool_sprint_review_list_state");
+      expect(
+        offered.filter((n) => room.includes(n)),
+        text
+      ).toEqual([]);
+    }
+  });
+
   it("accepts the page as a path", () => {
     expect(names("zzqx", "/retro")).toContain("tool_retro_add_card");
   });
