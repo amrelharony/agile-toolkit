@@ -205,6 +205,23 @@ describe("VisitorPanel: focus and announcements", () => {
     }
   });
 
+  it("the consent card's header chevron goes back to the guide as Not now does, the question kept", () => {
+    renderPanel();
+    fireEvent.change(search(), { target: { value: "retro" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
+    screen.getByRole("region", { name: "Before you chat with Amr's AI" });
+    const header = document.querySelector<HTMLElement>("[data-panel-header]")!;
+    const back = within(header).getByRole("button", { name: "Back to tool finder" });
+
+    fireEvent.click(back);
+    expect(screen.queryByRole("region", { name: "Before you chat with Amr's AI" })).toBeNull();
+    expect(search()).toHaveValue("retro");
+    expect(screen.getByRole("button", { name: "Ask Amr about “retro”" })).toBeInTheDocument();
+    expect(screen.getByTestId("mascot-visitor-guide")).toHaveFocus();
+    // The guide has no way back: the chevron goes with the card.
+    expect(within(header).queryByRole("button", { name: "Back to tool finder" })).toBeNull();
+  });
+
   it("going back from the chat opens the guide on its question, and Back to chat returns to it without asking again", async () => {
     await askInChat("retro");
 

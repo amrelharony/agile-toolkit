@@ -13,7 +13,9 @@
  *  - chat: Amr's AI (visitor-agent-panel), a separate chunk loaded only now;
  *    the agent runtime behind it loads on the first message.
  * The panel header's subtitle names the step ("Find the right tool", "Before
- * you chat", "Chat · not saved"; PANEL_SUBTITLE), filled from here.
+ * you chat", "Chat · not saved"; PANEL_SUBTITLE), filled from here. The
+ * consent card and the chat both put a "Back to tool finder" chevron before
+ * the name plate (the chat draws its own).
  *
  * The search travels with the visitor: "Not now" on the card, and going back
  * from the chat, open the guide on the question they took there. The chat's
@@ -52,6 +54,7 @@
  */
 
 import { Suspense, lazy, useEffect, useRef, useState, type LazyExoticComponent } from "react";
+import { ChevronDown } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { ErrorBoundary } from "@/components/layout/error-boundary";
@@ -60,8 +63,8 @@ import type { VisitorErrorCode } from "@/lib/visitor-ai/contract";
 import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { VisitorGuide } from "./visitor-guide";
 import { VisitorAiConsent, hasVisitorAiConsent } from "./visitor-ai-consent";
-import { PANEL_SUBTITLE } from "./panel-chrome";
-import { PanelSubtitle } from "./panel-fills";
+import { PANEL_SUBTITLE, PanelIconButton } from "./panel-chrome";
+import { PanelBack, PanelSubtitle } from "./panel-fills";
 import { PanelLoading } from "./panel-parts";
 
 type ChatModule = typeof import("./visitor-agent-panel");
@@ -283,6 +286,14 @@ export function VisitorPanel({
     return (
       <>
         {subtitle}
+        {/* Back to the guide, as "Not now" goes: the question stays in its
+            search. ChevronDown turned is the chat's ChevronLeft, and ships
+            here already with the guide. */}
+        <PanelBack>
+          <PanelIconButton label="Back to tool finder" onClick={() => setMode("guide")}>
+            <ChevronDown aria-hidden="true" className="rotate-90" />
+          </PanelIconButton>
+        </PanelBack>
         <VisitorAiConsent
           question={question}
           onAgree={() => openChat(question, true)}
