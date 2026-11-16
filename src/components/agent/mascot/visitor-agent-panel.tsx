@@ -54,7 +54,7 @@ import { ThinkingItemView } from "../chat/chat-items";
 import { ChatNotice } from "../chat/chat-notice";
 import { ChatStatus } from "../chat/chat-status";
 import { ChatStrip, useAwaitingReply } from "../chat/chat-strip";
-import { handleMascotCommand } from "./engine/customization/commands";
+import { handleMascotCommand } from "./engine/customization/chat-commands";
 import { COMPACT_HIDDEN, useInitialFocus } from "./panel-context";
 import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
 

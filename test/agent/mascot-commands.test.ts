@@ -1,38 +1,48 @@
 /**
- * Mascot slash-command parser. A claimed command never reaches the agent, so
- * anything it doesn't recognise (including the retired hats) must pass through.
- * The Konami sweep paints his aura in theme tokens, never pure neon hexes.
+ * Amr's chat commands and the Konami sweep. A claimed command never reaches
+ * the AI, so anything it doesn't recognise (the retired hats among them) must
+ * pass through; one it runs leaves a note for the composer's status row, in
+ * the narrator's voice. The command lives apart from the Konami listener,
+ * which Amr's every-page chunk carries. The sweep paints his aura in theme
+ * tokens, never pure neon hexes.
  */
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
+import * as konami from "@/components/agent/mascot/engine/customization/commands";
 import {
-  RAINBOW,
+  AURA_OFF_NOTE,
+  AURA_ON_NOTE,
+  DANCE_NOTE,
   handleMascotCommand,
-  installKonami,
+  NO_SCENE_NOTE,
+  PLAY_NOTE,
   storyFor,
-} from "@/components/agent/mascot/engine/customization/commands";
+} from "@/components/agent/mascot/engine/customization/chat-commands";
 import { COMPANION_SCENES } from "@/components/agent/mascot/engine/scenes";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 
+const { RAINBOW, installKonami } = konami;
+
 const queue = () => useMascotStore.getState().reactionQueue;
+const played = { note: PLAY_NOTE };
 
 describe("/play an expansion scene", () => {
   beforeEach(() => useMascotStore.getState().reset());
 
   it("plays any shipped expansion scene by its pack's name, in any case", () => {
-    expect(handleMascotCommand("/play x001")).toBe(true);
+    expect(handleMascotCommand("/play x001")).toEqual(played);
     expect(queue()).toEqual(["scene:x001"]);
-    expect(handleMascotCommand("/play X001")).toBe(true);
+    expect(handleMascotCommand("/play X001")).toEqual(played);
     expect(queue()).toEqual(["scene:x001"]);
-    expect(handleMascotCommand("  /PLAY X124 ")).toBe(true);
+    expect(handleMascotCommand("  /PLAY X124 ")).toEqual(played);
     expect(queue()).toEqual(["scene:x124"]);
     expect(storyFor("X057", null)).toBe("x057");
   });
 
   it("plays X112 as its filter moment, as the Scenes tab does", () => {
-    expect(handleMascotCommand("/play x112")).toBe(true);
+    expect(handleMascotCommand("/play x112")).toEqual(played);
     expect(queue()).toEqual(["scene:x112.filter"]);
   });
 
@@ -41,41 +51,75 @@ describe("/play an expansion scene", () => {
     expect(storyFor("x999", null)).toBe(first);
     expect(storyFor("x112.filter", null)).toBe(first);
     expect(storyFor("x12", null)).toBe(first);
-    expect(handleMascotCommand("/play x999")).toBe(true);
+    expect(handleMascotCommand("/play x999")).toEqual(played);
     expect(queue()).toHaveLength(1);
     const story = queue()[0].slice("scene:".length);
     expect(COMPANION_SCENES.play as readonly string[]).toContain(story);
 
     // An expansion scene between them leaves the companion stories' turn alone.
-    expect(handleMascotCommand("/play x001")).toBe(true);
-    expect(handleMascotCommand("/play")).toBe(true);
+    expect(handleMascotCommand("/play x001")).toEqual(played);
+    expect(handleMascotCommand("/play")).toEqual(played);
     expect(queue()).toEqual([`scene:${storyFor(undefined, story)}`]);
   });
 
   it("still knows the companion stories and their plain words", () => {
-    expect(handleMascotCommand("/play dinosaur")).toBe(true);
+    expect(handleMascotCommand("/play dinosaur")).toEqual(played);
     expect(queue()).toEqual(["scene:dino"]);
-    expect(handleMascotCommand("/playx001")).toBe(false);
+    expect(handleMascotCommand("/playx001")).toBeNull();
   });
 });
 
 describe("handleMascotCommand", () => {
-  it("forwards the retired /mascot-hat command to the agent", () => {
-    expect(handleMascotCommand("/mascot-hat crown")).toBe(false);
-  });
-
-  it("handles /dance and a valid aura, and forwards plain text", () => {
-    expect(handleMascotCommand("/dance")).toBe(true);
-    expect(handleMascotCommand("/mascot-aura #ff8800")).toBe(true);
-    expect(handleMascotCommand("create a sprint called Sprint 47")).toBe(false);
-  });
-
-  it("keeps a typed aura as its hex (the sprite themes it), and clears it with none", () => {
+  afterEach(() => {
+    vi.useRealTimers();
     useMascotStore.getState().reset();
-    handleMascotCommand("/mascot-aura 22C55E");
+  });
+
+  it("forwards the retired /mascot-hat command and plain text to the AI", () => {
+    expect(handleMascotCommand("/mascot-hat crown")).toBeNull();
+    expect(handleMascotCommand("create a sprint called Sprint 47")).toBeNull();
+    expect(handleMascotCommand("dance with me")).toBeNull();
+  });
+
+  it("dances for /dance and a bare dance, and says so in a note", () => {
+    vi.useFakeTimers();
+    useMascotStore.getState().reset();
+    const seen: string[] = [];
+    const unsubscribe = useMascotStore.subscribe((s, prev) => {
+      if (
+        s.reactionQueue !== prev.reactionQueue &&
+        s.reactionQueue.length > prev.reactionQueue.length
+      )
+        seen.push(s.reactionQueue[s.reactionQueue.length - 1]);
+    });
+    expect(handleMascotCommand("/dance")).toEqual({ note: DANCE_NOTE });
+    vi.advanceTimersByTime(2000);
+    unsubscribe();
+    expect(seen).toEqual(["wave", "excited", "spin"]);
+    expect(handleMascotCommand("  Dance ")).toEqual({ note: "Amr dances" });
+  });
+
+  it("keeps a typed aura as its hex (the sprite themes it), and clears it with none or off", () => {
+    useMascotStore.getState().reset();
+    expect(handleMascotCommand("/mascot-aura 22C55E")).toEqual({ note: AURA_ON_NOTE });
     expect(useMascotStore.getState().auraColor).toBe("#22c55e");
-    handleMascotCommand("/mascot-aura none");
+    expect(handleMascotCommand("/mascot-aura #ff8800")).toEqual({ note: AURA_ON_NOTE });
+    expect(useMascotStore.getState().auraColor).toBe("#ff8800");
+    expect(handleMascotCommand("/mascot-aura none")).toEqual({ note: AURA_OFF_NOTE });
     expect(useMascotStore.getState().auraColor).toBeNull();
+    expect(handleMascotCommand("/mascot-aura off")).toEqual({ note: AURA_OFF_NOTE });
+  });
+
+  it("writes each note as narration: Amr in the third person, no I, me or my", () => {
+    for (const note of [DANCE_NOTE, AURA_ON_NOTE, AURA_OFF_NOTE, PLAY_NOTE, NO_SCENE_NOTE]) {
+      expect(note).toMatch(/^Amr/);
+      expect(note).not.toMatch(/(?:I|me|my)/i);
+      expect(note).not.toMatch(/[—–]/);
+    }
+  });
+
+  it("is not in the module Amr's every-page chunk imports for the Konami listener", () => {
+    expect(Object.keys(konami).sort()).toEqual(["RAINBOW", "installKonami"]);
   });
 });
 

@@ -34,7 +34,7 @@ import { ChatStatus } from "./chat/chat-status";
 import { ChatStrip, useAwaitingReply } from "./chat/chat-strip";
 import { StepDetails } from "./chat/step-details";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
-import { handleMascotCommand } from "./mascot/engine/customization/commands";
+import { handleMascotCommand } from "./mascot/engine/customization/chat-commands";
 import { COMPACT_HIDDEN, useInitialFocus } from "./mascot/panel-context";
 import { Send, Mic, Square } from "lucide-react";
 import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
