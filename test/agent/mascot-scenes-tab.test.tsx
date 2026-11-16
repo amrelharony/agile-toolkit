@@ -3,6 +3,8 @@
  * story he can act out on request, and the header button that opens it.
  */
 
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import companion from "../../docs/mascot/companion-scenes.json";
@@ -47,7 +49,7 @@ import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
 import { EXPANSION_SHEETS } from "@/components/agent/mascot/engine/expansion-table";
 import { EXPANSION_TITLES } from "@/components/agent/mascot/engine/expansion-titles";
 import { SCENE_THUMBS, THUMB_INDEX } from "@/components/agent/mascot/engine/scene-thumbs";
-import { COMPANION_SCENES, galleryScene } from "@/components/agent/mascot/engine/scenes";
+import { COMPANION_SCENES, SCENES, galleryScene } from "@/components/agent/mascot/engine/scenes";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { useAgentStore } from "@/lib/agent/store";
 
@@ -72,6 +74,19 @@ beforeEach(() => {
   h.unshipped = new Set();
   useMascotStore.getState().reset();
 });
+
+/** The build's GALLERY_HOLDS (scripts/build-mascot-expansion.py): {pack: the beat its thumbnail shows}. */
+function galleryHolds(): Record<string, number> {
+  const src = readFileSync(
+    path.join(process.cwd(), "scripts", "build-mascot-expansion.py"),
+    "utf8"
+  );
+  const table = src.match(/^GALLERY_HOLDS: dict\[str, int\] = \{([^}]*)\}/m);
+  expect(table, "GALLERY_HOLDS in the build").not.toBeNull();
+  return Object.fromEntries(
+    Array.from(table![1].matchAll(/"(\w+)":\s*(\d+)/g)).map((m) => [m[1], Number(m[2])])
+  );
+}
 
 describe("the companion stories' titles", () => {
   it("are the ones docs/mascot/companion-scenes.json gives the stories /play takes", () => {
@@ -188,6 +203,22 @@ describe("the Scenes tab", () => {
     const row = Math.floor(cell / SCENE_THUMBS.columns);
     expect(x025.style.backgroundPosition).toBe(`-${col * 54}px -${row * 63}px`);
     expect(thumb("AI Reviewer").style.backgroundImage).toContain(SCENE_THUMBS.src);
+  });
+
+  it("pictures each expansion scene by the pose a tap leaves him in", () => {
+    const holds = galleryHolds();
+    // The build draws a variant's held beat for exactly the packs played as a variant…
+    expect(Object.keys(holds).sort()).toEqual(
+      EXPANSION_SHEETS.filter((s) => galleryScene(s.pack) !== s.pack)
+        .map((s) => s.pack)
+        .sort()
+    );
+    // …so every thumbnail is the still of the scene the tab plays (X112: its fifth beat).
+    for (const s of EXPANSION_SHEETS) {
+      const beat = holds[s.pack] ?? s.last ?? 8;
+      expect(`${s.pack}.${beat}`, s.pack).toBe(SCENES[galleryScene(s.pack)].still);
+    }
+    expect(holds.x112).toBe(5);
   });
 
   it("gives every scene a touch-sized button with a visible focus ring", () => {
