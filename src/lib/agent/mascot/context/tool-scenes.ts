@@ -33,7 +33,10 @@ const STICKY = ["sticky", "sticky.think", "sticky.goofy"] as const;
 
 /**
  * The emitted events Amr answers. Only these: most emitted sounds echo an action
- * the tool also logs, and he shouldn't react twice.
+ * the tool also logs, and he shouldn't react twice. The last two are the
+ * celebrations a tool asks for (lib/celebrate/cheer.ts, CHEER_MOMENTS): a row
+ * may give them a scene, but only for a tool whose cheer() call asks for that
+ * one (its tests check); without a scene he cheers or dances.
  */
 export const EMITTED: ReadonlySet<string> = new Set([
   "okr_achieved",
@@ -41,6 +44,8 @@ export const EMITTED: ReadonlySet<string> = new Set([
   "invalidated",
   "completed",
   "round_revealed",
+  "amr_cheer",
+  "amr_dance",
 ]);
 
 /** Every tool Amr has scenes for. */
@@ -88,6 +93,11 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     toolId: "dependency-map",
     open: ["links"],
     actions: { edge_added: ["links.connect"], node_added: ["links.pin"] },
+  },
+  {
+    toolId: "product-goal",
+    open: ["goal", "goal.think"],
+    actions: { goal_created: ["goal.think"], goal_achieved: ["goal.hit"] },
   },
   // Run the sprint
   {
@@ -192,6 +202,7 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     actions: { role_added: ["raci.deal"], assignment_changed: ["raci.place"] },
   },
   { toolId: "one-on-one", open: ["chat"], actions: { meeting_logged: ["chat.note"] } },
+  { toolId: "sm-notebook", open: ["chat"], actions: { note_added: ["chat.note"] } },
   {
     toolId: "stakeholder-map",
     open: ["stakeholders"],
@@ -349,6 +360,28 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     actions: { decision_added: ["gavel.record"], decision_decided: ["gavel.bang"] },
   },
   { toolId: "async-standup", open: [], actions: { update_posted: ["timer.standup", "x094"] } },
+  // wall_saved has no scene: the same tick cheers ("audience-wall", "result").
+  { toolId: "audience-wall", open: [], actions: { themes_accepted: ["sticky.think"] } },
+  // Amr thinks along while the team asks why or lays out causes.
+  {
+    toolId: "root-cause",
+    open: [],
+    actions: { why_added: ["sticky.think"], cause_added: ["sticky.think"] },
+  },
+  // A point parked is written on a sticky and stuck up; one sent on is a to-do taken.
+  {
+    toolId: "parking-lot",
+    open: [],
+    actions: { item_parked: ["sticky"], item_sent: ["todo.take"] },
+  },
+  // A card dealt is turned face up; a shuffle puts the deck back in his hand.
+  // The round's last card cheers ("card-decks", "done") in the same tick, and
+  // that wins. A star is logged both ways, so it gets no scene.
+  {
+    toolId: "card-decks",
+    open: [],
+    actions: { card_dealt: ["poker.reveal"], deck_shuffled: ["poker"] },
+  },
 
   // ── The expansion's tool lab (X025–X056) ──
   // One sheet per tool on the More tools shelf. Opening the tool plays its sheet as the
@@ -440,7 +473,17 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
 
   // ── Tools with the toolkit moments (S54–S59): no greeting, but their packs
   // load when the page opens, so the first reaction plays whole ──
-  { toolId: "retro", open: [], actions: { card_added: STICKY, kudos_added: ["kudos"] } },
+  {
+    toolId: "retro",
+    open: [],
+    actions: {
+      card_added: STICKY,
+      kudos_added: ["kudos"],
+      // The Lean Coffee runner's timebox per topic.
+      topic_started: ["timer"],
+      topic_done: ["timer.done"],
+    },
+  },
   { toolId: "kanban", open: [], actions: { card_added: STICKY } },
   { toolId: "story-mapper", open: [], actions: { card_added: STICKY } },
   {
@@ -458,6 +501,15 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     actions: {
       timer_started: ["timer"],
       timer_paused: ["timer.done"],
+      timer_finished: ["timer.done"],
+    },
+  },
+  {
+    toolId: "facilitator-timers",
+    open: [],
+    actions: {
+      timer_started: ["timer"],
+      break_started: ["timer"],
       timer_finished: ["timer.done"],
     },
   },

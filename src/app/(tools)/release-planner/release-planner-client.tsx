@@ -4,7 +4,13 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type Ref }
 import Link from "next/link";
 import { CalendarRange, Gauge, Layers, Rocket } from "lucide-react";
 import { selectActiveSprint, useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Sprint, Story } from "@/lib/stores/workspace-types";
+import {
+  KANBAN_BOARD_ID,
+  type Epic,
+  type KanbanCard,
+  type Sprint,
+  type Story,
+} from "@/lib/stores/workspace-types";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -23,6 +29,10 @@ import { RELEASE_PLANNER_ACTIONS } from "@/lib/history/event-actions";
 import { STORY_MAP_ID } from "@/lib/handoffs/poker-writeback";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { fmt, plural } from "@/lib/charts/chart-text";
+import { todayIso } from "@/lib/sprints/series";
+import { formatDay } from "@/lib/sprints/release-forecast";
+import { createForecastCache } from "@/lib/sprints/throughput-forecast";
+import { removeWithUndo } from "@/lib/utils/undoable";
 import { cn } from "@/lib/utils";
 import {
   EMPTY_CONFIG,
@@ -57,10 +67,40 @@ import { ForecastView } from "./forecast-view";
 import { clearedExample, withExample } from "./example";
 import { toMarkdown } from "./markdown";
 import { releasePrompts } from "./prompts";
+import {
+  EPIC_ROADMAP_ID,
+  featureRows,
+  finishedOn,
+  itemsLeft,
+  itemsMarkdown,
+  movedFeature,
+  planItems,
+  resolveItemsSource,
+  resolveThroughputSource,
+  throughputSample,
+  type ForecastMode,
+  type ReleaseFeature,
+} from "./throughput";
+import { CutLineCard, ItemsCard, ItemsResults, ModeSwitch, ThroughputCard } from "./items-mode";
 
 const NO_SPRINTS: Sprint[] = [];
 const NO_STORIES: Story[] = [];
+const NO_CARDS: KanbanCard[] = [];
+const NO_EPICS: Epic[] = [];
 const linkCls = "text-accent underline-offset-2 hover:underline";
+
+/**
+ * How long the typing in Items left or the weekly counts pauses before the
+ * item forecast follows it.
+ */
+export const TYPING_PAUSE_MS = 250;
+
+/** The typed values the item forecast reads. */
+type ItemsTyped = Pick<ReleasePlannerConfig, "itemsCount" | "throughputInput">;
+const itemsTyped = (c: ReleasePlannerConfig): ItemsTyped => ({
+  itemsCount: c.itemsCount,
+  throughputInput: c.throughputInput,
+});
 
 /**
  * Keep a ?slice= link pointing at the slice on screen (or drop it when the
@@ -102,7 +142,16 @@ export function ReleasePlannerClient() {
   const sprints = useWorkspaceStore((s) => s.sprints) ?? NO_SPRINTS;
   const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
   const storyMap = useWorkspaceStore((s) => (s.storyMaps ?? []).find((m) => m.id === STORY_MAP_ID));
+  // The "count items" mode reads the Flow board's cards and the roadmap's epics too.
+  const cards =
+    useWorkspaceStore((s) => (s.kanbanBoards ?? []).find((b) => b.id === KANBAN_BOARD_ID)?.cards) ??
+    NO_CARDS;
+  const epics =
+    useWorkspaceStore((s) => (s.epicRoadmaps ?? []).find((d) => d.id === EPIC_ROADMAP_ID)?.epics) ??
+    NO_EPICS;
   const [cadence] = useCeremonyCadence();
+  const [today] = useState(() => todayIso());
+  const mode: ForecastMode = config.mode === "items" ? "items" : "points";
 
   // The Story Mapper's "Plan release" links here with ?slice=<id>: plan that
   // slice (an example on screen gives way to it).
@@ -189,6 +238,125 @@ export function ReleasePlannerClient() {
     ]
   );
 
+  /* -- The "count items" mode ---------------------------------------------- */
+  // Each valid keystroke in Items left or the weekly counts still saves
+  // quietly, but the forecast (up to three 10,000-run simulations) keeps
+  // the values from before the typing until it pauses or the field commits
+  // (blur, Enter): a long backlog no longer holds up every keystroke.
+  const [held, setHeld] = useState<ItemsTyped | null>(null);
+  const typeItems = useCallback(
+    (updates: Partial<ReleasePlannerConfig>) => {
+      const before = itemsTyped(useReleasePlannerStore.getState().config);
+      setHeld((h) => h ?? before);
+      updateConfigRaw(updates);
+    },
+    [updateConfigRaw]
+  );
+  const commitItems = useCallback(
+    (updates: Partial<ReleasePlannerConfig>) => {
+      setHeld(null);
+      updateConfig(updates);
+    },
+    [updateConfig]
+  );
+  useEffect(() => {
+    if (!held) return;
+    // Every keystroke starts the wait again.
+    const timer = window.setTimeout(() => setHeld(null), TYPING_PAUSE_MS);
+    return () => window.clearTimeout(timer);
+  }, [held, config.itemsCount, config.throughputInput]);
+  const forecastTyped = held ?? itemsTyped(config);
+  // Each answer's runs are kept until what they read changes (ForecastCache).
+  const [forecastCache] = useState(createForecastCache);
+
+  const finished = useMemo(() => finishedOn(stories, cards), [stories, cards]);
+  const throughputSource = resolveThroughputSource(config.throughputSource, finished);
+  const itemsSource = resolveItemsSource(config.itemsSource, backlog);
+  // An epic's open stories count as Items left counts the backlog.
+  const features = useMemo(
+    () =>
+      featureRows(config.features, stories, epics, { sprints, skipSprintId: runningBefore?.id }),
+    [config.features, stories, epics, sprints, runningBefore?.id]
+  );
+  // The weekly counts as they stand, for the Throughput card.
+  const liveSample = useMemo(
+    () =>
+      throughputSample(throughputSource, {
+        finished,
+        typed: config.throughputInput ?? "",
+        window: config.throughputWeeks,
+        today,
+      }),
+    [throughputSource, finished, config.throughputInput, config.throughputWeeks, today]
+  );
+  const forecastInput = forecastTyped.throughputInput;
+  const forecastSample = useMemo(
+    () =>
+      forecastInput === config.throughputInput
+        ? liveSample
+        : throughputSample(throughputSource, {
+            finished,
+            typed: forecastInput ?? "",
+            window: config.throughputWeeks,
+            today,
+          }),
+    [
+      forecastInput,
+      config.throughputInput,
+      liveSample,
+      throughputSource,
+      finished,
+      config.throughputWeeks,
+      today,
+    ]
+  );
+  // Only the item count mode forecasts items: the points mode runs none of it.
+  const itemsPlan = useMemo(
+    () =>
+      mode !== "items"
+        ? null
+        : planItems(
+            {
+              sample: forecastSample,
+              itemsSource,
+              items: itemsLeft(itemsSource, backlog, forecastTyped.itemsCount),
+              features,
+              start,
+              target: target.date || null,
+            },
+            forecastCache
+          ),
+    [
+      mode,
+      forecastSample,
+      itemsSource,
+      backlog,
+      forecastTyped.itemsCount,
+      features,
+      start,
+      target.date,
+      forecastCache,
+    ]
+  );
+  const addFeature = (values: Omit<ReleaseFeature, "id">) => {
+    const list = useReleasePlannerStore.getState().config.features ?? [];
+    updateConfig({ features: [...list, { id: crypto.randomUUID(), ...values }] });
+  };
+  const moveFeature = (id: string, direction: -1 | 1) => {
+    const list = useReleasePlannerStore.getState().config.features ?? [];
+    updateConfig({ features: movedFeature(list, id, direction) });
+  };
+  const removeFeature = (feature: ReleaseFeature) => {
+    const name = features.find((f) => f.id === feature.id)?.name ?? feature.name;
+    removeWithUndo<ReleaseFeature>({
+      label: `Removed “${name}” from the features`,
+      update: (fn) =>
+        updateConfigRaw({ features: fn(useReleasePlannerStore.getState().config.features ?? []) }),
+      match: (f) => f.id === feature.id,
+    });
+    log(RELEASE_PLANNER_ACTIONS.RELEASE_UPDATED, { fields: ["features"] });
+  };
+
   /* -- Example, reset, export ----------------------------------------------- */
   // Reset, Load example and Clear example replace every field at once. The
   // inputs remount (no draft or message left from before), and focus moves
@@ -200,7 +368,11 @@ export function ReleasePlannerClient() {
   useEffect(() => {
     if (round > 0) scopeHeading.current?.focus();
   }, [round]);
-  const restart = () => setRound((n) => n + 1);
+  const restart = () => {
+    setRound((n) => n + 1);
+    // Nothing typed is waiting any more: the forecast reads the new values at once.
+    setHeld(null);
+  };
 
   const loadExample = () => {
     updateConfig(withExample(useReleasePlannerStore.getState().config));
@@ -218,20 +390,42 @@ export function ReleasePlannerClient() {
     log(RELEASE_PLANNER_ACTIONS.RELEASE_RESET, {});
   };
 
-  const markdown = useMemo(() => toMarkdown(plan), [plan]);
-  const csvData = useMemo(
-    () => ({
+  const markdown = useMemo(
+    () => (itemsPlan ? itemsMarkdown(itemsPlan) : toMarkdown(plan)),
+    [itemsPlan, plan]
+  );
+  const csvData = useMemo(() => {
+    if (itemsPlan) {
+      const w = itemsPlan.forecast.when;
+      return {
+        headers: ["Confidence", "Weeks", "Done by"],
+        rows: w
+          ? (["p50", "p85", "p95"] as const).map((k) => [
+              `${k.slice(1)}%`,
+              w.weeks[k] ?? "",
+              w.dates[k] ? formatDay(w.dates[k] as string) : "",
+            ])
+          : [],
+      };
+    }
+    return {
       headers: ["Confidence", "Sprints", "Finished by"],
       rows: plan.rows.map((r) => [`${r.pct}%`, r.sprints ?? "", r.sprints === null ? "" : r.date]),
-    }),
-    [plan.rows]
-  );
+    };
+  }, [itemsPlan, plan.rows]);
   const promptConfig = useMemo(
     () => ({ toolName: "Release Planner", prompts: releasePrompts(plan) }),
     [plan]
   );
 
-  const nothingYet = scope.points === null && sample.points.length === 0 && !config.example;
+  // Read from what is typed now, not from the forecast waiting for a pause.
+  const nothingYet =
+    mode === "items"
+      ? liveSample.values.length === 0 &&
+        itemsLeft(itemsSource, backlog, config.itemsCount) === null &&
+        features.length === 0 &&
+        !config.example
+      : scope.points === null && sample.points.length === 0 && !config.example;
 
   return (
     <ToolPageWrapper
@@ -266,41 +460,71 @@ export function ReleasePlannerClient() {
 
         {isExampleId(config.example) && <ExampleNotice onClear={clearExample} />}
 
+        <ModeSwitch
+          mode={mode}
+          onMode={(m) => updateConfig({ mode: m === "items" ? "items" : undefined })}
+        />
+
         <Fragment key={round}>
-          <div className="grid gap-6 lg:grid-cols-2">
-            <ScopeCard
-              headingRef={scopeHeading}
-              config={config}
-              source={scopeSource}
-              scope={scope}
-              backlog={backlog}
-              runningBefore={runningBefore}
-              slices={slices}
-              effective={plan.effective}
-              onSource={(v) => {
-                updateConfig({ scopeSource: v });
-                syncSliceParam(v === "slice" ? (config.sliceId ?? null) : null);
-              }}
-              onSlice={(id) => {
-                updateConfig({ sliceId: id || undefined });
-                syncSliceParam(id || null);
-              }}
-              onQuiet={updateConfigQuiet}
-              onCommit={updateConfig}
-            />
-            <VelocityCard
-              config={config}
-              source={velocitySource}
-              sample={sample}
-              averageLine={headline.average === null ? null : `${headlineText({ headline })}.`}
-              onSource={(v) => updateConfig({ velocitySource: v })}
-              onQuiet={updateConfigQuiet}
-              onCommit={updateConfig}
-            />
-          </div>
+          {mode === "items" ? (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <ItemsCard
+                headingRef={scopeHeading}
+                config={config}
+                source={itemsSource}
+                backlog={backlog}
+                onSource={(v) => updateConfig({ itemsSource: v })}
+                onQuiet={typeItems}
+                onCommit={commitItems}
+              />
+              <ThroughputCard
+                config={config}
+                sample={liveSample}
+                finished={{ stories: finished.stories.length, cards: finished.cards.length }}
+                onSource={(v) => updateConfig({ throughputSource: v })}
+                onWindow={(v) => updateConfig({ throughputWeeks: v })}
+                onQuiet={typeItems}
+                onCommit={commitItems}
+              />
+            </div>
+          ) : (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <ScopeCard
+                headingRef={scopeHeading}
+                config={config}
+                source={scopeSource}
+                scope={scope}
+                backlog={backlog}
+                runningBefore={runningBefore}
+                slices={slices}
+                effective={plan.effective}
+                onSource={(v) => {
+                  updateConfig({ scopeSource: v });
+                  syncSliceParam(v === "slice" ? (config.sliceId ?? null) : null);
+                }}
+                onSlice={(id) => {
+                  updateConfig({ sliceId: id || undefined });
+                  syncSliceParam(id || null);
+                }}
+                onQuiet={updateConfigQuiet}
+                onCommit={updateConfig}
+              />
+              <VelocityCard
+                config={config}
+                source={velocitySource}
+                sample={sample}
+                averageLine={headline.average === null ? null : `${headlineText({ headline })}.`}
+                onSource={(v) => updateConfig({ velocitySource: v })}
+                onQuiet={updateConfigQuiet}
+                onCommit={updateConfig}
+              />
+            </div>
+          )}
 
           <SectionCard title="Dates" icon={CalendarRange}>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div
+              className={cn("grid gap-4", mode === "items" ? "sm:grid-cols-2" : "sm:grid-cols-3")}
+            >
               <DateField
                 label="Start"
                 value={start.date}
@@ -313,28 +537,30 @@ export function ReleasePlannerClient() {
                       : "Clear it to start after the active sprint, or today."
                 }
               />
-              <NumberField
-                label="Sprint length"
-                suffix="days"
-                value={config.sprintLengthDays}
-                placeholder={String(cadence.sprintLengthDays)}
-                validate={validateSprintLength}
-                onChange={(v) => updateConfigQuiet({ sprintLengthDays: v })}
-                onCommit={(v) => updateConfig({ sprintLengthDays: v })}
-                hint={
-                  config.sprintLengthDays === null ? (
-                    <>
-                      {plural(cadence.sprintLengthDays, "day")}, from the team&apos;s cadence (
-                      <Link href="/team" className={linkCls}>
-                        Team charter
-                      </Link>
-                      ).
-                    </>
-                  ) : (
-                    `The cadence says ${plural(cadence.sprintLengthDays, "day")}. Clear it to follow the cadence.`
-                  )
-                }
-              />
+              {mode === "points" && (
+                <NumberField
+                  label="Sprint length"
+                  suffix="days"
+                  value={config.sprintLengthDays}
+                  placeholder={String(cadence.sprintLengthDays)}
+                  validate={validateSprintLength}
+                  onChange={(v) => updateConfigQuiet({ sprintLengthDays: v })}
+                  onCommit={(v) => updateConfig({ sprintLengthDays: v })}
+                  hint={
+                    config.sprintLengthDays === null ? (
+                      <>
+                        {plural(cadence.sprintLengthDays, "day")}, from the team&apos;s cadence (
+                        <Link href="/team" className={linkCls}>
+                          Team charter
+                        </Link>
+                        ).
+                      </>
+                    ) : (
+                      `The cadence says ${plural(cadence.sprintLengthDays, "day")}. Clear it to follow the cadence.`
+                    )
+                  }
+                />
+              )}
               <DateField
                 label="Target date (optional)"
                 value={config.targetDate || (target.from === "legacy" ? target.date : "")}
@@ -351,9 +577,22 @@ export function ReleasePlannerClient() {
 
         {nothingYet ? (
           <EmptyState icon={Rocket} action={<LoadExampleButton onLoad={loadExample} />}>
-            Nothing to forecast yet. Choose the scope and the velocity above, or load an example to
-            see a forecast.
+            {mode === "items"
+              ? "Nothing to forecast yet. Set the items left and the weekly throughput above, or load an example to see a forecast."
+              : "Nothing to forecast yet. Choose the scope and the velocity above, or load an example to see a forecast."}
           </EmptyState>
+        ) : itemsPlan ? (
+          <>
+            <ItemsResults plan={itemsPlan} plotRef={chartRef} />
+            <CutLineCard
+              plan={itemsPlan}
+              features={config.features ?? []}
+              epics={epics}
+              onAdd={addFeature}
+              onMove={moveFeature}
+              onRemove={removeFeature}
+            />
+          </>
         ) : (
           <ForecastView plan={plan} plotRef={chartRef} />
         )}

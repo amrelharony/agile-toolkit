@@ -1,32 +1,43 @@
 /**
- * One vote room, three kinds of round: the kind-aware steps of a round in
+ * One vote room, six kinds of round: the kind-aware steps of a round in
  * one place, so the room hook (`use-vote-room.ts`) runs a single state
- * machine whatever a tool asks.
+ * machine whatever a round asks.
  *
  *   scale       Questionnaire   v1 state   per question: count per point
  *   pair        PairSheet       v2 state   per item: the P × P joint count
  *   allocation  AllocationSheet v2 state   per item: total, bands of amounts
+ *   choice      ChoiceSheet     v3 state   per option: total (and backers)
+ *   rank        RankSheet       v3 state   per option: Borda points
+ *   number      NumberSheet     v3 state   count, median, spread
  *
- * A tool's kind is fixed (`VOTE_ROUND_KIND`). Everything here checks that a
- * round's sheet, counts and results are all of that kind, and refuses (null)
- * rather than mixing them. Ballots, kicks and ends are the same for every
- * kind; only what a ballot's plaintext means differs.
+ * A tool lists the kinds it may run (`VOTE_ROUND_KINDS`); each round is of
+ * one of them, and its state names it. Everything here checks that a
+ * round's sheet, counts and results are all of the round's kind, and that
+ * the tool may run it, and refuses (null) rather than mixing them.
+ * Ballots, kicks and ends are the same for every kind; only what a
+ * ballot's plaintext means differs.
  *
  * Pure and server-safe: no React, no store, no browser globals.
  */
 
 import {
   KIND_STATE_VERSION,
-  VOTE_ROUND_KIND,
+  PER_ROUND_STATE_VERSION,
   ballotCiphertextChars,
+  defaultRoundKind,
   encodeAnswers,
   isAllocationRoomTool,
+  isChoiceRoomTool,
+  isNumberRoomTool,
   isPairRoomTool,
+  isRankRoomTool,
   isScaleRoomTool,
+  isVoteRoundKind,
   questionnaireProblem,
   readAnswerString,
   readVoteState,
   toWireQuestionnaire,
+  toolRunsKind,
   type AnswerDraft,
   type HostKeys,
   type Questionnaire,
@@ -86,6 +97,61 @@ import {
   type PairTally,
   type RevealedPair,
 } from "./pair";
+import {
+  canRevealChoice,
+  choiceCiphertextChars,
+  choiceSheetProblem,
+  emptyChoiceTally,
+  encodeChoice,
+  foldChoice,
+  readChoiceState,
+  readChoiceString,
+  revealChoice,
+  toChoiceResult,
+  toWireChoiceSheet,
+  type ChoiceRoundResult,
+  type ChoiceSheet,
+  type ChoiceStateBody,
+  type ChoiceTally,
+  type RevealedChoice,
+} from "./choice";
+import {
+  canRevealRank,
+  emptyRankTally,
+  encodeRank,
+  foldRank,
+  rankCiphertextChars,
+  rankSheetProblem,
+  readRankState,
+  readRankString,
+  revealRank,
+  toRankResult,
+  toWireRankSheet,
+  type RankRoundResult,
+  type RankSheet,
+  type RankStateBody,
+  type RankTally,
+  type RevealedRank,
+} from "./rank";
+import {
+  canRevealNumber,
+  emptyNumberTally,
+  encodeNumber,
+  foldNumber,
+  numberCiphertextChars,
+  numberSheetProblem,
+  readNumberState,
+  readNumberString,
+  revealNumber,
+  toNumberResult,
+  toWireNumberSheet,
+  type NumberRoundResult,
+  type NumberSheet,
+  type NumberStateBody,
+  type NumberTally,
+  type RevealedNumber,
+} from "./number";
+import { obj } from "./wire";
 
 // ── Shapes ───────────────────────────────────────────────────────────
 
@@ -93,29 +159,50 @@ import {
 export type RoundSpec =
   | { kind: "scale"; questionnaire: Questionnaire }
   | { kind: "pair"; sheet: PairSheet }
-  | { kind: "allocation"; sheet: AllocationSheet };
+  | { kind: "allocation"; sheet: AllocationSheet }
+  | { kind: "choice"; sheet: ChoiceSheet }
+  | { kind: "rank"; sheet: RankSheet }
+  | { kind: "number"; sheet: NumberSheet };
 
-/** What a tool hands the room to ask: a questionnaire or a sheet, by the tool's kind. */
-export type RoundInput = Questionnaire | PairSheet | AllocationSheet;
+/** What a tool hands the room to ask: a questionnaire or a sheet of the round's kind. */
+export type RoundInput =
+  | Questionnaire
+  | PairSheet
+  | AllocationSheet
+  | ChoiceSheet
+  | RankSheet
+  | NumberSheet;
 
 /** The host's counts for a round (in the host's tab only, never sent before Reveal). */
 export type RoundCounts =
   | { kind: "scale"; tally: Tally }
   | { kind: "pair"; tally: PairTally }
-  | { kind: "allocation"; tally: AllocationTally };
+  | { kind: "allocation"; tally: AllocationTally }
+  | { kind: "choice"; tally: ChoiceTally }
+  | { kind: "rank"; tally: RankTally }
+  | { kind: "number"; tally: NumberTally };
 
 /** A revealed round's results, as the state carries them. */
 export type RoundRevealed =
   | { kind: "scale"; rows: RevealedQuestion[] }
   | { kind: "pair"; rows: RevealedPair[] }
-  | { kind: "allocation"; rows: RevealedAllocation[] };
+  | { kind: "allocation"; rows: RevealedAllocation[] }
+  | { kind: "choice"; rows: RevealedChoice[] }
+  | { kind: "rank"; rows: RevealedRank[] }
+  | { kind: "number"; value: RevealedNumber };
 
 /**
  * A closed round as a tool saves it, any kind (each one totals only). The
- * pair and allocation results carry their `kind`; a scale result is the
- * Phase 6 `VoteRoundResult`, unchanged, so it has none (`resultKind`).
+ * other kinds' results carry their `kind`; a scale result is the Phase 6
+ * `VoteRoundResult`, unchanged, so it has none (`resultKind`).
  */
-export type RoundResult = VoteRoundResult | PairRoundResult | AllocationRoundResult;
+export type RoundResult =
+  | VoteRoundResult
+  | PairRoundResult
+  | AllocationRoundResult
+  | ChoiceRoundResult
+  | RankRoundResult
+  | NumberRoundResult;
 
 /** A result's kind: "scale" for the Phase 6 `VoteRoundResult`, which has no `kind`. */
 export function resultKind(r: RoundResult): VoteRoundKind {
@@ -130,18 +217,36 @@ export function isAllocationResult(r: RoundResult | null | undefined): r is Allo
   return !!r && "kind" in r && r.kind === "allocation";
 }
 
+export function isChoiceResult(r: RoundResult | null | undefined): r is ChoiceRoundResult {
+  return !!r && "kind" in r && r.kind === "choice";
+}
+
+export function isRankResult(r: RoundResult | null | undefined): r is RankRoundResult {
+  return !!r && "kind" in r && r.kind === "rank";
+}
+
+export function isNumberResult(r: RoundResult | null | undefined): r is NumberRoundResult {
+  return !!r && "kind" in r && r.kind === "number";
+}
+
 export function isScaleResult(r: RoundResult | null | undefined): r is VoteRoundResult {
   return !!r && !("kind" in r);
 }
 
-/** A host state of any kind: scale states are v1, pair and allocation states v2. */
-export type RoundStateBody = VoteStateBody | PairStateBody | AllocationStateBody;
+/** A host state of any kind: scale states are v1, pair and allocation v2, the rest v3. */
+export type RoundStateBody =
+  | VoteStateBody
+  | PairStateBody
+  | AllocationStateBody
+  | ChoiceStateBody
+  | RankStateBody
+  | NumberStateBody;
 export type RoundStateMessage = Signed<RoundStateBody>;
 
 /**
- * A participant's form, any kind: item (or question, or `pairDraftKey`)
- * → a number, or null while blank. `AnswerDraft`, `PairDraft` and
- * `AllocationDraft` all have this shape.
+ * A participant's form, any kind: item (or question, option,
+ * `pairDraftKey`, `NUMBER_DRAFT_KEY`) → a number, or null while blank. Every
+ * kind's draft has this shape.
  */
 export type RoundDraft = AnswerDraft;
 
@@ -161,12 +266,14 @@ export interface RoundStateHead {
 
 // ── The round's questions ────────────────────────────────────────────
 
-/** The kind a tool's rounds are, or null for a tool outside the kit. */
+/**
+ * The kind a tool's rounds are when none is named (its usual one; the only
+ * one for the six tools from before), or null for a tool outside the kit.
+ * A tool that runs several kinds names each round's (`roundKindsOf` in
+ * `protocol.ts` lists them).
+ */
 export function roundKindOf(tool: unknown): VoteRoundKind | null {
-  if (isScaleRoomTool(tool)) return "scale";
-  if (isPairRoomTool(tool)) return "pair";
-  if (isAllocationRoomTool(tool)) return "allocation";
-  return null;
+  return defaultRoundKind(tool);
 }
 
 /** Which kind of round `input` looks like, from its shape. */
@@ -175,13 +282,16 @@ function inputKind(input: unknown): VoteRoundKind | null {
   if ("questions" in input) return "scale";
   if ("prompts" in input || "answers" in input) return "pair";
   if ("budget" in input) return "allocation";
+  if ("mode" in input) return "choice";
+  if ("min" in input || "max" in input || "decimals" in input) return "number";
+  if ("options" in input) return "rank";
   return null;
 }
 
 /**
  * `input` as the host may share it for a round of `kind`, or the reason it
  * can't be (one sentence for the host). A questionnaire for an allocation
- * tool, or any other kind change, is refused. Each kind's checker treats
+ * round, or any other kind change, is refused. Each kind's checker treats
  * its input as untrusted, so the casts below only pick which one runs.
  */
 export function wireSpec(
@@ -189,7 +299,10 @@ export function wireSpec(
   input: RoundInput | null | undefined
 ): { ok: true; spec: RoundSpec } | { ok: false; problem: string } {
   const seen = inputKind(input);
-  if (seen !== null && seen !== kind) {
+  // Options alone could be a rank sheet or a choice sheet missing its mode:
+  // the choice checker then says what's missing.
+  const ambiguous = seen === "rank" && kind === "choice";
+  if (seen !== null && seen !== kind && !ambiguous) {
     return { ok: false, problem: "This tool runs another kind of round." };
   }
   switch (kind) {
@@ -211,7 +324,61 @@ export function wireSpec(
         ? { ok: true, spec: { kind, sheet: s } }
         : { ok: false, problem: sheetProblem(input as AllocationSheet) ?? "" };
     }
+    case "choice": {
+      const s = toWireChoiceSheet(input as ChoiceSheet);
+      return s
+        ? { ok: true, spec: { kind, sheet: s } }
+        : { ok: false, problem: choiceSheetProblem(input as ChoiceSheet) ?? "" };
+    }
+    case "rank": {
+      const s = toWireRankSheet(input as RankSheet);
+      return s
+        ? { ok: true, spec: { kind, sheet: s } }
+        : { ok: false, problem: rankSheetProblem(input as RankSheet) ?? "" };
+    }
+    case "number": {
+      const s = toWireNumberSheet(input as NumberSheet);
+      return s
+        ? { ok: true, spec: { kind, sheet: s } }
+        : { ok: false, problem: numberSheetProblem(input as NumberSheet) ?? "" };
+    }
   }
+}
+
+/**
+ * `input` tagged as a round of `kind`, unchecked: `wireSpec` / `wireSpecFor`
+ * (and the room hook) check that it really is one.
+ */
+export function specOf(kind: VoteRoundKind, input: RoundInput): RoundSpec {
+  if (kind === "scale") return { kind, questionnaire: input as Questionnaire };
+  return { kind, sheet: input } as RoundSpec;
+}
+
+/** What a spec asks: its questionnaire or its sheet. */
+export function specInput(spec: RoundSpec): RoundInput {
+  return spec.kind === "scale" ? spec.questionnaire : spec.sheet;
+}
+
+/** Whether `v` is shaped like a `RoundSpec` (a kind plus its questionnaire or sheet), unchecked. */
+export function isRoundSpecLike(v: unknown): v is RoundSpec {
+  const o = obj(v);
+  if (!o || !isVoteRoundKind(o.kind)) return false;
+  return o.kind === "scale" ? obj(o.questionnaire) !== null : obj(o.sheet) !== null;
+}
+
+/**
+ * The round `tool` may run for `spec`, as the host may share it, or the
+ * reason it can't (one sentence for the host). A kind outside the tool's
+ * list is refused before its sheet is looked at.
+ */
+export function wireSpecFor(
+  tool: VoteRoomTool,
+  spec: RoundSpec
+): { ok: true; spec: RoundSpec } | { ok: false; problem: string } {
+  if (!toolRunsKind(tool, spec.kind)) {
+    return { ok: false, problem: "This tool doesn't run that kind of round." };
+  }
+  return wireSpec(spec.kind, specInput(spec));
 }
 
 /** The round's title, whatever its kind. */
@@ -229,6 +396,12 @@ export function emptyCounts(roundId: string, spec: RoundSpec): RoundCounts {
       return { kind: "pair", tally: emptyPairTally(roundId, spec.sheet) };
     case "allocation":
       return { kind: "allocation", tally: emptyAllocationTally(roundId, spec.sheet) };
+    case "choice":
+      return { kind: "choice", tally: emptyChoiceTally(roundId, spec.sheet) };
+    case "rank":
+      return { kind: "rank", tally: emptyRankTally(roundId, spec.sheet) };
+    case "number":
+      return { kind: "number", tally: emptyNumberTally(roundId) };
   }
 }
 
@@ -241,6 +414,12 @@ export function specCiphertextChars(spec: RoundSpec): number {
       return pairCiphertextChars(spec.sheet);
     case "allocation":
       return allocationCiphertextChars(spec.sheet);
+    case "choice":
+      return choiceCiphertextChars(spec.sheet);
+    case "rank":
+      return rankCiphertextChars(spec.sheet);
+    case "number":
+      return numberCiphertextChars(spec.sheet);
   }
 }
 
@@ -253,6 +432,12 @@ export function encodeDraft(spec: RoundSpec, draft: RoundDraft): string | null {
       return encodePairs(draft, spec.sheet);
     case "allocation":
       return encodeAllocation(draft, spec.sheet);
+    case "choice":
+      return encodeChoice(draft, spec.sheet);
+    case "rank":
+      return encodeRank(draft, spec.sheet);
+    case "number":
+      return encodeNumber(draft, spec.sheet);
   }
 }
 
@@ -298,6 +483,30 @@ export function openPlain(
       ? { ok: true, counts: { kind: "allocation", tally: res.tally }, ledger: res.ledger }
       : res;
   }
+  if (spec.kind === "choice" && counts.kind === "choice") {
+    const picks = readChoiceString(plain, spec.sheet);
+    if (!picks) return null;
+    const res = foldChoice(counts.tally, ledger, by, picks, spec.sheet, ctx);
+    return res.ok
+      ? { ok: true, counts: { kind: "choice", tally: res.tally }, ledger: res.ledger }
+      : res;
+  }
+  if (spec.kind === "rank" && counts.kind === "rank") {
+    const order = readRankString(plain, spec.sheet);
+    if (!order) return null;
+    const res = foldRank(counts.tally, ledger, by, order, spec.sheet, ctx);
+    return res.ok
+      ? { ok: true, counts: { kind: "rank", tally: res.tally }, ledger: res.ledger }
+      : res;
+  }
+  if (spec.kind === "number" && counts.kind === "number") {
+    const steps = readNumberString(plain, spec.sheet);
+    if (steps === null) return null;
+    const res = foldNumber(counts.tally, ledger, by, steps, spec.sheet, ctx);
+    return res.ok
+      ? { ok: true, counts: { kind: "number", tally: res.tally }, ledger: res.ledger }
+      : res;
+  }
   return null;
 }
 
@@ -312,11 +521,24 @@ export function canRevealCounts(counts: RoundCounts, minN: number): boolean {
       return canRevealPairs(counts.tally, minN);
     case "allocation":
       return canRevealAllocation(counts.tally, minN);
+    case "choice":
+      return canRevealChoice(counts.tally, minN);
+    case "rank":
+      return canRevealRank(counts.tally, minN);
+    case "number":
+      return canRevealNumber(counts.tally, minN);
   }
 }
 
-/** What Reveal shows, under each kind's rules; null when the round can't reveal yet. */
-export function revealCounts(counts: RoundCounts, minN: number): RoundRevealed | null {
+/**
+ * What Reveal shows, under each kind's rules; null when the round can't
+ * reveal yet (or the counts aren't `spec`'s kind).
+ */
+export function revealCounts(
+  counts: RoundCounts,
+  minN: number,
+  spec?: RoundSpec
+): RoundRevealed | null {
   if (!canRevealCounts(counts, minN)) return null;
   switch (counts.kind) {
     case "scale":
@@ -327,13 +549,27 @@ export function revealCounts(counts: RoundCounts, minN: number): RoundRevealed |
       const rows = revealAllocation(counts.tally, minN);
       return rows ? { kind: "allocation", rows } : null;
     }
+    case "choice": {
+      if (spec?.kind !== "choice") return null;
+      const rows = revealChoice(counts.tally, spec.sheet, minN);
+      return rows ? { kind: "choice", rows } : null;
+    }
+    case "rank": {
+      const rows = revealRank(counts.tally, minN);
+      return rows ? { kind: "rank", rows } : null;
+    }
+    case "number": {
+      if (spec?.kind !== "number") return null;
+      const value = revealNumber(counts.tally, spec.sheet, minN);
+      return value ? { kind: "number", value } : null;
+    }
   }
 }
 
 /**
  * The result a tool may save for a revealed round, re-applying the kind's
  * reveal rules. Null when the parts don't belong together (another kind,
- * another tool) or there is nothing to show.
+ * a tool that doesn't run it) or there is nothing to show.
  */
 export function roundResult(
   spec: RoundSpec,
@@ -350,6 +586,15 @@ export function roundResult(
   if (spec.kind === "allocation" && revealed.kind === "allocation" && isAllocationRoomTool(tool)) {
     return toAllocationResult(spec.sheet, revealed.rows, { ...meta, tool });
   }
+  if (spec.kind === "choice" && revealed.kind === "choice" && isChoiceRoomTool(tool)) {
+    return toChoiceResult(spec.sheet, revealed.rows, { ...meta, tool });
+  }
+  if (spec.kind === "rank" && revealed.kind === "rank" && isRankRoomTool(tool)) {
+    return toRankResult(spec.sheet, revealed.rows, { ...meta, tool });
+  }
+  if (spec.kind === "number" && revealed.kind === "number" && isNumberRoomTool(tool)) {
+    return toNumberResult(spec.sheet, revealed.value, { ...meta, tool });
+  }
   return null;
 }
 
@@ -358,8 +603,9 @@ export function roundResult(
 /**
  * The state the host signs and sends. Scale states are the Phase 6 v1 body,
  * field for field and in the same order; pair and allocation states are v2
- * with their kind. Results ride along only once revealed. Null when the
- * tool doesn't run rounds of `spec`'s kind.
+ * with their kind; choice, rank and number states v3 with theirs. Results
+ * ride along only once revealed. Null when the tool doesn't run rounds of
+ * `spec`'s kind.
  */
 export function stateBodyFor(
   spec: RoundSpec,
@@ -367,7 +613,7 @@ export function stateBodyFor(
   revealed: RoundRevealed | null
 ): RoundStateBody | null {
   const { by, seq, tool, roundId, endsAt, minN, keys, phase, ballots, acks } = head;
-  if (VOTE_ROUND_KIND[tool] !== spec.kind) return null;
+  if (!toolRunsKind(tool, spec.kind)) return null;
   const shown = phase === "revealed" && revealed?.kind === spec.kind ? revealed : null;
   if (spec.kind === "scale") {
     return {
@@ -422,32 +668,119 @@ export function stateBodyFor(
       revealed: shown?.kind === "allocation" ? shown.rows : null,
     };
   }
+  if (spec.kind === "choice" && isChoiceRoomTool(tool)) {
+    return {
+      v: PER_ROUND_STATE_VERSION,
+      kind: "choice",
+      by,
+      seq,
+      tool,
+      roundId,
+      endsAt,
+      minN,
+      sheet: spec.sheet,
+      keys,
+      phase,
+      ballots,
+      acks,
+      revealed: shown?.kind === "choice" ? shown.rows : null,
+    };
+  }
+  if (spec.kind === "rank" && isRankRoomTool(tool)) {
+    return {
+      v: PER_ROUND_STATE_VERSION,
+      kind: "rank",
+      by,
+      seq,
+      tool,
+      roundId,
+      endsAt,
+      minN,
+      sheet: spec.sheet,
+      keys,
+      phase,
+      ballots,
+      acks,
+      revealed: shown?.kind === "rank" ? shown.rows : null,
+    };
+  }
+  if (spec.kind === "number" && isNumberRoomTool(tool)) {
+    return {
+      v: PER_ROUND_STATE_VERSION,
+      kind: "number",
+      by,
+      seq,
+      tool,
+      roundId,
+      endsAt,
+      minN,
+      sheet: spec.sheet,
+      keys,
+      phase,
+      ballots,
+      acks,
+      revealed: shown?.kind === "number" ? shown.value : null,
+    };
+  }
   return null;
 }
 
 /**
- * A host state for this page's `tool`, read by the tool's kind, or null.
- * A state of another kind is never read, so an old or a foreign client's
- * state is ignored rather than misread.
+ * A host state for this page's `tool`, read by the kind it names, or null.
+ * Only a kind the tool may run is read, so an old or a foreign client's
+ * state is ignored rather than misread: Health Check reads only v1 scale
+ * states, Kano only v2 pair states, Quick Vote any of its kinds.
  */
 export function readRoundState(raw: unknown, tool: VoteRoomTool): RoundStateMessage | null {
-  if (isScaleRoomTool(tool)) return readVoteState(raw, tool);
-  if (isPairRoomTool(tool)) return readPairState(raw, tool);
-  if (isAllocationRoomTool(tool)) return readAllocationState(raw, tool);
-  return null;
+  const m = obj(raw);
+  if (!m) return null;
+  if (m.v === 1) return isScaleRoomTool(tool) ? readVoteState(raw, tool) : null;
+  switch (m.kind) {
+    case "pair":
+      return isPairRoomTool(tool) ? readPairState(raw, tool) : null;
+    case "allocation":
+      return isAllocationRoomTool(tool) ? readAllocationState(raw, tool) : null;
+    case "choice":
+      return isChoiceRoomTool(tool) ? readChoiceState(raw, tool) : null;
+    case "rank":
+      return isRankRoomTool(tool) ? readRankState(raw, tool) : null;
+    case "number":
+      return isNumberRoomTool(tool) ? readNumberState(raw, tool) : null;
+    default:
+      return null;
+  }
 }
 
 /** What a state asks. */
 export function specOfState(msg: RoundStateBody): RoundSpec {
   if (msg.v === 1) return { kind: "scale", questionnaire: msg.questionnaire };
-  return msg.kind === "pair"
-    ? { kind: "pair", sheet: msg.sheet }
-    : { kind: "allocation", sheet: msg.sheet };
+  switch (msg.kind) {
+    case "pair":
+      return { kind: "pair", sheet: msg.sheet };
+    case "allocation":
+      return { kind: "allocation", sheet: msg.sheet };
+    case "choice":
+      return { kind: "choice", sheet: msg.sheet };
+    case "rank":
+      return { kind: "rank", sheet: msg.sheet };
+    case "number":
+      return { kind: "number", sheet: msg.sheet };
+  }
 }
 
 /** A state's revealed results, or null while open. */
 export function revealedOfState(msg: RoundStateBody): RoundRevealed | null {
   if (msg.v === 1) return msg.revealed ? { kind: "scale", rows: msg.revealed } : null;
-  if (msg.kind === "pair") return msg.revealed ? { kind: "pair", rows: msg.revealed } : null;
-  return msg.revealed ? { kind: "allocation", rows: msg.revealed } : null;
+  switch (msg.kind) {
+    case "pair":
+      return msg.revealed ? { kind: "pair", rows: msg.revealed } : null;
+    case "allocation":
+      return msg.revealed ? { kind: "allocation", rows: msg.revealed } : null;
+    case "choice":
+      return msg.revealed ? { kind: "choice", rows: msg.revealed } : null;
+    case "rank":
+      return msg.revealed ? { kind: "rank", rows: msg.revealed } : null;
+    case "number":
+      return msg.revealed ? { kind: "number", value: msg.revealed } : null;
+  }
 }

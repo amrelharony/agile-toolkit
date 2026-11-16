@@ -33,6 +33,8 @@ export interface MarkdownContext {
   sprint?: Pick<Sprint, "id" | "name">;
   /** OKRs the goal's `okrIds` may point at. */
   okrs?: readonly Okr[];
+  /** The team's active Product Goal, which the sprint works towards (read only). */
+  productGoal?: string;
 }
 
 type GoalFields = Pick<SprintGoal, "businessObjective" | "goal" | "criteria" | "keyResults"> &
@@ -56,7 +58,7 @@ function outcomeLines(outcome: SprintGoalOutcome): string[] {
 export function toMarkdown(
   goal: GoalFields,
   now: Date = new Date(),
-  { sprint, okrs = [] }: MarkdownContext = {}
+  { sprint, okrs = [], productGoal }: MarkdownContext = {}
 ): string {
   const title = sprint
     ? `# Sprint Goal — ${oneLine(sprint.name)} · ${mdDate(now)}`
@@ -91,6 +93,8 @@ export function toMarkdown(
   }
   // Right under the goal it answers: after the sprint, the result comes first.
   if (outcome) lines.push(...outcomeLines(outcome));
+  const product = oneLine(productGoal);
+  if (product) lines.push("", "## Product Goal", "", product);
   if (objective) lines.push("", "## Business objective", "", objective);
   if (criteria.length > 0) {
     lines.push(

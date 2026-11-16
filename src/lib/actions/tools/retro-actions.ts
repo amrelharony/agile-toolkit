@@ -15,6 +15,9 @@
  *   3. add      — add an action outside the board (the page's quick add):
  *                 onto the current retro, else the newest archived one.
  *   4. update   — edit an action's text, owner or due date in place.
+ *   5. list_themes — what came up in three or more of the past retros
+ *                 (lib/retro/recurring-themes), and what came back after
+ *                 its action was marked done. Reads only.
  *
  * An action counts as done when it is marked on the card, or when the
  * impediment, Kanban card or story it was sent to is finished, as on the
@@ -46,6 +49,12 @@ import {
   type RetroAction,
 } from "@/lib/retro/actions";
 import { todayIso } from "@/lib/sprints/series";
+import {
+  RECURRING_MIN_RETROS,
+  archivedCards,
+  archivedRetroCount,
+  recurringThemes,
+} from "@/lib/retro/recurring-themes";
 
 const KIND_RETRO = "workspace:retroBoard";
 
@@ -253,4 +262,50 @@ registry.register({
     await serverUpsertEntity<RetroBoard>(ctx.userId, KIND_RETRO, next);
     return { updated: true, boardId: next.id };
   },
+});
+
+/** The themes as list_themes reports them: each with its retros, a few cards, and came-back. */
+function themesListing(boards: readonly RetroBoard[]) {
+  const pastRetros = archivedRetroCount(boards);
+  if (pastRetros < RECURRING_MIN_RETROS) {
+    return { pastRetros, enough: false, minRetros: RECURRING_MIN_RETROS, themes: [] };
+  }
+  const cards = new Map(archivedCards(boards).map((c) => [c.card.id, c]));
+  const archivedAt = new Map(boards.map((b) => [b.id, b.archivedAt ?? null]));
+  return {
+    pastRetros,
+    enough: true,
+    minRetros: RECURRING_MIN_RETROS,
+    themes: recurringThemes(boards).map((t) => ({
+      name: t.name,
+      retros: t.boardIds.map((id) => ({ boardId: id, archivedAt: archivedAt.get(id) ?? null })),
+      cardCount: t.cardIds.length,
+      cards: t.cardIds.slice(0, 12).flatMap((id) => {
+        const hit = cards.get(id);
+        return hit ? [{ id, boardId: hit.board.id, text: hit.card.text }] : [];
+      }),
+      cameBackAfterDone: t.cameBack
+        ? {
+            actionId: t.cameBack.actionId,
+            actionText: t.cameBack.actionText,
+            doneAt: t.cameBack.doneAt,
+            boardId: t.cameBack.boardId,
+          }
+        : null,
+    })),
+  };
+}
+
+// ──────── tool.retro_actions.list_themes ────────
+registry.register({
+  id: "tool.retro_actions.list_themes",
+  toolId: "tool.retro_actions",
+  name: "list_themes",
+  category: "read",
+  description:
+    "Recurring themes across the past (archived) retros, up to 52: words the cards of three or more retros share, most retros first, each card in one theme at most (carried-over copies left out). A theme 'came back after done' when one of its cards is an action marked done and the theme came up again in a retro archived after that. Returns {pastRetros, enough (false below 3 past retros), minRetros, themes: {name, retros: {boardId, archivedAt}[] (oldest first), cardCount, cards: {id, boardId, text}[] (up to 12), cameBackAfterDone: {actionId, actionText, doneAt, boardId} | null}[]}.",
+  paramsSchema: z.object({}),
+  handler: async () => themesListing(ws().retroBoards ?? []),
+  mcpHandler: async (_params, ctx) =>
+    themesListing(await serverListEntities<RetroBoard>(ctx.userId, KIND_RETRO)),
 });

@@ -27,6 +27,7 @@ import {
   retroArchivesToPrune,
 } from "./archive";
 import { buildExample, withoutExampleCards } from "./example";
+import { clearPlan } from "./plan-store";
 
 // ── Root Client ──────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ export function RetroClient() {
     sprintChoice === undefined ? defaultSprintId : (sprintChoice ?? undefined);
 
   const handleSelectFormat = useCallback(
-    (format: RetroFormat) => {
+    (format: RetroFormat, opts?: { surprise?: boolean }) => {
       // The picker only shows when there is no board, so nothing is lost here.
       // The new retro follows the newest archived one, whose actions it
       // offers to carry over, and looks back on the sprint shown above.
@@ -87,9 +88,12 @@ export function RetroClient() {
       );
       setSprintChoice(undefined);
       setLinkedSprint(null);
+      // A format picked by hand drops a Surprise plan picked earlier.
+      if (!opts?.surprise) clearPlan();
       logger.log(RETRO_ACTIONS.FORMAT_CHANGED, {
         format: format.name,
         ...(newBoardSprintId ? { sprintId: newBoardSprintId } : {}),
+        ...(opts?.surprise ? { surprise: true } : {}),
       });
     },
     [logger, upsertRetroBoard, newBoardSprintId]
@@ -124,6 +128,7 @@ export function RetroClient() {
         for (const b of pruned) removeRetroBoard(b.id);
         if (archive) upsertRetroBoard(archive);
         removeRetroBoard(RB_ID);
+        clearPlan();
         logger.log(RETRO_ACTIONS.RETRO_RESET, {});
       },
       revert: () => {

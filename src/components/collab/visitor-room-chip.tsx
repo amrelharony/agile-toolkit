@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Copy, LogOut, QrCode as QrCodeIcon, Radio, Users, X } from "lucide-react";
+import {
+  Check,
+  Copy,
+  LogOut,
+  MonitorPlay,
+  QrCode as QrCodeIcon,
+  Radio,
+  Users,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -21,6 +30,7 @@ import {
   visitorRoomsEnabled,
   type VisitorTool,
 } from "@/lib/realtime/visitor-rooms";
+import { groupRoomCode } from "@/lib/realtime/visitor-code";
 
 export interface VisitorRoomChipProps {
   tool: VisitorTool;
@@ -40,20 +50,27 @@ export interface VisitorRoomChipProps {
    * characters.
    */
   linkFragment?: string;
+  /**
+   * Host: offer "Big screen", which puts the room on a shared screen (code,
+   * QR code, who's in, the round) through `RoomBigScreen`.
+   */
+  onBigScreen?: () => void;
   className?: string;
 }
 
 const LINK_FRAGMENT_RE = /^#[A-Za-z0-9=_-]{1,64}$/;
 
 /**
- * The header chip for a visitor live room: its code, "Copy link", "Show QR
- * code", how full it is, and End room (host) or Leave (participant).
- * Announces joins and leaves politely. Renders nothing while the feature
- * flag is off or for a malformed code.
+ * The header chip for a visitor live room: its code (in groups of four,
+ * ABCD-EFGH-JKMN, for reading aloud), "Copy link", "Show QR code", how full
+ * it is, the host's "Big screen" when the room offers it, and End room
+ * (host) or Leave (participant). Announces joins and leaves politely.
+ * Renders nothing while the feature flag is off or for a malformed code.
  *
  * The QR code holds the same link as Copy link, fragment included, so a
  * phone that scans it lands in the room with the vote round's host key. It
- * is drawn only while its dialog is open, from the page's own origin.
+ * is drawn only while its dialog is open, from the page's own origin, with
+ * the grouped code beside it.
  */
 export function VisitorRoomChip({
   tool,
@@ -63,6 +80,7 @@ export function VisitorRoomChip({
   onEnd,
   onLeave,
   linkFragment,
+  onBigScreen,
   className,
 }: VisitorRoomChipProps) {
   const announce = useAnnounce();
@@ -115,7 +133,7 @@ export function VisitorRoomChip({
       </span>
       <span className="font-data tracking-wider">
         <span className="sr-only">Room code </span>
-        {code}
+        {groupRoomCode(code)}
       </span>
       <span className={cn("flex items-center gap-1 font-data", full ? "text-warning" : "text-sub")}>
         <Users className="w-3.5 h-3.5" aria-hidden="true" />
@@ -152,6 +170,19 @@ export function VisitorRoomChip({
         <QrCodeIcon className="w-3.5 h-3.5" aria-hidden="true" />
         Show QR code
       </Button>
+      {isHost && onBigScreen && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="gap-1"
+          title="Show the room on a shared screen"
+          onClick={onBigScreen}
+        >
+          <MonitorPlay className="w-3.5 h-3.5" aria-hidden="true" />
+          Big screen
+        </Button>
+      )}
       {isHost
         ? onEnd && (
             <Button
@@ -173,7 +204,7 @@ export function VisitorRoomChip({
           )}
       <Dialog open={qrOpen} onOpenChange={setQrOpen}>
         <DialogContent className="max-w-sm">
-          <JoinQr link={link} />
+          <JoinQr link={link} code={code} />
         </DialogContent>
       </Dialog>
     </div>
@@ -181,11 +212,11 @@ export function VisitorRoomChip({
 }
 
 /**
- * The dialog's body: the code to scan, and the link it holds written out.
- * Mounted only while the dialog is open, so `link` (which reads the page's
- * origin) runs in the browser.
+ * The dialog's body: the code to scan, the room code beside it in groups,
+ * and the link it holds written out. Mounted only while the dialog is open,
+ * so `link` (which reads the page's origin) runs in the browser.
  */
-function JoinQr({ link }: { link: () => string }) {
+function JoinQr({ link, code }: { link: () => string; code: string }) {
   const url = link();
   return (
     <>
@@ -205,6 +236,10 @@ function JoinQr({ link }: { link: () => string }) {
           </p>
         }
       />
+      <p className="text-center font-data text-2xl font-bold tracking-wider text-text">
+        <span className="sr-only">Room code </span>
+        {groupRoomCode(code)}
+      </p>
       <p className="break-all text-center font-data text-xs text-sub">{url}</p>
     </>
   );

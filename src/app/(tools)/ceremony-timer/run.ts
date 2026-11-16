@@ -11,7 +11,7 @@
  */
 
 import type { DockedTimer } from "@/lib/timer/dock-timer";
-import type { Agenda, AgendaId, Segment } from "./agenda";
+import type { Agenda, AgendaKey, Segment } from "./agenda";
 import { speakerPlan, type Participant, type SpeakerPlan, type Turn } from "./speakers";
 
 export interface SegmentRun {
@@ -26,7 +26,7 @@ export interface SegmentRun {
 }
 
 export interface Run {
-  agendaId: AgendaId;
+  agendaId: AgendaKey;
   /** The segment that is on (the last one once finished). */
   index: number;
   /** One record per segment reached, in agenda order. */
@@ -44,7 +44,7 @@ export function activeMs(run: Run, now: number): number {
 }
 
 /** A run of `agendaId` at its first segment, running from `now` or paused at zero. */
-export function startRun(agendaId: AgendaId, now: number, running = true): Run {
+export function startRun(agendaId: AgendaKey, now: number, running = true): Run {
   return {
     agendaId,
     index: 0,
