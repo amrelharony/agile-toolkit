@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Tags } from "lucide-react";
 import { AiButton, AiSuggestions } from "@/components/ai";
 import { Button } from "@/components/ui/button";
@@ -50,6 +50,10 @@ export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
   } | null>(null);
   const ai = GROUP_NAME_AI;
   const wanted = Math.min(count, MIXER_LIMITS.groups);
+  /** Which button asked, for focus on Dismiss: the built-in lists, or Ask Amr. */
+  const askedBy = useRef<"built-in" | "ai">("built-in");
+  const builtInRef = useRef<HTMLButtonElement>(null);
+  const askRef = useRef<HTMLDivElement>(null);
 
   // Each suggestion keeps its group's place, so "Use all" after one "Use"
   // still names the right groups.
@@ -61,6 +65,7 @@ export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
   // The built-in lists: a theme they don't know gets one at random, and
   // the page says which instead of passing it off as the theme asked for.
   const suggestBuiltIn = () => {
+    askedBy.current = "built-in";
     const typed = theme.trim();
     const r = suggestGroupNames(typed, wanted);
     show(r.names, "fallback", {
@@ -93,32 +98,35 @@ export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
         )}
       </Field>
       <div className="flex flex-wrap items-start gap-2">
-        <Button type="button" size="sm" variant="outline" onClick={suggestBuiltIn}>
+        <Button ref={builtInRef} type="button" size="sm" variant="outline" onClick={suggestBuiltIn}>
           Suggest names
         </Button>
         {/* No fallbackLabel: "Suggest names" beside it is the no-AI path, and
             works with no theme too, so AI being off shows one button, not two. */}
         {ai && (
-          <AiButton
-            task={ai.task}
-            input={() => ai.input(theme.trim(), Math.min(wanted, ai.max))}
-            disabledReason={
-              theme.trim().length >= THEME_MIN
-                ? null
-                : "Type a theme first, such as planets or rivers."
-            }
-            label="Ask Amr for names"
-            onResult={(data, meta) =>
-              show(
-                ai
-                  .names(data)
-                  .map((n) => n.trim().slice(0, MIXER_LIMITS.groupName))
-                  .filter(Boolean)
-                  .slice(0, wanted),
-                meta.source
-              )
-            }
-          />
+          <div ref={askRef}>
+            <AiButton
+              task={ai.task}
+              input={() => ai.input(theme.trim(), Math.min(wanted, ai.max))}
+              disabledReason={
+                theme.trim().length >= THEME_MIN
+                  ? null
+                  : "Type a theme first, such as planets or rivers."
+              }
+              label="Ask Amr for names"
+              onResult={(data, meta) => {
+                askedBy.current = "ai";
+                show(
+                  ai
+                    .names(data)
+                    .map((n) => n.trim().slice(0, MIXER_LIMITS.groupName))
+                    .filter(Boolean)
+                    .slice(0, wanted),
+                  meta.source
+                );
+              }}
+            />
+          </div>
         )}
       </div>
       {suggested?.note && <p className="text-sm text-sub">{suggested.note}</p>}
@@ -134,6 +142,11 @@ export function GroupNamer({ count, unit, onApply }: GroupNamerProps) {
           // takes focus on its heading; Dismiss clears it.
           onAcceptAll={(items) => apply(items)}
           onDismiss={() => setSuggested(null)}
+          returnFocus={() =>
+            (askedBy.current === "ai"
+              ? askRef.current?.querySelector<HTMLElement>('[data-testid="ai-button"]')
+              : null) ?? builtInRef.current
+          }
         />
       )}
     </div>

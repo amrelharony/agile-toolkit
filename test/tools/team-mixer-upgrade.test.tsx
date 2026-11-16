@@ -560,13 +560,25 @@ describe("after a mix", () => {
     expect(screen.queryByText(/No list for that theme/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Use all 2" }));
     // The list stays to say so, and keeps keyboard focus on its heading.
-    expect(screen.getByText("All added.")).toBeInTheDocument();
+    expect(screen.getByText("All used.")).toBeInTheDocument();
     expect(document.activeElement).toBe(screen.getByRole("heading", { name: /Suggested names/ }));
     const names = state().rounds[0].groups.map((g) => g.name);
     expect(names.every((n) => typeof n === "string" && n.length > 0)).toBe(true);
     expect(screen.getByRole("list", { name: names[0]! })).toBeInTheDocument();
     undoOf("Named 2 groups")();
     expect(state().rounds[0].groups.every((g) => g.name === undefined)).toBe(true);
+  });
+
+  it("puts focus back on Suggest names when the names are dismissed", async () => {
+    seed(SIX, { split: "count", count: 2 });
+    await mount();
+    fireEvent.click(mixButton());
+    fireEvent.click(screen.getByRole("button", { name: "Suggest names" }));
+    const dismiss = screen.getByRole("button", { name: "Dismiss suggestions" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    expect(screen.queryByRole("button", { name: "Dismiss suggestions" })).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Suggest names" }));
   });
 
   it("says which list it used when the lists don't know the theme", async () => {
