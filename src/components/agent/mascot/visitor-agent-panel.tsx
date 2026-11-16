@@ -205,18 +205,29 @@ let noticeShown = 0;
  * dictation may send the audio to the browser's maker, so until this browser
  * said "Use voice" (lib/agent/mascot/voice-consent), a press shows the voice
  * notice under the box's row (./voice-notice, loaded only then) and starts
- * nothing. Either choice hands focus back to the mic; "Use voice" remembers
- * the yes and starts dictation.
+ * nothing. The notice takes focus as it shows, unless the visitor moved focus
+ * or typed while it loaded (a slow connection): then it shows and leaves their
+ * place alone, and the mic's next press brings it focus. Either choice hands
+ * focus back to the mic; "Use voice" remembers the yes and starts dictation.
  */
 function VisitorDictate(props: ComposerMicProps) {
-  const { show, onNote } = props;
+  const { show, onNote, draft } = props;
   const ask = (start: () => void, mic: HTMLButtonElement) => {
     if (hasVoiceConsent()) return start();
+    const doc = mic.ownerDocument;
+    const focusAtPress = doc.activeElement;
+    const draftAtPress = draft();
     loadVoiceNotice().then(
-      ({ VoiceNotice }) =>
+      ({ VoiceNotice }) => {
+        const now = doc.activeElement;
+        // The visitor moved on while it loaded (focus elsewhere, or typing): leave their place alone.
+        const takeFocus =
+          draft() === draftAtPress &&
+          (!now || now === doc.body || now === mic || now === focusAtPress);
         show(
           <VoiceNotice
             key={++noticeShown}
+            takeFocus={takeFocus}
             onChoose={(yes) => {
               show(null);
               mic.focus();
@@ -225,7 +236,8 @@ function VisitorDictate(props: ComposerMicProps) {
               start();
             }}
           />
-        ),
+        );
+      },
       () => onNote(VOICE_NOTICE_LOAD_ERROR)
     );
   };

@@ -17,7 +17,10 @@
  *            disclosure, so a screen reader says what it is before the
  *            buttons. It takes focus as it shows, from code only (chat-context
  *            focusFromCode: focusable just while it holds focus, so a tap on
- *            its words takes none), and Tab goes on to the buttons.
+ *            its words takes none), and Tab goes on to the buttons; unless
+ *            the visitor moved focus or typed while it loaded (`takeFocus`
+ *            false), when it shows without it and the mic's next press,
+ *            which shows it again, brings it focus.
  *   choice   either one hands focus back to the mic, and the notice goes;
  *            "Use voice" then starts dictation, and the chat remembers the
  *            yes in this browser (lib/agent/mascot/voice-consent). Escape
@@ -47,18 +50,22 @@ export const NOT_NOW = "Not now";
 export interface VoiceNoticeProps {
   /** The visitor chose: true for "Use voice", false for "Not now" or Escape. */
   onChoose(useVoice: boolean): void;
+  /** Take focus as it shows (default); false when the visitor moved on while it loaded. */
+  takeFocus?: boolean;
 }
 
 /** The voice notice: see the file comment. */
-export function VoiceNotice({ onChoose }: VoiceNoticeProps) {
+export function VoiceNotice({ onChoose, takeFocus = true }: VoiceNoticeProps) {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   const labelId = `${id}label`;
   const textId = `${id}text`;
 
-  // Before paint, so no frame shows focus left behind on the mic.
+  // Before paint, so no frame shows focus left behind on the mic. As it
+  // shows only: a later press of the mic shows a new one (a new key).
+  const focusOnShow = useRef(takeFocus);
   useLayoutEffect(() => {
-    focusFromCode(ref.current);
+    if (focusOnShow.current) focusFromCode(ref.current);
   }, []);
 
   return (

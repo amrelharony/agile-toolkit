@@ -236,4 +236,49 @@ describe("the notice's module", () => {
     expect(FakeRecognition.last).toBeNull();
     vi.doUnmock("@/components/agent/mascot/voice-notice");
   });
+
+  it("that loads late, after the visitor went back to typing: it shows but leaves focus in the box, and the next press brings it focus", async () => {
+    vi.resetModules();
+    let arrive!: () => void;
+    const loaded = new Promise<void>((resolve) => (arrive = resolve));
+    vi.doMock("@/components/agent/mascot/voice-notice", async (importOriginal) => {
+      await loaded;
+      return importOriginal();
+    });
+    const Fresh = (await import("@/components/agent/mascot/visitor-agent-panel")).default;
+    render(<Fresh initialQuestion="" onOfflineGuide={() => {}} />);
+    pressByKey(mic());
+    // While it loads, the visitor goes back to the box and types on.
+    const box = screen.getByRole("textbox", { name: "Message" });
+    act(() => box.focus());
+    fireEvent.change(box, { target: { value: "half a wor" } });
+    await act(async () => arrive());
+    const group = await screen.findByRole("group", { name: LABEL });
+    expect(box).toHaveFocus();
+    expect(box).toHaveValue("half a wor");
+    expect(group).not.toHaveFocus();
+    expect(FakeRecognition.last).toBeNull();
+    // The mic's next press is the way to it.
+    pressByKey(mic());
+    await waitFor(() => expect(notice()).toHaveFocus());
+    expect(screen.getAllByRole("group", { name: LABEL })).toHaveLength(1);
+    expect(box).toHaveValue("half a wor");
+    vi.doUnmock("@/components/agent/mascot/voice-notice");
+  });
+
+  it("that loads late while focus stays where the press left it: it takes focus as it shows", async () => {
+    vi.resetModules();
+    let arrive!: () => void;
+    const loaded = new Promise<void>((resolve) => (arrive = resolve));
+    vi.doMock("@/components/agent/mascot/voice-notice", async (importOriginal) => {
+      await loaded;
+      return importOriginal();
+    });
+    const Fresh = (await import("@/components/agent/mascot/visitor-agent-panel")).default;
+    render(<Fresh initialQuestion="" onOfflineGuide={() => {}} />);
+    pressByKey(mic());
+    await act(async () => arrive());
+    expect(await screen.findByRole("group", { name: LABEL })).toHaveFocus();
+    vi.doUnmock("@/components/agent/mascot/voice-notice");
+  });
 });
