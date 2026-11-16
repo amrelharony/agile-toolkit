@@ -279,6 +279,11 @@ describe("the frame", () => {
     // the frame's scrolling never cuts the ring off.
     expect(el).toHaveClass("focus-visible:!outline-offset-[-3px]");
     expect(el.className).not.toMatch(/outline-none/);
+    // ... and over the strip: the log is its own stack with its content at
+    // the bottom of it, so a balloon scrolled under an edge (balloons are
+    // positioned) never paints over the line.
+    expect(el).toHaveClass("isolate");
+    expect(el.querySelector("[data-chat-content]")).toHaveClass("relative", "-z-10");
     // Focused, the keys that go up still count as the reader leaving the end.
     act(() => el.focus());
     expect(el).toHaveFocus();

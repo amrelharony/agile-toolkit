@@ -31,8 +31,12 @@
  *                     the messages have run out: the strip ends on the refused
  *                     question, with no reply end to Tab to). Its ring is drawn
  *                     inside its edge (high contrast's too), where the frame's
- *                     scrolling can't cut it off. Nothing focuses it from code:
- *                     the log is never a view's first focus (use-panel-focus).
+ *                     scrolling can't cut it off, and over the strip: the log
+ *                     is its own stack (isolate) with its content at the
+ *                     bottom of it (-z-10), so a balloon scrolled under the top
+ *                     or bottom edge never paints over the line. Nothing
+ *                     focuses it from code: the log is never a view's first
+ *                     focus (use-panel-focus).
  *
  * It is a scroller (data-amr-scroll, for the phone sheet's CSS) with a floor,
  * so in a short panel the chat's root scrolls instead of the log collapsing
@@ -98,7 +102,7 @@ export const ChatLog = forwardRef<HTMLDivElement, ChatLogProps>(function ChatLog
       tabIndex={0}
       data-amr-scroll=""
       className={cn(
-        "min-h-[6rem] flex-1 overflow-y-auto overscroll-contain px-1 py-2",
+        "isolate min-h-[6rem] flex-1 overflow-y-auto overscroll-contain px-1 py-2",
         // The site's own focus line (globals.css :focus-visible, high
         // contrast's heavier one too), moved inside the edge.
         "focus-visible:!outline-offset-[-3px]",
@@ -106,7 +110,8 @@ export const ChatLog = forwardRef<HTMLDivElement, ChatLogProps>(function ChatLog
         className
       )}
     >
-      <div ref={contentRef} data-chat-content="" className="space-y-3">
+      {/* Below the log's own focus line in its stack (the balloons are positioned, so they would paint over it). */}
+      <div ref={contentRef} data-chat-content="" className="relative -z-10 space-y-3">
         {kit &&
           items.map((item) => (
             <Fragment key={item.key}>
