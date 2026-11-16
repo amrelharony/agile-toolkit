@@ -53,6 +53,7 @@ Amr stands in the corner of every page. The live sheet (`public/mascot/amr.*.web
 | `scripts/build-mascot-expansion.py`                                                     | Builds the expansion packs as drawn, and the thumbnail atlas for the Scenes tab         |
 | `src/components/agent/mascot/engine/expansion-table.ts`, `expansion-titles.ts`          | Each expansion scene's pack and family (and its title, for the Scenes tab)              |
 | `src/components/agent/mascot/engine/scene-thumbs.ts`, `public/mascot/amr-thumbs.*.webp` | One small picture of each story's held pose, 72 × 84, all in one atlas                  |
+| `src/components/agent/mascot/scenes-tab.tsx`                                            | The Scenes tab in his panel: every story he can act out, played when it's tapped        |
 
 The source sheets (`S01-faces.png` … `S10-stroll.png`, about 19 MB, and `S11-sun.png` … `S64-lights.png`, about 100 MB) are not committed. Keep the zips they came in. Twelve of them (S01, S05, S12, S14, S23, S25, S30, S33, S36, S44, S47 and S55) are now the versions from [hair round 2](AMR-HAIR-ROUND-2.md), which replace the earlier ones. 52 more are the versions from [hair round 3](AMR-HAIR-ROUND-3.md) (`AMR_Hair_Round_3_{A..E}_Reviewed.zip`). S06, S41 and S62 keep their round-1 versions, and S01, S05, S23 and S25 their round-2 ones. The five sheets where a hat or an umbrella hides his hair (S16–S18, S45 and S50) no longer have source PNGs on hand: the zip of the context sheets is gone, so rebuilds keep their shipped packs (below).
 
@@ -179,6 +180,7 @@ When each one plays, truthfully (`COMPANION_SCENES` in `scenes.ts`, the hooks in
 - **Deadline Rabbit Rush** plays at the stuck offer; "Need a hand?" now shows at once and the story beside it.
 - **Dinosaur Priorities**, **Octopus Overload**, **Ahwa Debrief** and **Sticky Escape** are occasional pastimes on the prioritisation, flow, retro and board pages (`PAGE_PASTIMES`); the Ahwa look keeps away for five minutes after anything goes wrong.
 - **AI Reviewer** and **Graceful Retry** only play when asked: `/play reviewer`, `/play retry` (or `/play` for the next one) in his chat. Nothing real exists to bind them to: no review service, no Try again.
+- **The Scenes tab** in his panel lists the nine stories `/play` takes (all but Your Decision) ahead of [the expansion scenes](#expansion-scenes), and a tap plays one.
 
 A held scene keeps its own clock, so a tap over it picks the wait up where it was instead of offering the options again. While one is held nothing unprompted (a pastime, a yawn) takes the moment over. A scene whose pack arrives late now plays from that moment to its end, and a pack that fails to load is asked for again after 30 s, three tries in all.
 
@@ -214,6 +216,8 @@ The art is drawn with some drift the build can't take out without making him a d
 A thumbnail atlas (`amr-thumbs.*.webp`, the held pose of each story at 72 × 84, the companion stories first) is for the Scenes tab: one image for them all, where a pack each would be megabytes. The expansion build writes it, `build-mascot-scenes.py` rewrites it after rebuilding the companion packs, `--thumbs` rewrites it alone, and `--check` fails when it no longer matches the packs.
 
 Where each one plays is in [expansion-triggers.md](expansion-triggers.md). A scene may play only on the real event its trigger names, never on a guess, or when the visitor asks for it; a test fails when code names a scene that file doesn't record as playing on something.
+
+The visitor asks for one in **the Scenes tab** (`scenes-tab.tsx`), behind the clapperboard in his panel's header, for the owner and every visitor alike. It lists the companion stories, then the six families under their headings, each scene a button with its thumbnail from the atlas and its title, and a filter by title on top. Only scenes whose packs ship are listed. A tap plays the scene at once and closes the panel so he's in view: with reduced motion he shows its still, and Quiet silences his speech, not a scene asked for. `/play x001` (any case) in his chat does the same by pack name. Both go through `galleryScene` in `engine/scenes.ts`, which plays X112 as `x112.filter` (the filter moment, without its reset) and every other pack as itself. The tab is its own chunk, loaded with `next/dynamic` when it first opens, so its code, the titles and the atlas cost nothing until then. The chat or guide stays mounted, hidden, while it shows, so a turn in flight goes on.
 
 ## How the frames line up
 

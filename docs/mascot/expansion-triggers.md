@@ -6,7 +6,12 @@ A binding goes in this file with the change that makes it, naming the event in t
 
 ## On request
 
-Nothing asks for them yet.
+Every expansion scene whose pack ships plays when the visitor asks for it, which is the one way a scene with “—” below plays at all:
+
+- **The Scenes tab** in Amr's panel (the clapperboard in its header, `scenes-tab.tsx`), for the owner and for every visitor, with Amr's AI or without. It lists the companion stories, then the six families, each scene with its thumbnail and title; tapping one plays it and closes the panel so he's in view.
+- **`/play <pack>`** in his chat, by the pack's name in any case (`/play x001`, `/play X001`). A name that isn't a shipped scene plays the next companion story, as before.
+
+Both go through `galleryScene` in `engine/scenes.ts`, so asked for, X112 plays its filter variant: its first five beats, held on the filter moment, without the reset of beats 6–8. Every other pack plays as itself. Asking for a scene stands for nothing: the bookmark saves no place, the recheck closes no finding.
 
 ## Real events
 
