@@ -666,6 +666,19 @@ describe("the chat strip (chat/)", () => {
     expect(staticTargets(VISITOR_CHAT)).toContain(`${CHAT_DIR}dictate-button.tsx`);
   });
 
+  it("works out follow-ups in the owner's chat, and loads them for a visitor only as the first message goes out", () => {
+    const rules = "src/lib/agent/follow-ups.ts";
+    // The owner's chat carries them; the shared strip only draws what it is handed.
+    expect(staticTargets(OWNER_CHAT)).toContain(rules);
+    for (const file of filesUnder(CHAT_DIR)) {
+      expect(staticTargets(file), `${file} imports no follow-up rules`).not.toContain(rules);
+    }
+    // Not in the visitor's chat chunk, which paints before any reply: a dynamic import.
+    expect(visitorChat.files.has(rules), "the visitor's chat chunk never carries them").toBe(false);
+    expect(lazyTargets(VISITOR_CHAT)).toContain(rules);
+    expect(everyPage.files.has(rules), `${rules} stays off every page`).toBe(false);
+  });
+
   it("loads a visitor's voice notice only on a press of the mic: a dynamic import, from the visitor's chat alone", () => {
     const notice = "src/components/agent/mascot/voice-notice.tsx";
     const consent = "src/lib/agent/mascot/voice-consent.ts";

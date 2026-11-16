@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { useAgentStore } from "@/lib/agent/store";
+import { followUps } from "@/lib/agent/follow-ups";
 import { OWNER_EMPTY, ownerStarters } from "@/lib/agent/owner-starters";
 import { resolvePageTool, toolIdForPath } from "@/lib/agent/page-tool";
 import { useAuth } from "@/lib/auth/auth-provider";
@@ -88,6 +89,9 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
  * and errors show as a narration caption under the strip (chat/chat-notice),
  * with "Try again" or "Go on" when the notice calls for one; the chat's
  * status line (chat/chat-status) says what Amr is doing while he answers.
+ * Under the latest reply, once its turn is done: Copy reply, the same Try
+ * again (while the turn ran no change) and up to two follow-ups
+ * (lib/agent/follow-ups), which only this chat's chunk carries up front.
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone
@@ -227,6 +231,8 @@ export function AgentConversation() {
     const opts = turnOptions();
     if (opts) void goOn(opts);
   };
+  // One Try again, for the notice's button and the one under the latest reply.
+  const retry = { canRetry: canRetryLastTurn, onTryAgain: tryAgain };
 
   // The composer's row: the frame keeps it shrink-0 (the form its direct
   // child) and makes room beside it for docked Amr. The composer is where the
@@ -254,7 +260,13 @@ export function AgentConversation() {
     // clips at its padding box: the composer's and Send's focus rings (High
     // contrast's reach 5 px out) stay clear of its edges.
     <ChatProvider profile="owner" stepDetails={StepDetails}>
-      <ChatStrip busy={streaming} footer={footer} className="px-3 py-2">
+      <ChatStrip
+        busy={streaming}
+        footer={footer}
+        className="px-3 py-2"
+        retry={user ? retry : undefined}
+        followUps={followUps}
+      >
         {empty && (
           <ChatEmpty
             line={OWNER_EMPTY.line}
@@ -264,12 +276,7 @@ export function AgentConversation() {
           />
         )}
         {awaiting && <ThinkingItemView />}
-        <ChatNotice
-          ready={!streaming && !!user}
-          canRetry={canRetryLastTurn}
-          onTryAgain={tryAgain}
-          onGoOn={goOnNow}
-        />
+        <ChatNotice ready={!streaming && !!user} {...retry} onGoOn={goOnNow} />
       </ChatStrip>
     </ChatProvider>
   );

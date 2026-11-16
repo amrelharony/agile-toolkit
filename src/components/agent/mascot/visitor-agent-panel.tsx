@@ -24,7 +24,11 @@
  * caption under the strip (chat/chat-notice), the narrator's line and never
  * Amr's own words, with "Try again" or "Go on" when the notice calls for one;
  * the chat's status line (chat/chat-status) says what Amr is doing while he
- * answers. An empty chat shows a narration line and up to three starters for
+ * answers. Under the latest reply, once its turn is done: Copy reply, the
+ * same Try again (while the turn ran no change and a message is left; it says
+ * it spends one) and up to two follow-ups, whose rules load with the first
+ * message (lib/agent/follow-ups), so the chat's first paint doesn't carry
+ * them. An empty chat shows a narration line and up to three starters for
  * the page the visitor is on (chat/chat-empty, words in
  * lib/agent/visitor-starters); a starter fills the message box and never
  * sends, so it spends nothing. The composer is the one both chats share
@@ -44,6 +48,7 @@ import { usePathname } from "next/navigation";
 import { BookOpen, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
+import type { ChatMessage } from "@/lib/agent/types";
 import { resolvePageTool, toolIdForPath } from "@/lib/agent/page-tool";
 import { VISITOR_EMPTY, visitorStarters } from "@/lib/agent/visitor-starters";
 import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
@@ -57,7 +62,7 @@ import { ChatComposer, type ComposerMicProps } from "../chat/chat-composer";
 import { ChatProvider } from "../chat/chat-context";
 import { DictateButton } from "../chat/dictate-button";
 import { ChatEmpty } from "../chat/chat-empty";
-import { ThinkingItemView } from "../chat/chat-items";
+import { ThinkingItemView, type FollowUpsFor } from "../chat/chat-items";
 import { ChatNotice } from "../chat/chat-notice";
 import { ChatStrip, useAwaitingReply } from "../chat/chat-strip";
 import { COMPACT_HIDDEN } from "./panel-context";
@@ -117,6 +122,37 @@ function subscribeStartingTurn(listener: () => void): () => void {
 }
 
 const turnStarting = () => startingTurn !== null;
+
+let followUpRules: FollowUpsFor | null = null;
+let followUpsLoad: Promise<void> | null = null;
+
+/**
+ * The follow-ups' rules (lib/agent/follow-ups), loaded as the first message
+ * goes out: they are needed only under a reply, so the chat's first paint
+ * doesn't carry them. Never in a turn's way: until they are in (or if they
+ * fail to load, until the next message tries again), a reply has none.
+ */
+function loadFollowUps(): void {
+  followUpsLoad ??= import("@/lib/agent/follow-ups").then(
+    (m) => {
+      followUpRules = m.followUps;
+    },
+    () => {
+      followUpsLoad = null;
+    }
+  );
+}
+
+/** A visitor's follow-ups under a reply, once their rules are in. Stable, so the strip keeps it. */
+const visitorFollowUps: FollowUpsFor = (turn) => followUpRules?.(turn) ?? [];
+
+/** A visitor's messages left now: today's, or fewer in busy hours. Null before the route has said. */
+function messagesLeft(quota: VisitorQuota | null): number | null {
+  if (!quota) return null;
+  return quota.peak && quota.peakRemaining !== null
+    ? Math.min(quota.remaining, quota.peakRemaining)
+    : quota.remaining;
+}
 
 /** Said when the voice notice can't load: dictation didn't start. */
 export const VOICE_NOTICE_LOAD_ERROR = "Voice couldn't load. Check your connection and try again.";
@@ -264,6 +300,7 @@ export default function VisitorAgentPanel({
     // One turn at a time, across chats: a turn still starting counts as busy.
     if (startingTurn || useAgentStore.getState().streaming) return;
     setStartingTurn({ question });
+    loadFollowUps();
     try {
       const runtime = await loadRuntime();
       // A turn outlives the chat: one asked as the panel closed still goes
@@ -310,6 +347,14 @@ export default function VisitorAgentPanel({
       null
     );
   };
+  // One Try again, for the notice's button and the one under the latest
+  // reply. The runtime that ran the turn knows (it holds the registry).
+  const retry = {
+    canRetry: (messages: ChatMessage[]) => loadedRuntime?.canRetryLastTurn(messages) ?? false,
+    onTryAgain: tryAgain,
+  };
+  // Under the reply it says what it spends; with no message left, it isn't offered.
+  const left = messagesLeft(quota);
 
   // The message box (the composer) is where the panel's focus owner puts
   // focus when the chat opens, and again when it comes back from under the
@@ -406,18 +451,18 @@ export default function VisitorAgentPanel({
     // scrolls inside itself. Compact (a phone's keyboard up) the log's floor
     // drops to 3rem.
     <ChatProvider profile="visitor">
-      <ChatStrip busy={busy} footer={footer} className="px-3 py-2">
+      <ChatStrip
+        busy={busy}
+        footer={footer}
+        className="px-3 py-2"
+        retry={left === 0 ? undefined : { ...retry, left }}
+        followUps={visitorFollowUps}
+      >
         {empty && !busy && (
           <ChatEmpty line={VISITOR_EMPTY.line} short={VISITOR_EMPTY.short} starters={starters} />
         )}
         {awaiting && <ThinkingItemView />}
-        <ChatNotice
-          ready={!busy}
-          // The runtime that ran the turn knows (it holds the registry).
-          canRetry={(messages) => loadedRuntime?.canRetryLastTurn(messages) ?? false}
-          onTryAgain={tryAgain}
-          onGoOn={goOn}
-        />
+        <ChatNotice ready={!busy} {...retry} onGoOn={goOn} />
       </ChatStrip>
     </ChatProvider>
   );
