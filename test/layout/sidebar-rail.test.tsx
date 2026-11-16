@@ -145,6 +145,27 @@ describe("the rail's right edge, kept for Amr from md", () => {
     }
   });
 
+  it("holds still under a mouse that arrives with a button held (Amr carried past it)", () => {
+    render(<Sidebar />);
+    latest().fire();
+    expect(rail()).toBe("64px");
+
+    // A drag overshooting onto the rail: it stays a rail (its box, and so the
+    // edge Amr read when the carry began, is still 64 px as he is dropped).
+    fireEvent.pointerEnter(aside(), { pointerType: "mouse", buttons: 1 });
+    expect(aside().className).toContain("md:w-[calc(4rem");
+    expect(aside().className).not.toContain("md:w-[calc(16rem");
+    latest().fire();
+    expect(rail()).toBe("64px");
+
+    // With the button let go, the next visit widens it as before.
+    fireEvent.pointerLeave(aside(), { pointerType: "mouse" });
+    fireEvent.pointerEnter(aside(), { pointerType: "mouse", buttons: 0 });
+    expect(aside().className).toContain("md:w-[calc(16rem");
+    latest().fire();
+    expect(rail()).toBe("256px");
+  });
+
   it("is 256 px pinned open, and follows the chevron back to the rail", () => {
     window.localStorage.setItem("agile-toolkit:sidebar:collapsed:v2", "false");
     render(<Sidebar />);

@@ -374,9 +374,12 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         // overlay. Leaving the area collapses back to the rail. We don't
         // change `collapsed` itself so the user's pinned preference is
         // preserved. Touch users get no hover effect — they can pin via
-        // the chevron at the bottom, or use the mobile drawer flow.
+        // the chevron at the bottom, or use the mobile drawer flow. Not
+        // with a button held either: a mouse carrying something past the
+        // rail (Amr in a drag, a text selection) leaves it still, so Amr is
+        // never carried under it and lands clear of it.
         onPointerEnter={(e) => {
-          if (e.pointerType === "mouse" && collapsed) setHoverExpanded(true);
+          if (e.pointerType === "mouse" && !e.buttons && collapsed) setHoverExpanded(true);
         }}
         onPointerLeave={() => setHoverExpanded(false)}
         className={cn(
