@@ -13,7 +13,7 @@
  * the host adds it (with Undo).
  */
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import Link from "next/link";
 import { ListPlus, RotateCcw } from "lucide-react";
 import { AiButton, AiSuggestions } from "@/components/ai";
@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup } from "@/components/ui/toggle-group";
 import type { AiSource } from "@/lib/ai/task-types";
-import { SUGGEST_OPTIONS_MAX, suggestOptionsTask } from "@/lib/ai/tasks/_example";
+import { SUGGEST_OPTIONS_MAX, isBlankOptions, suggestOptionsTask } from "@/lib/ai/tasks/_example";
 import { VOTE_LIMITS } from "@/lib/realtime/vote-room/protocol";
 import { FEELINGS, feelingsQuestion, type QuickVotePreset } from "@/lib/quick-vote/presets";
 import {
@@ -80,6 +80,10 @@ export function RoundComposer({
 }: RoundComposerProps) {
   const [touched, setTouched] = useState<ReadonlySet<DraftField>>(() => new Set());
   const [suggested, setSuggested] = useState<{ items: string[]; source: AiSource } | null>(null);
+  /** Without AI, a question the rules can't read gets no options, and a line says so. */
+  const [noIdeas, setNoIdeas] = useState(false);
+  /** Around the suggest buttons: where focus goes back to when the list is dismissed. */
+  const askRef = useRef<HTMLDivElement>(null);
   const itemSelectId = useId();
   const touch = (f: DraftField) => () =>
     setTouched((prev) => (prev.has(f) ? prev : new Set(prev).add(f)));
@@ -129,7 +133,7 @@ export function RoundComposer({
               />
             )}
           </Field>
-          <div className="flex flex-wrap items-start gap-2">
+          <div ref={askRef} className="flex flex-wrap items-start gap-2">
             <AiButton
               task={suggestOptionsTask}
               input={() => ({ question })}
@@ -143,7 +147,12 @@ export function RoundComposer({
                     ? "Type the question first, then ask for options."
                     : null
               }
-              onResult={(data, meta) => setSuggested({ items: data.options, source: meta.source })}
+              onResult={(data, meta) => {
+                // Blanks to fill in ("First option") aren't options to add.
+                const blank = meta.source === "fallback" && isBlankOptions(data.options);
+                setNoIdeas(blank);
+                setSuggested(blank ? null : { items: data.options, source: meta.source });
+              }}
             />
             {sources.backlog.length >= 2 && (
               <Button
@@ -172,6 +181,12 @@ export function RoundComposer({
               </Button>
             )}
           </div>
+          {noIdeas && options.length === 0 && (
+            <p role="status" className="text-xs text-sub">
+              Without AI, only a yes-or-no or a how-sure question gets options. Type yours, one per
+              line.
+            </p>
+          )}
           {suggested && (
             <AiSuggestions
               items={suggested.items.slice(0, SUGGEST_OPTIONS_MAX)}
@@ -180,6 +195,9 @@ export function RoundComposer({
               onAccept={(text) => onAddOptions([text])}
               onAcceptAll={(list) => onAddOptions(list)}
               onDismiss={() => setSuggested(null)}
+              returnFocus={() =>
+                askRef.current?.querySelector<HTMLElement>('[data-testid="ai-button"]')
+              }
             />
           )}
         </div>

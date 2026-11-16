@@ -274,6 +274,37 @@ describe("picking a format", () => {
     expect(qv().draft?.optionsText).toBe("Yes");
   });
 
+  it("offers no blank placeholders for a question the rules can't read, and says why", async () => {
+    await renderPage();
+    pickFormat("Poll");
+    fireEvent.change(screen.getByLabelText(/^Question/), {
+      target: { value: "Where should we hold the next team offsite?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Suggest options" }));
+    expect(screen.queryByTestId("ai-suggestions")).toBeNull();
+    expect(screen.queryByText("First option")).toBeNull();
+    expect(
+      screen.getByText(/Without AI, only a yes-or-no or a how-sure question gets options/)
+    ).toHaveAttribute("role", "status");
+    expect(qv().draft?.optionsText).toBe("");
+  });
+
+  it("puts focus back on Suggest options when the list is dismissed", async () => {
+    await renderPage();
+    pickFormat("Poll");
+    fireEvent.change(screen.getByLabelText(/^Question/), {
+      target: { value: "Should we keep the Friday demo?" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Suggest options" }));
+    const dismiss = within(screen.getByTestId("ai-suggestions")).getByRole("button", {
+      name: "Dismiss suggestions",
+    });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    expect(screen.queryByTestId("ai-suggestions")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Suggest options" }));
+  });
+
   it("asks for the question before it suggests options", async () => {
     await renderPage();
     pickFormat("Ranking");
