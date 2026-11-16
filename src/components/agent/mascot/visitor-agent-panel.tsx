@@ -41,6 +41,11 @@
  * maker, so the first press shows the voice notice (./voice-notice, loaded
  * only then), and only "Use voice" starts it.
  *
+ * Its header (panel-chrome's slots): a "Back to tool finder" chevron before
+ * the name plate, and Clear chat among the view's icons while there is
+ * something to clear. In a visitor live room, where Amr gets no tools, a
+ * narration caption in the log says so (only questions there).
+ *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone, never
  * this view or its composer.
@@ -55,8 +60,7 @@ import {
   type ComponentType,
 } from "react";
 import { usePathname } from "next/navigation";
-import { BookOpen, Eraser } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { ChevronLeft, Eraser } from "lucide-react";
 import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
 import { resolvePageTool, toolIdForPath } from "@/lib/agent/page-tool";
@@ -75,12 +79,17 @@ import { ThinkingItemView } from "../chat/chat-items";
 import { ChatNotice } from "../chat/chat-notice";
 import { ChatStrip, useAwaitingReply } from "../chat/chat-strip";
 import type { ReplyEndProps } from "../chat/reply-end";
+import { Narration } from "../comic/comic-parts";
+import { PanelActions, PanelBack, PanelIconButton } from "./panel-chrome";
 
 /** The busy-hours note, here since before it moved to lib/visitor-ai/allowance. */
 export { peakNote } from "@/lib/visitor-ai/allowance";
 
 /** How often the allowance line re-checks the clock (busy hours start and end). */
 const CLOCK_TICK_MS = 60_000;
+/** Said in the log while the visitor is in a live room, where Amr gets no tools. */
+export const LIVE_ROOM_LINE =
+  "You're in a live room, so Amr only answers questions here: he won't read or change your tools.";
 /** Said when the runtime can't load: nothing was sent. */
 export const VISITOR_RUNTIME_LOAD_ERROR =
   "Amr's chat couldn't load. Check your connection and try again.";
@@ -274,7 +283,7 @@ export default function VisitorAgentPanel({
   const loading = useSyncExternalStore(subscribeStartingTurn, turnStarting, () => false);
   const pathname = usePathname();
   const now = useNow(CLOCK_TICK_MS);
-  // In a visitor live room Amr gets no tools; the footer says so.
+  // In a visitor live room Amr gets no tools; a caption in the log says so.
   const inLiveRoom = useSyncExternalStore(subscribeLiveVisitorRoom, inLiveVisitorRoom, () => false);
   const empty = useAgentStore((s) => s.messages.length === 0);
   const vip = useVipHint();
@@ -417,31 +426,7 @@ export default function VisitorAgentPanel({
           {allowanceLine(quota, now, inLiveRoom)}
         </span>
       }
-    >
-      {inLiveRoom && (
-        <p className="mt-1 text-xs text-sub" data-testid="visitor-ai-live-room">
-          You&apos;re in a live room, so Amr only answers questions here: he won&apos;t read or
-          change your tools.
-        </p>
-      )}
-      <div className="mt-2 flex items-center justify-between gap-2">
-        <Button type="button" variant="outline" size="sm" onClick={onOfflineGuide}>
-          <BookOpen aria-hidden="true" />
-          Tool finder
-        </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          // Through the store: reset stops the answer under way before the
-          // chat empties, so none of it lands in the fresh one.
-          onClick={() => useAgentStore.getState().reset()}
-        >
-          <Eraser aria-hidden="true" />
-          Clear chat
-        </Button>
-      </div>
-    </ChatComposer>
+    />
   );
 
   return (
@@ -452,6 +437,25 @@ export default function VisitorAgentPanel({
     // scrolls inside itself. Compact (a phone's keyboard up) the log's floor
     // drops to 3rem.
     <ChatProvider profile="visitor">
+      <PanelBack>
+        <PanelIconButton label="Back to tool finder" onClick={() => onOfflineGuide()}>
+          <ChevronLeft aria-hidden="true" />
+        </PanelIconButton>
+      </PanelBack>
+      {/* Something to clear: a message, or a turn under way. */}
+      <PanelActions>
+        {(!empty || busy) && (
+          <PanelIconButton
+            label="Clear chat"
+            data-visitor-clear=""
+            // Through the store: reset stops the answer under way before the
+            // chat empties, so none of it lands in the fresh one.
+            onClick={() => useAgentStore.getState().reset()}
+          >
+            <Eraser aria-hidden="true" />
+          </PanelIconButton>
+        )}
+      </PanelActions>
       <ChatStrip
         busy={busy}
         footer={footer}
@@ -459,6 +463,8 @@ export default function VisitorAgentPanel({
         replyEnd={VisitorReplyEnd}
         retry={left === 0 ? undefined : { ...retry, cost: retryCost(left) }}
       >
+        {/* Once, at the log's end, while the room is open: narration, not Amr's words. */}
+        {inLiveRoom && <Narration data-testid="visitor-ai-live-room">{LIVE_ROOM_LINE}</Narration>}
         {empty && !busy && (
           <ChatEmpty line={VISITOR_EMPTY.line} short={VISITOR_EMPTY.short} starters={starters} />
         )}

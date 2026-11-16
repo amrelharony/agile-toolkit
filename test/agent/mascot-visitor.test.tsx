@@ -682,8 +682,39 @@ describe("MascotAssistant — visitor AI", () => {
       expect(h.sendVisitorMessage).toHaveBeenCalledWith("retro", { toolId: "retro" })
     );
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
-    expect(await screen.findByRole("button", { name: "Tool finder" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Clear chat" })).toBeInTheDocument();
+    // The chat's way back and Clear chat sit in the panel's header, 44 px on
+    // touch: the chevron before the name plate, Clear chat among the view's
+    // icons once there is something to clear (the mocked runtime adds no
+    // message, so the question goes in as the runtime would put it).
+    const header = screen
+      .getByRole("dialog", { name: "Amr" })
+      .querySelector<HTMLElement>("[data-panel-header]")!;
+    const back = await within(header).findByRole("button", { name: "Back to tool finder" });
+    const plate = within(header).getByRole("heading", { level: 2, name: "Amr" });
+    expect(back.compareDocumentPosition(plate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(back).toHaveClass("pointer-coarse:min-h-11", "pointer-coarse:min-w-11");
+    expect(within(header).queryByRole("button", { name: "Clear chat" })).toBeNull();
+    act(() => {
+      useAgentStore.setState({
+        chatProfile: "visitor",
+        messages: [
+          {
+            id: "v1",
+            role: "user",
+            content: [{ type: "text", text: "retro" }],
+            createdAt: "2026-11-09T08:00:00Z",
+          },
+        ],
+      });
+    });
+    const clear = within(header).getByRole("button", { name: "Clear chat" });
+    expect(plate.compareDocumentPosition(clear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(clear).toHaveClass("pointer-coarse:min-h-11", "pointer-coarse:min-w-11");
+    // Nothing of either is left under the composer.
+    const footer = screen.getByLabelText("Message").closest("[data-chat-footer]")!;
+    expect(
+      within(footer as HTMLElement).queryByRole("button", { name: /tool finder|Clear chat/i })
+    ).toBeNull();
     // The runtime is mocked; the panel itself fetched nothing.
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -694,7 +725,7 @@ describe("MascotAssistant — visitor AI", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
 
     expect(screen.queryByText(/Before you chat with Amr/)).toBeNull();
-    expect(await screen.findByRole("button", { name: "Tool finder" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Back to tool finder" })).toBeInTheDocument();
     expect(screen.getByLabelText("Message")).toBeInTheDocument();
     expect(h.sendVisitorMessage).not.toHaveBeenCalled();
   });
@@ -783,7 +814,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
     act(() => {
       useAgentStore.getState().setVisitorQuota({
         remaining: 62,
@@ -824,7 +855,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
 
     act(() => {
       useAgentStore.getState().setVisitorFallback("visitor_limit");
@@ -839,7 +870,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
 
     const ends = new Date(Date.now() + 90 * 60_000);
     act(() => {
@@ -1004,7 +1035,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
     expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
     // Out of a room the chat offers a change and says Amr asks first.
     expect(screen.getByText(/Add a card/)).toBeInTheDocument();
@@ -1022,9 +1053,14 @@ describe("MascotAssistant — visitor AI", () => {
       leave = enterLiveVisitorRoom();
     });
     try {
-      expect(screen.getByTestId("visitor-ai-live-room")).toHaveTextContent(
+      const room = screen.getByTestId("visitor-ai-live-room");
+      expect(room).toHaveTextContent(
         "You're in a live room, so Amr only answers questions here: he won't read or change your tools."
       );
+      // A narration caption in the log, not a line under the composer.
+      expect(room).toHaveAttribute("data-voice", "narration");
+      expect(screen.getByRole("log", { name: "Conversation" })).toContainElement(room);
+      expect(room.closest("[data-chat-footer]")).toBeNull();
       // Nothing else in the chat promises a change the room rules out.
       expect(screen.queryByText(/Add a card/)).toBeNull();
       expect(starterNames()).toEqual([
@@ -1049,7 +1085,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
 
     const line = screen.getByText(VISITOR_EMPTY.line);
     expect(line.closest(".comic-caption")).toHaveAttribute("data-voice", "narration");
@@ -1076,7 +1112,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     const view = await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
     expect(starterNames()).toEqual(visitorStarters(null, false));
     expect(starterNames().some((s) => /^How does/.test(s))).toBe(false);
     view.unmount();
@@ -1089,7 +1125,7 @@ describe("MascotAssistant — visitor AI", () => {
     h.pathname = hidden!.path;
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
     expect(starterNames()).toEqual(visitorStarters(null, false));
   });
 
@@ -1097,7 +1133,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
     expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
 
     // What the tab with the room does: it writes its stamp, and this tab gets
@@ -1129,7 +1165,7 @@ describe("MascotAssistant — visitor AI", () => {
       askAbout("retro");
       fireEvent.click(screen.getByRole("button", { name: "Agree and ask" }));
       await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1));
-      await screen.findByRole("button", { name: "Tool finder" });
+      await screen.findByRole("button", { name: "Back to tool finder" });
       return view;
     }
 
@@ -1278,11 +1314,11 @@ describe("MascotAssistant — visitor AI", () => {
       expect(useAgentStore.getState().streaming).toBe(false);
     });
 
-    it("Tool finder goes back to the guide and the answer goes on", async () => {
+    it("Back to tool finder goes back to the guide and the answer goes on", async () => {
       await openChatWithQuestion();
       const abortTurn = liveTurn();
       h.abortVisitor.mockClear();
-      fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+      fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
       expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
       expect(screen.getByLabelText("What do you need to do?")).toHaveValue("retro");
       expect(screen.queryByLabelText("Message")).toBeNull();
@@ -1299,7 +1335,7 @@ describe("MascotAssistant — visitor AI", () => {
       await openChatWithQuestion();
       const abortTurn = liveTurn();
       h.sendVisitorMessage.mockClear();
-      fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+      fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
       askAbout("sprint goal");
       // The chat opens on the answer still under way, with the question waiting.
       expect(await screen.findByLabelText("Message")).toHaveValue("sprint goal");
@@ -1323,7 +1359,7 @@ describe("MascotAssistant — visitor AI", () => {
       liveTurn();
       h.sendVisitorMessage.mockClear();
       act(() => useAgentStore.getState().setDraft("visitor", "and how long"));
-      fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+      fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
       askAbout("sprint goal");
       expect(await screen.findByLabelText("Message")).toHaveValue("and how long\n\nsprint goal");
       await settle();
