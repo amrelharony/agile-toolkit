@@ -19,6 +19,7 @@
  * agent-panel-touch.test.tsx keeps the touch sizes and the Undo flow.
  */
 
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ChatMessage, ConversationMeta, PendingToolUse } from "@/lib/agent/types";
@@ -46,6 +47,12 @@ vi.mock("@/lib/agent/persist", () => ({
 }));
 vi.mock("@/lib/auth/supabase-browser", () => ({ getAuthBrowserClient: () => null }));
 vi.mock("@/lib/utils/toast", () => ({ toast: h.toast }));
+// The owner's panel around the list: its chat and usage bar are markers here.
+vi.mock("@/lib/actions/register-all", () => ({}));
+vi.mock("@/components/agent/agent-conversation", () => ({
+  AgentConversation: () => <div data-testid="agent-conversation" />,
+}));
+vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({ RateLimitBar: () => null }));
 
 import {
   ConversationList,
@@ -58,6 +65,9 @@ import {
   openFailed,
   rowAction,
 } from "@/components/agent/conversation-list";
+import OwnerAgentPanel from "@/components/agent/mascot/owner-agent-panel";
+import { PanelHeader } from "@/components/agent/mascot/panel-header";
+import { PANEL_SUBTITLE, PanelChrome } from "@/components/agent/mascot/panel-chrome";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { HISTORY_GROUPS, historyGroups, threadTime } from "@/lib/agent/history-groups";
 import { AMR_WAITING_FOR_OK } from "@/lib/agent/mascot/outside-narration";
@@ -141,6 +151,20 @@ function later<T>() {
   const promise = new Promise<T>((resolve) => (settle = resolve));
   return { promise, settle };
 }
+
+/** The page on a touch screen: (pointer: coarse) matches, nothing else does. */
+const touchScreen = () =>
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (query: string) =>
+      ({
+        matches: query.includes("pointer: coarse"),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+      }) as unknown as MediaQueryList
+  );
 
 function renderList(onClose = vi.fn()) {
   render(
@@ -562,5 +586,58 @@ describe("a card waiting in the chat", () => {
     await waitFor(() => expect(polite()).toHaveTextContent(AMR_WAITING_FOR_OK));
     act(() => useAgentStore.setState({ pendingToolUse: null }));
     expect(document.querySelector("[data-history-waiting]")).toBeNull();
+  });
+});
+
+// ── Going in and out ────────────────────────────────────────────────────
+
+describe("focus going in and out of History", () => {
+  /** The shell around the owner's chat, as MascotAssistant keeps it. */
+  function Shell({ inHistory = false }: { inHistory?: boolean }) {
+    const [showHistory, setShowHistory] = useState(inHistory);
+    return (
+      <PanelChrome>
+        <PanelHeader subtitle={PANEL_SUBTITLE.owner} onClose={() => {}} />
+        <OwnerAgentPanel
+          showHistory={showHistory}
+          onToggleHistory={() => setShowHistory((v) => !v)}
+          onCloseHistory={() => setShowHistory(false)}
+        />
+      </PanelChrome>
+    );
+  }
+  const header = () => document.querySelector<HTMLElement>("[data-panel-header]")!;
+
+  it("goes into the search coming in from the chat, and stays on History's button going back", async () => {
+    render(<Shell />);
+    const history = within(header()).getByRole("button", { name: "Conversation history" });
+    history.focus();
+    fireEvent.click(history);
+    expect(screen.getByLabelText("Search conversations")).toHaveFocus();
+    await screen.findByText("Velocity question");
+
+    const back = within(header()).getByRole("button", { name: "Back to chat" });
+    back.focus();
+    fireEvent.click(back);
+    expect(screen.getByTestId("agent-conversation")).toBeInTheDocument();
+    expect(within(header()).getByRole("button", { name: "Conversation history" })).toHaveFocus();
+  });
+
+  it("raises no keyboard on a touch screen: focus stays on the button", async () => {
+    touchScreen();
+    render(<Shell />);
+    const history = within(header()).getByRole("button", { name: "Conversation history" });
+    history.focus();
+    fireEvent.click(history);
+    await screen.findByText("Velocity question");
+    expect(screen.getByLabelText("Search conversations")).not.toHaveFocus();
+    expect(within(header()).getByRole("button", { name: "Back to chat" })).toHaveFocus();
+  });
+
+  it("takes no focus when the panel opens on History: the panel's focus owner decides", async () => {
+    render(<Shell inHistory />);
+    await screen.findByText("Velocity question");
+    expect(screen.getByLabelText("Search conversations")).not.toHaveFocus();
+    expect(document.body).toHaveFocus();
   });
 });

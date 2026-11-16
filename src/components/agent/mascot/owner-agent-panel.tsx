@@ -13,10 +13,12 @@
  *  - actions: New chat, then History. New chat puts focus in the fresh chat's
  *    message box, even on a touch screen (a tap on it means "let me type").
  *    In History that button is "Back to chat"
- *    with an arrow, the same button (focus stays on it both ways: the chat
+ *    with an arrow, the same button, and it carries a dot while a confirm
+ *    card waits in the chat behind it. Going in, focus moves on to History's
+ *    search (on a fine pointer; on a touch screen it stays on the button, so
+ *    no keyboard rises); coming back, it stays on the button (the chat
  *    coming back offers its composer to the panel's focus owner, which leaves
- *    focus that a control inside the panel holds), and it carries a dot while
- *    a confirm card waits in the chat behind it.
+ *    focus that a control inside the panel holds).
  *  - subtitle: the open thread's title, or "New chat"; "Your chats" in History.
  * Whether History shows is kept by the shell, so it outlasts the panel closing.
  *
@@ -28,6 +30,7 @@
 
 // Populate the tool action registry before any agent code reads it.
 import "@/lib/actions/register-all";
+import { useState } from "react";
 import { ArrowLeft, History, Plus } from "lucide-react";
 import { AMR_WAITING_FOR_OK } from "@/lib/agent/mascot/outside-narration";
 import { useAgentStore } from "@/lib/agent/store";
@@ -59,6 +62,9 @@ export default function OwnerAgentPanel({
   const thread = useAgentStore((s) => s.activeMeta?.title.trim() || null);
   // A card the owner can't see from History: the way back says so.
   const cardWaits = useAgentStore((s) => s.pendingToolUse !== null) && showHistory;
+  // History came in from the chat (its button, here), not with the panel
+  // opening on it: its search takes focus (the list decides, by pointer).
+  const [cameIn, setCameIn] = useState(false);
 
   return (
     <>
@@ -88,7 +94,10 @@ export default function OwnerAgentPanel({
                 : "Back to chat"
               : "History"
           }
-          onClick={onToggleHistory}
+          onClick={() => {
+            setCameIn(!showHistory);
+            onToggleHistory();
+          }}
           className="relative"
           // Where focus goes when Escape takes the owner back from History.
           data-panel-history=""
@@ -115,7 +124,7 @@ export default function OwnerAgentPanel({
       </PanelSubtitle>
       {showHistory ? (
         <div className="min-h-0 flex-1">
-          <ConversationList onClose={onCloseHistory} />
+          <ConversationList onClose={onCloseHistory} takeFocus={cameIn} />
         </div>
       ) : (
         <>
