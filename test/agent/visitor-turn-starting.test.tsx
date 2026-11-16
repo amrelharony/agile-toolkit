@@ -82,11 +82,16 @@ describe("a visitor's turn still starting when the chat opens again", () => {
     // The visitor asks something else from the guide while it still loads.
     render(<VisitorAgentPanel initialQuestion="sprint goal" onOfflineGuide={() => {}} />);
     await settle();
-    // The chat reads as busy, not idle: Amr is thinking, and the box waits.
+    // The chat reads as busy, not idle: Amr is thinking, and sending waits.
+    // The box stays editable; the one button is Stop, with nothing to stop yet.
     expect(screen.getByText("Amr is thinking…")).toBeInTheDocument();
-    expect(screen.getByLabelText("Message")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("Message")).not.toHaveAttribute("readonly");
     expect(screen.getByLabelText("Message")).toHaveValue("sprint goal");
-    expect(screen.getByRole("button", { name: "Send" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Stop answer" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
 
     await act(async () => h.open());
     await settle();
@@ -95,7 +100,7 @@ describe("a visitor's turn still starting when the chat opens again", () => {
     expect(useAgentStore.getState().drafts.visitor).toBe("sprint goal");
     // The load is over: the chat is no longer busy, and Send asks the new question.
     expect(screen.getByLabelText("Message")).not.toHaveAttribute("readonly");
-    expect(screen.getByRole("button", { name: "Send" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Send" })).not.toHaveAttribute("aria-disabled");
   });
 
   it("sends the same question once, and leaves the box empty", async () => {

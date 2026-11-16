@@ -27,7 +27,9 @@
  * answers. An empty chat shows a narration line and up to three starters for
  * the page the visitor is on (chat/chat-empty, words in
  * lib/agent/visitor-starters); a starter fills the message box and never
- * sends, so it spends nothing.
+ * sends, so it spends nothing. The composer is the one both chats share
+ * (chat/chat-composer), with the visitor's limit on a message's length, a
+ * counter near it, and the allowance in its status row.
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone, never
@@ -36,7 +38,7 @@
 
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
-import { BookOpen, Eraser, Send, Square } from "lucide-react";
+import { BookOpen, Eraser } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
 import { resolvePageTool, toolIdForPath } from "@/lib/agent/page-tool";
@@ -47,15 +49,13 @@ import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import { formatPeakTime, peakWindow } from "@/lib/visitor-ai/peak";
 import { cn } from "@/lib/utils";
-import { useChatVisible } from "../chat-visibility";
+import { ChatComposer } from "../chat/chat-composer";
 import { ChatProvider } from "../chat/chat-context";
 import { ChatEmpty } from "../chat/chat-empty";
 import { ThinkingItemView } from "../chat/chat-items";
 import { ChatNotice } from "../chat/chat-notice";
-import { ChatStatus } from "../chat/chat-status";
 import { ChatStrip, useAwaitingReply } from "../chat/chat-strip";
-import { handleMascotCommand } from "./engine/customization/chat-commands";
-import { COMPACT_HIDDEN, useInitialFocus } from "./panel-context";
+import { COMPACT_HIDDEN } from "./panel-context";
 import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
 
 /** The per-window allowance the busy-hours note names before the route reports one. */
@@ -159,6 +159,12 @@ interface VisitorAgentPanelProps {
   initialQuestion: string;
   /** Back to the tool finder. */
   onOfflineGuide: () => void;
+  /**
+   * The message box takes focus as the chat opens, even on a touch screen:
+   * the visitor said yes on the consent card with no question waiting, so
+   * typing is what they came to do.
+   */
+  takeFocus?: boolean;
 }
 
 /** Keep what the visitor typed but hasn't sent (drafts.visitor). */
@@ -167,27 +173,26 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("visitor", 
 export default function VisitorAgentPanel({
   initialQuestion,
   onOfflineGuide,
+  takeFocus = false,
 }: VisitorAgentPanelProps) {
   const streaming = useAgentStore((s) => s.streaming);
   const quota = useAgentStore((s) => s.visitorQuota);
-  const input = useAgentStore((s) => s.drafts.visitor);
   // A turn this chat or an earlier one started, its runtime still loading.
   const loading = useSyncExternalStore(subscribeStartingTurn, turnStarting, () => false);
   const pathname = usePathname();
   const now = useNow(CLOCK_TICK_MS);
   // In a visitor live room Amr gets no tools; the footer says so.
   const inLiveRoom = useSyncExternalStore(subscribeLiveVisitorRoom, inLiveVisitorRoom, () => false);
-  // False while Amr's Scenes view covers the chat (mounted, hidden).
-  const visible = useChatVisible();
   const empty = useAgentStore((s) => s.messages.length === 0);
   const vip = useVipHint();
-  // The empty chat's starters, for the page's tool when the visitor may see
-  // it (the menus' rule: a lock panel or a tool not out yet goes unnamed).
-  const starters = useMemo(() => {
-    const tool = resolvePageTool(toolIdForPath(pathname));
-    return visitorStarters(tool && !isVipHidden(tool, vip) ? tool : null, inLiveRoom);
-  }, [pathname, vip, inLiveRoom]);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
+  // The page's tool when the visitor may see it (the menus' rule: a lock
+  // panel or a tool not out yet goes unnamed): the empty chat's starters and
+  // the composer's "On {tool}" name it.
+  const tool = useMemo(() => {
+    const found = resolvePageTool(toolIdForPath(pathname));
+    return found && !isVipHidden(found, vip) ? found : null;
+  }, [pathname, vip]);
+  const starters = useMemo(() => visitorStarters(tool, inLiveRoom), [tool, inLiveRoom]);
   const sentInitialRef = useRef(false);
 
   /**
@@ -219,16 +224,14 @@ export default function VisitorAgentPanel({
   };
 
   /**
-   * Send a message: the box's draft (`fromBox`), which then empties, or the
-   * question the chat opened with, which leaves a draft alone.
+   * Send a message: the box's draft (`fromBox`: the composer has emptied the
+   * box, and ran a chat command such as /dance itself, so it never reached
+   * the AI), or the question the chat opened with, which leaves a draft alone.
    */
   const send = async (raw: string, fromBox: boolean) => {
     const text = raw.trim().slice(0, VISITOR_LIMITS.userChars);
     // Busy first, so a draft is never wiped while another turn starts.
     if (!text || startingTurn || useAgentStore.getState().streaming) return;
-    if (fromBox) setDraft("");
-    // Mascot commands (/dance, /mascot-aura, /play) run locally, never through the AI.
-    if (handleMascotCommand(text)) return;
     await startTurn(
       (runtime) => runtime.sendVisitorMessage(text, { toolId: toolIdForPath(pathname) }),
       fromBox ? raw : null,
@@ -253,12 +256,11 @@ export default function VisitorAgentPanel({
     );
   };
 
-  // The message box is where the panel's focus owner puts focus when the chat
-  // opens, and again when it comes back from under the Scenes view, on a fine
-  // pointer only: on a phone the keyboard would cover the answer to a question
-  // already sent. Leaving the chat stops nothing, so there is nothing else to
-  // tidy up when it unmounts.
-  useInitialFocus(composerRef, visible);
+  // The message box (the composer) is where the panel's focus owner puts
+  // focus when the chat opens, and again when it comes back from under the
+  // Scenes view, on a fine pointer only: on a phone the keyboard would cover
+  // the answer to a question already sent. Leaving the
+  // chat stops nothing, so there is nothing else to tidy up when it unmounts.
 
   // The question the visitor asked from the guide or the consent card.
   useEffect(() => {
@@ -294,67 +296,25 @@ export default function VisitorAgentPanel({
   // The composer's row: the frame keeps it shrink-0 (the form its direct
   // child) and makes room beside it for docked Amr.
   const footer = (
-    <>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send(input, true);
-        }}
-        className="flex items-end gap-2"
-      >
-        <textarea
-          ref={composerRef}
-          data-amr-composer=""
-          value={input}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send(input, true);
-            }
-          }}
-          maxLength={VISITOR_LIMITS.userChars}
-          placeholder="Ask Amr…"
-          rows={2}
-          className="flex-1 resize-none rounded-md border border-border bg-[var(--card)] px-3 py-2 text-sm text-text placeholder:text-sub focus:outline-none focus:ring-1 focus:ring-accent"
-          // Read-only while Amr answers, not disabled: a disabled box drops
-          // the focus it took when the chat opened, and never gets it back.
-          readOnly={busy}
-          aria-label="Message"
-        />
-        {streaming ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onClick={() => loadedRuntime?.abortInFlight()}
-            aria-label="Stop generating"
-            data-chat-send=""
-            title="Stop"
-            className="border-destructive text-destructive hover:bg-destructive/10"
-          >
-            <Square className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        ) : (
-          <Button
-            type="submit"
-            disabled={!input.trim() || busy}
-            size="icon"
-            aria-label="Send"
-            data-chat-send=""
-          >
-            <Send className="h-4 w-4" aria-hidden="true" />
-          </Button>
-        )}
-      </form>
-      <ChatStatus busy={busy} />
-      {/* The status lines wait while the panel is compact. */}
-      <p className={cn("mt-1.5 text-xs text-sub", COMPACT_HIDDEN)} data-testid="visitor-ai-quota">
-        {quota
-          ? `${quota.remaining} of ${quota.limit} left today`
-          : `${VISITOR_AI_DAILY_MESSAGES} AI uses a day`}
-        {inLiveRoom ? " · Not saved" : " · Amr asks before changing anything · Not saved"}
-      </p>
+    <ChatComposer
+      busy={busy}
+      // A turn still loading its runtime has nothing to stop yet.
+      canStop={streaming}
+      onSend={(_text, raw) => void send(raw, true)}
+      onStop={() => loadedRuntime?.abortInFlight()}
+      maxLength={VISITOR_LIMITS.userChars}
+      tool={tool?.name}
+      takeFocus={takeFocus}
+      // In the status row, never live; it waits while the panel is compact.
+      status={
+        <span data-testid="visitor-ai-quota">
+          {quota
+            ? `${quota.remaining} of ${quota.limit} left today`
+            : `${VISITOR_AI_DAILY_MESSAGES} AI uses a day`}
+          {inLiveRoom ? " · Not saved" : " · Amr asks before changing anything · Not saved"}
+        </span>
+      }
+    >
       {peak && <p className={cn("mt-1 text-xs text-sub", COMPACT_HIDDEN)}>{peak}</p>}
       {inLiveRoom && (
         <p className="mt-1 text-xs text-sub" data-testid="visitor-ai-live-room">
@@ -379,7 +339,7 @@ export default function VisitorAgentPanel({
           Clear chat
         </Button>
       </div>
-    </>
+    </ChatComposer>
   );
 
   return (
@@ -389,7 +349,7 @@ export default function VisitorAgentPanel({
     // In a tall panel nothing overflows there: the log takes the rest and
     // scrolls inside itself. Compact (a phone's keyboard up) the log's floor
     // drops to 3rem.
-    <ChatProvider profile="visitor" composerRef={composerRef}>
+    <ChatProvider profile="visitor">
       <ChatStrip busy={busy} footer={footer} className="px-3 py-2">
         {empty && !busy && (
           <ChatEmpty line={VISITOR_EMPTY.line} short={VISITOR_EMPTY.short} starters={starters} />

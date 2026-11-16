@@ -6,7 +6,9 @@ import type { ConversationMeta } from "@/lib/agent/types";
  * The owner's agent panel on a touch screen (mobile audit 2026-11-08):
  * conversation row actions show without hover, are 44 px on touch, and
  * Delete offers Undo before anything leaves for Supabase; the composer's
- * keyboard hints hide on coarse pointers.
+ * keyboard hints hide on coarse pointers, its box stays editable while Amr
+ * answers, and it takes focus on a touch screen only where a tap means "let
+ * me type" (New chat).
  */
 
 const h = vi.hoisted(() => ({
@@ -17,6 +19,7 @@ const h = vi.hoisted(() => ({
   retryLastTurn: vi.fn<(opts: unknown) => Promise<boolean>>(async () => true),
   goOn: vi.fn<(opts: unknown) => Promise<boolean>>(async () => true),
   canRetryLastTurn: vi.fn<(messages: unknown) => boolean>(() => true),
+  abortInFlight: vi.fn(),
   toast: Object.assign(
     vi.fn<(label: unknown, opts?: unknown) => string>(() => "toast-1"),
     { dismiss: vi.fn(), error: vi.fn() }
@@ -39,7 +42,7 @@ vi.mock("@/lib/auth/auth-provider", () => ({ useAuth: () => ({ user: { id: "owne
 vi.mock("next/navigation", () => ({ usePathname: () => "/sprint" }));
 vi.mock("@/lib/agent/client", () => ({
   sendUserMessage: h.sendUserMessage,
-  abortInFlight: vi.fn(),
+  abortInFlight: h.abortInFlight,
   generateTitle: vi.fn(async () => null),
   retryLastTurn: h.retryLastTurn,
   goOn: h.goOn,
@@ -52,6 +55,22 @@ import { ChatVisibleContext } from "@/components/agent/chat-visibility";
 import { useAgentStore } from "@/lib/agent/store";
 import { listConversations, loadMessages, renameConversation } from "@/lib/agent/persist";
 import { generateTitle } from "@/lib/agent/client";
+import { KEY_HINT, STOP_LABEL } from "@/components/agent/chat/chat-composer";
+import { DANCE_NOTE } from "@/components/agent/mascot/engine/customization/chat-commands";
+
+/** The page on a touch screen: (pointer: coarse) matches, nothing else does. */
+const touchScreen = () =>
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (query: string) =>
+      ({
+        matches: query.includes("pointer: coarse"),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+      }) as unknown as MediaQueryList
+  );
 
 const meta = (id: string, title: string): ConversationMeta => ({
   id,
@@ -380,7 +399,8 @@ describe("AgentConversation composer hints", () => {
 
   it("hides the keyboard hints on coarse pointers and keeps the safety note", async () => {
     render(<AgentConversation />);
-    const hint = screen.getByText(/Enter to send · Shift\+Enter for newline/);
+    const hint = screen.getByText(KEY_HINT, { exact: false });
+    expect(hint).toHaveTextContent("Enter to send · Shift+Enter for a new line");
     expect(hint).toHaveClass("pointer-coarse:hidden");
     const note = screen.getByText(/Amr asks before deleting or resetting anything/);
     expect(note).not.toHaveClass("pointer-coarse:hidden");
@@ -388,6 +408,15 @@ describe("AgentConversation composer hints", () => {
     // The old claim was false: most writes inside a tool run without a card.
     expect(screen.queryByText(/Write actions ask for confirmation/)).toBeNull();
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus());
+  });
+
+  it("leaves focus alone when the chat opens on a touch screen, so no keyboard rises", async () => {
+    touchScreen();
+    render(<AgentConversation />);
+    await act(async () => {});
+    expect(screen.getByRole("textbox", { name: "Message" })).not.toHaveFocus();
+    expect(document.body).toHaveFocus();
+    vi.restoreAllMocks();
   });
 });
 
@@ -766,11 +795,49 @@ describe("AgentConversation: notices, the draft and a new thread", () => {
     expect(screen.queryByRole("button", { name: "Go on" })).toBeNull();
   });
 
-  it("stays focusable while Amr answers: read-only, never disabled", () => {
+  it("stays editable while Amr answers: only sending waits, and the one button stops the answer", () => {
     useAgentStore.setState({ streaming: true });
+    h.abortInFlight.mockClear();
     render(<AgentConversation />);
+    box().focus();
     expect(box()).not.toBeDisabled();
-    expect(box()).toHaveAttribute("readonly");
+    expect(box()).not.toHaveAttribute("readonly");
+    // The next message can be drafted while the answer comes in.
+    fireEvent.change(box(), { target: { value: "and then the review" } });
+    expect(useAgentStore.getState().drafts.owner).toBe("and then the review");
+    // Enter sends nothing yet, and the draft stays.
+    expect(fireEvent.keyDown(box(), { key: "Enter" })).toBe(false);
+    expect(h.sendUserMessage).not.toHaveBeenCalled();
+    expect(box()).toHaveValue("and then the review");
+    expect(box()).toHaveFocus();
+    // Send is Stop for now: never disabled, so focus on it would stay.
+    const stop = screen.getByRole("button", { name: STOP_LABEL });
+    expect(stop).not.toBeDisabled();
+    expect(stop).not.toHaveAttribute("aria-disabled");
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    fireEvent.click(stop);
+    expect(h.abortInFlight).toHaveBeenCalledTimes(1);
+  });
+
+  it("acts out dance itself: the box empties, a note says so, and nothing goes to Amr's AI", () => {
+    render(<AgentConversation />);
+    fireEvent.change(box(), { target: { value: "dance" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(box()).toHaveValue("");
+    const note = screen.getByText(DANCE_NOTE);
+    expect(note).toHaveAttribute("aria-live", "polite");
+    expect(h.createConversation).not.toHaveBeenCalled();
+    expect(h.sendUserMessage).not.toHaveBeenCalled();
+    // The note goes with the next send.
+    fireEvent.change(box(), { target: { value: "/mascot-aura none" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(screen.queryByText(DANCE_NOTE)).toBeNull();
+  });
+
+  it("says which tool Amr works in, outside the live note", () => {
+    render(<AgentConversation />);
+    const on = screen.getByText(/^On /);
+    expect(on.closest("[aria-live]")).toBeNull();
   });
 
   it("keeps the draft when the panel closes and opens again", () => {

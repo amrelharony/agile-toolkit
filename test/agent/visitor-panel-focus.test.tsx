@@ -40,6 +40,20 @@ async function openChat() {
 
 const search = () => screen.getByLabelText("What do you need to do?");
 
+/** The page on a touch screen: (pointer: coarse) matches, nothing else does. */
+const touchScreen = () =>
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (query: string) =>
+      ({
+        matches: query.includes("pointer: coarse"),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+      }) as unknown as MediaQueryList
+  );
+
 /**
  * Ask a question from the guide (consent already stored), wait for it to be
  * sent, and put it in the chat as the (mocked) runtime would.
@@ -89,6 +103,7 @@ describe("VisitorPanel: focus and announcements", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     useAgentStore.getState().reset();
     useAgentStore.setState({ chatProfile: "owner", visitorQuota: null });
     window.localStorage.removeItem(VISITOR_AI_CONSENT_KEY);
@@ -270,7 +285,7 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("a question from the guide keeps focus in a message box that is not disabled", async () => {
+  it("a question from the guide keeps focus in a message box that stays editable while Amr answers", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<VisitorPanel />);
     fireEvent.change(screen.getByLabelText("What do you need to do?"), {
@@ -283,14 +298,32 @@ describe("VisitorPanel: focus and announcements", () => {
       useAgentStore.setState({ streaming: true });
     });
     expect(box).toHaveFocus();
-    // A disabled box takes no keys and drops focus in a browser. Read-only keeps it.
+    // A disabled box takes no keys and drops focus in a browser; this one
+    // stays as it was, and only sending waits.
     expect(box).not.toBeDisabled();
-    expect(box).toHaveAttribute("readonly");
+    expect(box).not.toHaveAttribute("readonly");
+    fireEvent.change(box, { target: { value: "and how long?" } });
+    expect(useAgentStore.getState().drafts.visitor).toBe("and how long?");
+    h.sendVisitorMessage.mockClear();
+    fireEvent.keyDown(box, { key: "Enter" });
+    await act(async () => {});
+    expect(h.sendVisitorMessage).not.toHaveBeenCalled();
+    expect(box).toHaveValue("and how long?");
+    expect(screen.getByRole("button", { name: "Stop answer" })).not.toHaveAttribute(
+      "aria-disabled"
+    );
     act(() => {
       useAgentStore.setState({ streaming: false });
     });
     expect(box).toHaveFocus();
-    expect(box).not.toHaveAttribute("readonly");
+    expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("the chat opened from the guide on a touch screen leaves focus alone, as consent was given before", async () => {
+    touchScreen();
+    await openChat();
+    await act(async () => {});
+    expect(screen.getByLabelText("Message")).not.toHaveFocus();
   });
 
   it("a refusal in the chat puts focus on its note and is not announced as well", async () => {

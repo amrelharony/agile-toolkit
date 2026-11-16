@@ -23,20 +23,14 @@ import {
   renameConversation,
   conversationTitle,
 } from "@/lib/agent/persist";
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import { useChatVisible } from "./chat-visibility";
+import { ChatComposer } from "./chat/chat-composer";
 import { ChatProvider } from "./chat/chat-context";
 import { ChatEmpty } from "./chat/chat-empty";
 import { ThinkingItemView } from "./chat/chat-items";
 import { ChatNotice } from "./chat/chat-notice";
-import { ChatStatus } from "./chat/chat-status";
 import { ChatStrip, useAwaitingReply } from "./chat/chat-strip";
+import { DictateButton } from "./chat/dictate-button";
 import { StepDetails } from "./chat/step-details";
-import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
-import { handleMascotCommand } from "./mascot/engine/customization/chat-commands";
-import { COMPACT_HIDDEN, useInitialFocus } from "./mascot/panel-context";
-import { Send, Mic, Square } from "lucide-react";
 import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 
 /**
@@ -75,7 +69,8 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
  * the owner's captions, one caption per run of tool steps, with Details (the
  * raw arguments and result), which only this chat hands the strip, and the
  * confirmation card under the step it asks about, with Approve all) and the
- * composer.
+ * composer both chats share (chat/chat-composer), with the owner's mic
+ * (chat/dictate-button), which only this chat hands it.
  *
  * The conversation is created in Supabase on the first message and every
  * message is persisted (via the client orchestrator's conversationId path), so
@@ -101,31 +96,16 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
 export function AgentConversation() {
   const { user } = useAuth();
   const streaming = useAgentStore((s) => s.streaming);
-  const input = useAgentStore((s) => s.drafts.owner);
   const empty = useAgentStore((s) => s.messages.length === 0);
   // The thinking balloon, until the reply's first words or steps arrive.
   const awaiting = useAwaitingReply(streaming);
-  const composerRef = useRef<HTMLTextAreaElement>(null);
   // A send waiting for its new conversation: a second one waits its turn.
   const sendingRef = useRef(false);
   const pathname = usePathname();
-  // False while Amr's Scenes view covers the chat (mounted, hidden).
-  const visible = useChatVisible();
   // The empty chat waits for the resume check; its starters follow the page.
   const settled = useSyncExternalStore(subscribeResumeCheck, resumeSettled, () => false);
-  const starters = useMemo(
-    () => ownerStarters(resolvePageTool(toolIdForPath(pathname))),
-    [pathname]
-  );
-
-  // The composer is where the panel's focus owner puts focus when it opens
-  // (this component mounts on open), and again when the chat comes back from
-  // under the Scenes view, on a fine pointer only: a tap on a phone doesn't
-  // raise the keyboard. Focus someone placed (the History button, coming back
-  // from History) keeps it.
-  useInitialFocus(composerRef, visible);
-  // Voice dictation fills the composer; the user reviews + sends.
-  const voice = useVoiceInput((text) => setDraft(text));
+  const tool = useMemo(() => resolvePageTool(toolIdForPath(pathname)), [pathname]);
+  const starters = useMemo(() => ownerStarters(tool), [tool]);
 
   // On the first open after a page load, resume the most recent conversation if
   // we're sitting on a blank draft. Guarded so it never clobbers an in-progress
@@ -182,13 +162,14 @@ export function AgentConversation() {
     });
   }, [streaming]);
 
-  const onSend = async () => {
-    const raw = input;
-    const text = raw.trim();
-    if (!text || streaming || !user || sendingRef.current) return;
-    setDraft("");
-    // Mascot commands (/mascot-aura, /dance) run locally, not the agent.
-    if (handleMascotCommand(text)) return;
+  // The composer has emptied the box, and ran a chat command (/dance) itself.
+  const onSend = async (text: string, raw: string) => {
+    if (!user) return;
+    if (sendingRef.current) {
+      // The last message is still making its thread: this one stays in the box.
+      if (!useAgentStore.getState().drafts.owner) setDraft(raw);
+      return;
+    }
     // The registry's id for this page's tool (a sub-page counts), or null.
     const toolId = toolIdForPath(pathname);
     // Ensure a persisted conversation exists so the thread survives reload.
@@ -248,84 +229,22 @@ export function AgentConversation() {
   };
 
   // The composer's row: the frame keeps it shrink-0 (the form its direct
-  // child) and makes room beside it for docked Amr.
+  // child) and makes room beside it for docked Amr. The composer is where the
+  // panel's focus owner puts focus when it opens (this mounts on open), and
+  // again when the chat comes back from under the Scenes view, on a fine
+  // pointer only: a tap on a phone doesn't raise the keyboard.
   const footer = (
-    <>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          void onSend();
-        }}
-        className="flex gap-2 items-end"
-      >
-        <textarea
-          ref={composerRef}
-          data-amr-composer=""
-          value={input}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void onSend();
-            }
-          }}
-          placeholder="Ask Amr…"
-          rows={2}
-          className="flex-1 resize-none rounded-md border border-border bg-[var(--card)] px-3 py-2 text-sm text-text placeholder:text-sub focus:outline-none focus:ring-1 focus:ring-accent"
-          // Read-only while Amr answers, not disabled: a disabled box drops
-          // its focus, and Try again and Go on hand focus to it.
-          readOnly={streaming}
-          aria-label="Message"
-        />
-        {voice.supported && (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            disabled={streaming}
-            onClick={() => (voice.listening ? voice.stop() : voice.start())}
-            aria-label={voice.listening ? "Stop dictation" : "Dictate"}
-            title={voice.listening ? "Stop" : "Speak"}
-            className={voice.listening ? "animate-pulse border-accent text-accent" : ""}
-          >
-            <Mic className="w-4 h-4" aria-hidden="true" />
-          </Button>
-        )}
-        {streaming ? (
-          <Button
-            type="button"
-            variant="outline"
-            size="icon"
-            onClick={() => abortInFlight()}
-            aria-label="Stop generating"
-            data-chat-send=""
-            title="Stop"
-            className="border-destructive text-destructive hover:bg-destructive/10"
-          >
-            <Square className="w-4 h-4" aria-hidden="true" />
-          </Button>
-        ) : (
-          <Button
-            type="submit"
-            disabled={!input.trim()}
-            size="icon"
-            aria-label="Send"
-            data-chat-send=""
-          >
-            <Send className="w-4 h-4" aria-hidden="true" />
-          </Button>
-        )}
-      </form>
-      {voice.error && <p className="mt-1.5 text-xs text-destructive">{voice.error}</p>}
-      <ChatStatus busy={streaming} />
-      <p className={cn("mt-1.5 text-xs text-sub", COMPACT_HIDDEN)}>
-        {/* Key hints mean nothing on a touch screen; the safety note stays. It
-            is true: every delete, remove, reset, clear or archive asks
-            (lib/agent/execute-tool isDestructiveAction), even after Approve all. */}
-        <span className="pointer-coarse:hidden">Enter to send · Shift+Enter for newline · </span>
-        Amr asks before deleting or resetting anything
-      </p>
-    </>
+    <ChatComposer
+      busy={streaming}
+      ready={!!user}
+      onSend={(text, raw) => void onSend(text, raw)}
+      onStop={abortInFlight}
+      tool={tool?.name}
+      mic={DictateButton}
+      // True: every delete, remove, reset, clear or archive asks
+      // (lib/agent/execute-tool isDestructiveAction), even after Approve all.
+      footnote="Amr asks before deleting or resetting anything"
+    />
   );
 
   return (
@@ -334,7 +253,7 @@ export function AgentConversation() {
     // footer staying in reach. Its padding is inside that scroller, which
     // clips at its padding box: the composer's and Send's focus rings (High
     // contrast's reach 5 px out) stay clear of its edges.
-    <ChatProvider profile="owner" composerRef={composerRef} stepDetails={StepDetails}>
+    <ChatProvider profile="owner" stepDetails={StepDetails}>
       <ChatStrip busy={streaming} footer={footer} className="px-3 py-2">
         {empty && (
           <ChatEmpty
