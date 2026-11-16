@@ -340,9 +340,12 @@ function AnalysisView({
           <label htmlFor={`rca-problem-${id}`} className="mb-1 block text-xs font-medium text-sub">
             What happened, as a fact
           </label>
+          {/* Grows with the fact (field-sizing where the browser has it; three
+              rows where it doesn't), so no line shows cut in half. */}
           <BlurTextarea
             id={`rca-problem-${id}`}
             rows={3}
+            className="max-h-72 [field-sizing:content]"
             value={analysis.problem}
             maxLength={TOOL_TEXT_MAX.text}
             placeholder="Where, when and how often. No names and no blame."
