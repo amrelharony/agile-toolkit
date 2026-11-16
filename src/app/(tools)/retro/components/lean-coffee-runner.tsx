@@ -181,9 +181,13 @@ export function LeanCoffeeRunner({
       armedRef.current = true;
       return;
     }
-    if (!armedRef.current || !started || !thumbs) return;
-    if (state.phase !== "discuss" || upInRef.current !== "discuss") return;
+    if (!armedRef.current || !thumbs) return;
+    // A time's up with no topic running, or from an earlier phase, uses up
+    // the arming: Start (or a card marked as discussing) while the board
+    // still says time's up would otherwise open a vote on a topic that has
+    // only just begun.
     armedRef.current = false;
+    if (!started || state.phase !== "discuss" || upInRef.current !== "discuss") return;
     if (pollOpen) {
       announce("Time's up. The room's vote is still open: keep going or move on?");
       return;
@@ -274,6 +278,8 @@ export function LeanCoffeeRunner({
         ? `“${short(one.title, 40)}”`
         : list.map((g) => `“${short(g.title, 24)}”`).join(", "),
       kind: "success",
+      // Two merges in a row fold into one toast: its Undo takes back both.
+      id: "lean-coffee:merge",
       apply: () => {
         onUpdate((prev) => list.reduce((board, g) => withTopicsMerged(board, g.topicIds), prev));
         for (const g of list) {

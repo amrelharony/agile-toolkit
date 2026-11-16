@@ -159,6 +159,31 @@ describe("buildVisitorTurnTools on the real registry", () => {
     expect(names("zzqx", null)).toEqual([]);
   });
 
+  it("on Quick Vote, offers where the options come from but never the room's next round", () => {
+    for (const text of ["zzqx", "start a vote on our backlog"]) {
+      const offered = names(text, "quick-vote");
+      expect(offered, text).toContain("tool_quick_vote_list_state");
+      expect(offered, text).toContain("workspace_backlog_item_list");
+      expect(offered, text).toContain("workspace_story_list");
+      expect(offered, text).toContain("workspace_retro_board_list");
+      expect(offered, text).not.toContain("tool_quick_vote_start_round");
+    }
+  });
+
+  it("on Sprint Review, never offers the live wall's room verbs", () => {
+    const room = ["room_status", "open_round", "set_open", "reveal", "lower_hands", "scoring"].map(
+      (verb) => `tool_audience_wall_${verb}`
+    );
+    for (const text of ["zzqx", "reveal the posts on the feedback wall"]) {
+      const offered = names(text, "sprint-review");
+      expect(offered, text).toContain("tool_sprint_review_list_state");
+      expect(
+        offered.filter((n) => room.includes(n)),
+        text
+      ).toEqual([]);
+    }
+  });
+
   it("accepts the page as a path", () => {
     expect(names("zzqx", "/retro")).toContain("tool_retro_add_card");
   });

@@ -1,5 +1,6 @@
 /**
- * The live wall open on the Audience Wall page, for Amr's room verbs.
+ * The live wall open on the page, for Amr's room verbs: the Audience Wall
+ * page's, or Sprint Review's feedback room (an Audience Wall room too).
  *
  * A wall room lives in the host's page (its keys, its channel, who wrote
  * what), so an action can't reach it through a store. While a room is
@@ -26,7 +27,7 @@ export interface LiveWallStatus {
   people: number;
   /** 25/10 scoring: "open", "shown", or null. */
   scoring: "open" | "shown" | null;
-  /** The page's kind of wall. */
+  /** The page's kind of wall: an Audience Wall kind, or Sprint Review's feedback room. */
   kind: string;
   /**
    * The round holds posts a new round would clear: not saved yet, or hidden

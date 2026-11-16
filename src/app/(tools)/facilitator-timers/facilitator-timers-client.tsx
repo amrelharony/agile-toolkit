@@ -57,6 +57,7 @@ import {
   startTimerRun,
   stopTimerRun,
   syncBreakBackAt,
+  syncDockChime,
   useCostTicker,
   useFacilitatorSettings,
   useFtSession,
@@ -178,6 +179,11 @@ export function FacilitatorTimersClient() {
     setNow(Date.now());
     syncBreakBackAt(dockTimer);
   }, [dockTimer]);
+  // Away from this page the dock rings under this page's chime switch:
+  // turning it on or off reaches a step already on the dock.
+  useEffect(() => {
+    if (ready) syncDockChime(settings.chime);
+  }, [ready, settings.chime, dockTimer]);
   // The tick stops while the tab is hidden; this wakes the page when the
   // step ends anyway, so the cue, the flashing title and the next round
   // still come on time for a facilitator in another window.

@@ -20,7 +20,7 @@ vi.mock("@/lib/utils/toast", () => ({
   toast: Object.assign(vi.fn(), { dismiss: vi.fn(), success: vi.fn(), error: vi.fn() }),
 }));
 const undo = vi.hoisted(() => ({
-  all: [] as { label: string; apply: () => void; revert: () => void }[],
+  all: [] as { label: string; id?: string; apply: () => void; revert: () => void }[],
 }));
 vi.mock("@/lib/utils/undoable", () => ({
   undoable: (a: { label: string; apply: () => void; revert: () => void }) => {
@@ -394,6 +394,9 @@ describe("Lean Coffee: before Discuss", () => {
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Merge: Releases" }));
     fireEvent.click(screen.getByRole("button", { name: "Merge: Releases" }));
     expect(card("t3").groupedWith).toBe("t4");
+    // Both merges share a toast id, so the toast they fold into undoes both.
+    expect(undo.all.at(-1)!.id).toBe("lean-coffee:merge");
+    expect(undo.all.at(-2)!.id).toBe("lean-coffee:merge");
     expect(screen.getByText("All merged.")).toBeInTheDocument();
     expect(document.activeElement).toBe(
       screen.getByRole("heading", { name: "Topics that look the same" })
@@ -717,6 +720,28 @@ describe("Lean Coffee: Discuss", () => {
     view.rerun({ timeUp: true, thumbs: after });
     expect(after.open).toHaveBeenCalledTimes(1);
     expect(after.open).toHaveBeenCalledWith("Our standups run too long");
+  });
+
+  it("Start doesn't open a vote while the board still says time's up from before any topic ran", () => {
+    const board = leanBoard({
+      phase: "discuss",
+      cards: [topic("t2", "Our standups run too long", 4), topic("t3", "Lunch and learn ideas", 2)],
+    });
+    const thumbs = fakeThumbs();
+    const view = runner(board, { thumbs });
+    // The voting timebox ran out after the board moved to Discuss.
+    view.rerun({ timeUp: true, thumbs });
+    expect(thumbs.open).not.toHaveBeenCalled();
+    // Start, while the board takes a render to clear its time's up.
+    fireEvent.click(screen.getByRole("button", { name: /^Start the first topic/ }));
+    view.rerun({ timeUp: true, thumbs });
+    expect(thumbs.open).not.toHaveBeenCalled();
+    // The topic's own timebox runs out: the room is asked, once.
+    view.rerun({ timeUp: false, thumbs });
+    view.rerun({ timeUp: true, thumbs });
+    view.rerun({ timeUp: true, thumbs });
+    expect(thumbs.open).toHaveBeenCalledTimes(1);
+    expect(thumbs.open).toHaveBeenCalledWith("Our standups run too long");
   });
 
   it("Move on doesn't open a vote on the next topic while the board still says time's up", () => {

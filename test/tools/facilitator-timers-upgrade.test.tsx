@@ -312,6 +312,34 @@ describe("Pomodoro", () => {
     expect(ringsOwnAlarm("/facilitator-timers")).toBe(false);
   });
 
+  it("puts its own chime switch on the dock, so the dock rings under it away from this page", () => {
+    useFacilitatorSettings.setState({ pomodoro: { workMinutes: 1, breakMinutes: 1, rounds: 2 } });
+    renderPage();
+    click("Start Pomodoro");
+    expect(useDockTimer.getState().timer).toMatchObject({
+      label: "Pomodoro · Focus 1 of 2",
+      chime: false,
+    });
+    // Turned on mid-run: the step already on the dock follows the switch.
+    fireEvent.click(screen.getByRole("switch", { name: "Chime when time is up" }));
+    expect(useFacilitatorSettings.getState().chime).toBe(true);
+    expect(useDockTimer.getState().timer).toMatchObject({
+      label: "Pomodoro · Focus 1 of 2",
+      chime: true,
+    });
+    // The next step goes on the dock with it too.
+    tick(60);
+    expect(useDockTimer.getState().timer).toMatchObject({
+      label: "Pomodoro · Short break 1 of 1",
+      chime: true,
+    });
+    // Here the page rings its own cue, once: the dock stays quiet on this page.
+    expect(alarm.playChime).toHaveBeenCalledTimes(1);
+    expect(ringsOwnAlarm("/facilitator-timers")).toBe(true);
+    fireEvent.click(screen.getByRole("switch", { name: "Chime when time is up" }));
+    expect(useDockTimer.getState().timer).toMatchObject({ chime: false });
+  });
+
   it("keeps focus on its first control as a step runs out and the next one starts", () => {
     useFacilitatorSettings.setState({ pomodoro: { workMinutes: 1, breakMinutes: 1, rounds: 2 } });
     renderPage();

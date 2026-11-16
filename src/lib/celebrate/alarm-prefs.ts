@@ -5,8 +5,10 @@
  * off unless someone turns it on (DNA-SPEC "Sound stays off by default").
  * Kept in this browser only.
  *
- * The Ceremony Timer still has its own switch (its settings store); a timer
- * it puts on the dock carries that choice (`DockedTimer.chime`).
+ * The Ceremony Timer and Facilitator Timers have their own switches (their
+ * settings stores). A Facilitator Timers step on the dock carries its
+ * switch (`DockedTimer.chime`); the Ceremony Timer's doesn't yet, so away
+ * from its page this setting rings it.
  */
 
 import { create } from "zustand";

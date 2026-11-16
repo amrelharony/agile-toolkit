@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -14,6 +14,7 @@ import {
   type WallRoundResult,
   type WallStateBody,
 } from "@/lib/realtime/wall-room/protocol";
+import { liveWall } from "@/lib/audience-wall/live";
 import { fakeRealtime, type FakeChannel, type FakeMember } from "../realtime/fake-realtime";
 import { NOW, fakeVoteCrypto, type FakeVoteCrypto } from "../realtime/vote-room-fixtures";
 
@@ -22,8 +23,9 @@ import { NOW, fakeVoteCrypto, type FakeVoteCrypto } from "../realtime/vote-room-
  * kind and channel, not one of Sprint Review's own) with a prompt per demo
  * item. The posts join the Feedback tab only on Save round, filed as the
  * kind the host picks (no default), from "Feedback room" (no names), and
- * the kit's Undo takes the round back out. The example review offers no
- * room.
+ * the kit's Undo takes the round back out. While the room is live, Amr's
+ * room verbs reach it through the live-wall registry, as on the Audience
+ * Wall page (counts only). The example review offers no room.
  */
 
 const toastSpy = vi.hoisted(() =>
@@ -42,6 +44,7 @@ vi.mock("@/lib/realtime/supabase-client", async () => {
 vi.mock("@/lib/sonification/emit", () => ({ emit: () => {}, emitRtEvent: () => {} }));
 
 import {
+  FEEDBACK_ROOM_KIND,
   FEEDBACK_ROOM_STAKEHOLDER,
   FeedbackRoom,
   feedbackFromRound,
@@ -304,5 +307,99 @@ describe("the feedback room", () => {
     const undo = [...toastSpy.mock.calls].reverse().find((c) => c[0] === "Saved the round");
     act(() => undo![1].action.onClick());
     expect(s.doc().feedbackItems.map((f) => f.id)).toEqual(["fb0"]);
+  });
+
+  it("registers with Amr's live-wall registry while open (counts only), and forgets it when it ends", async () => {
+    const crypto = fakeVoteCrypto();
+    const s = source();
+    const view = wrap(<FeedbackRoom source={s.src} crypto={crypto} />);
+    await flush();
+    expect(liveWall()).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open the feedback room" }));
+    });
+    const dialog = screen.getByRole("dialog");
+    const name = dialog.querySelector("input:not([type=checkbox])") as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(name, { target: { value: "Pat" } });
+      fireEvent.click(dialog.querySelector("input[type=checkbox]")!);
+      fireEvent.click(screen.getByRole("button", { name: "Start room" }));
+    });
+    await settle(() => fakeRealtime.channels.length > 0);
+    const ch = fakeRealtime.last();
+    act(() => ch.connect());
+    await flush();
+    const hostId = (ch.track.mock.calls.at(-1) as unknown as [{ id: string }])[0].id;
+    act(() => ch.setPresence([{ id: hostId, name: "Pat", joinedAt: "2026-10-26T09:00:00Z" }, A]));
+    await flush();
+    await tick(600);
+    expect(liveWall()?.status()).toMatchObject({
+      kind: FEEDBACK_ROOM_KIND,
+      prompt: null,
+      posts: 0,
+      people: 2,
+      unsaved: false,
+    });
+    // No 25/10 scoring in a feedback room.
+    expect(liveWall()?.setScoring).toBeUndefined();
+
+    // Amr's open_round puts the prompt up, as the host's own button does.
+    let opened = false;
+    act(() => {
+      opened = liveWall()!.openRound("What do you think of “One-tap checkout”?", "hidden");
+    });
+    expect(opened).toBe(true);
+    await tick(600);
+    const round = states(ch).at(-1)!.round!;
+    expect(round).toMatchObject({ prompt: "What do you think of “One-tap checkout”?" });
+    await send(ch, crypto, A.id, {
+      t: "post",
+      r: round.id,
+      pid: "pid_fb000002",
+      text: "Where is the receipt?",
+      lock: lockOf("keyA_0123456789abcdef"),
+    });
+    const status = liveWall()!.status();
+    expect(status).toMatchObject({ posts: 1, shown: false, unsaved: true });
+    // Counts only: no post's text reaches Amr.
+    expect(JSON.stringify(status)).not.toContain("receipt");
+
+    // Ending the room takes it out of the registry.
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "End room" }));
+    });
+    const confirm = screen.getByRole("dialog");
+    await act(async () => {
+      fireEvent.click(within(confirm).getByRole("button", { name: "End room" }));
+    });
+    await flush();
+    await tick(600);
+    expect(screen.getByText("You ended the live wall")).toBeInTheDocument();
+    expect(liveWall()).toBeNull();
+    view.unmount();
+    expect(liveWall()).toBeNull();
+  });
+
+  it("forgets the room when the page closes while it's live", async () => {
+    const crypto = fakeVoteCrypto();
+    const view = wrap(<FeedbackRoom source={source().src} crypto={crypto} />);
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open the feedback room" }));
+    });
+    const dialog = screen.getByRole("dialog");
+    const name = dialog.querySelector("input:not([type=checkbox])") as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(name, { target: { value: "Pat" } });
+      fireEvent.click(dialog.querySelector("input[type=checkbox]")!);
+      fireEvent.click(screen.getByRole("button", { name: "Start room" }));
+    });
+    await settle(() => fakeRealtime.channels.length > 0);
+    act(() => fakeRealtime.last().connect());
+    await flush();
+    await tick(600);
+    expect(liveWall()?.status().kind).toBe(FEEDBACK_ROOM_KIND);
+    view.unmount();
+    expect(liveWall()).toBeNull();
   });
 });
