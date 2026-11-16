@@ -16,9 +16,10 @@
  *     in from the chat (`takeFocus`), on a fine pointer only: on a touch
  *     screen it would raise the keyboard over the list. Enter goes to the
  *     first thread; Escape with words in it clears them, and from an empty
- *     one the panel's own Escape order goes on (back to the chat). With no
- *     threads there is no search, so focus in it goes on to New chat when it
- *     goes
+ *     one the panel's own Escape order goes on (back to the chat). Once
+ *     typing stops, what it found is said politely ("2 chats match", or
+ *     "No chats match …"). With no threads there is no search, so focus in
+ *     it goes on to New chat when it goes
  *   - the threads under Today, Yesterday, Last 7 days and Earlier
  *     (lib/agent/history-groups), each row its title (dir="auto"), its tool
  *     and a <time> line in words; the open thread says so (aria-current, and
@@ -95,6 +96,10 @@ export const HISTORY_FAILED = "Amr couldn't reach your chats. Check your connect
 export const HISTORY_EMPTY = "No saved chats yet. A chat is kept here from its first message.";
 /** The search found nothing. */
 export const noMatches = (query: string) => `No chats match “${query}”.`;
+/** Said once typing stops in the search: how many threads it found. */
+export const chatMatchCount = (n: number) => (n === 1 ? "1 chat matches" : `${n} chats match`);
+/** How long typing stops before the count is said (the tool finder's wait). */
+export const SEARCH_ANNOUNCE_MS = 450;
 /** A thread couldn't be opened (narration, said once). */
 export const openFailed = (title: string) =>
   `Amr couldn't open “${title}”. Check your connection and try again.`;
@@ -379,6 +384,21 @@ export function ConversationList({ onClose, takeFocus = false }: ConversationLis
   const groups = historyGroups(filtered);
   /** The rows as they show, top to bottom. */
   const shown = groups.flatMap((g) => g.threads);
+
+  // What the search found, once typing stops: one polite line through the
+  // app's announcer (the list is no live region), each key press starting the
+  // wait again. Never on mount, for an empty search or before the list loads.
+  const words = query.trim();
+  const found = filtered.length;
+  const listed = items !== null && !failed && items.length > 0;
+  useEffect(() => {
+    if (!words || !listed) return;
+    const id = setTimeout(
+      () => announce(found ? chatMatchCount(found) : noMatches(words)),
+      SEARCH_ANNOUNCE_MS
+    );
+    return () => clearTimeout(id);
+  }, [words, found, listed, announce]);
 
   // Delete hides the row at once and offers Undo; the thread is deleted in
   // Supabase only when the Undo window closes (or the page is hidden), and the

@@ -60,6 +60,8 @@ import {
   HISTORY_FAILED,
   HISTORY_LOADING,
   OPEN_NOW,
+  SEARCH_ANNOUNCE_MS,
+  chatMatchCount,
   exportFailed,
   noMatches,
   openFailed,
@@ -190,6 +192,10 @@ function heard(region: HTMLElement) {
   watch.observe(region, { childList: true, characterData: true, subtree: true });
   return { lines, stop: () => watch.disconnect() };
 }
+
+/** Wait out the search's pause, and the announcer's own. */
+const pastSearchPause = () =>
+  act(() => new Promise((r) => setTimeout(r, SEARCH_ANNOUNCE_MS + 150)));
 
 beforeEach(() => {
   // Every test reads the threads against the same Wednesday afternoon.
@@ -493,6 +499,35 @@ describe("search", () => {
     expect(search).toHaveFocus();
     expect(fireEvent.keyDown(search, { key: "Enter" })).toBe(false);
     expect(openButton("Backlog grooming notes")).toHaveFocus();
+  });
+
+  it("says what it found once typing stops, politely, and nothing on mount or for an emptied search", async () => {
+    renderList();
+    await screen.findByText("Velocity question");
+    const said = heard(polite());
+    await pastSearchPause();
+    expect(said.lines).toEqual([]);
+
+    const search = screen.getByLabelText("Search conversations");
+    // Each key press starts the wait again: only the last words are said.
+    fireEvent.change(search, { target: { value: "v" } });
+    fireEvent.change(search, { target: { value: "zzz" } });
+    await waitFor(() => expect(said.lines).toEqual([noMatches("zzz")]));
+    fireEvent.change(search, { target: { value: "es" } });
+    await waitFor(() => expect(said.lines.at(-1)).toBe(chatMatchCount(2)));
+    fireEvent.change(search, { target: { value: "notes" } });
+    await waitFor(() => expect(said.lines.at(-1)).toBe(chatMatchCount(1)));
+    expect(chatMatchCount(1)).toBe("1 chat matches");
+    expect(said.lines).toEqual([noMatches("zzz"), "2 chats match", "1 chat matches"]);
+
+    // Escape empties it: nothing more is said.
+    fireEvent.keyDown(search, { key: "Escape" });
+    expect(search).toHaveValue("");
+    await pastSearchPause();
+    expect(said.lines).toHaveLength(3);
+    // The line is plain words: no dashes.
+    for (const line of said.lines) expect(line).not.toMatch(/[–—]/);
+    said.stop();
   });
 
   it("clears its words on Escape first, then leaves Escape to the panel", async () => {
