@@ -265,7 +265,7 @@ def baked_scenes() -> dict:
         entry, fids = shipped[pack]
         for key in ("src", "src2x"):
             if not (PUBLIC / Path(entry[key]).name).exists():
-                raise SystemExit(f"companion scene {pack}: its shipped pack {entry[key]} is gone")
+                raise SystemExit(f"scene pack {pack}: its shipped pack {entry[key]} is gone")
         baked[pack] = (entry, fids)
     return baked
 
@@ -954,7 +954,8 @@ def write_packs(frames, kept: dict | None = None) -> dict:
     kept = kept or {}
     keep = {Path(e[k]).name for e, _ in kept.values() for k in ("src", "src2x")}
     for old in PUBLIC.glob("amr-*.webp"):
-        if old.name not in keep:
+        # The Scenes tab's thumbnail atlas belongs to build-mascot-expansion.py.
+        if old.name not in keep and not old.name.startswith("amr-thumbs."):
             old.unlink()
     manifest = {}
     for pack, fids in PACKS.items():
@@ -1023,11 +1024,21 @@ def pack_sheet(cells: list[Image.Image], k: int) -> Image.Image:
     return out
 
 
+def folder_arg(args: list[str], valued: tuple[str, ...] = ()) -> Path:
+    """The folder given on the command line: the first argument that is neither a flag
+    nor a flag's value. No folder, or -h / --help, prints the usage."""
+    if "-h" in args or "--help" in args:
+        raise SystemExit(__doc__)
+    skip = {i + 1 for i, a in enumerate(args) if a in valued}
+    for i, a in enumerate(args):
+        if i not in skip and not a.startswith("-"):
+            return Path(a)
+    raise SystemExit(__doc__)
+
+
 def main() -> None:
     args = sys.argv[1:]
-    if not args:
-        raise SystemExit(__doc__)
-    src = Path(args[0])
+    src = folder_arg(args, ("--preview",))
     preview = Path(args[args.index("--preview") + 1]) if "--preview" in args else None
     found = add_context_sheets(src)
     total = len(context_sheets())
