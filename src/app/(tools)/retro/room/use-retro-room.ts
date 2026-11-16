@@ -31,9 +31,11 @@
  *  - runs the Lean Coffee thumbs vote (protocol revision 2, `thumbs`): who
  *    put which thumb stays in memory here (thumbs.ts) and no snapshot says;
  *    a snapshot says how many voted, and the totals once the vote is
- *    closed. A member who leaves or is removed while it's open takes their
- *    thumb with them; once closed, the totals stay as shown. (The thumb
- *    intents themselves reach every peer unsealed, like votes: thumbs.ts.)
+ *    closed, if at least 3 voted (with fewer, nobody gets them, the host's
+ *    own view included). A member who leaves or is removed while it's open
+ *    takes their thumb with them; once closed, the totals stay as shown.
+ *    (The thumb intents themselves reach every peer unsealed, like votes:
+ *    thumbs.ts.)
  *
  * Participant:
  *  - trusts the first host it hears from that is in presence, then only that
@@ -123,6 +125,7 @@ import {
   closeThumbPoll,
   openThumbPoll,
   thumbTally,
+  thumbsTotalsShown,
   toRoomPoll,
   withoutVoters,
   type ThumbPoll,
@@ -224,13 +227,18 @@ interface RoomView {
   poll: RoomPoll | null;
 }
 
-/** A thumbs vote as its host sees it: the totals while it's open too. */
+/**
+ * A thumbs vote as its host sees it: the totals while it's open too (the
+ * runner shows only the count until it closes). Once closed with fewer
+ * than THUMBS_MIN_VOTERS voters it has no totals, like the room's copy.
+ */
 export interface ThumbPollView {
   id: string;
   topic: string;
   open: boolean;
-  keep: number;
-  move: number;
+  /** Absent on a vote closed with fewer than THUMBS_MIN_VOTERS voters. */
+  keep?: number;
+  move?: number;
   voters: number;
 }
 
@@ -240,7 +248,7 @@ export interface RetroThumbsHost {
   poll: ThumbPollView | null;
   /** Ask the room about `topic`: a new, open vote (any earlier one is dropped). */
   open: (topic: string) => void;
-  /** Stop taking thumbs and show everyone the totals. */
+  /** Stop taking thumbs and show everyone the totals (with at least 3 voters). */
   close: () => void;
   /** Take the vote off everyone's screen. */
   clear: () => void;
@@ -1487,9 +1495,15 @@ export function useRetroRoom(opts: UseRetroRoomOptions): RetroRoom {
 
   const thumbs = useMemo((): RetroThumbsHost => {
     const p = pollRef.current;
-    const view: ThumbPollView | null = p
-      ? { id: p.id, topic: p.topic, open: p.open, ...thumbTally(p) }
-      : null;
+    let view: ThumbPollView | null = null;
+    if (p) {
+      const t = thumbTally(p);
+      // Closed with too few voters: the count only, as the room gets it.
+      view =
+        p.open || thumbsTotalsShown(t.voters)
+          ? { id: p.id, topic: p.topic, open: p.open, ...t }
+          : { id: p.id, topic: p.topic, open: false, voters: t.voters };
+    }
     return { poll: view, open: openPoll, close: closePoll, clear: clearPoll };
     // `pollVersion` stands for the poll, which lives in a ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps

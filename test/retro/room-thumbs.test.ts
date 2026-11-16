@@ -12,11 +12,13 @@ import {
 } from "@/app/(tools)/retro/room/protocol";
 import { applyIntent, createIntentLedger } from "@/app/(tools)/retro/room/intents";
 import {
+  THUMBS_MIN_VOTERS,
   applyThumb,
   closeThumbPoll,
   openThumbPoll,
   readRoomPoll,
   thumbTally,
+  thumbsTotalsShown,
   toRoomPoll,
   withoutVoters,
   type ThumbPoll,
@@ -33,19 +35,21 @@ import type { BoardState } from "@/app/(tools)/retro/types";
  * Revision 2 of the retro room's version 2: the Lean Coffee thumbs vote.
  * A thumb is a well-formed intent or nothing; only the voter's key changes
  * their thumb; the snapshot says how many voted while the vote is open and
- * the totals once it's closed, never who; and a snapshot without a poll
- * (a host on the earlier build) or with one this build can't read still
- * reads as a room.
+ * the totals once it's closed (with at least 3 voters, or none at all),
+ * never who; and a snapshot without a poll (a host on the earlier build)
+ * or with one this build can't read still reads as a room.
  */
 
 const V = RETRO_ROOM_PROTOCOL_VERSION;
 const HOST = "host_00000000000";
 const PAT = "pat_000000000000";
 const SAM = "sam_000000000000";
+const LEE = "lee_000000000000";
 const MALLORY = "mallory_00000000";
 const KEY_PAT = "patkey_0000000000000";
 const KEY_PAT_2 = "patkey_1111111111111";
 const KEY_SAM = "samkey_0000000000000";
+const KEY_LEE = "leekey_0000000000000";
 const NOW = Date.parse("2026-11-12T10:00:00Z");
 
 const env = (by: string, intent: Record<string, unknown>): unknown => ({ v: V, by, intent });
@@ -67,7 +71,7 @@ const thumbEnv = (
     })
   )!;
 
-const seats = { admitted: new Set([PAT, SAM]), removed: new Set<string>() };
+const seats = { admitted: new Set([PAT, SAM, LEE]), removed: new Set<string>() };
 
 function vote(poll: ThumbPoll, e: IntentEnv, ctx = seats): ThumbPoll {
   const r = applyThumb(poll, e, ctx);
@@ -228,22 +232,23 @@ describe("the poll as the room shares it", () => {
   const voted = () => {
     let poll = openThumbPoll("poll_1", "Standups");
     poll = vote(poll, thumbEnv(PAT, "poll_1", "keep", KEY_PAT));
-    return vote(poll, thumbEnv(SAM, "poll_1", "keep", KEY_SAM));
+    poll = vote(poll, thumbEnv(SAM, "poll_1", "keep", KEY_SAM));
+    return vote(poll, thumbEnv(LEE, "poll_1", "move", KEY_LEE));
   };
 
   it("says only how many voted while open, and the totals once closed, never who", () => {
-    expect(toRoomPoll(voted())).toEqual({ id: "poll_1", topic: "Standups", open: true, voters: 2 });
+    expect(toRoomPoll(voted())).toEqual({ id: "poll_1", topic: "Standups", open: true, voters: 3 });
     const closed = toRoomPoll(closeThumbPoll(voted()));
     expect(closed).toEqual({
       id: "poll_1",
       topic: "Standups",
       open: false,
-      voters: 2,
+      voters: 3,
       keep: 2,
-      move: 0,
+      move: 1,
     });
     const json = JSON.stringify(closed);
-    for (const secret of [PAT, SAM, lockOf(KEY_PAT)]) expect(json).not.toContain(secret);
+    for (const secret of [PAT, SAM, LEE, lockOf(KEY_PAT)]) expect(json).not.toContain(secret);
   });
 
   it("is read back field by field", () => {
@@ -256,7 +261,9 @@ describe("the poll as the room shares it", () => {
   it.each([
     ["totals on an open vote", { open: true, voters: 1, keep: 1, move: 0 }],
     ["totals that don't add up", { open: false, voters: 3, keep: 1, move: 1 }],
-    ["a closed vote without totals", { open: false, voters: 0 }],
+    ["totals that don't add up, under 3 voters", { open: false, voters: 2, keep: 2, move: 1 }],
+    ["half the totals, under 3 voters", { open: false, voters: 1, keep: 1 }],
+    ["a closed vote of 3 without totals", { open: false, voters: 3 }],
     ["more voters than a room holds", { open: true, voters: VISITOR_LIMITS.maxMembers + 1 }],
     ["a fractional count", { open: true, voters: 1.5 }],
     ["a bad id", { id: "not an id!", open: true, voters: 0 }],
@@ -264,6 +271,53 @@ describe("the poll as the room shares it", () => {
     ["an empty topic", { topic: "", open: true, voters: 0 }],
   ])("is refused with %s", (_name, patch) => {
     expect(readRoomPoll({ id: "poll_1", topic: "Standups", ...patch })).toBeNull();
+  });
+});
+
+describe("a vote closed with fewer than 3 voters", () => {
+  const VOTERS: [string, "keep" | "move", string][] = [
+    [PAT, "keep", KEY_PAT],
+    [SAM, "move", KEY_SAM],
+    [LEE, "keep", KEY_LEE],
+  ];
+  const closedWith = (n: number) => {
+    let poll = openThumbPoll("poll_1", "Standups");
+    for (const [by, choice, key] of VOTERS.slice(0, n)) {
+      poll = vote(poll, thumbEnv(by, "poll_1", choice, key));
+    }
+    return closeThumbPoll(poll);
+  };
+
+  it("needs 3 voters, one constant for every screen", () => {
+    expect(THUMBS_MIN_VOTERS).toBe(3);
+    expect([0, 1, 2, 3, 4].map(thumbsTotalsShown)).toEqual([false, false, false, true, true]);
+  });
+
+  it.each([
+    ["no voters", 0],
+    ["1 voter", 1],
+    ["2 voters", 2],
+  ])("with %s, carries the count and no split", (_label, n) => {
+    const shared = toRoomPoll(closedWith(n));
+    expect(shared).toEqual({ id: "poll_1", topic: "Standups", open: false, voters: n });
+    const json = JSON.stringify(shared);
+    expect(json).not.toContain("keep");
+    expect(json).not.toContain("move");
+  });
+
+  it("with 3 voters, carries the totals as before", () => {
+    expect(toRoomPoll(closedWith(3))).toMatchObject({ open: false, voters: 3, keep: 2, move: 1 });
+  });
+
+  it("reads back without totals, and drops totals a host sends anyway", () => {
+    const shared = toRoomPoll(closedWith(2));
+    expect(readRoomPoll(JSON.parse(JSON.stringify(shared)))).toEqual(shared);
+    // A host built before the minimum sends the split whatever the count: it's dropped.
+    expect(readRoomPoll({ ...shared, keep: 1, move: 1 })).toEqual(shared);
+    expect(readRoomPoll({ ...shared, voters: 0, keep: 0, move: 0 })).toEqual({
+      ...shared,
+      voters: 0,
+    });
   });
 });
 
@@ -299,6 +353,20 @@ describe("the snapshot's poll", () => {
     const snap = toRoomSnapshot(board, meta({ poll }));
     expect(snap.poll).toEqual(poll);
     expect(readRoomSnapshot(wire(snap))?.poll).toEqual(poll);
+  });
+
+  it("carries no split for a vote closed with fewer than 3 voters, on the wire or read back", () => {
+    let open = openThumbPoll("poll_1", "Standups");
+    open = vote(open, thumbEnv(PAT, "poll_1", "keep", KEY_PAT));
+    open = vote(open, thumbEnv(SAM, "poll_1", "move", KEY_SAM));
+    const snap = wire(toRoomSnapshot(board, meta({ poll: toRoomPoll(closeThumbPoll(open)) })));
+    expect(snap.poll).toEqual({ id: "poll_1", topic: "Standups", open: false, voters: 2 });
+    expect(JSON.stringify(snap.poll)).not.toMatch(/keep|move/);
+    expect(readRoomSnapshot(snap)?.poll).toEqual(snap.poll);
+    // The same vote with a third thumb: the totals ride along.
+    open = vote(open, thumbEnv(LEE, "poll_1", "move", KEY_LEE));
+    const three = wire(toRoomSnapshot(board, meta({ poll: toRoomPoll(closeThumbPoll(open)) })));
+    expect(three.poll).toMatchObject({ open: false, voters: 3, keep: 1, move: 2 });
   });
 
   it("is absent with no vote, as from a host on the earlier build", () => {

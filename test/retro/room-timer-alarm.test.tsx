@@ -265,6 +265,54 @@ describe("the Retro big screen", () => {
     expect(top).toEqual(["Secret one9 votes", "Long standups5 votes", "Pair more2 votes"]);
   });
 
+  describe("a Lean Coffee thumbs vote", () => {
+    const board = makeBoard({ phase: "discuss" });
+    const vote = { id: "poll_0000000001", topic: "Standups" };
+    const shown = () => screen.getByRole("region", { name: "Keep going or move on?" });
+
+    it("shows how many voted while it's open, not what", () => {
+      render(<RetroBigScreenRound board={board} poll={{ ...vote, open: true, voters: 2 }} />);
+      expect(shown()).toHaveTextContent("2 people have voted");
+      expect(shown()).not.toHaveTextContent(/Keep going \d/);
+    });
+
+    it.each([
+      ["no voters", 0, "Nobody voted, so there are no totals. Decide together."],
+      ["1 voter", 1, "Only 1 person voted, so the totals stay hidden. Decide together."],
+      ["2 voters", 2, "Only 2 people voted, so the totals stay hidden. Decide together."],
+    ])("closed with %s, shows no totals", (_label, n, line) => {
+      // Even a split a host sent anyway isn't shown.
+      render(
+        <RetroBigScreenRound
+          board={board}
+          poll={{ ...vote, open: false, voters: n, keep: 0, move: n }}
+        />
+      );
+      expect(screen.getByText(line)).toBeInTheDocument();
+      expect(shown()).not.toHaveTextContent(/Keep going \d|Move on \d|Most want|a tie/);
+    });
+
+    it("closed with 3 voters, shows the totals, and a tie as before", () => {
+      const { rerender } = render(
+        <RetroBigScreenRound
+          board={board}
+          poll={{ ...vote, open: false, voters: 3, keep: 2, move: 1 }}
+        />
+      );
+      expect(screen.getByText("Keep going 2 · Move on 1")).toBeInTheDocument();
+      expect(screen.getByText("Most want to keep going.")).toBeInTheDocument();
+      rerender(
+        <RetroBigScreenRound
+          board={board}
+          poll={{ ...vote, open: false, voters: 4, keep: 2, move: 2 }}
+        />
+      );
+      expect(screen.getByText("Keep going 2 · Move on 2")).toBeInTheDocument();
+      expect(screen.getByText("It's a tie: the facilitator decides.")).toBeInTheDocument();
+      expect(shown()).not.toHaveTextContent(/stay hidden|no totals/);
+    });
+  });
+
   it("shows the board's own timer while it runs and once it ran out, not while it sits paused", () => {
     const { result, rerender } = renderHook(
       ({ s, running }: { s: number; running: boolean }) =>

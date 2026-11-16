@@ -60,7 +60,7 @@ import { TimerWidget } from "../components/timer-widget";
 import { hiddenTotal } from "./hidden";
 import { MEMBER_CARD_CAP } from "./protocol";
 import { ParticipantBoard } from "./participant-board";
-import { ThumbsVoteCard, thumbsVerdict } from "./thumbs-vote-card";
+import { ThumbsVoteCard, shownTotals, thumbsHiddenLine, thumbsVerdict } from "./thumbs-vote-card";
 import {
   HideCardsSetting,
   IdlePromptDialog,
@@ -240,8 +240,12 @@ function ParticipantRoom({ code, identity, onLeave }: VisitorRetroRoomProps) {
     if (poll.open && prev?.id !== poll.id) {
       announce(`The host asks: keep going or move on? ${poll.topic}`);
     } else if (!poll.open && (prev?.id !== poll.id || prev.open)) {
+      // Too few voters: no totals, here as on the card.
+      const totals = shownTotals(poll);
       announce(
-        `The vote is closed. Keep going ${poll.keep ?? 0}, move on ${poll.move ?? 0}. ${thumbsVerdict({ keep: poll.keep ?? 0, move: poll.move ?? 0 })}`
+        totals
+          ? `The vote is closed. Keep going ${totals.keep}, move on ${totals.move}. ${thumbsVerdict(totals)}`
+          : `The vote is closed. ${thumbsHiddenLine(poll.voters, false)}`
       );
     }
   }, [poll, announce]);
