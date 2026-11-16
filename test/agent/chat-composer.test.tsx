@@ -18,6 +18,7 @@ import {
   COUNTER_FROM,
   ChatComposer,
   KEY_HINT,
+  NARROW_QUERY,
   SEND_LABEL,
   STOP_LABEL,
   SWAP_GUARD_MS,
@@ -572,11 +573,63 @@ describe("the mic", () => {
     );
   });
 
-  it("moves to the box's leading side below 360 px", () => {
+  it("sits after the box and before Send, in the DOM as on screen", () => {
     render(<Composer mic={DictateButton} />);
     const wrap = screen.getByRole("button", { name: DICTATE_LABEL }).parentElement!;
-    expect(wrap).toHaveClass("max-[359px]:order-first");
     expect(wrap.parentElement?.tagName).toBe("FORM");
+    expect(box().compareDocumentPosition(wrap) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(
+      wrap.compareDocumentPosition(sendButton()) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(wrap.className).not.toMatch(/order-/);
+  });
+
+  it("comes before the box in the DOM below 360 px, so focus order matches the screen", () => {
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query === NARROW_QUERY,
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+        }) as unknown as MediaQueryList
+    );
+    expect(NARROW_QUERY).toBe("(max-width: 359px)");
+    render(<Composer mic={DictateButton} />);
+    const wrap = screen.getByRole("button", { name: DICTATE_LABEL }).parentElement!;
+    expect(wrap.parentElement?.tagName).toBe("FORM");
+    expect(wrap.compareDocumentPosition(box()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(wrap.className).not.toMatch(/order-/);
+  });
+
+  it("moves only the mic as the width crosses 360 px: the box keeps its node, focus and caret", () => {
+    const heard: ((e: { matches: boolean }) => void)[] = [];
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: false,
+          media: query,
+          addEventListener: (_: string, fn: (e: { matches: boolean }) => void) => {
+            if (query === NARROW_QUERY) heard.push(fn);
+          },
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+        }) as unknown as MediaQueryList
+    );
+    render(<Composer mic={DictateButton} />);
+    const before = box();
+    type("half a thought");
+    before.focus();
+    before.setSelectionRange(4, 4);
+    act(() => heard.forEach((fn) => fn({ matches: true })));
+    expect(box()).toBe(before);
+    expect(before).toHaveFocus();
+    expect(before.selectionStart).toBe(4);
+    const wrap = screen.getByRole("button", { name: DICTATE_LABEL }).parentElement!;
+    expect(wrap.compareDocumentPosition(before) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("isn't there where the browser has no dictation", () => {

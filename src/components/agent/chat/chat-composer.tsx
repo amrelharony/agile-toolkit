@@ -26,7 +26,9 @@
  *   mic      when the chat hands one in (`mic`): chat/dictate-button's
  *            DictateButton, the owner's as it is and a visitor's asking
  *            first (visitor-agent-panel's VisitorDictate). Below 360 px wide
- *            it moves to the box's leading side. What it shows under the
+ *            (NARROW_QUERY) it comes before the box, in the DOM as on screen,
+ *            so focus and reading order match what shows; after it, between
+ *            the box and Send, otherwise. What it shows under the
  *            row (a visitor's voice notice, through `show`) sits between the
  *            row and the status line.
  *   status   the status row: a note span, its only live part, polite ("Amr
@@ -86,6 +88,7 @@ import {
 import { Send, Square } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Button } from "@/components/ui/button";
+import { useMediaQuery } from "@/hooks/use-media-query";
 import { composerKey } from "@/lib/agent/composer-keys";
 import { useAgentStore } from "@/lib/agent/store";
 import { cn } from "@/lib/utils";
@@ -117,6 +120,9 @@ export const charactersLeft = (left: number) =>
 
 /** The note after text was cut to the box's limit. */
 export const cutTo = (max: number) => `Cut to ${count(max)} characters`;
+
+/** Below this width the mic comes before the box: the width the shell calls narrow (mascot-assistant). */
+export const NARROW_QUERY = "(max-width: 359px)";
 
 /** Between the status row's parts. */
 const DOT = " · ";
@@ -223,6 +229,7 @@ export function ChatComposer({
   const [micShows, setMicShows] = useState<ReactNode>(null);
   // Messages sent from the box (chat commands too): each ends the mic's dictation.
   const [sent, setSent] = useState(0);
+  const narrow = useMediaQuery(NARROW_QUERY);
 
   useAutosize(boxRef, draft);
   useInitialFocus(boxRef, visible);
@@ -337,6 +344,14 @@ export function ChatComposer({
     setNote((shown) => next ?? (shown?.mic ? null : shown));
   }, []);
 
+  // Placed by the DOM, never by CSS order, so Tab and a swipe go the way it shows.
+  // Only the mic moves as the width crosses NARROW_QUERY: the box keeps its slot.
+  const mic = Mic && (
+    <span className="flex shrink-0 empty:hidden">
+      <Mic draft={micDraft} put={micPut} onNote={micNote} show={setMicShows} sent={sent} />
+    </span>
+  );
+
   const counter = left !== null && left <= COUNTER_FROM;
   const quiet = [tool ? `On ${tool}` : null, status].filter(Boolean);
 
@@ -349,6 +364,7 @@ export function ChatComposer({
         }}
         className="flex items-end gap-2"
       >
+        {narrow && mic}
         <textarea
           ref={boxRef}
           id={composerId}
@@ -366,11 +382,7 @@ export function ChatComposer({
           aria-describedby={counter ? counterId : undefined}
           className="min-w-0 flex-1 resize-none rounded-md border border-input bg-card px-3 py-2 text-base text-text placeholder:text-sub focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring pointer-fine:md:text-sm"
         />
-        {Mic && (
-          <span className="flex shrink-0 empty:hidden max-[359px]:order-first">
-            <Mic draft={micDraft} put={micPut} onNote={micNote} show={setMicShows} sent={sent} />
-          </span>
-        )}
+        {!narrow && mic}
         <Button
           type="button"
           size="icon"
