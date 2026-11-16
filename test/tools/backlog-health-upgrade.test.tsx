@@ -63,6 +63,7 @@ import {
   validateSettings,
 } from "@/app/(tools)/backlog-health/store";
 import { BACKLOG_HEALTH_ACTIONS } from "@/lib/history/event-actions";
+import { dismissUndoToasts } from "@/lib/utils/undoable";
 import { backlogForHealth, backlogHealth } from "@/lib/backlog/health";
 
 const story = (over: Partial<Story> = {}): Story => ({
@@ -110,6 +111,8 @@ const VAGUE = () =>
 
 beforeEach(() => {
   toastSpy.mockReset();
+  // The mocked toast never closes, so end any Undo chain an earlier test left.
+  dismissUndoToasts();
   logs.length = 0;
   localStorage.clear();
   useBacklogHealthSettings.setState(DEFAULT_SETTINGS);
@@ -460,6 +463,62 @@ describe("the review without AI", () => {
     expect(find("vague")?.points).toBe(8);
     // Still refined: the stamp from before the scenario (none) isn't put back.
     expect(find("vague")?.refinedAt).toEqual(expect.any(String));
+  });
+});
+
+describe("the review: all at once, and Dismiss", () => {
+  it("Add all makes every change in one step, with one Undo that takes back the lot", async () => {
+    seed([story(), BIG(), VAGUE()]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Review by the rules" }));
+    const list = screen.getByRole("region", { name: "Splits and scenarios to add" });
+    const toastsBefore = toastSpy.mock.calls.length;
+    fireEvent.click(within(list).getByRole("button", { name: /^Add all/ }));
+    // One toast for the lot, not one per suggestion that the toast layer would merge.
+    expect(toastSpy.mock.calls.length).toBe(toastsBefore + 1);
+    expect(String(toastSpy.mock.calls.at(-1)?.[0])).toMatch(/^Added \d+ .* to the backlog$/);
+    const added = ws().stories.filter((s) => !["st1", "big", "vague"].includes(s.id));
+    expect(added.length).toBeGreaterThan(0);
+    expect(find("vague")?.gwt?.length ?? 0).toBeGreaterThan(0);
+    undoLast();
+    expect(
+      ws()
+        .stories.map((s) => s.id)
+        .sort()
+    ).toEqual(["big", "st1", "vague"]);
+    expect(find("vague")?.gwt ?? []).toEqual([]);
+    expect(find("big")?.gwt ?? []).toEqual([]);
+  });
+
+  it("gives two scenarios on one story one Undo for both, as their toasts merge", async () => {
+    seed([VAGUE()]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Review by the rules" }));
+    const list = screen.getByRole("region", { name: "Splits and scenarios to add" });
+    const adds = within(list).getAllByRole("button", { name: /^Add: Given/ });
+    expect(adds.length).toBeGreaterThan(1);
+    fireEvent.click(adds[0]);
+    fireEvent.click(within(list).getAllByRole("button", { name: /^Add: Given/ })[0]);
+    expect(find("vague")?.gwt).toHaveLength(2);
+    const ids = toastSpy.mock.calls.slice(-2).map((c) => (c[1] as { id?: string }).id);
+    expect(ids[0]).toBeTruthy();
+    expect(ids[0]).toBe(ids[1]);
+    undoLast();
+    expect(find("vague")?.gwt ?? []).toEqual([]);
+  });
+
+  it("puts focus back on the review button when the list is dismissed", async () => {
+    seed([story(), VAGUE()]);
+    renderPage();
+    const ask = await screen.findByRole("button", { name: "Review by the rules" });
+    fireEvent.click(ask);
+    const dismiss = screen.getByRole("button", { name: "Dismiss suggestions" });
+    dismiss.focus();
+    fireEvent.click(dismiss);
+    expect(screen.queryByRole("region", { name: "Splits and scenarios to add" })).toBeNull();
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Review by the rules" })
+    );
   });
 });
 

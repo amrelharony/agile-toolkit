@@ -113,9 +113,11 @@ export function SettingsForm({
 function PointsField({
   story,
   onSave,
+  className,
 }: {
   story: Story;
   onSave: (points: number | undefined) => void;
+  className?: string;
 }) {
   const shown = storyPoints(story) > 0 ? String(story.points) : "";
   const [draft, setDraft] = useState(shown);
@@ -140,7 +142,7 @@ function PointsField({
     }
   };
   return (
-    <div className="w-24 shrink-0">
+    <div className={cn("w-24 shrink-0", className)}>
       <Input
         type="number"
         inputMode="decimal"
@@ -207,21 +209,30 @@ export function StoryRow({
           <span className="sr-only">Place </span>
           {place}
         </span>
-        <div className="min-w-0 flex-1">
-          <p className="break-words text-sm font-medium text-text">{story.title}</p>
-          {flags.length > 0 ? (
-            <ul className="mt-1 space-y-0.5" aria-label={`Flags on ${story.title}`}>
-              {flags.map((f) => (
-                <li key={f.id} className="text-xs">
-                  <span className="font-semibold text-warning">{STORY_FLAG_LABEL[f.id]}</span>
-                  <span className="text-sub">: {f.reason}</span>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="mt-1 text-xs text-sub">No flags.</p>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2">
+        {/* On a phone the points box goes under the flags, so the title and
+            reasons get the row's width; from sm it sits beside them. */}
+        <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:gap-x-3">
+          <div className="min-w-0">
+            <p className="break-words text-sm font-medium text-text">{story.title}</p>
+            {flags.length > 0 ? (
+              <ul className="mt-1 space-y-0.5" aria-label={`Flags on ${story.title}`}>
+                {flags.map((f) => (
+                  <li key={f.id} className="text-xs">
+                    <span className="font-semibold text-warning">{STORY_FLAG_LABEL[f.id]}</span>
+                    <span className="text-sub">: {f.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-1 text-xs text-sub">No flags.</p>
+            )}
+          </div>
+          <PointsField
+            story={story}
+            onSave={(p) => onPoints(story, p)}
+            className="sm:col-start-2 sm:row-span-2 sm:row-start-1"
+          />
+          <div className="flex flex-wrap gap-2 sm:col-start-1">
             <Button
               ref={detailsButton}
               type="button"
@@ -259,7 +270,6 @@ export function StoryRow({
             />
           </div>
         </div>
-        <PointsField story={story} onSave={(p) => onPoints(story, p)} />
       </div>
       {open === "details" && (
         <StoryDetailsPanel
