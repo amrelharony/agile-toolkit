@@ -72,9 +72,10 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
 
 /**
  * Active conversation view: the comic strip (chat/chat-strip: Amr's balloons,
- * the owner's captions, one caption per run of tool steps, with Details in
- * words, which only this chat hands the strip, and the confirmation card
- * under the step it asks about, with Approve all) and the composer.
+ * the owner's captions, one caption per run of tool steps, with Details (the
+ * raw arguments and result), which only this chat hands the strip, and the
+ * confirmation card under the step it asks about, with Approve all) and the
+ * composer.
  *
  * The conversation is created in Supabase on the first message and every
  * message is persisted (via the client orchestrator's conversationId path), so

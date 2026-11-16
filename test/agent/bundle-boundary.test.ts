@@ -629,7 +629,7 @@ describe("the chat strip (chat/)", () => {
   });
 
   it("keeps the owner's step Details out of the visitor's chat: only the owner's chat imports it", () => {
-    const owned = [`${CHAT_DIR}step-details.tsx`, "src/lib/agent/tool-details.ts"];
+    const owned = [`${CHAT_DIR}step-details.tsx`];
     const ownerChat = closure([OWNER_CHAT]);
     for (const file of owned) {
       expect(isFile(path.join(ROOT, file)), `${file} exists`).toBe(true);

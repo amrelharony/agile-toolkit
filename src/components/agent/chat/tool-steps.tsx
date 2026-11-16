@@ -23,7 +23,7 @@
  *            in a loaded thread, for a turn's later changes and on any later
  *            render. A read never gets one.
  *   Details  the owner's only (chat/step-details, handed in through the chat
- *            context): the arguments and the result in words.
+ *            context): the raw arguments and result (owner only).
  *   card     the confirm card, right under the caption of the step it asks
  *            about (the step reads "Waiting for you"), with Approve all in the
  *            owner's chat only. A card whose call isn't in the chat shows after
@@ -99,7 +99,7 @@ const StepLine = memo(function StepLine({
   Details,
 }: {
   step: ChatStep;
-  /** The owner's chat: Details with the arguments and result in words. */
+  /** The owner's chat: Details with the raw arguments and result (owner only). */
   Details: ComponentType<StepDetailsProps> | null;
 }) {
   const { call, result, state } = step;

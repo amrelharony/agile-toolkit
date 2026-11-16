@@ -6,8 +6,8 @@
  * for a result that came live, once per step and at most once a turn (the
  * store's in-memory inkedToolIds), and is drawn still on a remount, in a
  * loaded thread and on later renders; a read, an error or a "no" gets none.
- * Only the owner gets Details, in words. The confirm card sits under the
- * caption of the step it asks about.
+ * Only the owner gets Details, with the raw arguments and result. The
+ * confirm card sits under the caption of the step it asks about.
  */
 
 import { act, render, screen } from "@testing-library/react";
@@ -301,14 +301,17 @@ describe("Details", () => {
       });
     });
 
-  it("is the owner's: the arguments and result in words", () => {
+  it("is the owner's: the raw arguments and result, in the data face", () => {
     thread();
     render(<StoreStrip profile="owner" />);
     const details = log().querySelector("[data-step-details]")!;
     expect(details).toHaveTextContent("Details for Retro Board · Add card “flaky CI”");
-    expect(details).toHaveTextContent("Text: “flaky CI”");
-    expect(details).toHaveTextContent("Added: yes");
-    expect(details.textContent).not.toMatch(/[{}]/);
+    const [input, output] = Array.from(details.querySelectorAll('pre[role="region"]'));
+    expect(input.textContent).toContain('"text": "flaky CI"');
+    expect(output.textContent).toBe('{"added":true}');
+    for (const block of [input, output]) expect(block).toHaveClass("font-data");
+    // The step's own line stays in words.
+    expect(log().querySelector("[data-tool-step] p")?.textContent).not.toMatch(/[{}]/);
   });
 
   it("is never a visitor's, even when it is handed in", () => {
@@ -316,7 +319,7 @@ describe("Details", () => {
     render(<StoreStrip profile="visitor" />);
     expect(screen.queryByText("Details")).toBeNull();
     expect(log().querySelector("[data-step-details], details")).toBeNull();
-    expect(log().textContent).not.toMatch(/[{}]|Added: yes/);
+    expect(log().textContent).not.toMatch(/[{}]|"added"/);
   });
 
   it("waits while a call's arguments still stream", () => {

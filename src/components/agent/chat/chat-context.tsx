@@ -18,9 +18,9 @@
  *                  again, Go on, Latest, a starter); false when there is no
  *                  box to take it (a read-only chat)
  *   StepDetails    the owner's "Details" on a tool step (chat/step-details:
- *                  its arguments and result in words), handed in by the
- *                  owner's container, so a visitor's chat never loads it;
- *                  null in a visitor's chat, whatever was handed in
+ *                  the raw arguments and result, owner only), handed in by
+ *                  the owner's container, so a visitor's chat never loads
+ *                  it; null in a visitor's chat, whatever was handed in
  *
  * The value keeps its identity across the container's renders (it changes
  * only with the profile), so a memoised item never re-renders for it while a

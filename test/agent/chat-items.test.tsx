@@ -391,23 +391,41 @@ describe("tool steps", () => {
     expect(log.querySelector("[data-tool-step]")).toHaveAttribute("data-tool-step", "done");
   });
 
-  it("gives the owner Details with the arguments and result in words, named for the step", () => {
+  it("gives the owner Details with the raw arguments and result, named for the step", () => {
     const log = strip([assistant("a1", call("c1")), toolMsg("t1", result("c1"))], {
       profile: "owner",
     });
     const summary = screen.getByText("Details").closest("summary")!;
     expect(summary).toHaveClass("pointer-coarse:min-h-11");
     act(() => summary.parentElement!.setAttribute("open", ""));
-    const input = screen.getByRole("group", {
+    const input = screen.getByRole("region", {
       name: "Input for Retro Board · Add card “flaky CI”",
     });
-    const output = screen.getByRole("group", {
+    const output = screen.getByRole("region", {
       name: "Result for Retro Board · Add card “flaky CI”",
     });
-    expect(input).toHaveTextContent("Text: “flaky CI”");
-    expect(output).toHaveTextContent("Added: yes");
-    // Words, never JSON or the call's wire name.
-    expect(log.textContent).not.toMatch(/[{}]|"added"|tool_retro/);
+    expect(input.textContent).toContain('"text": "flaky CI"');
+    expect(output.textContent).toBe('{"added":true}');
+    for (const block of [input, output]) {
+      expect(block).toHaveAttribute("tabindex", "0");
+      expect(block).toHaveAttribute("dir", "ltr");
+      expect(block).toHaveClass("font-data");
+    }
+    // The step's own line stays in words: no JSON, no wire name.
+    const line = log.querySelector("[data-tool-step] p")!;
+    expect(line.textContent).not.toMatch(/[{}]|"added"|tool_retro/);
+    expect(log.textContent).not.toMatch(/tool_retro/);
+  });
+
+  it("cuts the owner's raw Details at 4,000 characters", () => {
+    const long = "x".repeat(5000);
+    strip([assistant("a1", call("c1")), toolMsg("t1", result("c1", long))], { profile: "owner" });
+    const summary = screen.getByText("Details").closest("summary")!;
+    act(() => summary.parentElement!.setAttribute("open", ""));
+    const output = screen.getByRole("region", {
+      name: "Result for Retro Board · Add card “flaky CI”",
+    });
+    expect(output.textContent).toBe(`${"x".repeat(4000)}…`);
   });
 
   it("puts a run of calls in one caption, a line each", () => {

@@ -19,7 +19,8 @@
  *            each call's tool, verb and state in words, after a fixed slot
  *            for its running mark and ink tick, never the wire name, the
  *            arguments or the result string. Only the owner gets "Details",
- *            with the arguments and result in words; a visitor never sees them.
+ *            with the raw arguments and result (owner only); a visitor never
+ *            sees them.
  *   note     a line the client wrote for Amr (the round limit's stand-in),
  *            in a narration caption with no "Amr said:": it is about him,
  *            not his words. Inline markdown, so an action's id is a chip.
