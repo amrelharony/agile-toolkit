@@ -76,7 +76,10 @@ import "@/components/agent/mascot/owner-agent-panel";
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
 import { VISITOR_BODY_LOADING } from "@/components/agent/mascot/lazy-visitor-body";
 import { VisitorPanel } from "@/components/agent/mascot/visitor-panel";
-import { VISITOR_AI_CONSENT_KEY } from "@/components/agent/mascot/visitor-ai-consent";
+import {
+  VISITOR_AI_CONSENT_KEY,
+  VISITOR_AI_CONSENT_VERSION,
+} from "@/components/agent/mascot/visitor-ai-consent";
 import { useAgentStore } from "@/lib/agent/store";
 
 const OWNER = { status: "authenticated", user: { id: "owner-1" } };
@@ -354,7 +357,7 @@ describe("the header's opener pressed while the panel is open", () => {
 describe("the visitor's chat on a touch screen", () => {
   it("opens without focusing its message box", async () => {
     stubPointer(true);
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<VisitorPanel />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     const box = await screen.findByLabelText("Message");
@@ -552,7 +555,7 @@ describe("the safety net", () => {
 
   it("forgets a click away once the visitor is back in the panel: the chat's composer takes focus", async () => {
     vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     // Warm the visitor's lazy chat, so it draws in the same commit as the swap.
     render(<VisitorPanel />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
