@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import spec from "../../docs/mascot/context-sheets.json";
 import companion from "../../docs/mascot/companion-scenes.json";
+import expansion from "../../docs/mascot/expansion-sheets.json";
 import type { MascotReaction } from "@/lib/agent/mascot/store";
 import {
   momentsNow,
@@ -31,27 +32,40 @@ import {
 const specFrames = new Set(spec.sheets.flatMap((s) => s.slots.map((slot) => slot.id)));
 /** The companion scenes' frames (docs/mascot/companion-scenes.json), baked and built apart. */
 const companionFrames = new Set(companion.sheets.flatMap((s) => s.slots.map((slot) => slot.id)));
+/** The expansion scenes' frames (docs/mascot/expansion-sheets.json, X001–X124), built apart too. */
+const expansionFrames = new Set(expansion.sheets.flatMap((s) => s.slots.map((slot) => slot.id)));
 /** Sheets drawn and built into packs so far; the tool sheets (S65 on) arrive in batches. */
 const builtSheets = spec.sheets.filter((s) => s.pack in PACKS);
 const builtFrames = new Set([
   ...builtSheets.flatMap((s) => s.slots.map((slot) => slot.id)),
   ...companion.sheets.filter((s) => s.pack in PACKS).flatMap((s) => s.slots.map((x) => x.id)),
+  ...expansion.sheets.filter((s) => s.pack in PACKS).flatMap((s) => s.slots.map((x) => x.id)),
 ]);
 const sheetNumber = (s: { sheet: string }) => Number(s.sheet.slice(1));
 
 describe("the scenes and their sheets", () => {
-  it("draws every scene from frames the context sheets (or the companion scenes) ask for", () => {
+  it("draws every scene from frames the context, companion or expansion sheets ask for", () => {
     for (const [name, c] of Object.entries(SCENES)) {
       for (const f of clipFrames(c)) {
         if (f.startsWith("base:")) continue;
-        expect(specFrames.has(f) || companionFrames.has(f), `${name}: ${f}`).toBe(true);
+        const known = specFrames.has(f) || companionFrames.has(f) || expansionFrames.has(f);
+        expect(known, `${name}: ${f}`).toBe(true);
       }
     }
   });
 
   it("puts every pose that's been built into some scene", () => {
     const used = new Set(Object.values(SCENES).flatMap(clipFrames));
-    expect(Array.from(builtFrames).filter((f) => !used.has(f as never))).toEqual([]);
+    // An expansion sheet whose final beats are drawn wrong ends on `last` until they're
+    // redrawn; its later beats stay in the pack, so a redraw needs only a rebuild.
+    const heldBack = new Set(
+      (expansion.sheets as Array<{ slots: Array<{ id: string }>; last?: number }>).flatMap((s) =>
+        s.last ? s.slots.slice(s.last).map((x) => x.id) : []
+      )
+    );
+    expect(
+      Array.from(builtFrames).filter((f) => !used.has(f as never) && !heldBack.has(f))
+    ).toEqual([]);
   });
 
   it("has built every context sheet, S11 to S64", () => {

@@ -25,8 +25,10 @@ A baked scene is built as drawn, Amr and whatever shares his slot together:
 The packs land in public/mascot next to the others and are written into
 src/components/agent/mascot/mascot-packs.ts after them; every other pack's files and
 lines are left exactly as they are. scripts/build-mascot-packs.py keeps these packs
-as they are when it rebuilds the rest. --check builds nothing: it confirms the
-shipped baked packs and the spec agree.
+as they are when it rebuilds the rest. After writing them it rebuilds the Scenes tab's
+thumbnail atlas (scripts/build-mascot-expansion.py --thumbs), which shows the
+companion stories too. --check builds nothing: it confirms the shipped baked packs
+and the spec agree.
 
 Needs Pillow and numpy. The source PNGs never ship.
 """
@@ -225,6 +227,17 @@ def colour_report(stances) -> list[str]:
     return lines
 
 
+def refresh_thumbs() -> None:
+    """Rebuild the Scenes tab's atlas, whose first cells are these stories."""
+    builder = HERE / "build-mascot-expansion.py"
+    if not packs.EXPANSION_SPEC.exists() or not builder.exists():
+        return
+    spec = importlib.util.spec_from_file_location("build_mascot_expansion", builder)
+    expansion = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(expansion)
+    expansion.write_thumbs()
+
+
 def main() -> None:
     args = sys.argv[1:]
     if "--check" in args:
@@ -247,6 +260,7 @@ def main() -> None:
     except Exception as e:  # informational; never blocks a build
         print("colour report skipped:", e)
     write_baked(frames)
+    refresh_thumbs()
     shipped = packs.shipped_packs()
     for pack in baked_pack_names():
         e = shipped[pack][0]

@@ -15,6 +15,7 @@
 
 import type { SpritePose } from "./sprite-poses";
 import { clip, s, times, type Clip, type FrameRef, type Step } from "./clips";
+import { EXPANSION_SHEETS, type ExpansionFamily } from "./expansion-table";
 
 /** A frame of a context sheet, which the manifest has only once its pack ships. */
 const f = (id: string, ms: number): Step => s(id as FrameRef, ms);
@@ -58,6 +59,32 @@ function tool(name: string, fallback: Fallback, frames: Array<[string, number]>)
     fallback,
     frames.map(([pose, ms]) => f(`${pack}.${pose}`, ms))
   );
+}
+
+/**
+ * An expansion scene (docs/mascot/expansion-sheets.json, X001–X124): its pack's key
+ * poses in order, each 600 ms, the last held 1.6 s and the reduced-motion still (the
+ * release's loop rule for all of them: play once, hold the final pose). A sheet whose
+ * final beats are drawn wrong ends on its table's `last` until redrawn; a named
+ * variant ends earlier where a trigger holds an earlier beat (x112.filter).
+ *
+ * The stand-in while a pack loads is a pose with no gesture: the review pose's
+ * thumbs-up would read as a pass several of these rules forbid.
+ */
+const EXPANSION_FALLBACK: Readonly<Record<ExpansionFamily, Fallback>> = {
+  reading: "idle",
+  tools: "idle",
+  team: "idle",
+  cast: "idle",
+  guides: "waiting",
+  play: "idle",
+};
+
+function expansion(pack: string, fallback: Fallback, last = 8, name = pack): [string, Clip] {
+  const steps = Array.from({ length: last }, (_, i) =>
+    f(`${pack}.${i + 1}`, i + 1 === last ? 1600 : 600)
+  );
+  return scene(name, fallback, steps);
 }
 
 const LIST: Array<[string, Clip]> = [
@@ -1390,6 +1417,17 @@ const LIST: Array<[string, Clip]> = [
       ["settle-b", 3000],
     ]
   ),
+  ...EXPANSION_SHEETS.map(({ pack, family, last }) =>
+    expansion(pack, EXPANSION_FALLBACK[family], last)
+  ),
+  // Search tools: the explanatory filter moment only (X112's first five beats, held on
+  // 5); the full scene's beats 6–8 are its deliberate reset.
+  expansion("x112", "waiting", 5, "x112.filter"),
+  // Present mode: the eight beats, then frame 8 held for as long as the presentation lasts.
+  scene("x111.present", "idle", [...expansion("x111", "idle")[1].steps], {
+    loop: [f("x111.8", 2000)],
+    still: "x111.8" as FrameRef,
+  }),
 ];
 
 /** Every scene, by name (`sun`, `rain.under`, `poker.reveal`, …). */
@@ -1409,6 +1447,8 @@ export const sceneReaction = (name: SceneName) => `scene:${name}` as const;
 export const HOLD_SCENES: Readonly<Record<string, "decision" | "calm">> = {
   decide: "decision",
   quiet: "calm",
+  // X111 holds its final pose while a confirmed presentation lasts.
+  "x111.present": "calm",
 };
 
 /** The hold that keeps a scene up (store.ts MascotHold). */

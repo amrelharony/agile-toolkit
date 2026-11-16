@@ -112,6 +112,10 @@ def slots() -> dict:
     for s in json.loads((docs / "companion-scenes.json").read_text(encoding="utf-8"))["sheets"]:
         for i, sl in enumerate(s["slots"]):
             where[sl["id"]] = (s["id"], i + 2)
+    # The expansion sheets' slot 1 is a real beat: all eight ship.
+    for s in json.loads((docs / "expansion-sheets.json").read_text(encoding="utf-8"))["sheets"]:
+        for i, sl in enumerate(s["slots"]):
+            where[sl["id"]] = (s["id"], i + 1)
     return where
 
 

@@ -42,9 +42,11 @@ const { SCENES } = await load("engine", "scenes.ts");
 const FX = await load("engine", "scene-fx.ts");
 // The site's own styles for the air around a scene (its CSS-module names, unscoped here).
 const FX_CSS = readFileSync(path.join(MASCOT, "mascot-fx.module.css"), "utf8");
-const SPEC = JSON.parse(
-  readFileSync(path.join(ROOT, "docs", "mascot", "context-sheets.json"), "utf8")
-);
+const readSpec = (name) =>
+  JSON.parse(readFileSync(path.join(ROOT, "docs", "mascot", name), "utf8"));
+const SPEC = readSpec("context-sheets.json");
+const COMPANION = readSpec("companion-scenes.json");
+const EXPANSION = readSpec("expansion-sheets.json");
 
 const out = process.argv[2];
 if (!out) {
@@ -162,8 +164,9 @@ const GROUPS = [
 
 /**
  * The scenes, a group per context group (docs/mascot/context-sheets.json), each
- * under its sheet's moment. Only scenes whose frames are all in the manifest: the
- * ones the site can play.
+ * under its sheet's moment, then the companion scenes and the expansion scenes by
+ * family, each under its sheet's trigger rule. Only scenes whose frames are all in
+ * the manifest: the ones the site can play.
  */
 function sceneGroups() {
   const sheetOf = Object.fromEntries(SPEC.sheets.map((s) => [s.pack, s]));
@@ -187,7 +190,42 @@ function sceneGroups() {
           return [c, sheet.sheet + " · " + sheet.when];
         }),
     }))
-    .filter((g) => g.clips.length);
+    .filter((g) => g.clips.length)
+    .concat(storyGroups());
+}
+
+const EXPANSION_FAMILIES = [
+  ["reading", "Reading"],
+  ["tools", "Tool lab"],
+  ["team", "Team, data and decisions"],
+  ["cast", "Cast encounters"],
+  ["guides", "Guides"],
+  ["play", "Play"],
+];
+
+/** The companion scenes (N01–N10) and the expansion scenes (X001–X124), by sheet. */
+function storyGroups() {
+  const shipped = (c) => c.steps.every((st) => st.f.startsWith("base:") || st.f in FRAMES);
+  const ofPack = (pack) =>
+    Object.values(SCENES).filter((c) => shipped(c) && FRAMES[c.steps[0].f]?.[0] === pack);
+  const companion = {
+    title: "Scenes: companion stories",
+    note: "Baked scenes with a colleague, each played only on its true moment or when asked (/play).",
+    clips: COMPANION.sheets.flatMap((s) => ofPack(s.pack).map((c) => [c, `${s.id} · ${s.title}`])),
+  };
+  const expansion = EXPANSION_FAMILIES.map(([family, title]) => ({
+    title: "Expansion: " + title,
+    note: "Eight beats, 600 ms each, the last held 1.6 s. Each plays only on the real event its rule names, or when asked.",
+    clips: EXPANSION.sheets
+      .filter((s) => s.family === family)
+      .flatMap((s) =>
+        ofPack(s.pack).map((c) => [
+          c,
+          `${s.id} · ${s.title}` + (s.last ? ` (ends on beat ${s.last}: ${s.last_why})` : ""),
+        ])
+      ),
+  }));
+  return [companion, ...expansion].filter((g) => g.clips.length);
 }
 
 mkdirSync(path.join(out, "mascot"), { recursive: true });
