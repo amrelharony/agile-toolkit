@@ -113,12 +113,16 @@ const ENTITY_WORDS: Readonly<Record<string, string>> = { scalars: "settings" };
 const VERB_PHRASES: Readonly<Record<string, string>> = {
   "classify and persist": "Classify and save",
   "list state": "Read",
+  "next round": "Start the next round",
   "persist options": "Save options",
   "persist to prioritization": "Save to prioritization",
   "record check in": "Record a check-in",
   "remove check in": "Remove check-in",
+  "roll dice": "Roll the dice",
   "score and persist": "Score and save",
   "score and persist option": "Score and save an option",
+  scoring: "Run the scoring",
+  "set gwt": "Set acceptance criteria",
 };
 
 /** Plurals English doesn't make with an s. */

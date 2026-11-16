@@ -100,6 +100,13 @@ describe("toolLabel", () => {
     expect(toolLabel("tool.working_agreement.remove_check_in").verb).toBe("Remove check-in");
   });
 
+  it("says the newer tools' verbs as a person would", () => {
+    expect(toolLabel("tool_team_mixer_next_round").verb).toBe("Start the next round");
+    expect(toolLabel("tool.picker.roll_dice").verb).toBe("Roll the dice");
+    expect(toolLabel("tool.backlog_health.set_gwt").verb).toBe("Set acceptance criteria");
+    expect(toolLabel("tool.audience_wall.scoring").verb).toBe("Run the scoring");
+  });
+
   it("keeps the plainer verbs for verbs: an argument's words are said as written", () => {
     expect(phrase(["list", "state"])).toBe("List state");
     expect(phrase(["check", "in"])).toBe("Check in");

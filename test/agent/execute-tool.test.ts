@@ -785,4 +785,14 @@ describe("confirmWords — every registered change asks a plain question", () =>
       "Set the working window in Code Review Metrics?"
     );
   });
+
+  it("asks the newer tools' changes as a person would, not word for word from the name", () => {
+    expect(ask("tool.team_mixer.next_round")).toBe("Start the next round in Team Mixer?");
+    expect(ask("tool.picker.roll_dice")).toBe("Roll the dice in Picker?");
+    expect(ask("tool.backlog_health.set_gwt")).toBe(
+      "Set the acceptance criteria in Backlog Health?"
+    );
+    expect(ask("tool.audience_wall.scoring")).toBe("Run the scoring in Audience Wall?");
+    expect(ask("tool.audience_wall.set_open")).toBe("Open or close the wall?");
+  });
 });
