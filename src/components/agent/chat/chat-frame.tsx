@@ -92,8 +92,12 @@ export interface ChatFrameProps {
   className?: string;
 }
 
-/** The log's items a tap on Latest may hand focus to: any but the wordless thinking balloon. */
-const NEWEST_ITEM = '[data-chat-item]:not([data-chat-item="thinking"])';
+/**
+ * The log's items a tap on Latest may hand focus to: any with something to
+ * read, so not the wordless thinking balloon, nor a reply's balloon still
+ * scribbling before its first words (data-held).
+ */
+const NEWEST_ITEM = '[data-chat-item]:not([data-chat-item="thinking"]):not([data-held])';
 
 /** The log, the Latest button and the composer's footer, as one scrolling column. */
 export function ChatFrame({ items, busy = false, children, footer, className }: ChatFrameProps) {
@@ -187,8 +191,8 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
     // Focus first: the button goes as the log reaches its end. After a tap on
     // a touch screen a tap means "show me the newest", and the box taking
     // focus would raise the keyboard (compact mode, the log at its floor)
-    // over it: the newest item takes focus instead (never the wordless
-    // thinking balloon), without scrolling, so the glide to the end goes on.
+    // over it: the newest item takes focus instead (never a wordless
+    // balloon), without scrolling, so the glide to the end goes on.
     // A key press (detail 0) still hands focus to the composer.
     if (tapOnTouchScreen(e)) {
       const shown = logRef.current?.querySelectorAll<HTMLElement>(NEWEST_ITEM);

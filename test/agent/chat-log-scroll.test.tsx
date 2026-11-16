@@ -477,18 +477,28 @@ describe("the Latest button", () => {
     expect(newest).not.toHaveAttribute("tabindex");
   });
 
-  it("never hands a tap's focus to the wordless thinking balloon", async () => {
+  it("never hands a tap's focus to a wordless balloon: thinking, or a reply not yet begun", async () => {
     touchScreen();
     const view = render(
-      <Chat messages={CHAT} busy extra={<div data-chat-item="thinking" aria-hidden="true" />} />
+      <Chat
+        messages={CHAT}
+        busy
+        extra={
+          <>
+            <div data-chat-item="balloon" data-held="" aria-hidden="true" />
+            <div data-chat-item="thinking" aria-hidden="true" />
+          </>
+        }
+      />
     );
     const log = layout(theLog(), { height: 1000, client: 200 });
     await frames();
     log.readTo(300);
     fireEvent.click(latest()!, { detail: 1 });
     const shown = theLog().querySelectorAll<HTMLElement>(
-      '[data-chat-item]:not([data-chat-item="thinking"])'
+      '[data-chat-item]:not([data-chat-item="thinking"]):not([data-held])'
     );
+    expect(shown[shown.length - 1]).toHaveAttribute("data-message-id", "a2");
     expect(shown[shown.length - 1]).toHaveFocus();
     view.unmount();
   });
