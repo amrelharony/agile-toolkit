@@ -147,6 +147,17 @@ function inlinePx(
 }
 
 /**
+ * What a `var(--name, fallback)` style holds before usePanelViewport's first
+ * reading writes `--name`: its fallback.
+ */
+function beforeReading(expr: string, name: string): string {
+  const head = `var(${name},`;
+  if (!expr.startsWith(head) || !expr.endsWith(")"))
+    throw new Error(`no ${name} fallback: ${expr}`);
+  return expr.slice(head.length, -1).trim();
+}
+
+/**
  * His offset on the right as it always was, `px` past the notch's inset, read
  * back the way jsdom reads a style it has set (it garbles env()).
  */
@@ -1876,8 +1887,16 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
         1
       );
       expect(inline + width).toBeLessThanOrEqual(r.w - BUTTON_SIDE + 0.01);
-      // Before its first reading, too.
+      // Before its first reading, too: past the rail, and its far edge on the screen.
       expect(panel.style.left).toContain("--app-rail");
+      const fallbackWidth = () =>
+        inlinePx(
+          beforeReading(panel.style.getPropertyValue("--amr-panel-width"), "--amr-vv-width"),
+          at
+        );
+      const fallbackLeft = inlinePx(beforeReading(panel.style.left, "--amr-vv-inline"), at);
+      expect(fallbackLeft).toBeCloseTo(edge + reach + PANEL_GAP, 1);
+      expect(fallbackLeft + fallbackWidth()).toBeLessThanOrEqual(r.w - BUTTON_SIDE + 0.01);
       act(() => useAgentStore.setState({ open: false }));
 
       // Bottom right: where it always stands, and never under the rail.
@@ -1889,6 +1908,10 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
       width = px(panel, "--amr-vv-width");
       expect(inline).toBeCloseTo(BUTTON_SIDE + reach + PANEL_GAP, 1);
       expect(r.w - inline - width).toBeGreaterThanOrEqual(edge - 0.01);
+      // Before its first reading, too: its far edge stops short of the rail.
+      const fallbackRight = inlinePx(beforeReading(panel.style.right, "--amr-vv-inline"), at);
+      expect(fallbackRight).toBeCloseTo(BUTTON_SIDE + reach + PANEL_GAP, 1);
+      expect(r.w - fallbackRight - fallbackWidth()).toBeGreaterThanOrEqual(edge - 0.01);
       // The toasts go across from him, at the screen's own edge over the rail:
       // their room is the screen's, as it was without one.
       const room = r.w - inline - width - (BUTTON_SIDE + r.notch) - TOAST_GAP;

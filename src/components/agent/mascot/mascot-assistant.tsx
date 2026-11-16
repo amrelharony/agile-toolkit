@@ -547,8 +547,9 @@ function sidePlace(c: Corner, phone: boolean, figure: boolean): StyleWithVars {
     top: PLACE_TOP,
     bottom: PLACE_BOTTOM,
     [side]: `var(--amr-vv-inline, calc(${inline} + ${sideEdge(side)}))`,
-    // Never under the app's rail, whichever side he is on.
-    "--amr-panel-width": `var(--amr-vv-width, min(${SIDE_PANEL_MAX_W}px, calc(100vw - ${BUTTON_SIDE}px - ${inline} - var(${APP_RAIL_VAR}, 0px))))`,
+    // Never under the app's rail, whichever side he is on. (The offset in
+    // brackets: it is a sum, all of it taken off.)
+    "--amr-panel-width": `var(--amr-vv-width, min(${SIDE_PANEL_MAX_W}px, calc(100vw - ${BUTTON_SIDE}px - (${inline}) - var(${APP_RAIL_VAR}, 0px))))`,
     "--amr-panel-height": "auto",
   };
 }
