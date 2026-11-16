@@ -77,7 +77,10 @@ import {
 } from "@/components/agent/mascot/amr-geometry";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "@/components/agent/mascot/engine/figure-metrics";
 import { DOCK_END_FULL } from "@/components/agent/mascot/panel-context";
-import { VISITOR_AI_CONSENT_KEY } from "@/components/agent/mascot/visitor-ai-consent";
+import {
+  VISITOR_AI_CONSENT_KEY,
+  VISITOR_AI_CONSENT_VERSION,
+} from "@/components/agent/mascot/visitor-ai-consent";
 import { VISIBLE_GAP } from "@/lib/layout/use-visible-area";
 import { useAgentStore } from "@/lib/agent/store";
 import { useBubbleStore } from "@/lib/agent/mascot/bubble";
@@ -1335,7 +1338,7 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
     for (const inset of [0, 34]) {
       it(`${w}x812${inset ? ", home indicator" : ""}, his figure docked: the chat's Latest button stands above the composer's row, so it is never his`, async () => {
         vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
-        window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+        window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
         try {
           screenAt(w, 812, { insetTop: inset ? 44 : 0, insetBottom: inset, header: HEADER_H });
           render(<MascotAssistant />);

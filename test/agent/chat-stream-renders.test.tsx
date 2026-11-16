@@ -100,7 +100,10 @@ vi.mock("@/components/agent/markdown", async (importOriginal) => {
 import { AgentConversation } from "@/components/agent/agent-conversation";
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
 import { VISITOR_BODY_LOADING } from "@/components/agent/mascot/lazy-visitor-body";
-import { VISITOR_AI_CONSENT_KEY } from "@/components/agent/mascot/visitor-ai-consent";
+import {
+  VISITOR_AI_CONSENT_KEY,
+  VISITOR_AI_CONSENT_VERSION,
+} from "@/components/agent/mascot/visitor-ai-consent";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import type { ChatMessage, ContentBlock } from "@/lib/agent/types";
@@ -167,7 +170,7 @@ describe("a streamed chunk", () => {
     // A build with Amr's AI on for visitors, the visitor already agreed.
     vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
     vi.stubGlobal("fetch", vi.fn());
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     useMascotStore.setState({ ready: true });
     useAgentStore.setState({ open: true });
   });
