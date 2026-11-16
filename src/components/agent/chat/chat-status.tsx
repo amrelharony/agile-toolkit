@@ -9,6 +9,10 @@
  *                                    between a turn's rounds
  *   "Amr is working in Retro Board…" while a tool call is written or runs
  *                                    (the tool's name from lib/agent/tool-label)
+ *   "Amr is working…"                the same, for a round whose calls reach
+ *                                    more than one tool (the client runs them
+ *                                    one by one and answers them all at once,
+ *                                    so no one tool name would be right)
  *   "Amr is writing…"                while his words stream in
  *   empty                            between turns, and while a card waits:
  *                                    "Waiting for you" is that step's own
@@ -42,6 +46,8 @@ export const AMR_THINKING = "Amr is thinking…";
 export const AMR_WRITING = "Amr is writing…";
 /** While a call to `tool` (its name in words) is written or runs. */
 export const amrWorkingIn = (tool: string) => `Amr is working in ${tool}…`;
+/** While a round's calls, to more than one tool, are written or run. */
+export const AMR_WORKING = "Amr is working…";
 
 /**
  * The status line's words for the chat as it stands: `busy` is a turn under
@@ -56,8 +62,17 @@ export function phaseText(
   if (!busy || waiting) return "";
   if (noReplyYet(messages)) return AMR_THINKING;
   // The reply so far ends with what Amr is doing now: a call, or his words.
-  const block = messages[messages.length - 1].content.at(-1);
-  if (block?.type === "tool_use") return amrWorkingIn(toolLabel(block.name).tool);
+  const content = messages[messages.length - 1].content;
+  const block = content.at(-1);
+  if (block?.type === "tool_use") {
+    // Every call in the message is this round's, and the client runs them
+    // one at a time with no word of which, so name a tool only if it is the
+    // one tool they all reach.
+    const tools = new Set(
+      content.flatMap((c) => (c.type === "tool_use" ? [toolLabel(c.name).tool] : []))
+    );
+    return tools.size === 1 ? amrWorkingIn(toolLabel(block.name).tool) : AMR_WORKING;
+  }
   if (block?.type === "text" && !block.note && block.text.trim()) return AMR_WRITING;
   return AMR_THINKING;
 }

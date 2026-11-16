@@ -1,7 +1,8 @@
 /**
  * The chat's one status line (src/components/agent/chat/chat-status.tsx):
  * always mounted, a polite live region holding the turn's phase alone, in
- * the third person: "Amr is thinking…", "Amr is working in {tool}…", "Amr is
+ * the third person: "Amr is thinking…", "Amr is working in {tool}…" (or
+ * "Amr is working…" for a round reaching more than one tool), "Amr is
  * writing…", and empty when idle or while a card waits (the step says
  * "Waiting for you", and the card speaks for itself). The thinking picture is
  * apart from it: a wordless, aria-hidden balloon in the log.
@@ -19,6 +20,7 @@ import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { ChatProvider, useChat } from "@/components/agent/chat/chat-context";
 import {
   AMR_THINKING,
+  AMR_WORKING,
   AMR_WRITING,
   ChatStatus,
   amrWorkingIn,
@@ -114,6 +116,25 @@ describe("phaseText", () => {
     expect(amrWorkingIn("Retro Board")).toBe("Amr is working in Retro Board…");
   });
 
+  it("names no one tool for a round whose calls reach more than one", () => {
+    // The client runs a round's calls one at a time and answers them together,
+    // so while the retro card is added the last call is the sprint's.
+    const createSprint: ContentBlock = {
+      type: "tool_use",
+      id: "c2",
+      name: "workspace_sprint_create",
+      input: {},
+    };
+    const mixed = [...asked, amr("a1", [words("On it."), addCard("c1"), createSprint])];
+    expect(phaseText(mixed, true, false)).toBe(AMR_WORKING);
+    expect(phaseText([...asked, amr("a1", [addCard("c1"), createSprint])], true, false)).toBe(
+      AMR_WORKING
+    );
+    // Two calls to the same tool still name it.
+    const twice = [...asked, amr("a1", [addCard("c1"), addCard("c2")])];
+    expect(phaseText(twice, true, false)).toBe("Amr is working in Retro Board…");
+  });
+
   it("is empty while a card waits: the step and the card say it", () => {
     const calling = [...asked, amr("a1", [addCard("c1")])];
     expect(phaseText(calling, true, true)).toBe("");
@@ -131,7 +152,7 @@ describe("phaseText", () => {
   });
 
   it("never speaks in Amr's first person", () => {
-    for (const line of [AMR_THINKING, AMR_WRITING, amrWorkingIn("Retro Board")]) {
+    for (const line of [AMR_THINKING, AMR_WRITING, AMR_WORKING, amrWorkingIn("Retro Board")]) {
       expect(line).not.toMatch(/\b(I|I'm|me|my)\b/);
       expect(line.startsWith("Amr ")).toBe(true);
     }
