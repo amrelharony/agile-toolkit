@@ -56,6 +56,8 @@ import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
 import { useMascotCelebrationReactions } from "@/lib/agent/mascot/use-celebration-reactions";
 import { useQuietCompanion } from "@/lib/agent/mascot/use-quiet-companion";
+import { useMuteScene } from "@/lib/agent/mascot/use-mute-scene";
+import { playEventScene } from "@/lib/agent/mascot/event-scenes";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { createTouchInteraction, zoneAt, type TouchPoint } from "./engine/interactions/touch";
 import {
@@ -66,7 +68,7 @@ import {
 } from "./engine/interactions/sensors";
 import { installKonami } from "./engine/customization/commands";
 import { followUp, sceneOfShot } from "./engine/scene-taps";
-import { sceneReaction } from "./engine/scenes";
+import { EVENT_SCENES, sceneReaction } from "./engine/scenes";
 import { MascotBubble } from "./mascot-bubble";
 import { inviteMotion } from "./motion-invite";
 import { playMascotSound } from "./engine/audio/mascot-audio";
@@ -795,6 +797,18 @@ export function MascotAssistant() {
   // drag, or on unmount) so they never leak past an in-progress drag.
   const dragCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => dragCleanupRef.current?.(), []);
+  // Dropped in a corner other than the one he stood in: once he has landed, he
+  // shows the corner chosen and holds it (X108), once a page. Nothing keeps the
+  // corner past this visit, so nothing in the scene says it was saved.
+  const cornerScene = useRef<{ pending: boolean; playedOn: string | null }>({
+    pending: false,
+    playedOn: null,
+  });
+  const playCornerScene = () => {
+    const page = window.location.pathname;
+    if (cornerScene.current.playedOn === page) return;
+    if (playEventScene(EVENT_SCENES.corner)) cornerScene.current.playedOn = page;
+  };
   // Dropped or thrown: he flies from where he was let go to his corner, then lands.
   const flightRef = useRef<{ left: number; top: number; thrown: boolean } | null>(null);
   useIsomorphicLayoutEffect(() => {
@@ -809,6 +823,11 @@ export function MascotAssistant() {
       landed = true;
       mascot.setHold(hold, false);
       mascot.playNow("land");
+      // After the landing, never over it.
+      if (cornerScene.current.pending) {
+        cornerScene.current.pending = false;
+        playCornerScene();
+      }
     };
     const el = buttonRef.current;
     if (!el || typeof el.animate !== "function") return land();
@@ -913,6 +932,12 @@ export function MascotAssistant() {
           cx < window.innerWidth / 2 ? "Left" : "Right"
         }` as Corner;
         setCorner(next);
+        // A real change: a corner other than the one he stood in (where a step
+        // aside had put him counts). With reduced motion there's no landing to wait for.
+        if (next !== placed) {
+          if (flightRef.current) cornerScene.current.pending = true;
+          else playCornerScene();
+        }
         // Dropped where the visitor wants him: that corner, not where he'd
         // stepped aside to, and he keeps to that side from now on.
         resetNudge();
@@ -1002,6 +1027,8 @@ export function MascotAssistant() {
   useMascotCelebrationReactions();
   // Turned down to Quiet by the visitor: he covers his bell and settles while it lasts.
   useQuietCompanion();
+  // The visitor switches the sounds off: he sleeves his tuning fork (X109), once a page.
+  useMuteScene();
 
   // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
   // Skip when typing in an editable element so it can't steal focus mid-edit.

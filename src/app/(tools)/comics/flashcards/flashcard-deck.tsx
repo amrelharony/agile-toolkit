@@ -5,6 +5,8 @@ import { ArrowLeft, ArrowRight, RotateCcw, Shuffle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Eyebrow } from "@/components/ui/eyebrow";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { playEventScene, useVisitOnce } from "@/lib/agent/mascot/event-scenes";
 import type { StudyCard } from "@/lib/comics/types";
 import { ComicCover } from "../components/comic-card";
 import { useSwipe } from "../components/use-swipe";
@@ -36,6 +38,18 @@ export function FlashcardDeck({ cards }: { cards: readonly StudyCard[] }) {
   const previous = useRef<HTMLButtonElement>(null);
   const next = useRef<HTMLButtonElement>(null);
   const pressed = useRef<"previous" | "next" | null>(null);
+  const once = useVisitOnce("flashcard-lesson");
+
+  // Turned to the lesson: the first time on a visit, Amr thinks before he flips
+  // his own card (X004). Turning back to the title is nothing to mark.
+  const turn = () => {
+    if (turned) {
+      setTurned(false);
+      return;
+    }
+    setTurned(true);
+    once(() => playEventScene(EVENT_SCENES.flashcard));
+  };
 
   // At either end the button just pressed is disabled, which drops its focus:
   // hand it to the other one.
@@ -108,12 +122,7 @@ export function FlashcardDeck({ cards }: { cards: readonly StudyCard[] }) {
       {/* On a phone a wrapping row split Previous from Next: there the turn
           button and Shuffle take a row each, with the pair side by side between. */}
       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
-        <Button
-          type="button"
-          variant="toolkit"
-          className="col-span-2"
-          onClick={() => setTurned((t) => !t)}
-        >
+        <Button type="button" variant="toolkit" className="col-span-2" onClick={turn}>
           <RotateCcw aria-hidden="true" />
           {turned ? "Back to the title" : "Show the lesson"}
         </Button>

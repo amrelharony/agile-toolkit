@@ -15,6 +15,7 @@ import {
   atPageEnd,
   createScrollSpeed,
   installPageSenses,
+  OWN_OUTCOME,
   type PageHooks,
 } from "@/components/agent/mascot/engine/interactions/page";
 import {
@@ -255,6 +256,19 @@ describe("page moments", () => {
       window.dispatchEvent(new Event("offline"));
       window.dispatchEvent(new Event("online"));
       expect(acts).toEqual(["thumbsUp", "yes", "downcast", "yes"]);
+    });
+
+    it("leaves a form that answers its own outcome to it: no fist pump before the server has", () => {
+      install();
+      const wrap = document.createElement("div");
+      wrap.setAttribute("data-mascot-outcome", "");
+      const form = document.createElement("form");
+      wrap.appendChild(form);
+      document.body.appendChild(wrap);
+      form.dispatchEvent(new Event("submit", { bubbles: true }));
+      expect(acts).toEqual([]);
+      expect(form.closest(OWN_OUTCOME)).toBe(wrap);
+      wrap.remove();
     });
 
     it("watches typing on the page, not in his own panel or on a phone", () => {

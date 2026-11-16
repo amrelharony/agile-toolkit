@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CSSProperties } from "react";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 /**
  * Where Amr stands (mobile audit, 8 November 2026):
@@ -24,6 +24,7 @@ vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
 import { MascotAssistant, panelPos, type Corner } from "@/components/agent/mascot/mascot-assistant";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
 
 const HEADER_H = 56;
 
@@ -453,5 +454,72 @@ describe("stepping aside", () => {
     await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
     await new Promise((r) => setTimeout(r, 900));
     expect(elementsFromPoint).not.toHaveBeenCalled();
+  });
+});
+
+describe("choosing his corner (X108)", () => {
+  /** Pick him up at (300, 600) and let go at (x, y): a drag, not a tap. */
+  const drag = (x: number, y: number) => {
+    act(() => {
+      fireEvent.pointerDown(amrButton(), { button: 0, clientX: 300, clientY: 600 });
+    });
+    act(() => {
+      fireEvent.pointerMove(document, { clientX: x, clientY: y });
+    });
+    act(() => {
+      fireEvent.pointerUp(document, { clientX: x, clientY: y });
+    });
+  };
+  const queue = () => useMascotStore.getState().reactionQueue;
+  const corner = `scene:${EVENT_SCENES.corner}`;
+
+  beforeEach(() => useMascotStore.setState({ reactionQueue: [] }));
+
+  it("shows the corner chosen once he has landed in it, never over the landing", () => {
+    stubScreen({ phone: false });
+    render(<MascotAssistant />);
+    drag(20, 20);
+    expect(queue()).toEqual(["land", corner]);
+  });
+
+  it("plays nothing when he's dropped back in the corner he stood in", () => {
+    stubScreen({ phone: false });
+    render(<MascotAssistant />);
+    drag(1000, 1300);
+    expect(queue()).toEqual(["land"]);
+  });
+
+  it("once a page: a second move there just lands", () => {
+    stubScreen({ phone: false });
+    render(<MascotAssistant />);
+    drag(20, 20);
+    expect(queue()).toEqual(["land", corner]);
+    // Back to the bottom right: another corner, but this page has had the scene.
+    drag(1000, 1300);
+    expect(queue()).toEqual(["land"]);
+  });
+
+  it("with reduced motion, there's no landing to wait for", () => {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query.includes("reduce"),
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    render(<MascotAssistant />);
+    drag(20, 20);
+    expect(queue()).toEqual([corner]);
+  });
+
+  it("waits for him to be on screen", () => {
+    stubScreen({ phone: false });
+    useMascotStore.setState({ ready: false });
+    render(<MascotAssistant />);
+    drag(20, 20);
+    expect(queue()).not.toContain(corner);
   });
 });

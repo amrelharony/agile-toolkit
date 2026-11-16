@@ -49,6 +49,8 @@ import { getToolById } from "@/lib/constants/tools";
 import { getVipTools, getVisibleTools } from "@/lib/tools/catalog";
 import { CAST } from "@/lib/vip/cast.generated";
 import { closestColleague, type ColleagueQuestion } from "@/lib/vip/which-colleague";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { useMascotStore } from "@/lib/agent/mascot/store";
 import {
   NEVER_A_RESULT,
   WHICH_COLLEAGUE_APPROVED,
@@ -327,6 +329,23 @@ describe("the game", () => {
       "utf8"
     );
     expect(src).not.toMatch(/fetch\(|sendBeacon|localStorage|sessionStorage|persist/);
+  });
+
+  it("has Amr fit the shapes to their places for each person's answer, not before", () => {
+    useMascotStore.setState({ ready: true, reactionQueue: [] });
+    const fit = `scene:${EVENT_SCENES.colleague}`;
+    for (let i = 0; i < questions.length - 1; i++) {
+      fireEvent.click(screen.getByRole("button", { name: questions[i].answers[0].text }));
+    }
+    expect(useMascotStore.getState().reactionQueue).toEqual([]);
+    fireEvent.click(
+      screen.getByRole("button", { name: questions[questions.length - 1].answers[0].text })
+    );
+    expect(useMascotStore.getState().reactionQueue).toEqual([fit]);
+    fireEvent.click(screen.getByRole("button", { name: /Next person/ }));
+    play();
+    expect(useMascotStore.getState().reactionQueue).toEqual([fit, fit]);
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
   });
 
   it("passes on to the next person and keeps the round", () => {

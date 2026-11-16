@@ -13,7 +13,8 @@ import companion from "../../docs/mascot/companion-scenes.json";
 import { FRAMES, type FrameId } from "@/components/agent/mascot/mascot-packs";
 import { EXPANSION_SHEETS } from "@/components/agent/mascot/engine/expansion-table";
 import { EXPANSION_TITLES } from "@/components/agent/mascot/engine/expansion-titles";
-import { HOLD_SCENES, SCENES } from "@/components/agent/mascot/engine/scenes";
+import { EVENT_SCENES, HOLD_SCENES, SCENES } from "@/components/agent/mascot/engine/scenes";
+import { shippedScene } from "@/components/agent/mascot/engine/sprite-poses";
 
 const FAMILIES = ["reading", "tools", "team", "cast", "guides", "play"];
 const RECORD: Record<string, { file: string; sha256: string }> = record.sheets;
@@ -173,5 +174,50 @@ describe("where the expansion scenes play", () => {
       }
     }
     expect(unrecorded).toEqual([]);
+  });
+
+  it("records what each real-event scene plays on, and each of them ships", () => {
+    // EVENT_SCENES sits in the scene table, which the scan above leaves out.
+    const record = playsOn();
+    for (const [event, name] of Object.entries(EVENT_SCENES)) {
+      const id = `X${name.slice(1, 4)}`;
+      expect(record[id], `${event}: ${name}`).toBeDefined();
+      expect(record[id], `${event}: ${name}`).not.toBe("—");
+      expect(shippedScene(name), `${event}: ${name}`).toBeDefined();
+    }
+  });
+
+  it("cuts a real event's variant short, before the beats that would claim more", () => {
+    const variants: Record<string, number> = {
+      // Waiting for approval: the pen capped, the page not presented.
+      "x016.sent": 7,
+      // Kept, maybe counted: the card at the slot, never dropped in, no thumbs-up.
+      "x017.card": 6,
+      // A test created hasn't run: the cart back at the start, before it crosses.
+      "x095.setup": 6,
+    };
+    for (const [name, last] of Object.entries(variants)) {
+      const pack = name.split(".")[0];
+      const c = SCENES[name];
+      expect(
+        c.steps.map((st) => st.f),
+        name
+      ).toEqual(SCENES[pack].steps.slice(0, last).map((st) => st.f));
+      expect(c.steps.at(-1)?.ms, name).toBe(1600);
+      expect(c.still, name).toBe(`${pack}.${last}`);
+      expect(c.loop, name).toBeUndefined();
+      expect(c.fallback, name).not.toBe("review");
+    }
+    expect(EVENT_SCENES.guestbook).toBe("x016.sent");
+    expect(EVENT_SCENES.feedback).toBe("x017.card");
+  });
+
+  it("leaves the presentation and search guides to the visitor's asking", () => {
+    const record = playsOn();
+    expect(record.X111).toBe("—");
+    expect(record.X112).toBe("—");
+    const bound = Object.values(EVENT_SCENES).map((s) => s.split(".")[0]);
+    expect(bound).not.toContain("x111");
+    expect(bound).not.toContain("x112");
   });
 });
