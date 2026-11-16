@@ -45,7 +45,7 @@
 
 import { memo, useId } from "react";
 import { ChevronDown } from "lucide-react";
-import { AmrBalloon, Narration, YouCaption } from "../comic/comic-parts";
+import { AmrBalloon, Narration, ThinkingBalloon, YouCaption } from "../comic/comic-parts";
 import { Markdown } from "../markdown";
 import type { BalloonItem, ChatItem, ChatStep, StepsItem, YouItem } from "@/lib/agent/chat-view";
 import { toolLabel, type ToolLabel } from "@/lib/agent/tool-label";
@@ -96,6 +96,19 @@ export const BalloonItemView = memo(function BalloonItemView({ item }: { item: B
       <AmrBalloon className={cn(AMR_SIDE, item.wide ? "flex-1" : NARROW)}>
         <Markdown source={item.text} lead={item.lead} />
       </AmrBalloon>
+    </div>
+  );
+});
+
+/**
+ * Amr about to answer (a turn under way, no words or steps of its reply yet):
+ * his balloon on his side with a pen scribbling in it and no words. Hidden
+ * from assistive tech; the chat's status line says it in words.
+ */
+export const ThinkingItemView = memo(function ThinkingItemView() {
+  return (
+    <div className="flex" data-chat-item="thinking">
+      <ThinkingBalloon className={AMR_SIDE} />
     </div>
   );
 });

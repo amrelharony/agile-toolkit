@@ -12,7 +12,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { act, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRef, type ReactNode } from "react";
 import {
   ChatProvider,
@@ -21,6 +21,7 @@ import {
   type ChatContextValue,
 } from "@/components/agent/chat/chat-context";
 import { ChatItemView } from "@/components/agent/chat/chat-items";
+import { useChatItems } from "@/components/agent/chat/chat-strip";
 import {
   LEAD_MAX,
   chatView,
@@ -28,7 +29,7 @@ import {
   type ChatItem,
   type ChatViewOptions,
 } from "@/lib/agent/chat-view";
-import type { ChatProfile } from "@/lib/agent/store";
+import { useAgentStore, type ChatProfile } from "@/lib/agent/store";
 import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "@/lib/agent/types";
 
 /** How often each reply's markdown rendered, by its source. */
@@ -494,6 +495,99 @@ describe("the chat context", () => {
     const byId = screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
     expect(document.activeElement).toBe(byId);
     expect(byId.selectionStart).toBe(2);
+  });
+});
+
+describe("fed from the store (chat-strip's useChatItems)", () => {
+  /** The strip as both containers feed it: items made from the agent store. */
+  function StoreStrip({ profile = "visitor" }: { profile?: ChatProfile }) {
+    return <Strip items={useChatItems()} profile={profile} />;
+  }
+  const PROMPT = {
+    verb: "Add card",
+    title: "Retro Board",
+    question: "Add a card to Retro Board?",
+    detail: "Text: “flaky CI”",
+    destructive: false,
+  };
+
+  afterEach(() => {
+    useAgentStore.getState().reset();
+  });
+
+  it("says Working… once a call's arguments are in, and Waiting for you while its card shows", () => {
+    act(() => {
+      useAgentStore.setState({ streaming: true, messages: [assistant("a1", call("c1"))] });
+    });
+    render(<StoreStrip />);
+    const log = screen.getByTestId("log");
+    expect(log).toHaveTextContent("Retro Board · Add card · Working…");
+    act(() => {
+      useAgentStore.getState().setPendingToolUse({
+        toolUseId: "c1",
+        actionId: "tool_retro_add_card",
+        resolvedActionId: "tool.retro.add_card",
+        input: { text: "flaky CI" },
+        prompt: PROMPT,
+        resolve: () => {},
+      });
+    });
+    expect(log).toHaveTextContent("Retro Board · Add card · Waiting for you · “flaky CI”");
+    act(() => {
+      useAgentStore.setState({
+        streaming: false,
+        pendingToolUse: null,
+        messages: [assistant("a1", call("c1")), toolMsg("t1", result("c1"))],
+      });
+    });
+    expect(log).toHaveTextContent("Retro Board · Add card · Done · “flaky CI”");
+  });
+
+  it("says each way a step can end, in words, never the result string", () => {
+    const cases: Array<[string, boolean, string]> = [
+      ["User denied execution of tool.retro.add_card.", true, "You said no"],
+      ["Handler error: Retro not found", true, "Didn't work"],
+      ["Tool not available: tool_retro_add_card", true, "Not available here"],
+      ["Cancelled.", true, "Stopped"],
+      ["Handler error: Handler timeout after 30000ms", true, "Took too long"],
+      ['{"added":false,"reason":"no_retro"}', false, "Didn't work"],
+    ];
+    for (const [content, isError, said] of cases) {
+      act(() => {
+        useAgentStore.setState({
+          messages: [assistant("a1", call("c1")), toolMsg("t1", result("c1", content, isError))],
+        });
+      });
+      const { unmount } = render(<StoreStrip profile="owner" />);
+      const caption = screen.getByTestId("log").querySelector('[data-chat-item="steps"] p')!;
+      expect(caption).toHaveTextContent(`Retro Board · Add card · ${said}`);
+      expect(caption.textContent).not.toContain(content);
+      unmount();
+    }
+  });
+
+  it("re-renders only the reply still growing as the store streams it", () => {
+    const first = "Open the board first.";
+    act(() => {
+      useAgentStore.setState({
+        streaming: true,
+        streamingMessageId: "a2",
+        messages: [
+          user("u1", "How?"),
+          assistant("a1", text(first)),
+          user("u2", "And then?"),
+          assistant("a2", text("Add")),
+        ],
+      });
+    });
+    render(<StoreStrip />);
+    for (const reply of ["Add a", "Add a card", "Add a card. Then vote."]) {
+      act(() => useAgentStore.getState().patchMessage("a2", [text(reply)]));
+    }
+    expect(renders.get(first)).toBe(1);
+    expect(renders.get("Add a")).toBe(1);
+    expect(renders.get("Add a card. Then vote.")).toBe(1);
+    expect(screen.getByTestId("log")).toHaveTextContent("Add a card. Then vote.");
   });
 });
 
