@@ -1039,7 +1039,7 @@ describe("AgentConversation: notices, the draft and a new thread", () => {
       expect(caption).toHaveAttribute("data-voice", "narration");
       expect(caption).toHaveTextContent(`${NOT_SAVED_LABEL} ${NOT_SAVED}`);
       // Third person, no dashes.
-      expect(caption.textContent).not.toMatch(/(I|me|my)|[–—]/);
+      expect(caption.textContent).not.toMatch(/\b(I|I'm|I'll|I've|me|my)\b|[–—]/);
       // In the log, which is never live; the announcer says it once.
       expect(caption.closest('[role="log"]')).not.toBeNull();
       expect(caption.closest('[aria-live="polite"], [aria-live="assertive"]')).toBeNull();
