@@ -1513,6 +1513,14 @@ export function MascotAssistant({
   const [showScenes, setShowScenes] = useState(false);
   // A write waiting for a yes: its card has to be seen (scenesOpen, below).
   const confirmPending = useAgentStore((s) => s.pendingToolUse !== null);
+  // New chat from the shell (More under 360 px, the crash caption): it stops
+  // an answer under way too (the store's reset aborts the turn). The new chat
+  // shows, out from under History and the scenes.
+  const startNewChat = () => {
+    useAgentStore.getState().reset();
+    setShowHistory(false);
+    setShowScenes(false);
+  };
   // `settled` keeps the owner from seeing the visitor notice flash while
   // auth is still loading; no chat component mounts until it's settled.
   const { isOwner, settled, unverified, visitor } = useOwnerState();
@@ -2289,7 +2297,8 @@ export function MascotAssistant({
           data-tail={tail?.tail ?? "none"}
           data-tail-from={tail?.from}
           data-amr-side={amrSide(placed)}
-          // Where he is drawn: the sheet's bottom while docked (drawnEdge).
+          // Where he is drawn: the bottom of the sheet while docked (drawnEdge).
+          // No apostrophes in comments on this tag: held-layers-css reads it.
           data-amr-edge={drawnEdge}
           data-amr-layout={layout}
           // Docked in the sheet: the side his gutter is on (the views read it).
@@ -2352,18 +2361,9 @@ export function MascotAssistant({
                   // Only the floating card has two sizes: the sheet and the
                   // side panel fill the room they are given.
                   onToggleEnlarge={layout === "float" ? panelSize.toggle : undefined}
-                  // Under 360 px, New chat moves from the owner's icons into More.
-                  onNewChat={
-                    narrow && settled && isOwner
-                      ? () => {
-                          // Stops an answer under way too (the store's reset aborts the turn).
-                          // The new chat shows, out from under History and the scenes.
-                          useAgentStore.getState().reset();
-                          setShowHistory(false);
-                          setShowScenes(false);
-                        }
-                      : undefined
-                  }
+                  // Under 360 px, New chat moves from the owner's icons into
+                  // More, which hands focus to the fresh chat's box.
+                  onNewChat={narrow && settled && isOwner ? startNewChat : undefined}
                   onClose={() => closePanel("close-button")}
                 />
                 {/* The strip's ground: the page's paper, so card balloons stand
@@ -2390,10 +2390,7 @@ export function MascotAssistant({
                           isOwner
                             ? () => {
                                 // A saved reply that crashes when drawn goes with the old chat.
-                                // The new chat shows, out from under History and the scenes.
-                                useAgentStore.getState().reset();
-                                setShowHistory(false);
-                                setShowScenes(false);
+                                startNewChat();
                                 tryAgain();
                               }
                             : undefined

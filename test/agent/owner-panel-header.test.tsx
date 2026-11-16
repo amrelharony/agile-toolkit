@@ -116,6 +116,59 @@ describe("the owner's header actions", () => {
   });
 });
 
+describe("New chat in More (the shell's, under 360 px)", () => {
+  const MOVE = { corner: "bottomRight", onMove: () => {} } as const;
+  const openMore = () =>
+    fireEvent.keyDown(within(header()).getByRole("button", { name: "More" }), { key: "Enter" });
+  /** Radix hands focus on as the menu closes, a tick after it unmounts. */
+  const settle = () => act(() => new Promise((r) => setTimeout(r, 0)));
+  const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+
+  it("hands focus to the fresh chat's box as the menu closes, not to More", async () => {
+    const onNewChat = vi.fn();
+    render(
+      <>
+        <PanelHeader move={MOVE} onNewChat={onNewChat} onClose={() => {}} />
+        <textarea aria-label="Message" data-amr-composer="" />
+      </>
+    );
+    openMore();
+    fireEvent.click(screen.getByRole("menuitem", { name: "New chat" }));
+    await settle();
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(box()).toHaveFocus();
+
+    // Picked once: the next close (Escape, with no choice) gives More its focus back.
+    openMore();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    await settle();
+    expect(within(header()).getByRole("button", { name: "More" })).toHaveFocus();
+  });
+
+  it("gives focus back to More with no box to take it, and after any other choice", async () => {
+    const view = render(<PanelHeader move={MOVE} onNewChat={() => {}} onClose={() => {}} />);
+    const more = within(header()).getByRole("button", { name: "More" });
+    openMore();
+    fireEvent.click(screen.getByRole("menuitem", { name: "New chat" }));
+    await settle();
+    expect(more).toHaveFocus();
+    view.unmount();
+
+    render(
+      <>
+        <PanelHeader move={MOVE} onNewChat={() => {}} onClose={() => {}} />
+        <textarea aria-label="Message" data-amr-composer="" />
+      </>
+    );
+    openMore();
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /top left/i }));
+    await settle();
+    expect(within(header()).getByRole("button", { name: "More" })).toHaveFocus();
+    expect(box()).not.toHaveFocus();
+  });
+});
+
 describe("the chat under the header", () => {
   it("leaves its padding to the chat's frame, inside the scroller (agent-panel-touch pins it there)", () => {
     render(<Shell />);
