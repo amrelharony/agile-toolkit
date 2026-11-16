@@ -354,6 +354,29 @@ describe("chatView: messages as comic strip items", () => {
     expect(kinds(items)).toEqual(["steps", "balloon", "steps", "you", "steps"]);
   });
 
+  it("names each step's turn by the reader's message it answers", () => {
+    const items = chatView([
+      assistant("a0", call("c0")),
+      user("u1", "Tidy the retro"),
+      assistant("a1", call("c1")),
+      toolMsg("t1", result("c1")),
+      assistant("a2", text("One more."), call("c2")),
+      user("u2", "And again"),
+      assistant("a3", call("c3")),
+      toolMsg("t3", result("c3"), result("gone")),
+    ]);
+    const turns = items
+      .filter((i): i is StepsItem => i.kind === "steps")
+      .flatMap((i) => i.steps.map((s) => [s.key, s.turn]));
+    expect(turns).toEqual([
+      ["a0:s0", null],
+      ["a1:s0", "u1"],
+      ["a2:s1", "u1"],
+      ["a3:s0", "u2"],
+      ["t3:r1", "u2"],
+    ]);
+  });
+
   it("pairs a result with its own round, and shows a result with no call as a step of its own", () => {
     const items = chatView([
       assistant("a1", call("tc_0")),

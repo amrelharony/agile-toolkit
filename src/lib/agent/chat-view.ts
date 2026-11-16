@@ -297,6 +297,11 @@ export interface ChatStep {
   result: ToolResultBlock | undefined;
   /** Where it stands (tool-result-text stepState), or null when nothing is known. */
   state: ToolStepState | null;
+  /**
+   * The turn it is part of: the id of the reader's message the turn answers
+   * (null before any), so the strip inks at most one tick a turn.
+   */
+  turn: string | null;
 }
 
 /** A run of tool calls with no words between them: one step caption. */
@@ -359,6 +364,8 @@ function build(
   const pairs = pairToolResults(messages);
   const out: ChatItem[] = [];
   let run: ChatStep[] | null = null;
+  /** The reader's latest message so far: the turn the steps after it are part of. */
+  let turn: string | null = null;
 
   const keep = (item: ChatItem) => {
     next.items.set(item.key, item);
@@ -391,9 +398,9 @@ function build(
   ) => {
     const old = prev.steps.get(key);
     const step =
-      old && old.call === call && old.result === result && old.state === state
+      old && old.call === call && old.result === result && old.state === state && old.turn === turn
         ? old
-        : { key, messageId, call, result, state };
+        : { key, messageId, call, result, state, turn };
     next.steps.set(key, step);
     (run ??= []).push(step);
   };
@@ -425,6 +432,7 @@ function build(
 
   for (const message of messages) {
     if (message.role === "user") {
+      turn = message.id;
       const text = textOf(message.content);
       if (!hasWords(text)) continue;
       endRun();
