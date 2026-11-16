@@ -6,17 +6,19 @@
  * for a result that came live, once per step and at most once a turn (the
  * store's in-memory inkedToolIds), and is drawn still on a remount, in a
  * loaded thread and on later renders; a read, an error or a "no" gets none.
- * Only the owner gets Details, in words.
+ * Only the owner gets Details, in words. The confirm card sits under the
+ * caption of the step it asks about.
  */
 
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { ChatProvider } from "@/components/agent/chat/chat-context";
 import { ChatItemView } from "@/components/agent/chat/chat-items";
+import { ChatLog } from "@/components/agent/chat/chat-log";
 import { useChatItems } from "@/components/agent/chat/chat-strip";
 import { StepDetails } from "@/components/agent/chat/step-details";
 import { useAgentStore, type ChatProfile } from "@/lib/agent/store";
-import type { ChatMessage, ToolResultBlock, ToolUseBlock } from "@/lib/agent/types";
+import type { ChatMessage, PendingToolUse, ToolResultBlock, ToolUseBlock } from "@/lib/agent/types";
 
 const AT = "2026-11-16T09:00:00Z";
 
@@ -322,5 +324,82 @@ describe("Details", () => {
     render(<StoreStrip profile="owner" />);
     expect(log().querySelector("[data-step-details]")).toBeNull();
     expect(log()).toHaveTextContent("Retro Board · Add card · Getting ready…");
+  });
+});
+
+describe("the confirm card", () => {
+  /** The chat's real log, fed from the store, as both containers draw it. */
+  function StoreLog({ profile = "owner" }: { profile?: ChatProfile }) {
+    const items = useChatItems();
+    return (
+      <ChatProvider profile={profile}>
+        <ChatLog items={items} />
+      </ChatProvider>
+    );
+  }
+  const card = (toolUseId: string): PendingToolUse => ({
+    toolUseId,
+    actionId: "tool_retro_add_card",
+    resolvedActionId: "tool.retro.add_card",
+    input: { text: "flaky CI" },
+    prompt: {
+      verb: "Add card",
+      title: "Retro Board",
+      question: "Add a card to Retro Board?",
+      detail: "Text: “flaky CI”",
+      destructive: false,
+    },
+    resolve: () => {},
+  });
+  const conversation = () => screen.getByRole("log", { name: "Conversation" });
+  const cards = () => Array.from(conversation().querySelectorAll("[data-confirm-card]"));
+
+  it("sits right under the caption of the step it asks about", () => {
+    running([
+      user("u1"),
+      assistant("a1", read("c0")),
+      toolMsg("t0", ok("c0", "{}")),
+      assistant("a2", add("c1")),
+    ]);
+    render(<StoreLog />);
+    expect(cards()).toEqual([]);
+    act(() => store().setPendingToolUse(card("c1")));
+
+    expect(cards()).toHaveLength(1);
+    const item = cards()[0].closest('[data-chat-item="steps"]')!;
+    const caption = item.querySelector("[data-tool-steps]")!;
+    expect(caption.nextElementSibling).toBe(cards()[0]);
+    expect(caption).toHaveTextContent("Retro Board · Add card · Waiting for you · “flaky CI”");
+    // Approve all is the owner's.
+    expect(
+      screen.getByRole("button", { name: "Add card, and don't ask again until I close" })
+    ).toBeInTheDocument();
+
+    // Answered: the card goes, and the step runs on.
+    act(() => store().setPendingToolUse(null));
+    expect(cards()).toEqual([]);
+    expect(caption).toHaveTextContent("Retro Board · Add card · Working…");
+  });
+
+  it("offers a visitor no Approve all", () => {
+    running([user("u1"), assistant("a1", add("c1"))]);
+    render(<StoreLog profile="visitor" />);
+    act(() => store().setPendingToolUse(card("c1")));
+    expect(cards()).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Add card" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /don't ask again/ })).toBeNull();
+  });
+
+  it("shows a card whose call isn't in the chat after the log's items, once", () => {
+    running([user("u1"), assistant("a1", add("c1"))]);
+    render(<StoreLog />);
+    act(() => store().setPendingToolUse(card("c9")));
+    expect(cards()).toHaveLength(1);
+    expect(cards()[0].closest("[data-chat-item]")).toBeNull();
+    const items = conversation().querySelectorAll("[data-chat-item]");
+    const last = items[items.length - 1];
+    expect(
+      last.compareDocumentPosition(cards()[0]) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 });

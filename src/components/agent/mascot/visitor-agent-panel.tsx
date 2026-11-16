@@ -19,13 +19,14 @@
  *
  * The chat is the comic strip (chat/chat-strip): Amr's balloons, the
  * visitor's captions and one caption per run of tool steps, in words only (a
- * visitor never sees JSON). Notes and errors show as a narration caption,
+ * visitor never sees JSON), with the confirm card under the step it asks
+ * about (no Approve all for a visitor). Notes and errors show as a narration caption,
  * the narrator's line and never Amr's own words, with "Try again" or "Go on"
  * when the notice calls for one (lib/agent/notice-actions).
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone, never
- * this view, its composer or the card.
+ * this view or its composer.
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -44,7 +45,6 @@ import { useChatVisible } from "../chat-visibility";
 import { ChatProvider, focusAtEnd } from "../chat/chat-context";
 import { ThinkingItemView } from "../chat/chat-items";
 import { ChatStrip, ThinkingStatus, useAwaitingReply } from "../chat/chat-strip";
-import { ConfirmCard } from "../chat/confirm-card";
 import { handleMascotCommand } from "./engine/customization/commands";
 import { COMPACT_HIDDEN, useInitialFocus } from "./panel-context";
 import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
@@ -396,7 +396,6 @@ export default function VisitorAgentPanel({
         )}
         {awaiting && <ThinkingItemView />}
         {/* A visitor approves every change: no Approve all. */}
-        <ConfirmCard />
         {notice && (
           <Narration
             tone={notice.tone}

@@ -85,7 +85,7 @@ export interface ChatFrameProps {
    * items yet. The turn is spoken once when this goes false.
    */
   busy?: boolean;
-  /** What the log shows after its items: the empty line, thinking, the confirm card, a notice. */
+  /** What the log shows after its items: the empty line, thinking, a notice. */
   children?: ReactNode;
   /** The composer's row: the message form, and the lines and buttons under it. */
   footer: ReactNode;

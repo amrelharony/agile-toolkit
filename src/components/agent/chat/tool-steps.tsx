@@ -24,6 +24,10 @@
  *            render. A read never gets one.
  *   Details  the owner's only (chat/step-details, handed in through the chat
  *            context): the arguments and the result in words.
+ *   card     the confirm card, right under the caption of the step it asks
+ *            about (the step reads "Waiting for you"), with Approve all in the
+ *            owner's chat only. A card whose call isn't in the chat shows after
+ *            the log's items instead (chat-log), so a turn never waits unseen.
  *
  * The marks are aria-hidden: the words say it all. Each line is memoised on
  * its step, which the chat view keeps until it changes, so a streamed flush
@@ -36,13 +40,14 @@
 import { memo, useRef, type ComponentType } from "react";
 import { InkArt } from "@/components/ink/ink-art";
 import { InkTick } from "@/components/ink/ink-tick";
-import type { ChatStep } from "@/lib/agent/chat-view";
+import type { ChatItem, ChatStep } from "@/lib/agent/chat-view";
 import { STEP_RUNNING } from "@/lib/ink/drawings/step-running";
 import { useAgentStore } from "@/lib/agent/store";
 import { readsOnly, toolLabel, type ToolLabel } from "@/lib/agent/tool-label";
 import { STEP_WORDS, TROUBLE_STATES, stepSummary } from "@/lib/agent/tool-result-text";
 import { Narration } from "../comic/comic-parts";
 import { useChat, type StepDetailsProps } from "./chat-context";
+import { ConfirmCard } from "./confirm-card";
 
 /** The label for a result whose call isn't in the chat. */
 const UNPAIRED: ToolLabel = { tool: "Step", verb: "" };
@@ -147,16 +152,29 @@ const StepLine = memo(function StepLine({
   );
 });
 
-/** A run of tool calls with no words between them: one narration caption, a line per call. */
+/** One of these steps waits for the reader's OK: its confirm card shows. */
+const asksForOk = (steps: readonly ChatStep[]) => steps.some((s) => s.state === "waiting");
+
+/** The confirm card shows under one of these items' steps (else the log shows it after them). */
+export const cardUnderStep = (items: readonly ChatItem[]) =>
+  items.some((item) => item.kind === "steps" && asksForOk(item.steps));
+
+/**
+ * A run of tool calls with no words between them: one narration caption, a
+ * line per call, and the confirm card under it while one of them waits.
+ */
 export function ToolSteps({ steps }: { steps: readonly ChatStep[] }) {
-  const { StepDetails } = useChat();
+  const { profile, StepDetails } = useChat();
   return (
-    <Narration data-tool-steps="">
-      <div className="space-y-1">
-        {steps.map((step) => (
-          <StepLine key={step.key} step={step} Details={StepDetails} />
-        ))}
-      </div>
-    </Narration>
+    <>
+      <Narration data-tool-steps="">
+        <div className="space-y-1">
+          {steps.map((step) => (
+            <StepLine key={step.key} step={step} Details={StepDetails} />
+          ))}
+        </div>
+      </Narration>
+      {asksForOk(steps) && <ConfirmCard allowApproveAll={profile === "owner"} />}
+    </>
   );
 }

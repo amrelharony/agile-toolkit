@@ -18,7 +18,6 @@ import { useEffect, useState } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { ChatProvider, useChat } from "@/components/agent/chat/chat-context";
 import { ChatFrame } from "@/components/agent/chat/chat-frame";
-import { ConfirmCard } from "@/components/agent/chat/confirm-card";
 import {
   ANNOUNCE_MAX,
   CODE_WORDS,
@@ -134,7 +133,7 @@ function Chat({ takeCardFocus = false }: { takeCardFocus?: boolean }) {
   const items = view(messages, { streamingId, busy: streaming, pendingId });
   return (
     <ChatFrame items={items} busy={streaming} footer={<Composer />}>
-      <ConfirmCard allowApproveAll />
+      {/* The log draws the confirm card, under its step. */}
       {takeCardFocus && <CardTakesFocus />}
     </ChatFrame>
   );

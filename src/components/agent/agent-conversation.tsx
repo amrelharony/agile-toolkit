@@ -30,7 +30,6 @@ import { useChatVisible } from "./chat-visibility";
 import { ChatProvider, focusAtEnd } from "./chat/chat-context";
 import { ThinkingItemView } from "./chat/chat-items";
 import { ChatStrip, ThinkingStatus, useAwaitingReply } from "./chat/chat-strip";
-import { ConfirmCard } from "./chat/confirm-card";
 import { StepDetails } from "./chat/step-details";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
@@ -52,8 +51,8 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
 /**
  * Active conversation view: the comic strip (chat/chat-strip: Amr's balloons,
  * the owner's captions, one caption per run of tool steps, with Details in
- * words, which only this chat hands the strip), the composer and the
- * confirmation card.
+ * words, which only this chat hands the strip, and the confirmation card
+ * under the step it asks about, with Approve all) and the composer.
  *
  * The conversation is created in Supabase on the first message and every
  * message is persisted (via the client orchestrator's conversationId path), so
@@ -67,7 +66,7 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone
- * (chat-strip), never this view, its composer or the card.
+ * (chat-strip), never this view or its composer.
  */
 export function AgentConversation() {
   const { user } = useAuth();
@@ -311,7 +310,6 @@ export function AgentConversation() {
           </div>
         )}
         {awaiting && <ThinkingItemView />}
-        <ConfirmCard allowApproveAll />
         {notice && (
           <Narration
             tone={notice.tone}
