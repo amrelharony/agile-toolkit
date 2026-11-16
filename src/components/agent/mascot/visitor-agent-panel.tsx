@@ -331,7 +331,8 @@ interface VisitorAgentPanelProps {
   /**
    * The message box takes focus as the chat opens, even on a touch screen:
    * the visitor said yes on the consent card with no question waiting, so
-   * typing is what they came to do.
+   * typing is what they came to do. Only the box the chat opens with: one the
+   * read-only footer gives back later takes none by itself.
    */
   takeFocus?: boolean;
 }
@@ -496,6 +497,14 @@ export default function VisitorAgentPanel({
   useEffect(() => {
     if (!readOnly) setBoxShown(true);
   }, [readOnly]);
+  // The consent card's yes asks for the box the chat opens with, once. A box
+  // the read-only footer gives back later (the busy hours over, Try again,
+  // Clear chat) takes no focus by itself: the footer's buttons and the Undo
+  // caption hand focus on, and on a phone no keyboard comes up on a timer.
+  const openingBox = useRef(takeFocus);
+  useEffect(() => {
+    openingBox.current = false;
+  }, []);
 
   // The composer's row: the frame keeps it shrink-0 (the form its direct
   // child) and makes room beside it for docked Amr. Read-only, the footer
@@ -520,7 +529,7 @@ export default function VisitorAgentPanel({
       onStop={() => loadedRuntime?.abortInFlight()}
       maxLength={VISITOR_LIMITS.userChars}
       tool={tool?.name}
-      takeFocus={takeFocus}
+      takeFocus={openingBox.current}
       mic={VisitorDictate}
       // In the status row, never live; it waits while the panel is compact.
       // With only a few left it stands out (weight and ink), and is never announced.

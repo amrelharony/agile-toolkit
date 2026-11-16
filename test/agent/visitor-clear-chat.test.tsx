@@ -31,6 +31,11 @@ vi.mock("@/lib/agent/visitor-runtime", () => ({
 import VisitorAgentPanel from "@/components/agent/mascot/visitor-agent-panel";
 import { CHAT_CLEARED } from "@/components/agent/mascot/visitor-clear-chat";
 import { PanelChrome } from "@/components/agent/mascot/panel-chrome";
+import {
+  AmrPanelContext,
+  NO_AMR_PANEL,
+  type AmrPanelContextValue,
+} from "@/components/agent/mascot/panel-context";
 import { PanelHeader } from "@/components/agent/mascot/panel-header";
 import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
@@ -51,12 +56,27 @@ const CHAT: ChatMessage[] = [
   },
 ];
 
-function renderChat() {
+/**
+ * The shell's focus owner, as far as these tests need it: a view's target
+ * takes focus only while focus is free (on the page), never from a control
+ * that holds it (lib/agent/mascot/use-panel-focus).
+ */
+const FOCUS_OWNER: AmrPanelContextValue = {
+  ...NO_AMR_PANEL,
+  registerInitialFocus: (el) => {
+    const held = el?.ownerDocument.activeElement;
+    if (el && (!held || held === el.ownerDocument.body)) el.focus();
+  },
+};
+
+function renderChat({ takeFocus = false } = {}) {
   return render(
-    <PanelChrome>
-      <PanelHeader onClose={() => {}} />
-      <VisitorAgentPanel initialQuestion="" onOfflineGuide={() => {}} />
-    </PanelChrome>
+    <AmrPanelContext.Provider value={FOCUS_OWNER}>
+      <PanelChrome>
+        <PanelHeader onClose={() => {}} />
+        <VisitorAgentPanel initialQuestion="" onOfflineGuide={() => {}} takeFocus={takeFocus} />
+      </PanelChrome>
+    </AmrPanelContext.Provider>
   );
 }
 
@@ -142,6 +162,20 @@ describe("Clear chat in a visitor's chat", () => {
     expect(clearButton()).toHaveFocus();
     // Nothing is left to undo: the toast goes too.
     expect(h.toast.dismiss).toHaveBeenCalledWith("toast-1");
+  });
+
+  it("keeps its Undo focused when the clear gives a read-only chat its box back", async () => {
+    // The chat opened on the consent card's yes: its first box took focus.
+    renderChat({ takeFocus: true });
+    expect(screen.getByLabelText("Message")).toHaveFocus();
+    chatUnderWay();
+    act(() => useAgentStore.setState({ visitorFallback: "site_busy" }));
+    await waitFor(() => expect(document.querySelector("[data-visitor-read-only]")).not.toBeNull());
+
+    // The clear lets the refusal go: the box comes back in the same commit as the caption.
+    const shown = await clear();
+    expect(screen.getByLabelText("Message")).toBeInTheDocument();
+    expect(within(shown).getByRole("button", { name: "Undo" })).toHaveFocus();
   });
 
   it("the toast's Undo does the same, and the caption goes", async () => {

@@ -7,7 +7,8 @@
  * focus the box had. "Open the tool finder" hands the guide the question Amr
  * couldn't answer; Try again (only for a refusal a later try may get past)
  * says what it spends and gives the box back. The busy hours' limit ends on
- * the clock, as the hours do, and the day's with its Cairo day.
+ * the clock, as the hours do, and the day's with its Cairo day. A box the
+ * footer gives back takes no focus by itself.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -138,10 +139,26 @@ function minuteTicks(): () => void {
   return () => act(() => ticks.forEach((tick) => tick()));
 }
 
+/** The page on a touch screen: (pointer: coarse) matches, nothing else does. */
+const touchScreen = () =>
+  vi.spyOn(window, "matchMedia").mockImplementation(
+    (query: string) =>
+      ({
+        matches: query.includes("pointer: coarse"),
+        media: query,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+      }) as unknown as MediaQueryList
+  );
+
 /** The chat, with one question asked and answered, the box holding focus. */
-async function chatAsked(left: VisitorQuota) {
+async function chatAsked(left: VisitorQuota, { takeFocus = false } = {}) {
   answersWith(left);
-  render(<VisitorAgentPanel initialQuestion="" onOfflineGuide={onOfflineGuide} />);
+  render(
+    <VisitorAgentPanel initialQuestion="" onOfflineGuide={onOfflineGuide} takeFocus={takeFocus} />
+  );
   await settle();
   const box = screen.getByLabelText("Message");
   fireEvent.change(box, { target: { value: QUESTION } });
@@ -386,6 +403,49 @@ describe("the day's limit and its Cairo day", () => {
       expect(h.sendVisitorMessage).toHaveBeenCalledWith("sprint goal", { toolId: "retro" })
     );
     expect(useAgentStore.getState().drafts.visitor).toBe("");
+  });
+});
+
+describe("the box the footer gives back", () => {
+  it("takes no focus by itself, so no keyboard comes up on a timer: the consent card's yes was for the box the chat opened with", async () => {
+    const box = await chatAsked(quota(12), { takeFocus: true });
+    expect(box).toHaveFocus();
+    act(() => useAgentStore.getState().setVisitorFallback("site_busy"));
+    await until(footer);
+    // On a phone, the refusal lets go on its own (as the busy hours' clock
+    // lets theirs go): the box is back, unfocused.
+    touchScreen();
+    act(() => useAgentStore.getState().setVisitorFallback(null));
+    await waitFor(() => expect(footer()).toBeNull());
+    expect(screen.getByLabelText("Message")).not.toHaveFocus();
+  });
+
+  it("never takes focus as Try again gives it back after a tap on a touch screen", async () => {
+    await chatAsked(quota(12), { takeFocus: true });
+    act(() => {
+      useAgentStore.getState().appendMessage(user("u2", "And the timer?"));
+      useAgentStore.getState().setVisitorFallback("site_busy");
+    });
+    const shown = await until(footer);
+    touchScreen();
+    const focused: EventTarget[] = [];
+    const record = (e: FocusEvent) => {
+      if (e.target) focused.push(e.target);
+    };
+    document.addEventListener("focusin", record);
+    try {
+      fireEvent.click(
+        within(shown).getByRole("button", { name: "Try again (uses 1 of your 12 left)" }),
+        { detail: 1 }
+      );
+    } finally {
+      document.removeEventListener("focusin", record);
+    }
+    // No keyboard: the box never had focus; the question asked again holds it.
+    expect(focused).not.toContain(screen.getByLabelText("Message"));
+    const asked = document.querySelectorAll<HTMLElement>('[data-chat-item="you"]');
+    expect(asked[asked.length - 1]).toHaveFocus();
+    await waitFor(() => expect(h.retryVisitorTurn).toHaveBeenCalled());
   });
 });
 
