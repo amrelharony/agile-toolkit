@@ -6,13 +6,15 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import companion from "../../docs/mascot/companion-scenes.json";
 
 const h = vi.hoisted(() => ({
   auth: null as { status: string; user: { id: string } | null } | null,
   /** Scenes the test pretends have no pack yet. */
   unshipped: new Set<string>(),
+  /** His sheet fails to load once his figure mounts. */
+  figureFails: false,
 }));
 
 vi.mock("@/components/agent/mascot/engine/sprite-poses", async (importOriginal) => {
@@ -31,12 +33,28 @@ vi.mock("@/lib/agent/visitor-runtime", () => ({
   sendVisitorMessage: vi.fn(async () => {}),
   abortInFlight: vi.fn(),
 }));
-vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
-  default: () => <div data-testid="mascot-sprite" />,
-}));
-vi.mock("@/components/agent/agent-conversation", () => ({
-  AgentConversation: () => <div data-testid="agent-conversation" />,
-}));
+vi.mock("@/components/agent/mascot/mascot-sprite", async () => {
+  const { useEffect } = await import("react");
+  return {
+    default: function Sprite({ onLoadError }: { onLoadError?: () => void }) {
+      useEffect(() => {
+        if (h.figureFails) onLoadError?.();
+      }, [onLoadError]);
+      return <div data-testid="mascot-sprite" />;
+    },
+  };
+});
+// The owner's chat, with the real confirmation card in it.
+vi.mock("@/components/agent/agent-conversation", async () => {
+  const { ConfirmAction } = await import("@/components/agent/confirm-action");
+  return {
+    AgentConversation: () => (
+      <div data-testid="agent-conversation">
+        <ConfirmAction />
+      </div>
+    ),
+  };
+});
 vi.mock("@/components/agent/conversation-list", () => ({
   ConversationList: () => <div data-testid="conversation-list" />,
 }));
@@ -46,12 +64,15 @@ vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
 
 import ScenesTab, { COMPANION_TITLES } from "@/components/agent/mascot/scenes-tab";
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
+import VisitorAgentPanel from "@/components/agent/mascot/visitor-agent-panel";
+import { ChatVisibleContext } from "@/components/agent/chat-visibility";
 import { EXPANSION_SHEETS } from "@/components/agent/mascot/engine/expansion-table";
 import { EXPANSION_TITLES } from "@/components/agent/mascot/engine/expansion-titles";
 import { SCENE_THUMBS, THUMB_INDEX } from "@/components/agent/mascot/engine/scene-thumbs";
 import { COMPANION_SCENES, SCENES, galleryScene } from "@/components/agent/mascot/engine/scenes";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { useAgentStore } from "@/lib/agent/store";
+import type { PendingToolUse } from "@/lib/agent/types";
 
 const FAMILY_HEADINGS: Array<[string, string]> = [
   ["reading", "Reading"],
@@ -72,6 +93,7 @@ const play = (title: string) => screen.getByRole("button", { name: `Play: ${titl
 
 beforeEach(() => {
   h.unshipped = new Set();
+  h.figureFails = false;
   useMascotStore.getState().reset();
 });
 
@@ -221,6 +243,25 @@ describe("the Scenes tab", () => {
     expect(holds.x112).toBe(5);
   });
 
+  it("empties the filter on Escape before Escape may close the panel", () => {
+    const onDocEsc = vi.fn();
+    document.addEventListener("keydown", onDocEsc);
+    try {
+      render(<ScenesTab onPlay={() => {}} />);
+      const filter = screen.getByLabelText("Find a scene");
+      fireEvent.change(filter, { target: { value: "story" } });
+
+      fireEvent.keyDown(filter, { key: "Escape" });
+      expect(filter).toHaveValue("");
+      expect(onDocEsc).not.toHaveBeenCalled();
+
+      fireEvent.keyDown(filter, { key: "Escape" });
+      expect(onDocEsc).toHaveBeenCalledTimes(1);
+    } finally {
+      document.removeEventListener("keydown", onDocEsc);
+    }
+  });
+
   it("gives every scene a touch-sized button with a visible focus ring", () => {
     render(<ScenesTab onPlay={() => {}} />);
     for (const button of screen.getAllByRole("button", { name: /^Play: / })) {
@@ -276,6 +317,84 @@ describe("the Scenes button in Amr's panel", () => {
   });
 
   const scenesButton = () => screen.getByRole("button", { name: "Amr's scenes" });
+
+  const confirmation = (resolve: (approved: boolean) => void): PendingToolUse => ({
+    toolUseId: "c1",
+    actionId: "workspace_sprint_create",
+    resolvedActionId: "workspace.sprint.create",
+    input: {},
+    summary: "Create Sprint 47",
+    resolve,
+  });
+
+  it("goes back to the chat, not closing the panel, when a scene is tapped mid-turn", async () => {
+    h.auth = { status: "authenticated", user: { id: "u1" } };
+    render(<MascotAssistant />);
+    await screen.findByTestId("agent-conversation");
+    act(() => useAgentStore.setState({ streaming: true }));
+
+    fireEvent.click(scenesButton());
+    await screen.findByTestId("mascot-scenes");
+    fireEvent.click(play(EXPANSION_TITLES.x001));
+
+    expect(useMascotStore.getState().reactionQueue).toEqual(["scene:x001"]);
+    // Closing the panel would stop the turn: it stays open, on the chat.
+    expect(useAgentStore.getState().open).toBe(true);
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(screen.getByTestId("agent-conversation")).toBeVisible();
+    expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("gives way to a confirmation, never leaving it hidden to be denied by Escape", async () => {
+    h.auth = { status: "authenticated", user: { id: "u1" } };
+    render(<MascotAssistant />);
+    await screen.findByTestId("agent-conversation");
+    fireEvent.click(scenesButton());
+    await screen.findByTestId("mascot-scenes");
+
+    const resolve = vi.fn();
+    act(() => useAgentStore.getState().setPendingToolUse(confirmation(resolve)));
+    // The card shows in the chat, and the scenes can't cover it while it waits.
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(screen.getByText("Create Sprint 47")).toBeVisible();
+    expect(scenesButton()).toBeDisabled();
+    fireEvent.click(scenesButton());
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(resolve).not.toHaveBeenCalled();
+
+    // Answered, the panel stays on the chat; the scenes open again on request.
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(resolve).toHaveBeenCalledWith(true);
+    act(() => useAgentStore.setState({ pendingToolUse: null }));
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(scenesButton()).toBeEnabled();
+    fireEvent.click(scenesButton());
+    expect(await screen.findByTestId("mascot-scenes")).toBeInTheDocument();
+  });
+
+  it("isn't offered once his figure fails to load: no one could act a scene out", async () => {
+    h.auth = { status: "anonymous", user: null };
+    h.figureFails = true;
+    render(<MascotAssistant />);
+    fireEvent.click(scenesButton());
+    await screen.findByTestId("mascot-scenes");
+
+    // A first key press starts loading his figure, which fails.
+    fireEvent.keyDown(window, { key: "Shift" });
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Amr's scenes" })).toBeNull());
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(screen.getByTestId("mascot-visitor-guide")).toBeVisible();
+  });
+
+  it("keeps the header to one line on a narrow phone", async () => {
+    h.auth = { status: "authenticated", user: { id: "u1" } };
+    render(<MascotAssistant />);
+    await screen.findByTestId("agent-conversation");
+    const subtitle = screen.getByText("Drive every tool");
+    expect(subtitle).toHaveClass("truncate");
+    expect(subtitle.parentElement).toHaveClass("min-w-0");
+    expect(scenesButton().parentElement).toHaveClass("shrink-0");
+  });
 
   it("opens the scenes for the owner in place of the chat, and gives way to History", async () => {
     h.auth = { status: "authenticated", user: { id: "u1" } };
@@ -335,5 +454,54 @@ describe("the Scenes button in Amr's panel", () => {
     expect(screen.getByTestId("mascot-visitor-guide")).toBeVisible();
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
     expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+describe("a chat hidden under the scenes", () => {
+  const scrollTo = vi.fn();
+  const scrollIntoView = vi.fn();
+  const original = {
+    scrollTo: Element.prototype.scrollTo,
+    scrollIntoView: Element.prototype.scrollIntoView,
+  };
+
+  beforeEach(() => {
+    Element.prototype.scrollTo = scrollTo;
+    Element.prototype.scrollIntoView = scrollIntoView;
+    scrollTo.mockClear();
+    scrollIntoView.mockClear();
+    useAgentStore.getState().reset();
+  });
+
+  afterEach(() => {
+    Element.prototype.scrollTo = original.scrollTo;
+    Element.prototype.scrollIntoView = original.scrollIntoView;
+    useAgentStore.getState().reset();
+  });
+
+  const panel = (visible: boolean) => (
+    <ChatVisibleContext.Provider value={visible}>
+      <VisitorAgentPanel initialQuestion="" onOfflineGuide={() => {}} />
+    </ChatVisibleContext.Provider>
+  );
+
+  it("focuses the message box and scrolls to the latest message once it shows again", () => {
+    const { rerender } = render(panel(false));
+    const box = screen.getByRole("textbox", { name: "Message" });
+    expect(box).not.toHaveFocus();
+
+    act(() =>
+      useAgentStore.getState().appendMessage({
+        id: "a1",
+        role: "assistant",
+        content: [{ type: "text", text: "Here's a retro idea." }],
+        createdAt: "2026-11-16T08:00:00Z",
+      })
+    );
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    rerender(panel(true));
+    expect(box).toHaveFocus();
+    expect(scrollTo).toHaveBeenCalled();
   });
 });

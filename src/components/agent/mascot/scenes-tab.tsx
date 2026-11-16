@@ -5,11 +5,13 @@
  *
  * The companion stories the visitor may ask for (COMPANION_SCENES.play), then
  * the expansion scenes X001–X124 by family, each with a small picture of the
- * pose it ends on (one atlas for them all, engine/scene-thumbs.ts) and its
- * title. Only scenes whose packs ship. Tapping one plays it now and closes the
- * panel so he's in view: the visitor asked for it, which is the one way these
- * scenes play outside the real moments their rules name. Reduced motion shows
- * the scene's still (the engine's rule), and Quiet silences his speech only.
+ * pose a tap leaves him in (one atlas for them all, engine/scene-thumbs.ts) and
+ * its title. Only scenes whose packs ship. Tapping one plays it now and closes the
+ * panel so he's in view (while a turn is still running, MascotAssistant goes back
+ * to the chat instead, since closing would stop it): the visitor asked for it,
+ * which is the one way these scenes play outside the real moments their rules
+ * name. Reduced motion shows the scene's still (the engine's rule), and Quiet
+ * silences his speech only.
  *
  * MascotAssistant loads this with next/dynamic when the view first opens, so
  * the titles and the atlas cost nothing until then.
@@ -120,7 +122,7 @@ const NAV_KEYS = new Set(["ArrowDown", "ArrowUp", "Home", "End"]);
 export default function ScenesTab({
   onPlay,
 }: {
-  /** Called once a scene starts: the panel closes, so he's in view. */
+  /** Called once a scene starts: the panel closes so he's in view, or goes back to a running turn. */
   onPlay: () => void;
 }) {
   const uid = useId();
@@ -173,6 +175,17 @@ export default function ScenesTab({
     next.focus();
   };
 
+  // Escape empties the field first; only an empty one lets it close the panel.
+  const onFilterKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Escape" && query) {
+      e.preventDefault();
+      e.stopPropagation();
+      setQuery("");
+      return;
+    }
+    onKeyDown(e);
+  };
+
   return (
     <div ref={rootRef} data-testid="mascot-scenes" className="flex min-h-0 flex-1 flex-col">
       <div className="flex flex-col gap-1.5 border-b border-border px-4 py-2.5">
@@ -190,7 +203,7 @@ export default function ScenesTab({
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onKeyDown}
+            onKeyDown={onFilterKeyDown}
             placeholder="Find a scene"
             className="pl-9"
             autoComplete="off"
