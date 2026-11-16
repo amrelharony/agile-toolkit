@@ -26,6 +26,10 @@ vi.mock("@/components/agent/conversation-list", () => ({
 vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
   RateLimitBar: () => <div data-testid="rate-limit-bar" />,
 }));
+const focusAfterNewChat = vi.hoisted(() => vi.fn());
+vi.mock("@/components/agent/chat/chat-composer", () => ({
+  focusComposerAfterNewChat: focusAfterNewChat,
+}));
 
 import OwnerAgentPanel, { CARD_WAITING_NOTE } from "@/components/agent/mascot/owner-agent-panel";
 import { PanelHeader } from "@/components/agent/mascot/panel-header";
@@ -101,10 +105,14 @@ describe("the owner's header actions", () => {
     fireEvent.click(historyButton());
     expect(screen.getByTestId("conversation-list")).toBeInTheDocument();
 
+    focusAfterNewChat.mockClear();
     fireEvent.click(within(header()).getByRole("button", { name: "New chat" }));
     expect(useAgentStore.getState().activeConversationId).toBeNull();
     expect(screen.queryByTestId("conversation-list")).toBeNull();
     expect(screen.getByTestId("agent-conversation")).toBeInTheDocument();
+    // The fresh chat's message box takes focus, even on a touch screen
+    // (chat-composer.test pins what the call does).
+    expect(focusAfterNewChat).toHaveBeenCalledTimes(1);
   });
 });
 

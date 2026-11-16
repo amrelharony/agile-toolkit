@@ -319,6 +319,28 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(screen.getByRole("button", { name: "Send" })).toBeInTheDocument();
   });
 
+  it("a yes on the consent card with no question waiting puts focus in the box, even on a touch screen", async () => {
+    touchScreen();
+    render(<VisitorPanel />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    fireEvent.click(screen.getByRole("button", { name: "Agree and chat" }), { detail: 1 });
+    const box = await screen.findByLabelText("Message");
+    await waitFor(() => expect(box).toHaveFocus());
+    expect(h.sendVisitorMessage).not.toHaveBeenCalled();
+  });
+
+  it("a yes with a question waiting leaves focus off the box on a touch screen: the answer is what comes next", async () => {
+    touchScreen();
+    h.sendVisitorMessage.mockClear();
+    render(<VisitorPanel />);
+    fireEvent.change(search(), { target: { value: "retro" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Agree and ask/ }), { detail: 1 });
+    const box = await screen.findByLabelText("Message");
+    await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1));
+    expect(box).not.toHaveFocus();
+  });
+
   it("the chat opened from the guide on a touch screen leaves focus alone, as consent was given before", async () => {
     touchScreen();
     await openChat();

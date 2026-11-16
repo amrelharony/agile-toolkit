@@ -10,7 +10,9 @@
  *
  * It fills the panel header (panel-chrome) from here, so New chat goes through
  * this chunk's store and the header icons arrive with the chat:
- *  - actions: New chat, then History. In History that button is "Back to chat"
+ *  - actions: New chat, then History. New chat puts focus in the fresh chat's
+ *    message box, even on a touch screen (a tap on it means "let me type").
+ *    In History that button is "Back to chat"
  *    with an arrow, the same button (focus stays on it both ways: the chat
  *    coming back offers its composer to the panel's focus owner, which leaves
  *    focus that a control inside the panel holds), and it carries a dot while
@@ -29,6 +31,7 @@ import "@/lib/actions/register-all";
 import { ArrowLeft, History, Plus } from "lucide-react";
 import { AMR_WAITING_FOR_OK } from "@/lib/agent/mascot/outside-narration";
 import { useAgentStore } from "@/lib/agent/store";
+import { focusComposerAfterNewChat } from "../chat/chat-composer";
 import { RateLimitBar } from "./rate-limit-bar";
 import { PANEL_SUBTITLE, PanelActions, PanelIconButton, PanelSubtitle } from "./panel-chrome";
 import { COMPACT_HIDDEN } from "./panel-context";
@@ -66,6 +69,7 @@ export default function OwnerAgentPanel({
             // Stops an answer under way too (the store's reset aborts the turn).
             useAgentStore.getState().reset();
             onCloseHistory();
+            focusComposerAfterNewChat();
           }}
           // Under 360 px wide there's no room beside History: New chat heads
           // the header's More menu instead (the shell's onNewChat).

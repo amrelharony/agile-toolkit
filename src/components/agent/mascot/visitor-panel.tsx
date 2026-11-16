@@ -31,7 +31,9 @@
  *
  * Focus follows the step: the consent card takes it itself, the chat offers its
  * message box to the panel's focus owner (lib/agent/mascot/use-panel-focus),
- * which focuses it on a fine pointer only, and a return to the guide puts it
+ * which focuses it on a fine pointer only (but a yes on the consent card with
+ * no question waiting means "let me type": the box takes focus then even on a
+ * touch screen), and a return to the guide puts it
  * on the note, or on the guide when there is no note. A panel that opens on
  * the guide moves no focus here: the focus owner puts a keyboard open on Amr's
  * name plate (one opened again mid-chat opens on the chat). A note is read
@@ -156,6 +158,9 @@ export function VisitorPanel({
   // The question to send when the chat opens ("" opens it empty, or goes back
   // to the chat under way). Kept after "Not now", so the guide opens on it.
   const [question, setQuestion] = useState("");
+  // The chat opens from the consent card's yes with no question waiting: its
+  // message box takes focus, even on a touch screen.
+  const [typeNow, setTypeNow] = useState(false);
   // The question the chat under way opened with, sent already. The guide opens
   // on it after "Tool finder", and while its search still holds it, the Ask
   // button goes back to the chat instead of asking it again.
@@ -228,8 +233,9 @@ export function VisitorPanel({
 
   // The chat opens. A question becomes the chat's own; opening it empty with
   // no chat under way starts afresh; going back to the chat keeps its own.
-  const openChat = (ask: string) => {
+  const openChat = (ask: string, agreed = false) => {
     if (ask || !chatUnderWay) setSent(ask);
+    setTypeNow(agreed && !ask);
     setMode("chat");
   };
 
@@ -256,7 +262,7 @@ export function VisitorPanel({
         {subtitle}
         <VisitorAiConsent
           question={question}
-          onAgree={() => openChat(question)}
+          onAgree={() => openChat(question, true)}
           // Back to the guide with the question still in its search.
           onDecline={() => setMode("guide")}
           onNavigate={onNavigate}
@@ -285,6 +291,7 @@ export function VisitorPanel({
           <Suspense fallback={<PanelLoading />}>
             <Chat
               initialQuestion={question}
+              takeFocus={typeNow}
               // Back to the guide, its search on the question the chat opened
               // with (`sent`); the guide's "Back to chat" returns to this chat,
               // which then has nothing to send.

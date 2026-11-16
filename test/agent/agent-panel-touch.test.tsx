@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ConversationMeta } from "@/lib/agent/types";
@@ -416,6 +417,29 @@ describe("AgentConversation composer hints", () => {
     await act(async () => {});
     expect(screen.getByRole("textbox", { name: "Message" })).not.toHaveFocus();
     expect(document.body).toHaveFocus();
+    vi.restoreAllMocks();
+  });
+
+  it("puts focus in the fresh chat's box after History's New chat, even on a touch screen", async () => {
+    touchScreen();
+    h.conversations = THREADS;
+    useAgentStore.getState().setActiveConversation(THREADS[0], [userMsg("m1", "hi")]);
+    useAgentStore.getState().setDraft("owner", "half typed");
+    function OwnerChat() {
+      const [history, setHistory] = useState(true);
+      return history ? (
+        <ConversationList onClose={() => setHistory(false)} />
+      ) : (
+        <AgentConversation />
+      );
+    }
+    render(<OwnerChat />);
+    await screen.findByText("Sprint 42 retro prep");
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }), { detail: 1 });
+    const box = await screen.findByRole("textbox", { name: "Message" });
+    expect(box).toHaveFocus();
+    expect(box).toHaveValue("");
+    expect(useAgentStore.getState().messages).toEqual([]);
     vi.restoreAllMocks();
   });
 });
