@@ -4,8 +4,9 @@
  * The notice a visitor sees on the first press of the mic in Amr's AI chat
  * (visitor-agent-panel's VisitorDictate), before dictation first listens: the
  * browser's own speech recognition may send the sound of their voice to the
- * company that makes the browser. The words are lib/site/disclosures'
- * VOICE_INPUT_DISCLOSURE, which the privacy page quotes too.
+ * company that makes the browser. The words are VOICE_INPUT_DISCLOSURE
+ * (lib/site/voice-disclosure, re-exported by lib/site/disclosures), which the
+ * privacy page quotes too.
  *
  *   look     a narration caption under the message box's row: the
  *            narrator's words, never Amr's (DNA-SPEC section 6, "Chat
@@ -31,7 +32,8 @@
 
 import { useId, useLayoutEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
-import { VOICE_INPUT_DISCLOSURE } from "@/lib/site/disclosures";
+// From its own module, not disclosures.ts, so the text ships with this chunk alone.
+import { VOICE_INPUT_DISCLOSURE } from "@/lib/site/voice-disclosure";
 import { focusFromCode } from "../chat/chat-context";
 import { Narration } from "../comic/comic-parts";
 

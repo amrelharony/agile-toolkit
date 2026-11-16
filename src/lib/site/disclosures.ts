@@ -12,7 +12,12 @@
  * wording lives in this plain one. Change a sentence here and the dialog and
  * the page change together.
  *
- * No imports and no browser or server APIs: safe in either bundle.
+ * One text lives in a module of its own and is re-exported here: the voice
+ * notice's (./voice-disclosure). Several chunks carry this module, the comics
+ * pages' first load among them, and a bundler keeps in it every text some
+ * chunk uses, so a text only a lazily loaded part shows stays apart.
+ *
+ * No other imports and no browser or server APIs: safe in either bundle.
  */
 
 // ── "Your data" (components/data/your-data-dialog.tsx) ────────────────────
@@ -119,14 +124,10 @@ export const VISITOR_AI_CONSENT_TEXT: readonly string[] = [
 
 // ── Dictation in Amr's AI chat (components/agent/mascot/voice-notice.tsx) ──
 
-/**
- * What the chat's voice notice says before a visitor's first dictation: the
- * browser's own speech recognition may send the sound to its maker. A change
- * that says something new bumps VOICE_CONSENT_VERSION
- * (lib/agent/mascot/voice-consent), so the notice asks again.
- */
-export const VOICE_INPUT_DISCLOSURE =
-  "Dictation uses your browser's own speech recognition. To turn what you say into text, your browser may send the sound of your voice to the company that makes it. This site never gets the sound: the words appear in the message box, and nothing goes to Amr until you send the message.";
+// What the chat's voice notice says before a visitor's first dictation, kept
+// in ./voice-disclosure: only the notice, loaded on the mic's first press,
+// shows it (see the file comment).
+export { VOICE_INPUT_DISCLOSURE } from "./voice-disclosure";
 
 // ── The count note (components/visits/visit-recorder.tsx) ─────────────────
 
