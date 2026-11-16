@@ -113,6 +113,19 @@ describe("tool.retro.list_state", () => {
     // highest-voted card first
     expect(r.topVoted[0].id).toBe("c2");
   });
+
+  it("says nothing of a live room's thumbs vote, which stays in the host's tab", async () => {
+    // A Lean Coffee topic under discussion: whatever the room voted on it,
+    // with any number of voters, no keep or move count reaches Amr.
+    useWorkspaceStore.getState().upsertRetroBoard({
+      ...board([
+        card({ id: "t1", columnKey: "discussing", text: "Standups", votes: 3, discussing: true }),
+      ]),
+      phase: "discuss",
+    });
+    const r = await registry.get("tool.retro.list_state")!.handler({}, ctx());
+    expect(JSON.stringify(r)).not.toMatch(/"(poll|thumbs?|keep|move|voters)"/);
+  });
 });
 
 describe("tool.retro.add_card", () => {

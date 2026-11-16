@@ -1,4 +1,5 @@
 import type { RetroAction, RetroActionSummary, RetroFollowThrough } from "@/lib/retro/actions";
+import type { RecurringTheme } from "@/lib/retro/recurring-themes";
 import { followThroughText, ratedRetros, type SprintNameOf } from "./follow-through";
 
 const oneLine = (s: string) => s.replace(/\s*[\r\n]+\s*/g, " ").trim();
@@ -13,6 +14,26 @@ export interface ActionsMarkdownOptions {
   sprintName?: SprintNameOf;
   /** The page's one-sentence verdict, quoted under the counts. */
   verdict?: string;
+  /** Themes that came up in three or more past retros (lib/retro/recurring-themes). */
+  themes?: readonly RecurringTheme[];
+  /** A past retro's name, for the themes' list. */
+  retroName?: (boardId: string) => string;
+}
+
+/** "## Recurring themes": each theme, its retros, and whether it came back after done. */
+export function themesToMarkdown(
+  themes: readonly RecurringTheme[],
+  retroName: (boardId: string) => string
+): string[] {
+  if (themes.length === 0) return [];
+  const lines = ["## Recurring themes", ""];
+  for (const t of themes) {
+    lines.push(
+      `- **${oneLine(t.name)}**: ${t.boardIds.length} retros (${t.boardIds.map((id) => oneLine(retroName(id))).join(", ")}), ${t.cardIds.length} ${t.cardIds.length === 1 ? "card" : "cards"}${t.cameBack ? ` — came back after “${oneLine(t.cameBack.actionText)}” was done` : ""}`
+    );
+  }
+  lines.push("");
+  return lines;
 }
 
 /**
@@ -23,7 +44,13 @@ export interface ActionsMarkdownOptions {
 export function actionsToMarkdown(
   actions: readonly RetroAction[],
   summary: RetroActionSummary,
-  { followThrough = [], sprintName = noSprint, verdict }: ActionsMarkdownOptions = {}
+  {
+    followThrough = [],
+    sprintName = noSprint,
+    verdict,
+    themes = [],
+    retroName = () => "a past retro",
+  }: ActionsMarkdownOptions = {}
 ): string {
   const lines = ["# Retro actions", ""];
   lines.push(
@@ -31,6 +58,7 @@ export function actionsToMarkdown(
     ""
   );
   if (verdict) lines.push(`> ${oneLine(verdict)}`, "");
+  lines.push(...themesToMarkdown(themes, retroName));
   if (ratedRetros(followThrough).length > 0) {
     const { table } = followThroughText(followThrough, sprintName);
     lines.push(

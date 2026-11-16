@@ -5,6 +5,7 @@ import type { HostKeyPair } from "@/lib/realtime/vote-room/crypto";
 import { VOTE_ROOM_EVENTS, type VoteRoomTool } from "@/lib/realtime/vote-room/protocol";
 import { allocationCiphertextChars } from "@/lib/realtime/vote-room/allocation";
 import { fakeRealtime, type FakeMember } from "../realtime/fake-realtime";
+import { choiceStateBody, numberStateBody, signedV3 } from "../realtime/vote-room-kind-fixtures";
 import {
   ALLOCATION_SHEET,
   PAIR_SHEET,
@@ -184,5 +185,33 @@ describe("VoteJoinRoom: a Kano round", () => {
     const [md] = exportMock.mock.calls[0] as [string];
     expect(md).toContain("## 1. Dark mode");
     expect(md).toContain("Withheld: 0 answers, fewer than 3.");
+  });
+});
+
+describe("VoteJoinRoom: what the page says the reveal shows", () => {
+  it("a number round: the median, and the lowest and highest from 5, each someone's exact answer", async () => {
+    await joined("quick-vote");
+    await deliver(
+      VOTE_ROOM_EVENTS.state,
+      await signedV3(crypto, keys, numberStateBody(HOST.id, keys))
+    );
+    expect(
+      screen.getByText(
+        /Others see that you answered, not what\. Once the host reveals the results, the median shows, and from 5 answers the lowest and highest too: each is someone's exact answer, without a name\./
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Only the totals are shown/)).toBeNull();
+  });
+
+  it("a choice round: the totals only", async () => {
+    await joined("quick-vote");
+    await deliver(
+      VOTE_ROOM_EVENTS.state,
+      await signedV3(crypto, keys, choiceStateBody(HOST.id, keys))
+    );
+    expect(
+      screen.getByText(/Only the totals are shown, once the host reveals them\./)
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/the median shows/)).toBeNull();
   });
 });

@@ -50,8 +50,10 @@ import {
   type RoomCard,
   type RoomColumn,
   type RoomMember,
+  type RoomPoll,
   type RoomSnapshot,
 } from "./protocol";
+import { readRoomPoll } from "./thumbs";
 
 /** Longest timer a snapshot may carry (a day). */
 const MAX_TIMER_SECONDS = 24 * 60 * 60;
@@ -82,6 +84,8 @@ export interface SnapshotMeta {
   hideWhileWriting: boolean;
   /** Votes each person has. */
   votesPerPerson: number;
+  /** Revision 2: the thumbs vote running, as the room shares it (`toRoomPoll`). */
+  poll?: RoomPoll | null;
 }
 
 function toRoomCard(c: RetroCard): RoomCard | null {
@@ -175,6 +179,7 @@ export function toRoomSnapshot(board: BoardState, meta: SnapshotMeta): RoomSnaps
     members,
     votesUsed,
     votesPerPerson: budget,
+    ...(meta.poll ? { poll: meta.poll } : {}),
   };
 }
 
@@ -362,6 +367,11 @@ export function readRoomSnapshot(raw: unknown): RoomSnapshot | null {
     votesUsed[id] = n;
   }
 
+  // Revision 2: absent from a host on the earlier build, and from a room with
+  // no vote running. One this build can't read (a later revision's, say) is
+  // left out rather than refusing the whole room: the board still shows.
+  const poll = s.poll === undefined ? null : readRoomPoll(s.poll);
+
   return {
     v: RETRO_ROOM_PROTOCOL_VERSION,
     by: s.by,
@@ -380,6 +390,7 @@ export function readRoomSnapshot(raw: unknown): RoomSnapshot | null {
     members,
     votesUsed,
     votesPerPerson: budget,
+    ...(poll ? { poll } : {}),
   };
 }
 

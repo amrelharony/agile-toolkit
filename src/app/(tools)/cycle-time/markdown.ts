@@ -1,8 +1,9 @@
 import { NO_VALUE, fmt } from "@/lib/charts/chart-text";
-import type { AgeingItem } from "@/lib/flow";
+import type { AgeingItem, StageBreakdown } from "@/lib/flow";
 import type { CycleRow, CycleSource } from "./types";
 import { PERCENTILE_KEYS, SOURCE_LABEL, type CycleStats } from "./helpers";
 import { cycleTimeVerdict } from "./verdict";
+import { stageMarkdown } from "./stage-text";
 
 /** A table cell: one line, pipes escaped. */
 function md(v: unknown): string {
@@ -17,8 +18,8 @@ const STAGE_LABEL: Record<string, string> = { in_progress: "In progress", review
 /**
  * Cycle time for a retro or a status report: the verdict, the summary
  * (each figure only once there are enough items, as on the page), the SLE
- * and percentile table, the ageing work in progress, and the finished
- * items by source.
+ * and percentile table, the ageing work in progress, the time in each
+ * status (when given), and the finished items by source.
  */
 export function cycleTimeToMarkdown(input: {
   today: string;
@@ -27,8 +28,10 @@ export function cycleTimeToMarkdown(input: {
   stats: CycleStats;
   ageing: readonly AgeingItem[];
   sle: { pct: number; days: number | null };
+  /** Time in each status for the stories and cards shown (lib/flow stageBreakdown). */
+  stages?: StageBreakdown;
 }): string {
-  const { today, rows, sources, stats, ageing, sle } = input;
+  const { today, rows, sources, stats, ageing, sle, stages } = input;
   const s = stats.summary;
   const lines = [
     `# Cycle time — ${today}`,
@@ -75,6 +78,7 @@ export function cycleTimeToMarkdown(input: {
       )
     );
   }
+  if (stages) lines.push(...stageMarkdown(stages));
   if (rows.length > 0) {
     lines.push(
       "",

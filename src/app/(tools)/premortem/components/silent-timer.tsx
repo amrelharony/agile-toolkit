@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Pause, Play, Square, Timer } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Button } from "@/components/ui/button";
+import { DockOvertime } from "@/components/timer/dock-overtime";
 import { IconButton } from "@/components/ui/icon-button";
 import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 import {
@@ -114,12 +115,13 @@ export function SilentTimer({
       <Timer className={cn("h-4 w-4", done ? "text-warning" : "text-accent")} aria-hidden="true" />
       <span className="text-sm text-text">Silent writing</span>
       {/* No live region: a clock read out every second drowns everything else.
-          The dock announces "time's up" once. */}
+          The dock announces "time's up" once and rings the shared alarm. */}
       <span
         role="timer"
         className={cn("font-mono text-lg tabular-nums", done ? "text-warning" : "text-text")}
       >
         {done ? "Time's up" : formatClock(remaining)}
+        {done && <DockOvertime timer={mine} className="ml-2 text-sm font-semibold" />}
       </span>
       <span className="ml-auto flex items-center gap-1">
         {!done && (

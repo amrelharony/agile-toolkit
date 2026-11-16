@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { getNextStepRule } from "@/lib/tools/next-steps";
+import { beforeAll, describe, expect, it } from "vitest";
+import { getNextStepRule, loadAllNextStepRules } from "@/lib/tools/next-steps";
 import type {
   CapacityPlan,
   DependencyMap,
@@ -13,6 +13,9 @@ import type {
  * workspace and points somewhere real, ignores example rows, and stays
  * quiet when nothing applies.
  */
+
+// The tools plan's phase 1 rules load their models on demand (lazyRule).
+beforeAll(loadAllNextStepRules);
 
 const steps = (toolId: string, ws: Partial<Workspace>) => {
   const rule = getNextStepRule(toolId);
@@ -400,5 +403,44 @@ describe("dependencies", () => {
         ],
       })
     ).toEqual([]);
+  });
+});
+
+describe("product-goal and backlog-health (tools plan phase 1)", () => {
+  const productGoal = {
+    id: "goal_a",
+    statement: "Shop owners take payments anywhere",
+    measures: [],
+    status: "active" as const,
+    createdAt: "2026-09-01T00:00:00.000Z",
+    updatedAt: "2026-09-01T00:00:00.000Z",
+  };
+
+  it("product-goal points at the goal of the sprint being planned", () => {
+    expect(
+      ids("product-goal", { productGoals: [productGoal], sprints: [sprint()], stories: [] })
+    ).toEqual(["product-goal-sprint-goal"]);
+    expect(ids("product-goal", { productGoals: [], sprints: [sprint()], stories: [] })).toEqual([]);
+  });
+
+  it("backlog-health asks to estimate the top stories and for a Product Goal", () => {
+    const fresh = new Date().toISOString();
+    expect(
+      ids("backlog-health", {
+        stories: [
+          story({
+            id: "a",
+            title: "Pay with a saved card",
+            points: undefined,
+            acceptanceCriteria: "Charged once.",
+            backlogRank: 1,
+            createdAt: fresh,
+          }),
+        ],
+        backlogItems: [],
+        productGoals: [],
+      })
+    ).toEqual(["backlog-health-estimate", "backlog-health-product-goal"]);
+    expect(ids("backlog-health", { stories: [], backlogItems: [], productGoals: [] })).toEqual([]);
   });
 });

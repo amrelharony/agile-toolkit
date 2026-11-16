@@ -11,6 +11,15 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   { toolId: "kudos", use: "Offers teammates as people to thank." },
   { toolId: "capacity-planner", use: "“Sync from team” adds a capacity row for each person." },
   { toolId: "ceremony-timer", use: "“Load team” fills the speaking order." },
+  {
+    toolId: "picker",
+    use: "Spins the team on its wheel and rotates facilitator, scribe and timekeeper among them.",
+  },
+  {
+    toolId: "team-mixer",
+    use: "Puts everyone in the mix at once, and balances groups by each person's role or skills.",
+  },
+  { toolId: "parking-lot", use: "Offers teammates to pick who raised each point." },
   { toolId: "canvas", use: "Suggests names for card assignees and @mentions." },
   { toolId: "health-dashboard", use: "Counts the team for standup participation." },
   { toolId: "sprint", use: "Counts who has posted today's standup update." },
@@ -34,10 +43,10 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
     toolId: "rapid-decision",
     use: "Offers teammates as each decision's Decide, Recommend, Agree, Perform and Input roles.",
   },
-  { toolId: "eisenhower", use: "Offers teammates as who takes a Delegate task." },
+  { toolId: "eisenhower", use: "Offers teammates to pick who takes a Delegate task." },
   { toolId: "buy-a-feature", use: "Offers the team's size as the number of players." },
   { toolId: "okrs", use: "Offers teammates as each objective's owner." },
   { toolId: "risk-register", use: "Offers teammates as each risk's owner." },
-  { toolId: "flaky-tests", use: "Offers teammates as who owns fixing a flaky test." },
+  { toolId: "flaky-tests", use: "Offers teammates to pick who owns fixing a flaky test." },
   { toolId: "code-review-metrics", use: "Offers teammates as each pull request's author." },
 ];
