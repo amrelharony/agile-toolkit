@@ -20,6 +20,9 @@
  *    coming back offers its composer to the panel's focus owner, which leaves
  *    focus that a control inside the panel holds).
  *  - subtitle: the open thread's title, or "New chat"; "Your chats" in History.
+ * Under the header: while Approve all holds, the chip that says so and turns
+ * it off (chat/auto-approve-chip), over the chat and History alike; then, over
+ * the chat, its status row, the usage (rate-limit-bar).
  * Whether History shows is kept by the shell, so it outlasts the panel closing.
  *
  * Closing the panel unmounts this, and an answer under way goes on: the turn
@@ -34,6 +37,7 @@ import { useState } from "react";
 import { ArrowLeft, History, Plus } from "lucide-react";
 import { AMR_WAITING_FOR_OK } from "@/lib/agent/mascot/outside-narration";
 import { useAgentStore } from "@/lib/agent/store";
+import { AutoApproveChip } from "../chat/auto-approve-chip";
 import { focusComposerAfterNewChat } from "../chat/chat-composer";
 import { RateLimitBar } from "./rate-limit-bar";
 import { PANEL_SUBTITLE, PanelActions, PanelIconButton, PanelSubtitle } from "./panel-chrome";
@@ -122,13 +126,15 @@ export default function OwnerAgentPanel({
           PANEL_SUBTITLE.owner
         )}
       </PanelSubtitle>
+      {/* While Approve all holds, over the chat and History alike: a control, so never compact-hidden. */}
+      <AutoApproveChip />
       {showHistory ? (
         <div className="min-h-0 flex-1">
           <ConversationList onClose={onCloseHistory} takeFocus={cameIn} />
         </div>
       ) : (
         <>
-          {/* The usage line waits while the panel is compact (a keyboard is up). */}
+          {/* The usage waits while the panel is compact (a keyboard is up). */}
           <div className={COMPACT_HIDDEN}>
             <RateLimitBar />
           </div>
