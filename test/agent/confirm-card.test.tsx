@@ -341,10 +341,17 @@ describe("ConfirmCard in a chat", () => {
     const resolve = cardComes();
     fireEvent.click(screen.getByRole("button", { name: "Add card" }));
     expect(resolve).toHaveBeenCalledWith(true);
-    const caption = document.querySelector('[data-chat-item="steps"] [data-tool-steps]');
+    const caption = document.querySelector<HTMLElement>(
+      '[data-chat-item="steps"] [data-tool-steps]'
+    )!;
     expect(document.activeElement).toBe(caption);
     expect(caption).toHaveTextContent("Retro Board · Add card");
     expect(document.activeElement).not.toBe(box());
+    // Focusable only while it holds the focus the card handed it, so a tap
+    // on a step line never takes focus of its own.
+    expect(caption).toHaveAttribute("tabindex", "-1");
+    act(() => caption.blur());
+    expect(caption).not.toHaveAttribute("tabindex");
   });
 
   it("is brought into view with the log's own scrollTo, never scrollIntoView", () => {

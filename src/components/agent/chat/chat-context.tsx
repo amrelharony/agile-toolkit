@@ -78,6 +78,25 @@ export function focusAtEnd(el: HTMLElement | null | undefined): boolean {
 }
 
 /**
+ * Hand focus to a part that takes none of its own (a step's caption, the
+ * reader's latest question), from code only: it is focusable (tabindex -1)
+ * just while it holds focus, so a tap on it never takes focus from the
+ * message box. The page doesn't scroll for it. False when it can't take focus.
+ */
+export function focusFromCode(el: HTMLElement | null | undefined): boolean {
+  if (!el?.isConnected) return false;
+  const lent = !el.hasAttribute("tabindex");
+  if (lent) el.setAttribute("tabindex", "-1");
+  el.focus({ preventScroll: true });
+  const took = el.ownerDocument.activeElement === el;
+  if (lent) {
+    if (took) el.addEventListener("blur", () => el.removeAttribute("tabindex"), { once: true });
+    else el.removeAttribute("tabindex");
+  }
+  return took;
+}
+
+/**
  * A touch screen: a text field taking focus there raises the keyboard over
  * the strip. Kept here, not panel-context's helper, so nothing new reaches
  * mascot code.

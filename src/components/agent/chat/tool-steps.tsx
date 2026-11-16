@@ -32,7 +32,9 @@
  *            owner's chat only. A card whose call isn't in the chat shows after
  *            the log's items instead (chat-log), so a turn never waits unseen.
  *            On a touch screen the caption takes focus once the card is
- *            decided (confirm-card), so the keyboard stays down.
+ *            decided, so the keyboard stays down: the card makes it
+ *            focusable just as it hands focus to it (confirm-card), so it
+ *            takes no tap's focus of its own.
  *
  * The marks are aria-hidden: the words say it all. Each line is memoised on
  * its step, which the chat view keeps until it changes, so a streamed flush
@@ -173,15 +175,10 @@ export function ToolSteps({ steps }: { steps: readonly ChatStep[] }) {
   const trouble = steps.some((s) => s.state != null && TROUBLE_STATES.has(s.state));
   return (
     <>
-      {/* Focusable from code only: on a touch screen the card hands focus
-          here once decided (confirm-card); 1 px in, so High contrast's ring
-          isn't clipped. */}
-      <Narration
-        data-tool-steps=""
-        tabIndex={-1}
-        tone={trouble ? "error" : "note"}
-        className="mx-px"
-      >
+      {/* No tabindex: on a touch screen the card makes this focusable as it
+          hands focus here once decided (confirm-card); 1 px in, so High
+          contrast's ring isn't clipped. */}
+      <Narration data-tool-steps="" tone={trouble ? "error" : "note"} className="mx-px">
         <div className="space-y-1">
           {steps.map((step) => (
             <StepLine key={step.key} step={step} Details={StepDetails} />

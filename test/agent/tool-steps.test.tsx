@@ -422,6 +422,8 @@ describe("the confirm card", () => {
     const caption = item.querySelector("[data-tool-steps]")!;
     expect(caption.nextElementSibling).toBe(cards()[0]);
     expect(caption).toHaveTextContent("Retro Board · Add card · Waiting for you · “flaky CI”");
+    // It takes no focus of its own (a tap on it keeps the message box's).
+    expect(caption).not.toHaveAttribute("tabindex");
     // Approve all is the owner's.
     expect(
       screen.getByRole("button", { name: "Add card, and don't ask again until I close" })

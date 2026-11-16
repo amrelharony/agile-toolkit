@@ -37,7 +37,10 @@
  * Decided. The card goes, so its buttons hand focus on first: on a fine
  * pointer to the message box, caret at the end; on a touch screen to the
  * caption of the step it asked about (tool-steps), which stays, since the box
- * taking focus would raise the keyboard over the strip.
+ * taking focus would raise the keyboard over the strip. The caption takes no
+ * focus of its own: it is made focusable (tabindex -1) only as it takes
+ * focus here, and only until it loses it (chat-context focusFromCode), so a
+ * tap on a step line never takes focus from the box.
  *
  * The card has no Escape of its own:
  * the panel's Escape order (mascot-assistant) denies a waiting change first,
@@ -51,7 +54,7 @@
 import { useEffect, useId, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { useAgentStore } from "@/lib/agent/store";
-import { onTouchScreen, useChat } from "./chat-context";
+import { focusFromCode, onTouchScreen, useChat } from "./chat-context";
 import { nearestTop, scrollElTo } from "./use-stick-to-bottom";
 
 /** Long labels wrap inside the panel instead of running out of it; the height follows the words. */
@@ -115,10 +118,9 @@ export function ConfirmCard({ allowApproveAll = false }: ConfirmCardProps) {
   const decide = (approve: boolean) => {
     const card = cardRef.current;
     if (onTouchScreen(card?.ownerDocument)) {
-      card
-        ?.closest('[data-chat-item="steps"]')
-        ?.querySelector<HTMLElement>("[data-tool-steps]")
-        ?.focus({ preventScroll: true });
+      focusFromCode(
+        card?.closest('[data-chat-item="steps"]')?.querySelector<HTMLElement>("[data-tool-steps]")
+      );
     } else {
       focusComposer();
     }
