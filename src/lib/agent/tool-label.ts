@@ -198,6 +198,44 @@ const VERBS: ReadonlySet<string> = new Set([
   "update",
 ]);
 
+/**
+ * First words of a verb that only reads: a tool's own state ("Read", from
+ * `list_state`), a list, a figure worked out, a suggestion. Everything else
+ * is a change.
+ */
+const READ_VERBS: ReadonlySet<string> = new Set([
+  "classify",
+  "compare",
+  "compute",
+  "derive",
+  "digest",
+  "export",
+  "find",
+  "forecast",
+  "get",
+  "list",
+  "read",
+  "recognition",
+  "search",
+  "show",
+  "status",
+  "suggest",
+  "summarize",
+  "trend",
+]);
+
+/**
+ * The call only reads, going by its verb (the registry, which files each
+ * action as a read or a change, is owner-only code): the chat inks no tick
+ * for a read (DNA-SPEC section 9 keeps ink for a finished change). A verb
+ * that saves ("Classify and save") is a change. test/agent/tool-label.test.ts
+ * checks this against every registered action.
+ */
+export function readsOnly({ verb }: ToolLabel): boolean {
+  const words = verb.toLowerCase().split(" ");
+  return !words.includes("save") && (READ_VERBS.has(words[0]) || verb === "Decide order");
+}
+
 /** A name's words, in lower case: any run of letters and digits. */
 function wordsOf(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];

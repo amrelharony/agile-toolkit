@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { claudeNameFromId, registry } from "@/lib/actions/registry";
 import "@/lib/actions/register-all";
 import { getToolById } from "@/lib/constants/tools";
-import { phrase, toolLabel, verbPhrase } from "@/lib/agent/tool-label";
+import { phrase, readsOnly, toolLabel, verbPhrase } from "@/lib/agent/tool-label";
 
 /**
  * toolLabel turns a call's wire name into the words a step row shows:
@@ -184,5 +184,27 @@ describe("toolLabel", () => {
         else if (group !== "tool") expect(label.tool, name).toBe("Workspace");
       }
     }
+  });
+});
+
+describe("readsOnly", () => {
+  it("tells a read from a change by its verb, as the registry files every action", () => {
+    const actions = registry.list();
+    expect(actions.length).toBeGreaterThan(300);
+    const wrong = actions
+      .filter((a) => readsOnly(toolLabel(claudeNameFromId(a.id))) !== (a.category === "read"))
+      .map((a) => `${a.category} ${a.id}`);
+    expect(wrong).toEqual([]);
+  });
+
+  it("counts a tool's own state, lists and figures as reads, and a save as a change", () => {
+    expect(readsOnly(toolLabel("tool_retro_list_state"))).toBe(true);
+    expect(readsOnly(toolLabel("workspace_sprint_list"))).toBe(true);
+    expect(readsOnly(toolLabel("tool_cynefin_classify"))).toBe(true);
+    expect(readsOnly(toolLabel("tool_cynefin_classify_and_persist"))).toBe(false);
+    expect(readsOnly(toolLabel("tool_retro_add_card"))).toBe(false);
+    expect(readsOnly(toolLabel("workspace_team_member_delete"))).toBe(false);
+    // A name with no words is no read: the chat treats what it can't tell as a change.
+    expect(readsOnly(toolLabel(""))).toBe(false);
   });
 });
