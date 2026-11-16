@@ -229,6 +229,18 @@ describe("the cast encounters in the tool table", () => {
     ).toBe("debt.clean");
   });
 
+  it("leave a result cleared from the field alone: only a value recorded is X097's check", () => {
+    expect(toolActionScenes("hypothesis-tracker", "result_cleared")).toEqual([]);
+    expect(
+      sceneForEvent(
+        "hypothesis-tracker",
+        "result_cleared",
+        () => true,
+        () => 0
+      )
+    ).toBeNull();
+  });
+
   it("answer a test created, never the test_generated logged in the same handler", () => {
     expect(toolActionScenes("riskiest-assumption", "test_generated")).toEqual([]);
     // X095 stops on its sixth beat: the spacer fitted, before the untested cart crosses.
@@ -285,6 +297,15 @@ describe("the cast encounters in the tool table", () => {
       log("riskiest-assumption", "test_created");
       await Promise.resolve();
       expect(queue()).toEqual(["scene:x095.setup"]);
+    });
+
+    it("plays X097 on a result recorded, never on one cleared", async () => {
+      log("hypothesis-tracker", "result_cleared");
+      await Promise.resolve();
+      expect(queue().filter((r) => r.startsWith("scene:x"))).toEqual([]);
+      log("hypothesis-tracker", "result_recorded");
+      await Promise.resolve();
+      expect(queue().filter((r) => r.startsWith("scene:x"))).toEqual(["scene:x097"]);
     });
 
     it("leaves a reopened or edited item to its pose", async () => {

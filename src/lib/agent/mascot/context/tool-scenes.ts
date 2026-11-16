@@ -15,9 +15,10 @@
  * (shippedScene), so rows can name scenes before their art exists. The More tools
  * shelf's come from the expansion's tool lab (docs/mascot/expansion-sheets.json,
  * X025–X056), each bound only where docs/mascot/expansion-triggers.md says. Nine
- * cast encounters (X085–X104) sit beside the scene an action already plays, one
- * picked at random, on the very action their trigger names, and never greet.
- * Pure data.
+ * cast encounters (X085–X104) play on the very action their trigger names, and
+ * never greet: six beside the scene that action already plays, one picked at
+ * random, and three (X097, X103, X104) as the only scene of an action no other
+ * scene answers. Pure data.
  */
 
 export interface ToolScenes {
@@ -267,8 +268,9 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: ["nps"],
     actions: { responses_imported: ["nps.read"], survey_added: ["nps.card"] },
   },
-  // A measured result typed against the target is X097's evidence check; it claims no verdict
-  // (validated and invalidated are moments of their own).
+  // A measured result committed against the target is X097's evidence check; it claims no
+  // verdict (validated and invalidated are moments of their own). A result cleared from the
+  // field is logged apart (result_cleared), which nothing here answers.
   {
     toolId: "hypothesis-tracker",
     open: ["lab"],

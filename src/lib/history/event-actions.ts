@@ -280,6 +280,8 @@ export const HYPOTHESIS_ACTIONS = {
   HYPOTHESIS_RESET: "hypothesis_reset",
   /** The measured result was recorded against the target. Payload: hypothesisId, actual. */
   RESULT_RECORDED: "result_recorded",
+  /** The measured result was cleared, back to blank until measured. Payload: hypothesisId. */
+  RESULT_CLEARED: "result_cleared",
 } as const;
 
 export const INTERVIEW_ACTIONS = {
