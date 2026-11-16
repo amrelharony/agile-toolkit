@@ -214,11 +214,19 @@ def write_packs(frames) -> None:
 THUMB_W, THUMB_H, THUMB_COLUMNS = 72, 84, 16
 THUMBS_TS = packs.ROOT / "src" / "components" / "agent" / "mascot" / "engine" / "scene-thumbs.ts"
 
+# Packs the Scenes tab plays as a named variant (GALLERY_VARIANTS in engine/scenes.ts),
+# each shown by the beat that variant holds rather than the sheet's: {pack: beat}.
+# test/agent/mascot-scenes-tab.test.tsx keeps this and the variants' stills equal.
+GALLERY_HOLDS: dict[str, int] = {
+    "x112": 5,  # x112.filter: the filter moment, before the reset of beats 6-8
+}
+
 
 def thumb_scenes() -> list[tuple[str, str, int]]:
     """(scene, pack, cell) for every scene the Scenes tab lists: the companion stories
-    the visitor may ask for, then X001-X124, each shown by the beat it holds (its
-    last, or `last` while its final beats are drawn wrong)."""
+    the visitor may ask for, then X001-X124, each shown by the beat a tap leaves him
+    holding (its gallery variant's, else its last, or `last` while its final beats are
+    drawn wrong)."""
     out = []
     comp = scenes.companion_spec()["sheets"]
     play = {"reviewer", "dino", "rabbit", "octopus", "ahwa", "escape", "comic", "retry", "quiet"}
@@ -226,7 +234,8 @@ def thumb_scenes() -> list[tuple[str, str, int]]:
         if sheet["pack"] in play:
             out.append((sheet["pack"], sheet["pack"], len(sheet["slots"]) - 1))
     for sheet in spec()["sheets"]:
-        out.append((sheet["pack"], sheet["pack"], sheet.get("last", FRAMES) - 1))
+        held = GALLERY_HOLDS.get(sheet["pack"], sheet.get("last", FRAMES))
+        out.append((sheet["pack"], sheet["pack"], held - 1))
     return out
 
 
@@ -250,7 +259,12 @@ def thumb_atlas() -> tuple[bytes, list[tuple[str, str, int]], int]:
 
 
 def thumbs_ts(name: str, data: bytes, items, rows: int) -> str:
-    index = ",\n".join(f"  {json.dumps(scene)}: {i}" for i, (scene, _p, _c) in enumerate(items))
+    # Keys quoted only where they must be, as prettier leaves them, so --check agrees
+    # with the formatted file.
+    index = ",\n".join(
+        f"  {scene if scene.isidentifier() else json.dumps(scene)}: {i}"
+        for i, (scene, _p, _c) in enumerate(items)
+    )
     return f'''/**
  * The Scenes tab's thumbnails: each listed scene's held pose, {THUMB_W} x {THUMB_H}, in one
  * atlas ({THUMB_COLUMNS} to a row). Written by scripts/build-mascot-expansion.py; do not

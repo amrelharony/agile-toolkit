@@ -5,8 +5,8 @@
  */
 
 export const SCENE_THUMBS = {
-  src: "/mascot/amr-thumbs.4672afb4.webp",
-  bytes: 299404,
+  src: "/mascot/amr-thumbs.eb9f32c4.webp",
+  bytes: 299042,
   cell: { w: 72, h: 84 },
   columns: 16,
   rows: 9,

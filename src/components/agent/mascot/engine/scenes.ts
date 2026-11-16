@@ -1439,6 +1439,20 @@ export type SceneName = string;
 export const sceneReaction = (name: SceneName) => `scene:${name}` as const;
 
 /**
+ * Where explicit play (the Scenes tab, /play x###) wants a named variant rather
+ * than the whole sheet. X112's rule holds beat 5, the explanatory filter moment;
+ * its beats 6–8 are a deliberate reset, so asked for, it plays the filter variant.
+ * The Scenes tab shows each one by the beat it holds (GALLERY_HOLDS in
+ * scripts/build-mascot-expansion.py; a test keeps the two equal).
+ */
+const GALLERY_VARIANTS: Readonly<Record<string, SceneName>> = {
+  x112: "x112.filter",
+};
+
+/** The scene an expansion pack plays when the visitor asks for it: its gallery variant, or itself. */
+export const galleryScene = (pack: string): SceneName => GALLERY_VARIANTS[pack] ?? pack;
+
+/**
  * Scenes that are held, not played once, and where they stand among his poses
  * (engine/sprite-poses.ts): a `decision` wait beats talking and the idle poses
  * (only being handled, a reaction or a phone tilt shows over it); `calm` gives

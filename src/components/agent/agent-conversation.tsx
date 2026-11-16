@@ -15,6 +15,7 @@ import {
 } from "@/lib/agent/persist";
 import { Button } from "@/components/ui/button";
 import { ConfirmAction } from "./confirm-action";
+import { useChatVisible } from "./chat-visibility";
 import { MessageBubble } from "./message-bubble";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
@@ -46,17 +47,22 @@ export function AgentConversation() {
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const pathname = usePathname();
+  // False while Amr's Scenes view covers the chat (mounted, hidden).
+  const visible = useChatVisible();
 
-  // Focus the composer when the panel opens (this component mounts on open).
+  // Focus the composer when the panel opens (this component mounts on open), and
+  // again when the chat comes back from under the Scenes view.
   useEffect(() => {
-    composerRef.current?.focus();
-  }, []);
+    if (visible) composerRef.current?.focus();
+  }, [visible]);
   // Voice dictation fills the composer; the user reviews + sends.
   const voice = useVoiceInput((text) => setInput(text));
 
   useEffect(() => {
+    // A hidden log can't scroll: it catches up when it's in view again.
+    if (!visible) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages.length, streaming]);
+  }, [messages.length, streaming, visible]);
 
   // On the first open after a page load, resume the most recent conversation if
   // we're sitting on a blank draft. Guarded so it never clobbers an in-progress
