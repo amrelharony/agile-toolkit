@@ -1,6 +1,6 @@
 # Amr: the live sheet, redrawn in the refined style
 
-**Status:** brief ready, art not made yet (16 November 2026). The package to generate from is `AMR_Live_Sheet_Round_1.zip` on the Desktop.
+**Status:** built in. The ten sheets came back on 16 November 2026 (`AMR_Live_Sheet_Round_1_Source_And_QA.zip`), were taken in (their hashes are in `live-sheets.json`) and are the live sheet now. Placement differs from the plan in two ways: the run cycles hang from their hips (x 192), and the standing sheets put each frame on his own feet line. A review of every cell left six sheets for a targeted fix round, [`live-fix-1.json`](live-fix-1.json) (package `AMR_Live_Sheet_Fix_1.zip`).
 
 The refined releases replaced every pack (S01–S114, N01–N10, X001–X124), but not the **live sheet**, `public/mascot/amr.*.webp`. It was never part of them. It is the image every visitor loads first, and Amr shows it most of the time:
 
@@ -10,7 +10,7 @@ The refined releases replaced every pack (S01–S114, N01–N10, X001–X124), b
 - the stand-in while a pack loads, and every reduced-motion still;
 - AmrStill in the tools' empty states, the comics intro and the VIP portrait.
 
-So until it is redrawn, that is the old art still on the site. Its 73 poses are redrawn here as ten sheets in the refined release's own format.
+So until it was redrawn, that was the old art still on the site. Its 73 poses are redrawn here as ten sheets in the refined release's own format.
 
 ## How they're made
 

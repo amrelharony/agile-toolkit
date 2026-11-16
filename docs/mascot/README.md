@@ -74,7 +74,12 @@ The refined art matches the live sprite already, as drawn: next to the live idle
 
 ## The live sheet
 
-The refined releases redrew every pack but not the live sheet (`amr.*.webp`): his idle, the 16 look directions, his everyday reactions, the stand-ins and the reduced-motion stills, also shown by AmrStill, the comics intro and the VIP portrait. So it is the old art still on the site. [The live-sheet brief](AMR-LIVE-SHEET-BRIEF.md) redraws its 73 poses as ten sheets in the refined release's format; `scripts/build-mascot-live.py` builds them in when they come back.
+The live sheet (`amr.*.webp`) is what Amr shows most of the time: his idle, the 16 look directions, his everyday reactions, the stand-ins while a pack loads and the reduced-motion stills, also shown by AmrStill, the comics intro and the VIP portrait. The refined releases redrew every pack but not it, so it was redrawn on its own (16 November 2026): [the live-sheet brief](AMR-LIVE-SHEET-BRIEF.md) gave ten sheets, L01–L10, in the refined release's format, and `scripts/build-mascot-live.py` builds them in as drawn, at the release's scale on his own feet line (the two run cycles hang from their hips, `feet_x` in `live-sheets.json`; the standing sheets put each frame on his own feet line, `register: slots`, so his feet hold within 1 px across every standing row). A review of every cell found a few frames only new art can fix (a hiccup in the right-hand run, a jump whose head swells, a puzzled hand that reads as a wave, and looks whose body drops a few px); they are in [fix round 1](live-fix-1.json), and the steadier slots stand in meanwhile: idle's exhale, listening and thinking use frames that keep his arms still. The new idle measures the same as the old (head 1.01×, skin ΔE 1.3), and the refined packs stay within about 5% of it, so nothing jumps where a scene hands back to him.
+
+```bash
+python -I scripts/build-mascot-live.py <folder with L01-L10> --preview <scratch folder>
+python -I scripts/build-mascot-live.py --check <folder with L01-L10>
+```
 
 ## Rebuilding
 

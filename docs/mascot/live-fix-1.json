@@ -1,0 +1,68 @@
+{
+  "about": "Live sheet fix round 1: the slots a review of every cell of the new live sheet found drawn wrong, each confirmed by two skeptics (16 November 2026). Each entry is a targeted edit of the returned sheet (IMAGE 1), in the refined release's own corrective format; every other slot stays pixel-identical. scripts' build of the live sheet already works around what placement can fix (each standing frame on his own feet line, the run cycles on their hips, steadier slots chosen for idle's exhale, listening and thinking); these are what only new art can fix.",
+  "sheets": [
+    {
+      "id": "L02",
+      "file": "L02-run-right.png",
+      "slots": [2, 3, 4, 5, 7],
+      "why": "The face flips between three-quarter and near-frontal from frame to frame, the first stride's arm swing is a frame early, and the first passing frame pops up and swells, so at 132 px he hiccups once per loop.",
+      "fix": [
+        "ALL FIVE: keep the SAME three-quarter head turn toward the viewer's right as slots 1, 6 and 8 (face turned about 60 degrees toward the viewer's right, nose and mouth pointing right, the same smile and head size). Change only what each slot below names.",
+        "SLOT 2 (Down, weight on the left foot): his anatomical RIGHT arm (dark band) is still swung FORWARD and his LEFT arm (silver watch) back, as in slot 1; do not swap the arms yet.",
+        "SLOT 3 (Passing, standing tall on the left foot): both arms passing close to his hips, as in slot 7's passing pose, and the body at the standing scale: crown no higher than about y40 (it is about y25 now) and the head exactly slot 1's size.",
+        "SLOT 4 (Up, pushing off the left foot): the body the same height as slot 8 (the matching frame of the second stride), feet at most 20 px off the ground line.",
+        "SLOTS 5 AND 7: face only, the three-quarter turn as above; keep the pose."
+      ]
+    },
+    {
+      "id": "L03",
+      "file": "L03-run-left.png",
+      "slots": [7, 8],
+      "why": "In the second stride the head darts back and forth: slot 7 is upright and slot 8 leans much further than their first-stride twins, and slot 7's arms jump a full swing.",
+      "fix": [
+        "SLOT 7 (Passing, standing tall on the right foot): the same gentle forward lean as slot 3 and both arms passing close to his hips, as in slot 3 (his right arm is fully forward now).",
+        "SLOT 8 (Up, pushing off the right foot): the forward lean pulled back to match slot 4, the matching frame of the first stride."
+      ]
+    },
+    {
+      "id": "L04",
+      "file": "L04-wave-jump.png",
+      "slots": [5, 8],
+      "why": "The head is drawn about 7% bigger in the crouch and the landing than in every other frame, so it swells on every jump.",
+      "fix": [
+        "SLOTS 5 AND 8: keep each pose exactly, but draw his head at slot 1's size (about 123 px across, ear to ear, in the 384 x 512 cell; it is about 132 now), chin at slot 1's height relative to his collar."
+      ]
+    },
+    {
+      "id": "L05",
+      "file": "L05-puzzled.png",
+      "slots": [3],
+      "why": "The head-shake frame raises an open palm toward us beside his shoulder, the same shape as a wave, so at 132 px it reads as 'hi!' rather than puzzled.",
+      "fix": [
+        "SLOT 3: keep the small head turn toward the viewer's left and the apologetic closed-lip smile, but his right hand (dark band) is relaxed and half-closed on its way up to his head, palm NOT facing us; no spread fingers."
+      ]
+    },
+    {
+      "id": "L09",
+      "file": "L09-look-a.png",
+      "slots": [2, 3, 4, 5, 6, 7, 8],
+      "why": "Only the head may move between the 16 looks, but the bottom row draws his body shorter (his collar, badge and belt drop at the step from look 3 to look 4), slots 2-4 draw the body further right, looks 2 and 3 draw the head about 10% bigger, look 3 nearly repeats look 2, and look 7 is still mostly a sideways turn where it should be mostly down.",
+      "fix": [
+        "ALL SEVEN: the body is IDENTICAL to slot 1 (standing straight, hands in pockets, the same height, collar, badge, belt, trousers and shoes at the same place in the cell) and the head is exactly slot 1's size. Only the head and eyes turn.",
+        "SLOTS 3 AND 4: the head back to slot 1's size (it is about 10% bigger now).",
+        "SLOT 4 (about 67 degrees from straight up): more of a turn toward the viewer's right, about three-quarters to profile, with only a slight chin lift, so it steps evenly between slot 3 (up-right) and slot 5 (right).",
+        "SLOT 5 (straight to the viewer's right): turned as far as L10's slot 5 turns to the left.",
+        "SLOTS 6, 7 AND 8 (turning down toward the right): the head tilts forward more with each slot; slot 8 (about 157 degrees) is mostly DOWN, crown showing, with only about a 20-degree turn toward the viewer's right, mirroring L10's slot 2."
+      ]
+    },
+    {
+      "id": "L10",
+      "file": "L10-look-b.png",
+      "slots": [8],
+      "why": "Optional, small: the circle is a little lopsided at the top, where look 15 turns further than its mirror, look 1.",
+      "fix": [
+        "SLOT 8 (about 337 degrees, up and a little to the viewer's left): about a 20-degree turn toward the viewer's left with a clearer chin lift, mirroring L09's slot 2."
+      ]
+    }
+  ]
+}
