@@ -78,6 +78,15 @@ export function historyGroups(
   });
 }
 
+// Each formatter is built once, on first use: toLocale*String with options
+// builds a new ICU formatter on every call (tens of microseconds), and History
+// formats every row on each keystroke in its search or rename field.
+let timeFmt: Intl.DateTimeFormat | undefined;
+let weekdayFmt: Intl.DateTimeFormat | undefined;
+let monthDayFmt: Intl.DateTimeFormat | undefined;
+let monthDayYearFmt: Intl.DateTimeFormat | undefined;
+const fmt = (o: Intl.DateTimeFormatOptions) => new Intl.DateTimeFormat(undefined, o);
+
 const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"} ago`;
 
 /**
@@ -94,11 +103,9 @@ export function threadTime(iso: string, now: Date = new Date()): string {
     if (mins < 60) return plural(mins, "minute");
     return plural(Math.floor(mins / 60), "hour");
   }
-  if (ago === 1) return at.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" });
-  if (ago < 7) return at.toLocaleDateString(undefined, { weekday: "long" });
-  return at.toLocaleDateString(undefined, {
-    month: "long",
-    day: "numeric",
-    year: at.getFullYear() === now.getFullYear() ? undefined : "numeric",
-  });
+  if (ago === 1) return (timeFmt ??= fmt({ hour: "numeric", minute: "2-digit" })).format(at);
+  if (ago < 7) return (weekdayFmt ??= fmt({ weekday: "long" })).format(at);
+  return at.getFullYear() === now.getFullYear()
+    ? (monthDayFmt ??= fmt({ month: "long", day: "numeric" })).format(at)
+    : (monthDayYearFmt ??= fmt({ month: "long", day: "numeric", year: "numeric" })).format(at);
 }

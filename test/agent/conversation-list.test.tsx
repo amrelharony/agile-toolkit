@@ -301,6 +301,28 @@ describe("groups by recency", () => {
     expect(threadTime(ago(-30_000), now)).toBe("Just now");
     expect(threadTime("not a date", now)).toBe("");
   });
+
+  it("builds each date formatter once, not one per row on every keystroke", () => {
+    const now = new RealDate(2026, 10, 11, 15, 0);
+    const older = [
+      local(2026, 10, 10, 22, 30),
+      local(2026, 10, 9, 10, 0),
+      local(2026, 10, 4, 9, 0),
+      local(2025, 11, 20, 9, 0),
+    ];
+    // Each shape built (if it wasn't yet) and remembered.
+    const first = older.map((iso) => threadTime(iso, now));
+    const built = vi.spyOn(Intl, "DateTimeFormat");
+    const perCall = [
+      vi.spyOn(RealDate.prototype, "toLocaleTimeString"),
+      vi.spyOn(RealDate.prototype, "toLocaleDateString"),
+    ];
+    for (let i = 0; i < 25; i++) {
+      expect(older.map((iso) => threadTime(iso, now))).toEqual(first);
+    }
+    expect(built).not.toHaveBeenCalled();
+    for (const spy of perCall) expect(spy).not.toHaveBeenCalled();
+  });
 });
 
 // ── Loading, empty and failed ───────────────────────────────────────────
