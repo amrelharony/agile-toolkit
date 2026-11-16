@@ -542,6 +542,27 @@ describe("the focus safety net", () => {
     expect(composer().selectionStart).toBe(DRAFT.length);
   });
 
+  it("leaves focus where the removal left it on a touch screen, so no keyboard rises from a tap", async () => {
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query.includes("pointer: coarse"),
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+        }) as unknown as MediaQueryList
+    );
+    const { rerender } = render(
+      <Chat messages={CHAT} extra={<button type="button">Not now</button>} />
+    );
+    // A tapped Approve or Deny takes focus (Android), then its card goes.
+    screen.getByRole("button", { name: "Not now" }).focus();
+    rerender(<Chat messages={CHAT} />);
+    await act(async () => {});
+    expect(composer()).not.toHaveFocus();
+    expect(document.activeElement).toBe(document.body);
+  });
+
   it("never pulls back focus the reader moved themselves", async () => {
     const { rerender } = render(
       <>

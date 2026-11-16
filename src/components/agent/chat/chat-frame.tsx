@@ -39,10 +39,12 @@
  * here; Try again, Go on, starters and follow-ups do where they are drawn.
  * The safety net catches any other case: when what had focus inside the
  * frame is taken out of the page and focus is left on nothing (the body),
- * the composer takes it. Focus the reader moved themselves is never pulled
- * back. A focusout says focus left (where the browser sends one for a
- * removed element), and a MutationObserver catches a removal that sends none
- * (Firefox, jsdom).
+ * the composer takes it, except on a coarse pointer, where a text field
+ * taking focus raises the keyboard over the strip (as useInitialFocus never
+ * focuses it there): focus stays where the removal left it. Focus the reader
+ * moved themselves is never pulled back. A focusout says focus left (where
+ * the browser sends one for a removed element), and a MutationObserver
+ * catches a removal that sends none (Firefox, jsdom).
  *
  * Runtime parts (the log reaches the markdown renderer), so this lives in
  * chat/, which every-page code may not reach
@@ -128,6 +130,10 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
       held = null;
       const active = doc.activeElement;
       if (active && active !== doc.body) return;
+      // On a touch screen a text field taking focus raises the keyboard over
+      // the strip the reader was looking at (a tapped Approve on Android):
+      // leave focus where the removal left it.
+      if (doc.defaultView?.matchMedia?.("(pointer: coarse)")?.matches === true) return;
       focusComposer();
     };
     const onFocusIn = (e: FocusEvent) => {
