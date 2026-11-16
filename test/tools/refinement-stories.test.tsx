@@ -467,6 +467,37 @@ describe("acceptance criteria in the Markdown and the CSV", () => {
     }
   });
 
+  it("counts the stories whose criteria don't fit in the Markdown, and the CSV has them all", () => {
+    // The Markdown travels in a share link too, so its criteria have a limit.
+    const long = "x".repeat(1990);
+    const gwt = [
+      { id: "g1", given: "g".repeat(900), when: "w".repeat(900), then: "t".repeat(900) },
+    ];
+    useWorkspaceStore.setState({
+      stories: Array.from({ length: 20 }, (_, i) => ({
+        id: `s${i}`,
+        title: `Story ${i}`,
+        status: "backlog" as const,
+        acceptanceCriteria: `${i} ${long}`,
+        gwt,
+      })),
+    });
+    renderPage();
+    const shown = markdown().match(/^### .*$/gm) ?? [];
+    expect(shown).toEqual(Array.from({ length: shown.length }, (_, i) => `### Story ${i}`));
+    expect(shown.length).toBeGreaterThan(1);
+    expect(shown.length).toBeLessThan(20);
+    expect(markdown()).toContain(
+      `_Acceptance criteria for ${20 - shown.length} more stories are in the CSV export._`
+    );
+    for (let i = 0; i < 20; i++) {
+      expect(csvRow(`Story ${i}`)).toMatchObject({
+        "Acceptance criteria": `${i} ${long}`,
+        "Given / When / Then": `Given ${gwt[0].given}, when ${gwt[0].when}, then ${gwt[0].then}.`,
+      });
+    }
+  });
+
   it("keeps a scenario's backticks from closing the Gherkin block early", () => {
     setStories({
       a: { acceptanceCriteria: undefined, gwt: [{ id: "g1", given: "```", when: "", then: "x" }] },

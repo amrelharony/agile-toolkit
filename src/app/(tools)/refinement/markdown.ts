@@ -34,25 +34,59 @@ function fenceFor(lines: readonly string[]): string {
 }
 
 /**
+ * About how many characters the criteria section may take. The Markdown
+ * also travels in a share link, capped at 32 KB, and the story tables need
+ * room there too: unlike Backlog Health, which shows only its top stories
+ * (10 by default), Refinement lists every story not started yet.
+ */
+export const CRITERIA_SECTION_MAX = 12_000;
+
+/** One story's criteria under its title, both ways; nothing when it has neither. */
+function storyCriteria(s: Story): string[] {
+  const free = s.acceptanceCriteria?.trim();
+  const gwt = gwtLines(s.gwt).map((l) => cap(l, 300));
+  if (!free && gwt.length === 0) return [];
+  const out = ["", `### ${cap(s.title, 200)}${isExampleId(s.id) ? " (example)" : ""}`, ""];
+  if (free) out.push(...criteriaMarkdownLines(free));
+  if (free && gwt.length > 0) out.push("");
+  if (gwt.length > 0) {
+    const fence = fenceFor(gwt);
+    out.push(`${fence}gherkin`, ...gwt, fence);
+  }
+  return out;
+}
+
+/**
  * Each story's acceptance criteria, both ways: the free text (its own
  * lines, so a list stays a list), then the Given/When/Then scenarios. A
  * story with neither is left out, and with none at all there is no section.
+ * Stories go in, in order, until about CRITERIA_SECTION_MAX characters. The
+ * first always does: even at their longest, one story's criteria fit a
+ * share link. A line counts the stories left out; the CSV has them whole.
  */
 function criteriaSection(stories: readonly Story[]): string[] {
   const out: string[] = [];
+  let size = 0;
+  let more = 0;
   for (const s of stories) {
-    const free = s.acceptanceCriteria?.trim();
-    const gwt = gwtLines(s.gwt).map((l) => cap(l, 300));
-    if (!free && gwt.length === 0) continue;
-    out.push("", `### ${cap(s.title, 200)}${isExampleId(s.id) ? " (example)" : ""}`, "");
-    if (free) out.push(...criteriaMarkdownLines(free));
-    if (free && gwt.length > 0) out.push("");
-    if (gwt.length > 0) {
-      const fence = fenceFor(gwt);
-      out.push(`${fence}gherkin`, ...gwt, fence);
+    const block = storyCriteria(s);
+    if (block.length === 0) continue;
+    const length = block.reduce((n, l) => n + l.length + 1, 0);
+    if (more > 0 || (out.length > 0 && size + length > CRITERIA_SECTION_MAX)) {
+      more++;
+      continue;
     }
+    out.push(...block);
+    size += length;
   }
-  return out.length > 0 ? ["", "## Acceptance criteria", ...out] : [];
+  if (out.length === 0) return [];
+  if (more > 0) {
+    out.push(
+      "",
+      `_Acceptance criteria for ${more} more ${more === 1 ? "story" : "stories"} are in the CSV export._`
+    );
+  }
+  return ["", "## Acceptance criteria", ...out];
 }
 
 const points = (s: Story) =>
@@ -88,8 +122,8 @@ function storyTable(stories: readonly Story[], criteria: readonly Criterion[]): 
 /**
  * The session as Markdown, for the refinement notes or the planning thread:
  * the verdict, the Definition of Ready, what's left to refine, what's
- * ready, each of those stories' acceptance criteria, and the checks saved
- * by name.
+ * ready, those stories' acceptance criteria (as many as there is room
+ * for), and the checks saved by name.
  */
 export function toMarkdown(
   session: RefinementSession,

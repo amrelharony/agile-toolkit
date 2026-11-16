@@ -167,7 +167,9 @@ export interface Story {
   /*
    * What the story is about, beyond its title. All four are optional, and
    * cleaned and capped on every write (lib/stories/fields.ts). They stay out
-   * of share links, which are capped at 32 KB.
+   * of share links, which are capped at 32 KB, except the acceptance
+   * criteria (and `gwt`) in Backlog Health's and Refinement's Markdown, kept
+   * short there.
    */
   /** Free notes: context, a description that came with it (at most 2,000 characters). */
   notes?: string;

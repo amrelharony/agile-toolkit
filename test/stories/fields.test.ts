@@ -32,16 +32,22 @@ import "@/lib/actions/workspace/index";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story } from "@/lib/stores/workspace-types";
 import { planToMarkdown } from "@/app/(tools)/sprint-planning/markdown";
-import { toMarkdown as refinementMarkdown } from "@/app/(tools)/refinement/markdown";
+import {
+  CRITERIA_SECTION_MAX,
+  toMarkdown as refinementMarkdown,
+} from "@/app/(tools)/refinement/markdown";
 import { refinementSession } from "@/app/(tools)/refinement/session";
+import { SNAPSHOT_MAX_CHARS, encodeSnapshot } from "@/lib/share/snapshot";
 import {
   CRITERIA_MD_MAX,
+  GWT_PART_MAX,
   STORY_CRITERIA_MAX,
-  criteriaMarkdownLines,
+  STORY_GWT_MAX,
   STORY_LINK_MAX,
   STORY_NOTES_MAX,
   STORY_TICKET_KEY_MAX,
   cleanStoryFields,
+  criteriaMarkdownLines,
   hasStoryDetails,
   storyDetailsDraft,
   storyLink,
@@ -346,8 +352,9 @@ describe("workspace.story actions", () => {
 describe("share links", () => {
   // A share link carries a tool's Markdown, and is capped at 32 KB: the
   // four fields (up to 4,550 characters a story) stay out of it, except
-  // Refinement's acceptance criteria, which go in kept short (the owner's
-  // call, 2026-11-16; Backlog Health's Markdown does the same).
+  // Refinement's acceptance criteria, which go in kept short, and only as
+  // many stories' as there is room for (the owner's call, 2026-11-16;
+  // Backlog Health's Markdown has its top stories' criteria the same way).
   const detailed = story({
     status: "todo",
     sprintId: "s2",
@@ -409,6 +416,100 @@ describe("share links", () => {
     const given = lines.find((l) => l.startsWith("Given "))!;
     expect(given).toHaveLength(300);
     expect(md).not.toContain("END");
+  });
+
+  /** Words of random letters: text that compresses about as badly as writing can. */
+  function randomText(seed: number) {
+    let a = seed;
+    const next = () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    return (chars: number) => {
+      let out = "";
+      while (out.length < chars) {
+        const n = 2 + Math.floor(next() * 8);
+        for (let i = 0; i < n; i++) out += String.fromCharCode(97 + Math.floor(next() * 26));
+        out += " ";
+      }
+      return out.slice(0, chars).trim();
+    };
+  }
+  const shareable = (markdown: string) =>
+    encodeSnapshot({ tool: "refinement", schema: 1, data: { markdown } });
+
+  it("Refinement's share link still works when many stories have long criteria", async () => {
+    const text = randomText(1);
+    const stories = Array.from({ length: 40 }, (_, i) =>
+      story({
+        id: `st${i}`,
+        title: `Story ${i} ${text(30)}`,
+        acceptanceCriteria: Array.from({ length: 20 }, () => `- ${text(95)}`).join("\n"),
+        gwt: Array.from({ length: 3 }, (_, j) => ({
+          id: `g${j}`,
+          given: text(400),
+          when: text(400),
+          then: text(400),
+        })),
+      })
+    );
+    const md = refinementMarkdown(refinementSession(stories), [], []);
+    // Every story is still in the table.
+    for (const s of stories) expect(md).toContain(`| ${s.title} | Unsized |`);
+    // The criteria go in, in order, as far as there is room.
+    const section = md.slice(md.indexOf("## Acceptance criteria"));
+    expect(section.length).toBeLessThan(CRITERIA_SECTION_MAX + 200);
+    const shown = section.match(/^### .*$/gm) ?? [];
+    expect(shown.length).toBeGreaterThan(1);
+    expect(shown.length).toBeLessThan(40);
+    expect(shown).toEqual(stories.slice(0, shown.length).map((s) => `### ${s.title}`));
+    expect(md).toContain(
+      `_Acceptance criteria for ${40 - shown.length} more stories are in the CSV export._\n`
+    );
+    const payload = await shareable(md);
+    expect(payload.length).toBeLessThanOrEqual(SNAPSHOT_MAX_CHARS);
+  });
+
+  it("Refinement's Markdown keeps the first story's criteria, at their longest, in a share link", async () => {
+    const text = randomText(2);
+    const longest = story({
+      id: "big",
+      title: text(200),
+      priorityScore: 99,
+      acceptanceCriteria: Array.from({ length: 25 }, () => `- ${text(78)}`).join("\n"),
+      gwt: Array.from({ length: STORY_GWT_MAX }, (_, j) => ({
+        id: `g${j}`,
+        given: text(GWT_PART_MAX),
+        when: text(GWT_PART_MAX),
+        then: text(GWT_PART_MAX),
+      })),
+    });
+    const others = Array.from({ length: 299 }, (_, i) =>
+      story({ id: `st${i}`, title: `Story ${i} ${text(40)}` })
+    );
+    const md = refinementMarkdown(refinementSession([longest, ...others]), [], []);
+    expect(md).toContain(`### ${longest.title}\n\n- `);
+    expect((md.match(/^Then /gm) ?? []).length).toBe(STORY_GWT_MAX);
+    expect(md).not.toContain("more stor");
+    const payload = await shareable(md);
+    expect(payload.length).toBeLessThanOrEqual(SNAPSHOT_MAX_CHARS);
+  });
+
+  it("Refinement's Markdown counts the one story left out", () => {
+    const text = randomText(3);
+    const long = (id: string) =>
+      story({
+        id,
+        acceptanceCriteria: text(2000),
+        gwt: [{ id: "g", given: text(900), when: "a", then: "b" }],
+      });
+    const many = Array.from({ length: 13 }, (_, i) => long(`st${i}`));
+    const md = refinementMarkdown(refinementSession(many), [], []);
+    const shown = (md.match(/^### /gm) ?? []).length;
+    expect(shown).toBe(12);
+    expect(md).toContain("_Acceptance criteria for 1 more story are in the CSV export._");
   });
 });
 
