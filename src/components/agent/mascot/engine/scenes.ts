@@ -66,7 +66,8 @@ function tool(name: string, fallback: Fallback, frames: Array<[string, number]>)
  * poses in order, each 600 ms, the last held 1.6 s and the reduced-motion still (the
  * release's loop rule for all of them: play once, hold the final pose). A sheet whose
  * final beats are drawn wrong ends on its table's `last` until redrawn; a named
- * variant ends earlier where a trigger holds an earlier beat (x112.filter).
+ * variant ends earlier where a trigger holds an earlier beat (x112.filter), or where
+ * a tool's preview must stop before an outcome nothing records (x036.preview).
  *
  * The stand-in while a pack loads is a pose with no gesture: the review pose's
  * thumbs-up would read as a pass several of these rules forbid.
@@ -1423,6 +1424,22 @@ const LIST: Array<[string, Clip]> = [
   // Search tools: the explanatory filter moment only (X112's first five beats, held on
   // 5); the full scene's beats 6–8 are its deliberate reset.
   expansion("x112", "waiting", 5, "x112.filter"),
+  // The tool lab's previews (context/tool-scenes.ts): each stops before the outcome its
+  // trigger keeps for an event the tool doesn't record.
+  // Tech Radar's ring and direction are in the payload: the peg drawn free, not yet seated.
+  expansion("x025", "idle", 3, "x025.lift"),
+  // Vuln Burndown has no recheck: the tile mended, the collar raised, before the fit check.
+  expansion("x036", "idle", 4, "x036.preview"),
+  // A11y Tracker has no keyboard retest: the lip folded down (the fix), before the retest.
+  expansion("x038", "idle", 5, "x038.preview"),
+  // LLM Eval Tracker logs scores, not a comparison: the strips lined up, no mismatch shown.
+  expansion("x040", "idle", 4, "x040.preview"),
+  // Hallucination Log records no source: the footing inspected, the claim not yet on it.
+  expansion("x043", "idle", 4, "x043.preview"),
+  // AI Red Team has no rerun: the flap latched and the hook regripped, before the rerun.
+  expansion("x049", "idle", 5, "x049.preview"),
+  // RLHF Log logs ties too, unseen: the blinded pair compared, before a preference is kept.
+  expansion("x051", "idle", 5, "x051.compare"),
   // Present mode: the eight beats, then frame 8 held for as long as the presentation lasts.
   scene("x111.present", "idle", [...expansion("x111", "idle")[1].steps], {
     loop: [f("x111.8", 2000)],
