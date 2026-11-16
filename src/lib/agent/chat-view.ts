@@ -10,6 +10,10 @@
  *   steps    one run of tool calls and what they came to, for one step
  *            caption: consecutive calls with no words between them, across
  *            the rounds of a turn
+ *   note     a line the client wrote in an assistant message for Amr, in
+ *            the third person (a text block marked `note`: the round limit's
+ *            stand-in for a wrap-up), for a narration caption, never a
+ *            balloon: only the model's own words go in his balloons
  *
  * An assistant message's text and its tool calls are drawn apart, in their
  * order: a message with only tool calls draws no balloon. A result shows on
@@ -294,7 +298,20 @@ export interface StepsItem {
   steps: readonly ChatStep[];
 }
 
-export type ChatItem = YouItem | BalloonItem | StepsItem;
+/**
+ * Narration the client wrote into an assistant message (a text block marked
+ * `note`), about Amr rather than by him: drawn as a narration caption, read
+ * out without "Amr said:".
+ */
+export interface NoteItem {
+  kind: "note";
+  key: string;
+  messageId: string;
+  /** Inline markdown: an action's id is a code span. */
+  text: string;
+}
+
+export type ChatItem = YouItem | BalloonItem | StepsItem | NoteItem;
 
 export interface ChatViewOptions {
   /** The assistant message a reply is streaming into (store.streamingMessageId). */
@@ -432,7 +449,19 @@ function build(
       textAt = -1;
     };
     message.content.forEach((block, index) => {
-      if (block.type === "text") {
+      if (block.type === "text" && block.note) {
+        // Narration, not his words: the words before it are finished.
+        endText(false);
+        if (!hasWords(block.text)) return;
+        endRun();
+        const key = `${message.id}:n${index}`;
+        const old = prev.items.get(key);
+        keep(
+          old?.kind === "note" && old.text === block.text
+            ? old
+            : { kind: "note", key, messageId: message.id, text: block.text }
+        );
+      } else if (block.type === "text") {
         if (textAt < 0) textAt = index;
         texts.push(block.text);
       } else if (block.type === "tool_use") {

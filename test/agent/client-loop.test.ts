@@ -567,6 +567,8 @@ describe("round-limit wrap-up", () => {
 
     const last = lastAssistant()!;
     expect(last.content).toHaveLength(1);
+    // Marked as narration, so the chat draws it as a caption, not Amr's balloon.
+    expect(last.content[0]).toMatchObject({ type: "text", note: true });
     const note = (last.content[0] as { text: string }).text;
     expect(note.startsWith(NOTE_START)).toBe(true);
     expect(note).toContain("10 tool calls; none failed");

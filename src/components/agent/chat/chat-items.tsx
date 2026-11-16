@@ -20,6 +20,9 @@
  *            "Details" with the raw arguments and result; a visitor never sees
  *            JSON. The interim caption, as the old step rows read: the step
  *            caption with its state slot and ink tick takes its place.
+ *   note     a line the client wrote for Amr (the round limit's stand-in),
+ *            in a narration caption with no "Amr said:": it is about him,
+ *            not his words. Inline markdown, so an action's id is a chip.
  *
  * A message with only tool calls draws no balloon: chat-view makes it steps
  * alone. No second Amr in the chat either: the real one stands beside it, and
@@ -47,7 +50,14 @@ import { memo, useId } from "react";
 import { ChevronDown } from "lucide-react";
 import { AmrBalloon, Narration, ThinkingBalloon, YouCaption } from "../comic/comic-parts";
 import { Markdown } from "../markdown";
-import type { BalloonItem, ChatItem, ChatStep, StepsItem, YouItem } from "@/lib/agent/chat-view";
+import type {
+  BalloonItem,
+  ChatItem,
+  ChatStep,
+  NoteItem,
+  StepsItem,
+  YouItem,
+} from "@/lib/agent/chat-view";
 import { toolLabel, type ToolLabel } from "@/lib/agent/tool-label";
 import { STEP_WORDS, TROUBLE_STATES, resultText, stepSummary } from "@/lib/agent/tool-result-text";
 import type { ToolResultBlock, ToolUseBlock } from "@/lib/agent/types";
@@ -261,6 +271,17 @@ export const StepsItemView = memo(function StepsItemView({ item }: { item: Steps
   );
 });
 
+/** A line the client wrote for Amr, told as narration: no balloon, no "Amr said:". */
+export const NoteItemView = memo(function NoteItemView({ item }: { item: NoteItem }) {
+  return (
+    <div data-chat-item="note" data-message-id={item.messageId}>
+      <Narration tone="note">
+        <Markdown source={item.text} />
+      </Narration>
+    </div>
+  );
+});
+
 /** One item of the strip, whatever its kind: what the log draws for each chatView item. */
 export function ChatItemView({ item }: { item: ChatItem }) {
   switch (item.kind) {
@@ -270,5 +291,7 @@ export function ChatItemView({ item }: { item: ChatItem }) {
       return <BalloonItemView item={item} />;
     case "steps":
       return <StepsItemView item={item} />;
+    case "note":
+      return <NoteItemView item={item} />;
   }
 }

@@ -310,6 +310,45 @@ describe("a streamed turn", () => {
     expect(ears.heard.assertive).toEqual([]);
   });
 
+  it("reads the round limit's stand-in as narration, with no speaker (a visitor's whole turn)", async () => {
+    const standIn =
+      "Amr used all 6 tool rounds for this request before he could sum up. This turn ran 6 tool calls; 1 failed (`retro.add_card`). Send a follow-up and he'll carry on.";
+    const ears = mount();
+    await ask("u1", "Read my board.");
+    await replyIn("a1", [call("t1")]);
+    act(() => store().appendMessage(result("r1", "t1")));
+    act(() => store().appendMessage(amr("a2", [{ type: "text", text: standIn, note: true }])));
+    await quiet();
+    expect(ears.changes()).toBe(0);
+
+    await settle();
+    expect(ears.heard.polite).toEqual([
+      "Amr used all 6 tool rounds for this request before he could sum up. This turn ran 6 tool calls; 1 failed (retro.add_card). Send a follow-up and he'll carry on.",
+    ]);
+    expect(ears.heard.polite[0]).not.toContain(SPEAKER);
+  });
+
+  it("reads Amr's words, then the stand-in, then the owner's round-limit note", async () => {
+    const limit: AgentNotice = {
+      tone: "note",
+      kind: "round_limit",
+      text: "Amr reached his limit of 10 tool rounds for one request. Send a follow-up and he'll carry on.",
+    };
+    const ears = mount();
+    await ask("u1", "Tidy the retro.");
+    await replyIn("a1", [words("Tidying it now."), call("t1")]);
+    act(() => store().appendMessage(result("r1", "t1")));
+    act(() =>
+      store().appendMessage(
+        amr("a2", [{ type: "text", text: "Amr used all 10 tool rounds.", note: true }])
+      )
+    );
+    await settle(limit);
+    expect(ears.heard.polite).toEqual([
+      `${SPEAKER} Tidying it now. Amr used all 10 tool rounds. ${limit.text}`,
+    ]);
+  });
+
   it("reads a long reply up to a sentence, then points to the conversation", async () => {
     const sentence = "Pick one action and give it a clear owner before the retro ends.";
     const long = Array.from({ length: 12 }, () => sentence).join(" ");
@@ -510,6 +549,8 @@ describe("the words read out", () => {
     expect(turnAnnouncement([])).toBeNull();
     expect(turnAnnouncement(["   "], "")).toBeNull();
     expect(turnAnnouncement([], CUT_OFF.text)).toBe(CUT_OFF.text);
+    expect(turnAnnouncement([], null, ["  "])).toBeNull();
+    expect(turnAnnouncement([], null, ["Amr used all `6` rounds."])).toBe("Amr used all 6 rounds.");
   });
 
   it("never speak in Amr's first person: the announcer's own lines are narration", () => {

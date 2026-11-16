@@ -384,6 +384,34 @@ describe("tool steps", () => {
   });
 });
 
+describe("the client's notes", () => {
+  it("draws the round-limit stand-in as narration, not Amr's words, with action ids as data", () => {
+    const standIn =
+      "Amr used all 6 tool rounds for this request before he could sum up. This turn ran 12 tool calls; 2 failed (`retro.add_card`).";
+    const log = strip([
+      user("u1", "Tidy the retro"),
+      assistant("a1", call("c1")),
+      toolMsg("t1", result("c1")),
+      assistant("a2", { type: "text", text: standIn, note: true }),
+    ]);
+    expect(log.querySelector(".balloon")).toBeNull();
+    const item = log.querySelector('[data-chat-item="note"]')!;
+    expect(item).toHaveAttribute("data-message-id", "a2");
+    const caption = item.querySelector('.comic-caption[data-voice="narration"]')!;
+    expect(caption).toHaveAttribute("data-tone", "note");
+    expect(caption.textContent).not.toMatch(/said:/);
+    expect(caption.querySelector("[data-speaker]")).toBeNull();
+    expect(caption).toHaveTextContent(
+      "Amr used all 6 tool rounds for this request before he could sum up. This turn ran 12 tool calls; 2 failed (retro.add_card)."
+    );
+    // The markdown's chip, never literal backticks.
+    expect(caption.textContent).not.toContain("`");
+    const chip = caption.querySelector("code")!;
+    expect(chip).toHaveTextContent("retro.add_card");
+    expect(classes(chip)).toContain("font-data");
+  });
+});
+
 describe("memoised items", () => {
   it("re-renders only the reply still growing as chunks stream in", () => {
     const view = createChatView();

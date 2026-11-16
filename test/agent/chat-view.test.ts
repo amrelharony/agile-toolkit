@@ -304,6 +304,27 @@ describe("chatView: messages as comic strip items", () => {
     expect(balloons(items)[0].text).toBe("First part.\n\nSecond part.");
   });
 
+  it("draws the client's round-limit stand-in as a note, never a balloon", () => {
+    const standIn =
+      "Amr used all 6 tool rounds for this request before he could sum up. This turn ran 12 tool calls; 2 failed (`retro.add_card`).";
+    const note: ContentBlock = { type: "text", text: standIn, note: true };
+    const items = chatView([
+      user("u1", "Tidy the retro"),
+      assistant("a1", text("On it."), call("c1")),
+      toolMsg("t1", result("c1")),
+      assistant("a2", note),
+    ]);
+    expect(kinds(items)).toEqual(["you", "balloon", "steps", "note"]);
+    expect(items[3]).toEqual({ kind: "note", key: "a2:n0", messageId: "a2", text: standIn });
+    expect(balloons(items).map((b) => b.text)).toEqual(["On it."]);
+    // Beside the model's own words it ends their balloon, and a blank one draws nothing.
+    const mixed = chatView([
+      assistant("a1", text("First."), note, text("After."), { ...note, text: " " }),
+    ]);
+    expect(kinds(mixed)).toEqual(["balloon", "note", "balloon"]);
+    expect(mixed.map((i) => i.key)).toEqual(["a1:t0", "a1:n1", "a1:t2"]);
+  });
+
   it("gives a turn's rounds of calls one step caption when no words come between them", () => {
     const items = chatView([
       user("u1", "Tidy the retro"),
@@ -460,6 +481,15 @@ describe("createChatView: keeps what didn't change", () => {
     expect(b.steps[0]).toBe(a.steps[0]);
     expect(b.steps[1]).not.toBe(a.steps[1]);
     expect(b.steps[1].state).toBe("done");
+  });
+
+  it("keeps a note while its words don't change", () => {
+    const view = createChatView();
+    const note: ContentBlock = { type: "text", text: "Amr used all 6 tool rounds.", note: true };
+    const first = view([assistant("a1", note)]);
+    const second = view([assistant("a1", { ...note })]);
+    expect(second).toBe(first);
+    expect(second[0]).toBe(first[0]);
   });
 
   it("keeps a step caption's key as later rounds join it", () => {

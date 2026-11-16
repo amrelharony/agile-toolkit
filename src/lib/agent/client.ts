@@ -1351,8 +1351,9 @@ function withWrapUpText(
   const store = useAgentStore.getState();
   const msg = assistantId ? store.messages.find((m) => m.id === assistantId) : undefined;
   if (msg?.content.some((c) => c.type === "text" && c.text.trim().length > 0)) return msg.id;
+  // Narration, not Amr's words: marked, so the chat draws it as a caption.
   const note: ContentBlock[] = [
-    { type: "text", text: roundLimitNote(store.messages, rounds, followUp) },
+    { type: "text", text: roundLimitNote(store.messages, rounds, followUp), note: true },
   ];
   if (msg) {
     store.patchMessage(msg.id, note);

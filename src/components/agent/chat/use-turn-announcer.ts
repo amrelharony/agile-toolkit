@@ -9,8 +9,11 @@
  *   a turn settles   once, politely: "Amr said: " and the turn's own words as
  *                    plain text (no markdown marks; a table or code is named,
  *                    not read), cut at a sentence near ANNOUNCE_MAX characters
- *                    with a pointer to the conversation, then the turn's note
- *                    when it ended with one ("The answer stopped short...").
+ *                    with a pointer to the conversation; then any narration
+ *                    line the turn left in the strip (the round limit's
+ *                    stand-in), without "Amr said:", since it is about him,
+ *                    not his words; then the turn's note when it ended with
+ *                    one ("The answer stopped short...").
  *                    Nothing while the words stream in: streamed chunks,
  *                    steps and re-renders change no live region. A turn with
  *                    no new words and no note says nothing (Stop, a New chat
@@ -27,8 +30,9 @@
  *
  * Only turns this chat sees settle are spoken: a thread loaded or a chat
  * reopened after its turn ended says nothing, and a chat opened during a turn
- * speaks it whole when it settles. The words are the balloons that are new
- * or grew since the turn began, so an earlier reply is never read again.
+ * speaks it whole when it settles. The words are the balloons (and the
+ * narration lines) that are new or grew since the turn began, so an earlier
+ * reply is never read again.
  *
  * Runtime parts (the agent store), so this lives in chat/, which every-page
  * code may not reach (test/agent/bundle-boundary.test.ts).
@@ -141,12 +145,19 @@ export function clipSpoken(text: string, max = ANNOUNCE_MAX): string {
 
 /**
  * What a settled turn says: its words after the speaker, cut for reading out,
- * then its note. Null when there is nothing to say.
+ * then its narration lines (markdown, as the strip's note items hold them)
+ * with no speaker, then its note. Null when there is nothing to say.
  */
-export function turnAnnouncement(replies: readonly string[], note?: string | null): string | null {
+export function turnAnnouncement(
+  replies: readonly string[],
+  note?: string | null,
+  narration: readonly string[] = []
+): string | null {
   const words = replies.map(spokenText).filter(Boolean).join(" ");
+  const told = narration.map(spokenText).filter(Boolean).join(" ");
   const parts: string[] = [];
   if (words) parts.push(`${SPEAKER} ${clipSpoken(words)}`);
+  if (told) parts.push(clipSpoken(told));
   if (note?.trim()) parts.push(note.trim());
   return parts.length > 0 ? parts.join(" ") : null;
 }
@@ -159,7 +170,7 @@ export function cardHasFocus(root: HTMLElement | null): boolean {
   return !!card && root.contains(card);
 }
 
-/** The log when a turn began: each balloon's words by key, and the chat's first item. */
+/** The log when a turn began: each balloon's and narration line's words by key, and the chat's first item. */
 interface TurnStart {
   words: Map<string, string>;
   first: string | null;
@@ -167,7 +178,9 @@ interface TurnStart {
 
 function startOf(items: readonly ChatItem[]): TurnStart {
   const words = new Map<string, string>();
-  for (const item of items) if (item.kind === "balloon") words.set(item.key, item.text);
+  for (const item of items) {
+    if (item.kind === "balloon" || item.kind === "note") words.set(item.key, item.text);
+  }
   return { words, first: items[0]?.key ?? null };
 }
 
@@ -216,14 +229,15 @@ export function useTurnAnnouncer({ items, busy, rootRef }: TurnAnnouncerOptions)
     // The chat was swapped under the turn (another thread, a New chat).
     if (start.first !== null && now[0]?.key !== start.first) return;
     const replies: string[] = [];
+    const narration: string[] = [];
     for (const item of now) {
-      if (item.kind === "balloon" && start.words.get(item.key) !== item.text) {
-        replies.push(item.text);
-      }
+      if (item.kind !== "balloon" && item.kind !== "note") continue;
+      if (start.words.get(item.key) === item.text) continue;
+      (item.kind === "balloon" ? replies : narration).push(item.text);
     }
     const note = end && end !== heard.current ? end.text : null;
     if (end) heard.current = end;
-    const message = turnAnnouncement(replies, note);
+    const message = turnAnnouncement(replies, note, narration);
     if (message) announce(message);
   }, [busy, announce]);
 
