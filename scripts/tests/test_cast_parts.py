@@ -3,6 +3,7 @@ matching against brute force, the layout prior on a synthetic exploded sheet, an
 the pieces any figure's parts can hold (ears, tails, a coat, a second pair of
 legs) named on sheets of plain shapes laid out as imageParts says."""
 
+import inspect
 import itertools
 import sys
 import unittest
@@ -366,6 +367,16 @@ def lands(pid: str, at=None) -> np.ndarray:
     return a
 
 
+def near_ties(got: dict, laid: dict, alike) -> tuple:
+    """shoulder_misses' misses and the near-ties it records. A rig from before the
+    warning takes no set to record them in, so it is called without one and records
+    none: a test of the warning then fails on what it finds, not on the call."""
+    unsure = set()
+    if "unsure" in inspect.signature(rig.shoulder_misses).parameters:
+        return rig.shoulder_misses(got, laid, alike, unsure), unsure
+    return rig.shoulder_misses(got, laid, alike), unsure
+
+
 class Puppet:
     """The synthetic puppet with a stiff tail as thick as its arm, drawn under the
     body (a capsule from `tail[0]` to `tail[1]` on the master), and its parts sheet
@@ -373,7 +384,8 @@ class Puppet:
     alone names it the right arm; `at` moves pieces on the sheet. `arms` (shoulder,
     hand) moves the right arm's ends on the master; the left arm mirrors them, or
     `left` (shoulder, hand) moves its ends apart (shoulders drawn uneven). With
-    `hand` the tail is drawn just like the arm: as thick, and a ball at its end."""
+    `hand` the tail is drawn just like the arm: as thick, and a ball at its end;
+    `colour` paints it (the flap's by default), and `over` draws it over the body."""
 
     IDS = ["torso", "arm-r", "arm-l", "leg-r", "leg-l", "tail"]
     AT = {"torso": (768, 360), "arm-r": (200, 420), "arm-l": (1250, 420), "leg-r": (680, 800), "leg-l": (860, 800), "tail": (460, 430)}
@@ -381,9 +393,9 @@ class Puppet:
     TAIL_R = ((640, 560), (560, 800))
     TAIL_L = ((896, 560), (976, 800))
 
-    def __init__(self, tail, arms=None, at=None, hand=False, left=None):
+    def __init__(self, tail, arms=None, at=None, hand=False, left=None, colour=None, over=False):
         pen = cs.Pen()
-        pen.capsule(tail[0], tail[1], cs.ARM_R if hand else 24, cs.FLAP)
+        pen.capsule(tail[0], tail[1], cs.ARM_R if hand else 24, colour or cs.FLAP)
         if hand:
             (x, y) = tail[1]
             pen.ellipse((x - 34, y - 34, x + 34, y + 34), cs.GLOVE)
@@ -394,7 +406,8 @@ class Puppet:
             self.layers["arm-l"] = cs.arm("arm-l", shoulder=(cs.W - sx, sy), hand=(cs.W - hx, hy))
         if left:
             self.layers["arm-l"] = cs.arm("arm-l", shoulder=left[0], hand=left[1])
-        master = cs.over(*(self.layers[k] for k in ("tail", "leg-r", "leg-l", "arm-r", "arm-l", "torso")))
+        order = ("leg-r", "leg-l", "arm-r", "arm-l", "torso", "tail") if over else ("tail", "leg-r", "leg-l", "arm-r", "arm-l", "torso")
+        master = cs.over(*(self.layers[k] for k in order))
         self.master, _ = key.cut(cs.on_key(master), cs.MAGENTA)
         self.at = {**self.AT, **(at or {})}
         canvas = np.zeros((cs.H, cs.W, 4), np.uint8)
@@ -424,8 +437,8 @@ class NamingByLanding(unittest.TestCase):
     """Where a named piece lands on the master: an ear on the head, an arm joining
     the body above its hips, a leg or a tail reaching its bottom half; a sided arm
     or leg also by where it lands with no side window, and on which side; and a tail
-    on an arm's side by which of the two joins level with the other arm and is drawn
-    like it."""
+    on an arm's side by which of the two joins level with the other arm, which starts
+    higher, and how alike each is drawn to the other arm."""
 
     def test_a_sound_naming_lands_where_its_ids_join(self):
         got = {pid: n for n, pid in enumerate(EARED) if pid in LANDS}
@@ -587,18 +600,18 @@ class NamingByLanding(unittest.TestCase):
         placed["leg-r"][0] = reg(700.0, TOL["ncc_min"] + 0.05)
         self.assertEqual(rig.side_misses({"leg-r": 3}, placed, {"leg-r": across}), set())
 
-    def assertNamedByLanding(self, p: Puppet, wrong: dict, missed_first: set):
+    def assertNamedByLanding(self, p: Puppet, wrong: dict, missed_first: set, warned=()):
         """The sheet alone names the pieces `wrong` ({true id: name given}); where they
         land on the master gives the pairs `missed_first` ({(true id, name)}), and the
-        sheet is named right, nothing left to warn of, every piece registered above
-        ncc_min."""
+        sheet is named right, every piece registered above ncc_min, with nothing left
+        to warn of but the pieces `warned` (true ids: a near-tie to check by eye)."""
         self.assertEqual(p.given(p.first), wrong)
         place, missed = p.by_landing()
         inv = {i: pid for pid, i in p.truth.items()}
         self.assertEqual({(inv[i], pid) for i, pid in missed(p.first, place(p.first))}, missed_first)
         got, laid, left = rig.settle_names(p.pieces, p.IDS, p.first, place, missed)
         self.assertEqual(p.given(got), {})
-        self.assertEqual(left, set())
+        self.assertEqual({(inv[i], pid) for i, pid in left}, {(k, k) for k in warned})
         for pid in p.IDS:
             self.assertGreater(laid[pid][0].ncc, TOL["ncc_min"], pid)
 
@@ -674,12 +687,22 @@ class NamingByLanding(unittest.TestCase):
         self.assertEqual(rig.side_misses(p.first, placed, free), {(p.truth["tail"], "arm-r")})
 
     def test_a_tail_and_the_arm_on_its_side_are_told_apart_by_the_other_arm(self):
-        # The arms' shoulders reach under the body (rows 280-640, middle 460, hips
-        # 550) from row 340 to past its middle. A tail on the body's right (your
-        # left) joined between its middle and its hips, and one reaching up its left
-        # side above the shoulders, each join where an arm or a tail may: traded with
-        # the arm on its side, no landing misses, but the piece called the arm starts
-        # far from the other arm's row and the one called the tail level with it.
+        """The arms' shoulders reach under the body (rows 280-640, middle 460, hips
+        550) from row 340 to past its middle. A tail on the body's right (your left)
+        joined between its middle and its hips, and one reaching up its left side
+        above the shoulders, each join where an arm or a tail may: traded with the arm
+        on its side, no landing misses, but the piece called the arm starts far from
+        the other arm's row and the one called the tail level with it.
+
+        Every box is drawn alike (boxes have no looks), so the looks tie and only the
+        rows can vouch. The low tail traded with the right arm puts the piece called
+        the tail above the piece called the arm: a trade by rows, caught. The tail
+        reaching up the left side, traded with the left arm, puts the piece called the
+        tail below the piece called the arm, as a sound sheet with uneven shoulders
+        looks too: the rows prove nothing and the tie keeps the names, so that trade
+        is NOT caught. Both are near-ties, so both pairs are warned of, to be checked
+        by eye, whichever way they are named; the sound namings start no piece level
+        with the other arm and are not."""
         at = {
             **LANDS,
             "arm-r": [(540, 370, 600, 600), (580, 340, 640, 480)],
@@ -696,26 +719,35 @@ class NamingByLanding(unittest.TestCase):
         def alike(i, j):  # every piece drawn like the arms (boxes have no looks)
             return 1.0
 
-        for tail, arm in (("low", "arm-r"), ("up", "arm-l")):
-            self.assertEqual(rig.shoulder_misses(got, laid(tail=tail), alike), set(), tail)
+        for tail, arm, other, caught in (("low", "arm-r", "arm-l", True), ("up", "arm-l", "arm-r", False)):
+            misses, unsure = near_ties(got, laid(tail=tail), alike)
+            self.assertEqual(misses, set(), tail)
+            self.assertEqual(unsure, set(), tail)
             traded = laid(**{arm: tail, "tail": arm})
             self.assertEqual(rig.landing_misses(got, traded), set(), tail)
-            self.assertEqual(rig.shoulder_misses(got, traded, alike), {(got[arm], arm), (got["tail"], "tail")}, tail)
+            want = {(got[arm], arm), (got["tail"], "tail")} if caught else set()
+            misses, unsure = near_ties(got, traded, alike)
+            self.assertEqual(misses, want, tail)
+            self.assertEqual(unsure, {(got["tail"], got[arm], arm, other)}, tail)
 
     def test_rows_alone_never_trade_a_tail_for_the_arm_beside_it(self):
         # Shoulders drawn uneven: the right arm's contact starts at row 340 and the
         # left one's at 420 (the slack is 3% of the body's 360 rows, about 11). A tail
         # on the body's right (your left) joined at row 420 starts level with the left
-        # arm and far from the right one, as a tail traded with the right arm would.
-        # The left arm vouches for the trade only when the piece called the tail is
-        # drawn nearly as much like it as the piece called the right arm (LIKE_SLACK),
-        # and only for a piece level with its row.
+        # arm and far from the right one, as a tail traded with the right arm would;
+        # but it starts below the right arm, where a sound tail joins too. So the left
+        # arm vouches for the trade only when the piece called the tail is drawn more
+        # like it than the piece called the right arm is: a tie, or less, keeps the
+        # names. A piece called the tail that starts above the piece called the arm
+        # (row 480 here) is a trade by rows, kept unless it is drawn clearly unlike the
+        # left arm (LIKE_SLACK). A piece level with neither arm is no witness.
         at = {
             **LANDS,
             "arm-r": [(540, 370, 600, 600), (580, 340, 640, 480)],
             "arm-l": [(936, 450, 996, 680), (896, 420, 956, 560)],
             "level": [(560, 420, 640, 600)],
             "near": [(560, 450, 640, 620)],
+            "low": [(560, 480, 640, 620)],
         }
         landed = {pid: lands(pid, at) for pid in at}
         got = {"torso": 0, "arm-r": 1, "arm-l": 2, "tail": 3}
@@ -726,19 +758,40 @@ class NamingByLanding(unittest.TestCase):
             return lambda i, j: {1: 0.95, 3: tail}[i]
 
         self.assertEqual(rig.landing_misses(got, sound), set())
-        # Drawn like the left arm, the piece level with it is the right arm.
-        self.assertEqual(rig.shoulder_misses(got, sound, looks(0.95)), traded)
-        self.assertEqual(rig.shoulder_misses(got, sound, looks(0.95 - rig.LIKE_SLACK + 0.01)), traded)
-        # Drawn unlike it (a plain tail beside gloved arms), the tail keeps its name.
-        self.assertEqual(rig.shoulder_misses(got, sound, looks(0.95 - rig.LIKE_SLACK - 0.01)), set())
+        # Below the right arm: drawn as much like the left arm as it, nearly, or not.
+        for tail in (0.95, 0.95 - rig.LIKE_SLACK + 0.01, 0.95 - rig.LIKE_SLACK - 0.01):
+            self.assertEqual(rig.shoulder_misses(got, sound, looks(tail)), set(), tail)
+        # Drawn more like the left arm than the piece called the right arm is, the
+        # piece level with it is the right arm.
+        self.assertEqual(rig.shoulder_misses(got, sound, looks(0.97)), traded)
+        # Above the piece called the right arm, the rows vouch.
+        above = {**sound, "arm-r": landed["low"]}
+        self.assertEqual(rig.landing_misses(got, above), set())
+        self.assertEqual(rig.shoulder_misses(got, above, looks(0.95 - rig.LIKE_SLACK + 0.01)), traded)
+        self.assertEqual(rig.shoulder_misses(got, above, looks(0.95 - rig.LIKE_SLACK - 0.01)), set())
         # A tail 30 rows from the left arm's start is level with neither arm: nearer
         # the left arm than the right arm is, but no witness either way.
-        self.assertEqual(rig.shoulder_misses(got, {**sound, "tail": landed["near"]}, looks(0.95)), set())
+        self.assertEqual(rig.shoulder_misses(got, {**sound, "tail": landed["near"]}, looks(0.99)), set())
+
+        def warned(laid, tail):  # the near-tie shoulder_misses meets, if any
+            return near_ties(got, laid, looks(tail))[1]
+
+        # Drawn within LIKE_SLACK as much like the left arm as the piece called the
+        # right arm, either way, the two are a near-tie: warned of, traded or not, below
+        # the right arm or above it. Drawn clearly less like it (a plain tail), never.
+        for laid in (sound, above):
+            for tail in (0.97, 0.95, 0.95 - rig.LIKE_SLACK + 0.01):
+                self.assertEqual(warned(laid, tail), {(3, 1, "arm-r", "arm-l")}, tail)
+            for tail in (0.95 - rig.LIKE_SLACK - 0.01, 0.95 - 0.25):
+                self.assertEqual(warned(laid, tail), set(), tail)
+        # Level with neither arm, the rows don't pass: nothing to warn of.
+        self.assertEqual(warned({**sound, "tail": landed["near"]}, 0.95), set())
 
     def test_a_piece_is_drawn_like_the_other_arm_turned_over(self):
         # The sheet's right arm laid on its left arm turned over left to right fits
         # well; a plain tail (no ball at its end) as long and as steep fits clearly
-        # worse, by more than LIKE_SLACK; one drawn just like the arm, nearly as well.
+        # worse, by more than LIKE_SLACK; one drawn just like the arm (as thick, a ball
+        # at its end) fits better than the plain one, yet not as well as the arm.
         plain = Puppet(((592, 400), (470, 600)), ((606, 300), (470, 530)))
         drawn = Puppet(((600, 430), (464, 660)), ((606, 300), (470, 530)), hand=True)
         crops = {}
@@ -747,8 +800,11 @@ class NamingByLanding(unittest.TestCase):
                 crops[name, pid] = p.pieces[p.truth[pid]].crop(p.cut)[0]
         arm = rig.mirror_ncc(crops["plain", "arm-r"], crops["plain", "arm-l"])
         self.assertGreater(arm, TOL["ncc_warn"])
-        self.assertLess(rig.mirror_ncc(crops["plain", "tail"], crops["plain", "arm-l"]), arm - rig.LIKE_SLACK)
-        self.assertGreaterEqual(rig.mirror_ncc(crops["drawn", "tail"], crops["drawn", "arm-l"]), arm - rig.LIKE_SLACK)
+        plain_tail = rig.mirror_ncc(crops["plain", "tail"], crops["plain", "arm-l"])
+        drawn_tail = rig.mirror_ncc(crops["drawn", "tail"], crops["drawn", "arm-l"])
+        self.assertLess(plain_tail, arm - rig.LIKE_SLACK)
+        self.assertGreater(drawn_tail, plain_tail)
+        self.assertLess(drawn_tail, arm)
 
     def test_a_plain_tail_at_the_low_shoulder_s_row_keeps_its_name(self):
         # Shoulders drawn uneven, the left one 100 px lower than the right, and a
@@ -776,15 +832,55 @@ class NamingByLanding(unittest.TestCase):
         got, _, left = rig.settle_names(p.pieces, p.IDS, p.first, place, missed)
         self.assertEqual((p.given(got), left), ({}, set()))
 
+    def test_a_tail_drawn_like_the_arm_at_the_low_shoulder_s_row_keeps_its_name_and_is_warned_of(self):
+        # Shoulders drawn uneven, the left one 100 px lower than the right, and a tail
+        # drawn just like the right arm (as thick, a ball at its end) on the body's
+        # right (your left), joined at the low shoulder's row: it starts level with the
+        # left arm and far from the right one, as the right arm would if the two had
+        # traded names, but below the right arm, where a sound tail joins too. Drawn
+        # nearly as much like the left arm as the right arm is, not more, it keeps its
+        # name: a sound sheet stays named as it is. But nearly is a near-tie (within
+        # LIKE_SLACK): rows and looks can't tell the two apart, so the tail and the
+        # right arm are both left to warn of, to be checked by eye.
+        p = Puppet(((600, 400), (464, 630)), ((606, 300), (470, 530)), at={"arm-r": (300, 420), "tail": (1150, 820)}, hand=True, left=((930, 400), (1066, 630)))
+        self.assertEqual(p.given(p.first), {})
+        place, missed = p.by_landing()
+        self.assertEqual(missed(p.first, place(p.first)), set())
+        got, _, left = rig.settle_names(p.pieces, p.IDS, p.first, place, missed)
+        self.assertEqual(p.given(got), {})
+        self.assertEqual(left, {(p.truth["tail"], "tail"), (p.truth["arm-r"], "arm-r")})
+        self.assertEqual(rig.unsure_notes(missed, got), [("tail", "arm-r", "tail and arm-r look alike and the tail starts level with arm-l: check by eye which is which")])
+
+    def test_a_near_tie_trade_with_a_tail_joined_above_level_shoulders_is_warned_of(self):
+        # Level shoulders, and a tail drawn as a third arm (the arm's colour, as thick,
+        # a ball at its end, its length and slope) joined above the shoulders on the
+        # body's left (your right), over the body; laid between the body and the left
+        # arm on the sheet, the sheet alone names it the left arm. Traded so, the piece
+        # called the tail (the true left arm) starts level with the right arm and below
+        # the piece called the left arm, as a sound sheet with uneven shoulders looks
+        # too, and the left arm carries a band the third arm lacks, so the third arm is
+        # drawn a little MORE like the right arm than the true left arm is: rows and
+        # looks can't tell the two apart. Whichever way they are named, both pieces are
+        # left to warn of, to be checked by eye.
+        p = Puppet(((816, 250), (952, 480)), ((606, 300), (470, 530)), at={"arm-r": (300, 420), "arm-l": (1336, 420), "tail": (1076, 430)}, hand=True, colour=cs.LIMB, over=True)
+        self.assertEqual(p.given(p.first), {"tail": "arm-l", "arm-l": "tail"})
+        place, missed = p.by_landing()
+        got, _, left = rig.settle_names(p.pieces, p.IDS, p.first, place, missed)
+        inv = {i: pid for pid, i in p.truth.items()}
+        self.assertEqual({inv[i] for i, _ in left}, {"tail", "arm-l"})
+        self.assertEqual({pid for _, pid in left}, {"tail", "arm-l"})
+
     def test_a_tail_drawn_like_the_arm_beside_it_is_named_by_the_other_arm(self):
         # The tail is drawn just like the right arm (as long, as steep, as thick, a
         # ball at its end) and joins 130 px below it on the same side, between the
         # body's middle and its hips; laid beside that arm on the sheet, the sheet
         # alone names it the arm. In the right arm's side window each piece fits
         # either name, and each joins where an arm or a tail may: only the left arm,
-        # level with the true right arm, tells them apart.
+        # level with the true right arm, tells them apart. Drawn that much alike, the
+        # two are a near-tie of looks (within LIKE_SLACK): named right by the rows,
+        # and both left to warn of, to be checked by eye.
         p = Puppet(((600, 430), (464, 660)), ((606, 300), (470, 530)), hand=True)
-        self.assertNamedByLanding(p, self.SWAPPED, self.SWAP_MISSES)
+        self.assertNamedByLanding(p, self.SWAPPED, self.SWAP_MISSES, warned=("tail", "arm-r"))
 
     def test_a_later_sheet_s_piece_not_placed_yet_is_no_evidence(self):
         # Legs on this sheet; the master also shows a whole copy of the right leg off

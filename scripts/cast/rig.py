@@ -324,12 +324,21 @@ FREE_GAIN = 0.03  # how much better a piece that fits its window well must fit w
 # The two arms are a pair: drawn alike (mirror images) and joined at close rows. A
 # tail drawn like an arm and joined on the same side as one fits that arm's name in
 # its side window as well as its own, and both join where an arm or a tail may, so
-# only the other arm can tell them apart (shoulder_misses), and only when it vouches
-# for the trade twice: the piece called the tail starts level with it (within this
-# share of the body's height) and nearer it than the piece called the arm does by
-# more than that, and is drawn at least nearly as much like it (LIKE_SLACK).
+# only the other arm can tell them apart (shoulder_misses), and only when the piece
+# called the tail starts level with it (within this share of the body's height) and
+# nearer it than the piece called the arm does by more than that. Then which of the
+# two starts higher says how much the rows prove. A tail joins the body below the arm
+# beside it, so a piece called the tail that starts above the piece called the arm is
+# a trade by rows, unless it is drawn clearly less like the other arm (LIKE_SLACK).
+# One that starts below it is also how a sound sheet looks with shoulders drawn
+# uneven (a tail joined at the low shoulder's row on the high one's side), so there
+# only its being drawn more like the other arm than the piece called the arm vouches.
+# When the rows pass and the two pieces are drawn within LIKE_SLACK as much like the
+# other arm (a tail drawn like an arm, beside arms that are not mirror images), rows
+# and looks cannot tell them apart: the names stand as the rule gives them, and both
+# pieces are warned of, to be checked by eye (unsure_pairs).
 SHOULDER_SLACK = 0.03
-LIKE_SLACK = 0.15  # how much less like the other arm the piece called the tail may look
+LIKE_SLACK = 0.15  # how much less like the other arm a piece called the tail above the arm may look; within it, a near-tie
 LIKE_SCALE = 1.25  # alike pieces of one sheet are drawn within this factor of one size
 
 
@@ -390,27 +399,39 @@ def mirror_ncc(crop: np.ndarray, other: np.ndarray) -> float:
     return reg.ncc_first if reg.ncc_first is not None else reg.ncc
 
 
-def shoulder_misses(got: dict, landed: dict, alike) -> set:
+def shoulder_misses(got: dict, landed: dict, alike, unsure: set | None = None) -> set:
     """The (piece index, id) pairs of a naming whose tail and arm on one side of the
     body have traded names: the piece named the tail lands on the side of the body
     the piece named that side's arm hangs on, and the other arm vouches for the
     trade. Its contact with the body starts level with the other arm's (within
     SHOULDER_SLACK of the body's height) and nearer it than the arm's does by more
     than that, and `alike(i, j)` (how alike piece i is drawn to piece j, mirror_ncc)
-    finds it drawn at least nearly as much like the other arm as the piece named the
-    arm is (within LIKE_SLACK). Both pairs miss (that arm and the tail), so the sheet
-    is named again with the trade ruled out.
+    agrees: when it starts above the piece named the arm, it is drawn at least nearly
+    as much like the other arm as that piece is (within LIKE_SLACK); when it starts
+    below it, it is drawn more like the other arm than that piece is. Both pairs miss
+    (that arm and the tail), so the sheet is named again with the trade ruled out.
 
     A tail drawn like the arm beside it (as long, as steep, as thick, a ball at its
     end) fits either name in that side's window and joins where an arm or a tail
     may; the other arm, joined level with the true arm and drawn like it, is the
-    only witness. A tail joined high up the body's side (reaching up behind it)
-    starts far from the shoulders too, above them, so it never passes for the arm.
-    But rows alone never trade a naming: shoulders drawn uneven put a plain tail
-    joined at the low shoulder's row on the high one's side level with the other
-    arm, and it is drawn unlike that arm, so the arm keeps its name; and when the
-    other arm is level with neither piece (raised, or uneven with both) it vouches
-    for neither."""
+    only witness. A tail joins below the arm beside it, so a naming that puts the
+    tail above that arm, level with the other one, is a trade by rows, and only a
+    piece called the tail drawn clearly unlike the other arm keeps it. A tail joined
+    high up the body's side (reaching up behind it) starts above the shoulders, so it
+    never passes for the arm; traded with the arm, it is the piece called the arm
+    that starts above. But rows alone never trade a naming whose tail starts below
+    the arm beside it: shoulders drawn uneven put a tail joined at the low shoulder's
+    row on the high one's side level with the other arm, so the names stay unless
+    the piece called the tail is drawn more like the other arm than the piece called
+    the arm is (a tail drawn like an arm, a ball at its end, comes close; a third arm
+    drawn just like it ties, and keeps its name); and when the other arm is level
+    with neither piece (raised, or uneven with both) it vouches for neither.
+
+    Whenever the rows pass and the two pieces are drawn within LIKE_SLACK as much
+    like the other arm, whichever way that names them, (piece called the tail, piece
+    called the arm, that arm's id, the other arm's id) is added to `unsure`: a near-tie
+    the rows and the looks cannot settle, for the owner to check by eye. A plain tail
+    is drawn far less like an arm than that, and is never added."""
     across = {"arm-r": "arm-l", "arm-l": "arm-r"}
     if "tail" not in got or "torso" not in landed or any(k not in landed for k in ("tail", *across)):
         return set()
@@ -429,6 +450,8 @@ def shoulder_misses(got: dict, landed: dict, alike) -> set:
         return set()
     arm = "arm-r" if xs.mean() < (hb[0] + hb[2]) / 2 else "arm-l"  # the right arm is on your left
     other = across[arm]
+    # Both arms are this sheet's: only the first parts sheet is named by where its
+    # pieces land (candidate), and nothing is placed before it.
     if arm not in got or other not in got:
         return set()
     s_arm, s_other, s_tail = start(arm), start(other), start("tail")
@@ -437,9 +460,40 @@ def shoulder_misses(got: dict, landed: dict, alike) -> set:
     slack = SHOULDER_SLACK * (hb[3] - hb[1])
     if abs(s_tail - s_other) > slack or abs(s_arm - s_other) - abs(s_tail - s_other) <= slack:
         return set()
-    if alike(got["tail"], got[other]) < alike(got[arm], got[other]) - LIKE_SLACK:
-        return set()  # drawn unlike the other arm, where the piece called the arm is like it
+    like_tail, like_arm = alike(got["tail"], got[other]), alike(got[arm], got[other])
+    if unsure is not None and abs(like_tail - like_arm) <= LIKE_SLACK:
+        unsure.add((got["tail"], got[arm], arm, other))  # a near-tie, whichever way it goes
+    if s_tail < s_arm:  # above the arm beside it: the rows vouch
+        if like_tail < like_arm - LIKE_SLACK:
+            return set()  # drawn unlike the other arm, where the piece called the arm is like it
+    elif like_tail <= like_arm:
+        return set()  # rows prove nothing: only a piece drawn more like the other arm than the arm vouches
     return {(got[arm], arm), (got["tail"], "tail")}
+
+
+def unsure_pairs(misses, got: dict) -> set:
+    """The (piece index, id) pairs of naming `got` whose pieces the shoulder rule
+    found in a near-tie (by_landing's `misses.unsure`, from any naming of the sheet
+    it was asked about): warned of whatever they are named now."""
+    tied = {i for t in getattr(misses, "unsure", ()) for i in t[:2]}
+    return {(i, pid) for pid, i in got.items() if i in tied}
+
+
+def unsure_notes(misses, got: dict) -> list[tuple[str, str, str]]:
+    """(id, id, why) for each near-tie of by_landing's `misses.unsure`, in plain words
+    and by the names in `got`: which two pieces look alike, and which of them starts
+    level with the other arm."""
+    name = {i: pid for pid, i in got.items()}
+    out, seen = [], set()
+    for i_tail, i_arm, _, other in sorted(getattr(misses, "unsure", ())):
+        pair = frozenset((i_tail, i_arm))
+        if pair in seen or i_tail not in name or i_arm not in name:
+            continue
+        seen.add(pair)
+        a, b = sorted((name[i_tail], name[i_arm]), key=lambda pid: pid != "tail")
+        level = "the tail" if name[i_tail] == "tail" else name[i_tail]
+        out.append((a, b, f"{a} and {b} look alike and {level} starts level with {other}: check by eye which is which"))
+    return out
 
 
 def free_landings(got: dict, placed: dict, master: np.ndarray, landed: dict, tgt, cache: dict) -> dict:
@@ -556,8 +610,10 @@ def by_landing(pieces, cut, reg_ids, master, mfig, baked, side_of, ids_all) -> t
     where it lands with no side window (free_landings), the sided arms and legs
     that fit only on the body's other side from their name (side_misses), and a tail
     and the arm on its side that traded names, by the other arm (shoulder_misses,
-    with how alike the sheet's pieces are drawn, mirror_ncc, kept per pair)."""
-    tgt, cache, looks = rg.Target(rg.shrink(master, rg.COARSE)), {}, {}
+    with how alike the sheet's pieces are drawn, mirror_ncc, kept per pair).
+    `missed.unsure` keeps the near-ties shoulder_misses meets in every naming it is
+    asked about (unsure_pairs, unsure_notes)."""
+    tgt, cache, looks, unsure = rg.Target(rg.shrink(master, rg.COARSE)), {}, {}, set()
 
     def place(got):
         return place_named(got, pieces, cut, reg_ids, master, mfig, baked, side_of, ids_all, tgt, cache)
@@ -571,8 +627,9 @@ def by_landing(pieces, cut, reg_ids, master, mfig, baked, side_of, ids_all) -> t
         landed = {**baked, **{k: v[1] for k, v in placed.items()}}
         free = free_landings(got, placed, master, landed, tgt, cache)
         moved = {**landed, **{k: b for k, (_, b) in free.items()}}
-        return landing_misses(got, landed) | landing_misses(got, moved) | side_misses(got, placed, free) | shoulder_misses(got, landed, alike)
+        return landing_misses(got, landed) | landing_misses(got, moved) | side_misses(got, placed, free) | shoulder_misses(got, landed, alike, unsure)
 
+    missed.unsure = unsure
     return place, missed
 
 
@@ -584,7 +641,10 @@ def settle_names(pieces, ids, got, place, misses, image="parts") -> tuple[dict, 
     naming so far has misses, every pair seen to
     miss is ruled out and the sheet named again (parts.assign with them forbidden),
     which undoes a swap of any number of pieces; a naming replaces the best only
-    when fewer of its pieces miss, so a sound naming whose piece joins oddly stays."""
+    when fewer of its pieces miss, so a sound naming whose piece joins oddly stays.
+    The pairs left to warn of also hold, under the names given, the pieces the
+    shoulder rule found in a near-tie on the way (unsure_pairs): they name nothing,
+    and are only to be checked by eye."""
     placed = place(got)
     best = (got, placed, misses(got, placed))
     forbid = set(best[2])
@@ -603,7 +663,8 @@ def settle_names(pieces, ids, got, place, misses, image="parts") -> tuple[dict, 
         if bad <= forbid:
             break
         forbid |= bad
-    return best
+    named, laid, bad = best
+    return named, laid, bad | unsure_pairs(misses, named)
 
 
 # ---------- the candidate ----------
@@ -672,6 +733,7 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
     nears: dict = {}
     gaps = {}
     misses_left: list = []
+    unsure_left: list = []
     for img, s in sheets.items():
         ids = list(c[img])
         # Pupils are cut from the master; the closed fan is pinned at the open one's base.
@@ -685,7 +747,11 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         else:
             # A naming is checked against where its pieces land on the master.
             got, placed, left = settle_names(s["pieces"], ids, first, place, missed, img)
-            misses_left += sorted(pid for _, pid in left)
+            unsure_left += unsure_notes(missed, got)
+            # The pairs left hold the near-ties too: when there are any, the naming's
+            # own misses are read again (its placements and looks are kept).
+            real = missed(got, placed) if unsure_pairs(missed, got) else left
+            misses_left += sorted(pid for _, pid in real)
             was = {i: pid for pid, i in first.items()}
             moved = [f"{pid} (first named {was.get(i, 'nothing')})" for pid, i in got.items() if was.get(i) != pid]
             if moved:
@@ -764,6 +830,13 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
             c6["parts"][pid]["status"] = checks.worst(c6["parts"][pid]["status"], "warn")
             c6["status"] = checks.worst(c6["status"], "warn")
             c6["notes"].append(f"{pid}: lands on the master where no {kind_of(pid)} joins the {JOINS[kind_of(pid)][0]}, on its other side from its name, or where the arm or the tail beside it joins")
+    for a, b, why in unsure_left:
+        # A near-tie the shoulder rule met (unsure_notes): named as the rule gives it.
+        for pid in (a, b):
+            if pid in c6["parts"]:
+                c6["parts"][pid]["status"] = checks.worst(c6["parts"][pid]["status"], "warn")
+        c6["status"] = checks.worst(c6["status"], "warn")
+        c6["notes"].append(why)
     lost = [i for i in ids_all if i not in named and not i.startswith("pupil-")]
     if lost:
         c6["status"] = "fail"
@@ -1074,6 +1147,9 @@ def candidate(cid: str, sources: Path, review_root: Path | None = None, out=prin
         "fail" if missing else "pass",
     )
     out(f"{cid}: candidate {report['status']} -> review/{batch}/{cid}/ (rig {cand['rig_sha256'][:12]})")
+    if c6["status"] != "pass":
+        for n in c6["notes"]:  # what to look at, in plain words: the naming and registration
+            out(f"       C6     {c6['status']:4s}  {n}")
     return report
 
 
