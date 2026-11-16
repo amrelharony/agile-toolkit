@@ -47,7 +47,8 @@
  * while the chat stays readable: its log and Copy reply stay, and the
  * follow-ups and Try again's spend under the latest reply go (there is no
  * box to fill and nothing to spend). The busy hours' smaller allowance, and
- * a refusal for it, end on the clock as the hours do: the box comes back.
+ * a refusal for it, end on the clock as the hours do, and the box comes back
+ * (the footer keeps that clock: only a read-only chat waits on it).
  *
  * Its header (panel-chrome's slots): a "Back to tool finder" chevron before
  * the name plate, and Clear chat among the view's icons while there is
@@ -62,7 +63,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { ChevronLeft, Eraser } from "lucide-react";
-import { useAnnounce } from "@/components/a11y/live-announcer";
 import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
 import { resolvePageTool, toolIdForPath } from "@/lib/agent/page-tool";
@@ -93,8 +93,6 @@ const CLOCK_TICK_MS = 60_000;
 /** Said in the log while the visitor is in a live room, where Amr gets no tools. */
 export const LIVE_ROOM_LINE =
   "You're in a live room, so Amr only answers questions here: he won't read or change your tools.";
-/** Said once the busy hours end while the chat waited on them: the box is back. */
-export const BUSY_HOURS_OVER = "The busy hours are over, so Amr can answer again.";
 /** Said when the runtime can't load: nothing was sent. */
 export const VISITOR_RUNTIME_LOAD_ERROR =
   "Amr's chat couldn't load. Check your connection and try again.";
@@ -477,33 +475,6 @@ export default function VisitorAgentPanel({
   useEffect(() => {
     if (!readOnly) setBoxShown(true);
   }, [readOnly]);
-
-  // The busy hours end: their smaller allowance ends with them, and so does a
-  // refusal for them. Said when the chat was waiting on them as they ended.
-  const announce = useAnnounce();
-  const peakEndsAt = quota?.peak ? quota.peakEndsAt : null;
-  useEffect(() => {
-    if (!peakEndsAt) return;
-    const wait = new Date(peakEndsAt).getTime() - Date.now();
-    const id = window.setTimeout(
-      () => {
-        const s = useAgentStore.getState();
-        const q = s.visitorQuota;
-        if (!q?.peak || q.peakEndsAt !== peakEndsAt) return;
-        const code = s.visitorFallback;
-        const refused = code === "visitor_peak_limit" || code === "site_peak_limit";
-        const waited = refused || (q.peakRemaining === 0 && q.remaining > 0);
-        s.setVisitorQuota({ ...q, peak: false, peakRemaining: null, peakEndsAt: null });
-        if (refused) {
-          s.setVisitorFallback(null);
-          if (s.notice?.kind === code) s.setNotice(null);
-        }
-        if (waited && wait > 0) announce(BUSY_HOURS_OVER);
-      },
-      Math.max(0, wait)
-    );
-    return () => window.clearTimeout(id);
-  }, [peakEndsAt, announce]);
 
   // The composer's row: the frame keeps it shrink-0 (the form its direct
   // child) and makes room beside it for docked Amr. Read-only, the footer

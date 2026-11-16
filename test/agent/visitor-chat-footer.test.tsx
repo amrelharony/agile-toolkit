@@ -32,9 +32,10 @@ vi.mock("@/lib/agent/visitor-runtime", () => ({
   canRetryLastTurn: h.canRetryLastTurn,
 }));
 
-import VisitorAgentPanel, { BUSY_HOURS_OVER } from "@/components/agent/mascot/visitor-agent-panel";
+import VisitorAgentPanel from "@/components/agent/mascot/visitor-agent-panel";
 import {
   ASK_AGAIN,
+  BUSY_HOURS_OVER,
   OPEN_TOOL_FINDER,
   readOnlyNote,
   unansweredQuestion,

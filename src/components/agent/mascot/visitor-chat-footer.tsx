@@ -25,6 +25,13 @@
  *                starts. When the last turn did run a change, "Ask again"
  *                gives the box back and sends nothing.
  *
+ * Busy hours. Their smaller allowance ends on the clock, as the hours do (the
+ * end the route gave): the footer marks the allowance so, lets go of a
+ * refusal for them and its notice, and goes, the box back; said once
+ * (BUSY_HOURS_OVER) when the chat was waiting on them as they ended. Only a
+ * read-only chat waits on that clock, so it is kept here: a chat with
+ * messages left drops the busy-hours note on its own minute tick.
+ *
  * Focus. The footer takes focus as it replaces a message box the visitor was
  * using (focus left on nothing), so no keyboard is stranded; when the chat
  * opens on it, it is the chat's first target, on a fine pointer only, as the
@@ -36,8 +43,9 @@
  * one), so the chat's first paint doesn't carry it.
  */
 
-import { useLayoutEffect, useRef, type MouseEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, type MouseEvent } from "react";
 import { flushSync } from "react-dom";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Button } from "@/components/ui/button";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
@@ -52,6 +60,8 @@ import { useInitialFocus } from "./panel-context";
 export const OPEN_TOOL_FINDER = "Open the tool finder";
 /** Its way back to the box when Try again would repeat a change. */
 export const ASK_AGAIN = "Ask again";
+/** Said once the busy hours end while the chat waited on them: the box is back. */
+export const BUSY_HOURS_OVER = "The busy hours are over, so Amr can answer again.";
 
 /** Refusals a later try may get past: the footer offers Try again for these. */
 const TRY_LATER: ReadonlySet<VisitorErrorCode> = new Set<VisitorErrorCode>([
@@ -150,6 +160,32 @@ export function ReadOnlyFooter({
   const { focusComposer, logId } = useChat();
   const later = code !== null && TRY_LATER.has(code) && left !== 0;
   const retryable = useAgentStore((s) => later && canRetry(s.messages));
+
+  // The busy hours end (see the file comment).
+  const announce = useAnnounce();
+  const peakEndsAt = quota?.peak ? quota.peakEndsAt : null;
+  useEffect(() => {
+    if (!peakEndsAt) return;
+    const wait = new Date(peakEndsAt).getTime() - Date.now();
+    const id = window.setTimeout(
+      () => {
+        const s = useAgentStore.getState();
+        const q = s.visitorQuota;
+        if (!q?.peak || q.peakEndsAt !== peakEndsAt) return;
+        const refusal = s.visitorFallback;
+        const refused = refusal === "visitor_peak_limit" || refusal === "site_peak_limit";
+        const waited = refused || (q.peakRemaining === 0 && q.remaining > 0);
+        s.setVisitorQuota({ ...q, peak: false, peakRemaining: null, peakEndsAt: null });
+        if (refused) {
+          s.setVisitorFallback(null);
+          if (s.notice?.kind === refusal) s.setNotice(null);
+        }
+        if (waited && wait > 0) announce(BUSY_HOURS_OVER);
+      },
+      Math.max(0, wait)
+    );
+    return () => window.clearTimeout(id);
+  }, [peakEndsAt, announce]);
 
   // Opened on it: the chat's first target, on a fine pointer, as the box would be.
   useInitialFocus(ref);
