@@ -116,12 +116,20 @@ export function RoomBigScreenView({
                 ? `Scan to join, or open ${host}/join and type the code:`
                 : "Scan the QR code with a phone camera to join."}
             </p>
-            {/* On one line from sm, sized to the 24rem column beside the
-                room on a wide screen, so "ABCD-EFGH-JKMN" never breaks
-                mid-group when it's read aloud. */}
-            <p className="break-words font-data text-4xl font-bold tracking-wider sm:whitespace-nowrap sm:text-6xl lg:text-4xl">
+            {/* Sized to the 24rem column beside the room on a wide screen.
+                Each group is a block of its own, so where the column is too
+                narrow for the code, "ABCD-EFGH-JKMN" breaks between groups:
+                never mid-group, and never cut off. */}
+            <p className="break-words font-data text-4xl font-bold tracking-wider sm:text-6xl lg:text-4xl">
               <span className="sr-only">Room code </span>
-              {groupRoomCode(code)}
+              {groupRoomCode(code)
+                .split("-")
+                .map((group, i, all) => (
+                  <span key={i} className="inline-block">
+                    {group}
+                    {i < all.length - 1 ? "-" : ""}
+                  </span>
+                ))}
             </p>
           </section>
 

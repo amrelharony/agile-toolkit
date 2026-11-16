@@ -121,7 +121,17 @@ describe("the room on the big screen", SLOW, () => {
     expect(usePresentation.getState().presenting).toBe(true);
     const view = document.querySelector("[data-big-screen]") as HTMLElement;
     expect(view).toContainElement(heading);
-    expect(within(view).getByText("ABCD-EFGH-JKMN")).toBeInTheDocument();
+    const code = within(view).getByText(
+      (_, el) => el?.tagName === "P" && el.textContent === "Room code ABCD-EFGH-JKMN"
+    );
+    // Too wide for its column, it breaks between groups, never mid-group,
+    // and is never held on one line to be cut off.
+    expect(code.className).not.toMatch(/nowrap/);
+    expect(Array.from(code.querySelectorAll("span.inline-block"), (s) => s.textContent)).toEqual([
+      "ABCD-",
+      "EFGH-",
+      "JKMN",
+    ]);
     expect(within(view).getByText("6 of 20 in the room")).toBeInTheDocument();
     // Real time: the view may have taken a moment to load.
     expect(within(view).getByRole("timer").textContent).toMatch(/^(2:00|1:5\d)$/);
