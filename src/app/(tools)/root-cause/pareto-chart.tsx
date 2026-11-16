@@ -78,11 +78,8 @@ export function ParetoChart({ data }: { data: ParetoPoint[] }) {
         />
         <Bar yAxisId="count" dataKey="count" name="How often" maxBarSize={44}>
           {data.map((p) => (
-            <Cell
-              key={p.name}
-              fill={p.vital ? colors.cyan : colors.purple}
-              fillOpacity={p.vital ? 1 : 0.55}
-            />
+            // Solid, not faded: the quieter bars still clear 3:1 against the card.
+            <Cell key={p.name} fill={p.vital ? colors.cyan : colors.purple} />
           ))}
         </Bar>
         <Line

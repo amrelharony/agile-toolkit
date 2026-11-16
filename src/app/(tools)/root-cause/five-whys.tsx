@@ -200,6 +200,8 @@ export function FiveWhys({
   const [suggested, setSuggested] = useState<{ items: string[]; source: AiSource } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
+  /** Around Ask Amr: where focus goes back to when the list is dismissed. */
+  const askRef = useRef<HTMLDivElement>(null);
   /** Each row's text button, by why id. */
   const rowButtons = useRef(new Map<string, HTMLButtonElement>());
   const announce = useAnnounce();
@@ -264,21 +266,23 @@ export function FiveWhys({
           5 Whys
         </h3>
         {!readOnlyAi && !full && (
-          <AiButton
-            task={nextWhyTask}
-            input={aiInput}
-            label="Ask Amr for the next why"
-            fallbackLabel="Suggest without AI"
-            onResult={(data, meta) => {
-              setSuggested({ items: data.whys, source: meta.source });
-              const n = data.whys.length;
-              announce(
-                n === 0
-                  ? "No next why to suggest."
-                  : `${n} possible next ${n === 1 ? "why" : "whys"} below. Pick the one that fits.`
-              );
-            }}
-          />
+          <div ref={askRef}>
+            <AiButton
+              task={nextWhyTask}
+              input={aiInput}
+              label="Ask Amr for the next why"
+              fallbackLabel="Suggest next whys without AI"
+              onResult={(data, meta) => {
+                setSuggested({ items: data.whys, source: meta.source });
+                const n = data.whys.length;
+                announce(
+                  n === 0
+                    ? "No next why to suggest."
+                    : `${n} possible next ${n === 1 ? "why" : "whys"} below. Pick the one that fits.`
+                );
+              }}
+            />
+          </div>
         )}
       </div>
       <p className="rounded-md border border-dashed border-border px-3 py-2 text-sm text-text">
@@ -323,6 +327,10 @@ export function FiveWhys({
           pickOne
           onAccept={accept}
           onDismiss={() => setSuggested(null)}
+          returnFocus={() =>
+            askRef.current?.querySelector<HTMLElement>('[data-testid="ai-button"]') ??
+            headingRef.current
+          }
         />
       )}
       {full ? (
