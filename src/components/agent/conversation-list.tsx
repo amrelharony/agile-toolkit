@@ -27,8 +27,9 @@
  * Try again and keeps what it last showed; "No saved chats yet" follows only a
  * read that worked. A thread that can't be opened stays in History with the
  * same kind of caption, never opened empty (the open thread keeps its answer
- * under way and its card). A thread on its way in is busy (a scribble on
- * its row), so a second tap loads nothing twice. A failure the
+ * under way and its card), and its Try again keeps the caption, and focus,
+ * while it loads again. A thread on its way in is busy (a scribble on its
+ * row, and on Try again), so a second tap loads nothing twice. A failure the
  * owner asked for (opening History, a thread, Try again) is said once,
  * assertively; nothing here is a live region.
  *
@@ -338,7 +339,9 @@ export function ConversationList({ onClose, takeFocus = false }: ConversationLis
     // leaves the open thread as it was, turn and card and all.
     openingRef.current = meta.id;
     setOpening(meta.id);
-    setNotOpened(null);
+    // Try again keeps its caption (and its focus) while it loads; another
+    // thread's press clears it.
+    setNotOpened((n) => (n?.id === meta.id ? n : null));
     const loaded = await loadMessages(meta.id);
     openingRef.current = null;
     setOpening(null);

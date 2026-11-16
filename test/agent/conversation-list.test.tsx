@@ -180,6 +180,17 @@ const openButton = (title: string) => within(rowOf(title)).getByTitle(title);
 const assertive = () => screen.getByTestId("live-assertive");
 const polite = () => screen.getByTestId("live-polite");
 
+/** Every line a live region says from now on (its clearing before a repeat is not a line). */
+function heard(region: HTMLElement) {
+  const lines: string[] = [];
+  const watch = new MutationObserver(() => {
+    const text = region.textContent ?? "";
+    if (text) lines.push(text);
+  });
+  watch.observe(region, { childList: true, characterData: true, subtree: true });
+  return { lines, stop: () => watch.disconnect() };
+}
+
 beforeEach(() => {
   // Every test reads the threads against the same Wednesday afternoon.
   shiftNow(NOW);
@@ -383,6 +394,37 @@ describe("loading and failures", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(useAgentStore.getState().activeConversationId).toBe("c3");
     expect(useAgentStore.getState().messages).toEqual(said);
+  });
+
+  it("keeps the caption and its focus while Try again loads, and when it fails again", async () => {
+    const onClose = renderList();
+    await screen.findByText("Velocity question");
+    h.load.mockImplementationOnce(async () => failed([]));
+    fireEvent.click(openButton("Velocity question"));
+    const caption = (await screen.findByText(openFailed("Velocity question"))).closest(
+      "[data-voice]"
+    ) as HTMLElement;
+    await waitFor(() => expect(assertive()).toHaveTextContent(openFailed("Velocity question")));
+
+    const read = later<Read<ChatMessage[]>>();
+    h.load.mockImplementationOnce(() => read.promise);
+    const retry = within(caption).getByRole("button", { name: "Try again" });
+    retry.focus();
+    const said = heard(assertive());
+    fireEvent.click(retry);
+    // Loading: the caption and its button stay, focus on it, and it is busy.
+    expect(retry).toBeInTheDocument();
+    expect(retry).toHaveFocus();
+    expect(retry).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => read.settle(failed([])));
+    expect(screen.getByText(openFailed("Velocity question"))).toBeInTheDocument();
+    expect(retry).toHaveFocus();
+    expect(retry).not.toHaveAttribute("aria-busy");
+    expect(onClose).not.toHaveBeenCalled();
+    // Said again, once more.
+    await waitFor(() => expect(said.lines).toEqual([openFailed("Velocity question")]));
+    said.stop();
   });
 
   it("leaves the open thread's answer and card alone when another thread can't be opened", async () => {
