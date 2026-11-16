@@ -113,7 +113,7 @@ describe("handleMascotCommand", () => {
   it("writes each note as narration: Amr in the third person, no I, me or my", () => {
     for (const note of [DANCE_NOTE, AURA_ON_NOTE, AURA_OFF_NOTE, PLAY_NOTE, NO_SCENE_NOTE]) {
       expect(note).toMatch(/^Amr/);
-      expect(note).not.toMatch(/(?:I|me|my)/i);
+      expect(note).not.toMatch(/\b(?:I|me|my)\b/i);
       expect(note).not.toMatch(/[—–]/);
     }
   });

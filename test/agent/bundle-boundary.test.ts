@@ -639,7 +639,7 @@ describe("the chat strip (chat/)", () => {
     for (const container of [OWNER_CHAT, VISITOR_CHAT]) {
       expect(staticTargets(container)).toContain(`${CHAT_DIR}chat-composer.tsx`);
       const source = readFileSync(path.join(ROOT, container), "utf8");
-      expect(source, container).not.toMatch(/<form|<textarea/);
+      expect(source, container).not.toMatch(/<form\b|<textarea\b/);
     }
   });
 
