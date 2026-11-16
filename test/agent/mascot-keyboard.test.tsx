@@ -875,4 +875,48 @@ describe("under 360 px wide", () => {
     const menu = screen.getByRole("menu");
     expect(within(menu).queryByRole("menuitem", { name: /New chat/ })).toBeNull();
   });
+
+  it("shows the new chat from More's New chat, out from under Amr's scenes", async () => {
+    screenAt(320, 568);
+    await openChat();
+    const panel = dialog();
+    fireEvent.click(within(panel).getByRole("button", { name: "Amr's scenes" }));
+    await screen.findByTestId("mascot-scenes");
+    fireEvent.keyDown(within(panel).getByRole("button", { name: "More" }), { key: "Enter" });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: /New chat/ }));
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(within(dialog()).getByRole("button", { name: "Amr's scenes" })).toHaveAttribute(
+      "aria-pressed",
+      "false"
+    );
+    expect(composer()).toBeVisible();
+  });
+});
+
+// ── Amr's scenes in the phone's sheet ────────────────────────────────────
+
+describe("Amr's scenes in the phone's sheet", () => {
+  for (const side of ["right", "left"] as const) {
+    it(`pan in the sheet and end above him, docked ${side}, so no scene is his`, async () => {
+      screenAt(375, 667);
+      await openChat();
+      if (side === "left") {
+        act(() => amr().focus());
+        fireEvent.keyDown(amr(), { key: "ArrowLeft" });
+        await frames();
+      }
+      const panel = dialog();
+      fireEvent.click(within(panel).getByRole("button", { name: "Amr's scenes" }));
+      const scenes = await screen.findByTestId("mascot-scenes");
+      expect(panel).toHaveAttribute("data-amr-layout", "sheet");
+      expect(panel).toHaveAttribute("data-amr-dock", side);
+      // Its list is one of the sheet's scrollers (it pans, and keeps its
+      // scrolling to itself) and ends the dock's footer above the sheet's foot.
+      const list = scenes.querySelector<HTMLElement>("[data-amr-scroll]")!;
+      expect(list).not.toBeNull();
+      expect(list.className).toContain("overflow-y-auto");
+      expect(list.className).toContain("overscroll-contain");
+      expect(list.className).toContain(DOCK_END);
+    });
+  }
 });

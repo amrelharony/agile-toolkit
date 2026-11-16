@@ -2357,8 +2357,10 @@ export function MascotAssistant({
                     narrow && settled && isOwner
                       ? () => {
                           // Stops an answer under way too (the store's reset aborts the turn).
+                          // The new chat shows, out from under History and the scenes.
                           useAgentStore.getState().reset();
                           setShowHistory(false);
+                          setShowScenes(false);
                         }
                       : undefined
                   }
