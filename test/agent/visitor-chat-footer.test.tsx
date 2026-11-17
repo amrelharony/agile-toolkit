@@ -369,7 +369,7 @@ describe("the day's limit and its Cairo day", () => {
     await waitFor(() => expect(footer()).toBeNull());
     expect(screen.getByLabelText("Message")).toBeInTheDocument();
     expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent(
-      `${VISITOR_AI_DAILY_MESSAGES} messages a day`
+      `${VISITOR_AI_DAILY_MESSAGES} AI uses a day`
     );
     // Try again under the reply names no count from the day that is over.
     expect(

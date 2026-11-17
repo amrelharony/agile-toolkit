@@ -134,7 +134,7 @@ describe("dayOver", () => {
     // The line stops saying "0 of 100 left today" for a day that is over.
     expect(allowanceLine(none, before, true)).toBe("0 of 100 left today · Not saved");
     expect(allowanceLine(none, after, true)).toBe(
-      `${VISITOR_AI_DAILY_MESSAGES} messages a day · Not saved`
+      `${VISITOR_AI_DAILY_MESSAGES} AI uses a day · Not saved`
     );
   });
 

@@ -925,7 +925,7 @@ describe("MascotAssistant — visitor AI", () => {
   });
 
   it("keeps a chat under way readable when Amr can't answer any more, and reopens on it", async () => {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     useAgentStore.setState({
       chatProfile: "visitor",
       messages: [
