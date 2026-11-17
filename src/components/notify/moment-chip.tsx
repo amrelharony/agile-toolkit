@@ -14,7 +14,8 @@ import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import { APP_RAIL_VAR } from "@/lib/layout/amr-sheet";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
 import { useAgentStore } from "@/lib/agent/store";
-import { cornerAt } from "@/components/agent/mascot/amr-geometry";
+// Not amr-geometry: the chip is in the static shell, and amr-corner has no imports.
+import { cornerAt } from "@/components/agent/mascot/amr-corner";
 import { CHIP_MS, useMomentStore, type MomentShown } from "@/lib/notify/moment-scheduler";
 import { momentChipText } from "@/lib/notify/copy";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";

@@ -44,6 +44,7 @@ import {
   type AmrLayout,
   type VisibleBox,
 } from "@/components/agent/mascot/amr-geometry";
+import * as corner from "@/components/agent/mascot/amr-corner";
 import * as metrics from "@/components/agent/mascot/engine/figure-metrics";
 import * as poses from "@/components/agent/mascot/engine/sprite-poses";
 import { PHONE_MAX_PX } from "@/lib/layout/breakpoints";
@@ -140,9 +141,20 @@ describe("figure-metrics", () => {
     expect(poses.FIGURE_BOTTOM).toBe(metrics.FIGURE_BOTTOM);
   });
 
-  it("imports nothing, and amr-geometry imports only it", () => {
+  it("imports nothing, and amr-geometry imports only it and amr-corner, which imports nothing", () => {
     expect(importsOf(path.join(MASCOT, "engine/figure-metrics.ts"))).toEqual([]);
-    expect(importsOf(path.join(MASCOT, "amr-geometry.ts"))).toEqual(["./engine/figure-metrics"]);
+    expect(importsOf(path.join(MASCOT, "amr-corner.ts"))).toEqual([]);
+    // amr-corner twice: imported for its own use, and re-exported.
+    expect(new Set(importsOf(path.join(MASCOT, "amr-geometry.ts")))).toEqual(
+      new Set(["./amr-corner", "./engine/figure-metrics"])
+    );
+  });
+
+  it("re-exports amr-corner's names as they are, so either path reads the same", () => {
+    expect(BUTTON_INSET).toBe(corner.BUTTON_INSET);
+    expect(BUTTON_SIDE).toBe(corner.BUTTON_SIDE);
+    expect(LAUNCHER_PLATE).toBe(corner.LAUNCHER_PLATE);
+    expect(cornerAt).toBe(corner.cornerAt);
   });
 
   it("the import reader sees type-only, multi-line and re-exporting imports", () => {

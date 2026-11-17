@@ -108,6 +108,19 @@ const OWNER_RUNTIME = [
   "src/components/agent/conversation-list.tsx",
 ];
 
+/**
+ * Amr's geometry: his panel, sheet and dock maths and the figure's metrics.
+ * The static shell takes only amr-corner.ts (no imports) for his corner and
+ * his button's place; webpack keeps every used export of a module in the chunk
+ * that holds it, so one shell import from amr-geometry ships all of it on
+ * every first paint.
+ */
+const AMR_GEOMETRY = [
+  "src/components/agent/mascot/amr-geometry.ts",
+  "src/components/agent/mascot/engine/figure-metrics.ts",
+];
+const AMR_CORNER = "src/components/agent/mascot/amr-corner.ts";
+
 /** Amr's sprite engine: the scene tables, the pose maths, the clips and the packs. */
 const HEAVY_ENGINE = [
   "src/components/agent/mascot/mascot-packs.ts",
@@ -530,6 +543,8 @@ describe("import graph walk (self-tests)", () => {
     for (const file of [
       ...OWNER_RUNTIME,
       ...HEAVY_ENGINE,
+      ...AMR_GEOMETRY,
+      AMR_CORNER,
       ...VISITOR_BODY_MODULES,
       MARKDOWN_VIEW,
       MARKDOWN_PARSER,
@@ -589,6 +604,18 @@ describe("every-page bundle", () => {
 
   it("keeps Amr's sprite engine out of the static shell", () => {
     expect(violations(staticShell, HEAVY_ENGINE.map(exactly))).toEqual([]);
+  });
+
+  it("keeps Amr's geometry out of the static shell: it takes only amr-corner, which imports nothing", () => {
+    expect(violations(staticShell, AMR_GEOMETRY.map(exactly))).toEqual([]);
+    // The shell's two users read his corner and button from the leaf, so the
+    // ban above bites on something real.
+    expect(staticShell.files.has(AMR_CORNER)).toBe(true);
+    expect(staticTargets(MOMENT_CHIP)).toContain(AMR_CORNER);
+    expect(staticTargets("src/components/layout/amr-boundary.tsx")).toContain(AMR_CORNER);
+    expect(staticTargets(AMR_CORNER)).toEqual([]);
+    // Amr's own chunk still reaches the whole geometry.
+    expect(mascotChunk.files.has(AMR_GEOMETRY[0])).toBe(true);
   });
 
   it("reaches the owner's chat only through a dynamic import in mascot-assistant", () => {
