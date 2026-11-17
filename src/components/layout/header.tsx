@@ -34,6 +34,7 @@ import { SonificationToggle } from "@/components/shared/sonification-toggle";
 import { LlmStatusChip } from "@/components/ai/llm-status-chip";
 import { useAgentStore } from "@/lib/agent/store";
 import { AMR_PANEL_ID, platformShortcut } from "@/components/agent/mascot/panel-ids";
+import { closeAmrSheet } from "@/lib/layout/amr-sheet";
 import { XpBar } from "@/components/gamification/xp-bar";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
@@ -193,10 +194,15 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
         scrolled ? "bg-card border-b border-border" : "bg-transparent border-b border-transparent"
       )}
     >
-      {/* Mobile hamburger — hidden on md+. Touch-target compliant (44×44). */}
+      {/* Mobile hamburger — hidden on md+. Touch-target compliant (44×44).
+          Amr's phone sheet closes first, so the two never stack (the other
+          surfaces close it as they open: ShellDialogs, ActivityPanel). */}
       <button
         type="button"
-        onClick={onOpenSidebar}
+        onClick={() => {
+          closeAmrSheet();
+          onOpenSidebar?.();
+        }}
         data-no-sound="true"
         className="md:hidden min-touch shrink-0 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition active-press"
         aria-label="Open navigation"

@@ -30,6 +30,8 @@
  *
  * Closing (closePanel(reason) in mascot-assistant, which says why first):
  *   - "navigate": nothing comes back; the next page takes focus.
+ *   - "outside": nothing comes back either; the surface opening over the
+ *     phone's sheet (the sidebar, search, Activity) takes focus.
  *   - Any other reason: when focus was left inside the panel (and so falls to
  *     <body> as it goes) it returns to the opener, the element that held it
  *     when the panel opened, or to Amr's button when there was none or it has
@@ -61,7 +63,10 @@ export type PanelCloseReason =
   | "shortcut"
   /** A link or a tool was followed: the next page takes focus, nothing is restored. */
   | "navigate"
-  /** Something outside the panel closed it (another surface opening over it). */
+  /**
+   * Another surface opening over the phone's sheet closed it (lib/layout/
+   * amr-sheet): that surface takes focus, nothing is restored.
+   */
   | "outside"
   /** The phone's Back, on the full-height sheet. */
   | "back"
@@ -231,9 +236,12 @@ export function usePanelFocus(options: PanelFocusOptions): PanelFocus {
       if (p) focusOn(p, true);
     };
 
-    /** On close: back to the opener, or Amr's button, unless focus is already somewhere. */
+    /**
+     * On close: back to the opener, or Amr's button, unless focus is already
+     * somewhere, or what closed it takes focus itself (a page, a surface).
+     */
     const restore = (reason: PanelCloseReason | null) => {
-      if (reason === "navigate" || !onPage(document.activeElement)) return;
+      if (reason === "navigate" || reason === "outside" || !onPage(document.activeElement)) return;
       const touch = onTouchScreen();
       for (const el of [s.opener, latest.current.fallbackRef.current]) {
         if (!el || !el.isConnected || (touch && typesText(el))) continue;

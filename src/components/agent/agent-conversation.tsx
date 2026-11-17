@@ -24,13 +24,19 @@ import {
   conversationTitle,
 } from "@/lib/agent/persist";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { Narration } from "./comic/comic-parts";
 import { useChatVisible } from "./chat-visibility";
 import { ConfirmCard } from "./chat/confirm-card";
 import { MessageBubble, useToolSteps } from "./message-bubble";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
-import { useInitialFocus } from "./mascot/panel-context";
+import {
+  COMPACT_HIDDEN,
+  COMPACT_LOG,
+  DOCK_FOOTER_IN_PX3,
+  useInitialFocus,
+} from "./mascot/panel-context";
 import { Send, Mic, Square } from "lucide-react";
 import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 
@@ -215,13 +221,17 @@ export function AgentConversation() {
   const steps = useToolSteps(messages, streaming);
 
   return (
-    <div className="flex flex-col h-full">
+    // min-h-0, so in a short panel (a phone's keyboard up) this shrinks to the
+    // room it has and the footer stays in reach; compact, the panel's ground
+    // scrolls past the log's floor instead.
+    <div className="flex h-full min-h-0 flex-col">
       <div
         ref={scrollRef}
         role="log"
         aria-live="polite"
         aria-label="Conversation"
-        className="flex-1 overflow-y-auto px-1 py-2 space-y-3"
+        data-amr-scroll=""
+        className={cn("flex-1 space-y-3 overflow-y-auto overscroll-contain px-1 py-2", COMPACT_LOG)}
       >
         {messages.length === 0 && (
           <div className="text-sm text-sub py-12 text-center space-y-2">
@@ -269,7 +279,8 @@ export function AgentConversation() {
         )}
       </div>
 
-      <div className="border-t border-border pt-3 mt-2">
+      {/* Docked Amr (the phone's sheet) stands beside this, in its gutter. */}
+      <div className={cn("mt-2 shrink-0 border-t border-border pt-3", DOCK_FOOTER_IN_PX3)}>
         <form
           onSubmit={(e) => {
             e.preventDefault();
@@ -279,6 +290,7 @@ export function AgentConversation() {
         >
           <textarea
             ref={composerRef}
+            data-amr-composer=""
             value={input}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
@@ -328,7 +340,7 @@ export function AgentConversation() {
           )}
         </form>
         {voice.error && <p className="mt-1.5 text-xs text-destructive">{voice.error}</p>}
-        <p className="text-xs text-sub mt-1.5">
+        <p className={cn("mt-1.5 text-xs text-sub", COMPACT_HIDDEN)}>
           {/* Key hints mean nothing on a touch screen; the safety note stays. It
               is true: every delete, remove, reset, clear or archive asks
               (lib/agent/execute-tool isDestructiveAction), even after Approve all. */}

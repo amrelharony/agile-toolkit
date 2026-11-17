@@ -26,6 +26,7 @@ import { EXPANSION_TITLES } from "./engine/expansion-titles";
 import { SCENE_THUMBS, THUMB_INDEX } from "./engine/scene-thumbs";
 import { COMPANION_SCENES, galleryScene, sceneReaction, type SceneName } from "./engine/scenes";
 import { shippedScene } from "./engine/sprite-poses";
+import { DOCK_END } from "./panel-context";
 
 /** The companion stories' titles (docs/mascot/companion-scenes.json; a test keeps them equal). */
 export const COMPANION_TITLES: Readonly<Record<string, string>> = {
@@ -213,7 +214,12 @@ export default function ScenesTab({
           {status}
         </p>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3">
+      {/* In the phone's sheet it pans (data-amr-scroll) and ends above Amr
+          docked there, so no scene scrolls under him. */}
+      <div
+        data-amr-scroll=""
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3 ${DOCK_END}`}
+      >
         {shown.map((group) => (
           <div key={group.id} className="pt-2">
             <h2

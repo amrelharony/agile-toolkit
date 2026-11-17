@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { CSSProperties } from "react";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
@@ -12,6 +14,11 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
  * - His panel is his balloon (the chat revamp): a tail on the edge facing his
  *   figure, none while he's carried or the launcher stands in for him; its
  *   size comes from PANEL_SIZE, and Enlarge (md and up) is remembered.
+ * - On phones (chat revamp PR 8): upright, the panel is a full-height sheet in
+ *   the visible box and he docks in its bottom corner, his phone size, still
+ *   carried; a short screen gets the panel down one side beside him; the page
+ *   behind the sheet holds still; he never leaves the page while a field has
+ *   the keyboard.
  */
 
 vi.mock("@/lib/auth/auth-provider", () => ({
@@ -25,12 +32,21 @@ const sprite = vi.hoisted(() => ({ fail: false }));
 vi.mock("@/components/agent/mascot/mascot-sprite", async () => {
   const { useEffect } = await import("react");
   return {
-    default: function SpriteStandIn({ onLoadError }: { onLoadError?: () => void }) {
+    default: function SpriteStandIn({
+      onLoadError,
+      width,
+      height,
+    }: {
+      onLoadError?: () => void;
+      width?: number;
+      height?: number;
+    }) {
       useEffect(() => {
         if (sprite.fail) onLoadError?.();
         // eslint-disable-next-line react-hooks/exhaustive-deps
       }, []);
-      return <div data-testid="mascot-sprite" />;
+      // The size he is drawn at, for the dock's "never scaled".
+      return <div data-testid="mascot-sprite" data-w={width} data-h={height} />;
     },
   };
 });
@@ -43,10 +59,25 @@ import {
   type Corner,
 } from "@/components/agent/mascot/mascot-assistant";
 import {
+  BUTTON_SIDE,
+  COMPACT_TOP,
+  DOCK_GAP,
+  DOCK_INSET,
+  FEET_TRIM,
+  HIT_SIDE,
   LAUNCHER_PLATE,
+  MASCOT_BOX,
+  MASCOT_BOX_PHONE,
+  PANEL_GAP,
   PANEL_SIZE,
+  SIDE_PANEL_MAX_W,
+  dockInsets,
+  type AmrCorner,
   type PanelSizeName,
 } from "@/components/agent/mascot/amr-geometry";
+import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "@/components/agent/mascot/engine/figure-metrics";
+import { DOCK_END_FULL } from "@/components/agent/mascot/panel-context";
+import { VISIBLE_GAP } from "@/lib/layout/use-visible-area";
 import { useAgentStore } from "@/lib/agent/store";
 import { useBubbleStore } from "@/lib/agent/mascot/bubble";
 import { useMascotStore } from "@/lib/agent/mascot/store";
@@ -406,7 +437,7 @@ describe("stepping aside", () => {
     });
   });
 
-  it("stepped up 144 px at 360x640, his panel opens below the header", async () => {
+  it("stepped up 144 px at 360x640, he docks in the sheet's bottom corner, and steps up again once it closes", async () => {
     stubScreen({ phone: true });
     // A tall control down the right edge covers home and the first two steps up;
     // another down the left edge covers the other side: only 144 px up is clear.
@@ -455,16 +486,28 @@ describe("stepping aside", () => {
       { timeout: 2000 }
     );
 
-    act(() => useAgentStore.setState({ open: true }));
-    const panel = screen.getByRole("dialog", { name: "Amr" });
-    const box = panelBox({ bottom: panel.style.bottom, maxHeight: panel.style.maxHeight }, VH);
-    // Close, New chat and History clear the header; the panel is still above his head.
-    expect(box.top).toBeGreaterThanOrEqual(HEADER_H);
-    expect(VH - box.bottom).toBeCloseTo(98.5 + 144);
     // His bubble and the moment chip learn where he is: stepped up 144 px, same side.
     expect(useMascotStore.getState().placed).toEqual({ side: "right", edge: "bottom" });
     expect(useMascotStore.getState().lift).toBe(144);
-    useAgentStore.setState({ open: false });
+
+    // A phone held upright: the panel opens as the full-height sheet, from
+    // under the header to above the home indicator, and he docks in its
+    // bottom corner on his side (the sheet covers the controls he had
+    // stepped up for), so nothing beside him follows the lift meanwhile.
+    act(() => useAgentStore.setState({ open: true }));
+    const panel = screen.getByRole("dialog", { name: "Amr" });
+    expect(panel).toHaveAttribute("data-amr-layout", "sheet");
+    expect(parseFloat(panel.style.getPropertyValue("--amr-vv-top"))).toBeGreaterThanOrEqual(8);
+    expect(amrButton()).toHaveAttribute("data-amr-docked");
+    expect(amrButton().style.bottom).toContain("--amr-dock-bottom");
+    expect(useMascotStore.getState().placed).toEqual({ side: "right", edge: "bottom" });
+    expect(useMascotStore.getState().lift).toBe(0);
+
+    // Closed, he is back where he stepped up to.
+    act(() => useAgentStore.setState({ open: false }));
+    expect(amrButton()).not.toHaveAttribute("data-amr-docked");
+    expect(parseFloat(amrButton().style.bottom.replace(/^calc\(/, ""))).toBe(145);
+    expect(useMascotStore.getState().lift).toBe(144);
   });
 
   it("with a cutout on one side, finds his way home from the other side", async () => {
@@ -809,7 +852,7 @@ describe("his panel is his balloon", () => {
     expect(panel.style.getPropertyValue("--tail-at")).toBe("calc(40px - 0.4rem - var(--panel-w))");
   });
 
-  it("on a phone, drops the tail while a page field outside the panel has the keyboard", async () => {
+  it("on a phone, stays on the page while a page field has the keyboard, tail and all; his bubble waits", async () => {
     stubScreen({ phone: true });
     render(
       <>
@@ -819,23 +862,30 @@ describe("his panel is his balloon", () => {
     );
     await withFigure();
     expect(openPanel()).toHaveAttribute("data-tail", "down");
+    act(() => useAgentStore.setState({ open: false }));
 
     const field = screen.getByLabelText("Page field");
     act(() => {
       field.focus();
     });
-    // He steps off the page for the keyboard: nothing beside the panel to point at.
-    expect(screen.queryByTitle(/^Ask Amr/)).toBeNull();
-    const typing = screen.getByRole("dialog", { name: "Amr" });
-    expect(typing).toHaveAttribute("data-tail", "none");
-    expect(typing).not.toHaveAttribute("data-tail-from");
-    expect(typing.style.getPropertyValue("--tail-at")).toBe("");
+    // He is never taken off the page (DNA-SPEC §6), and the panel still points at him.
+    const button = amr();
+    expect(button.querySelector("[data-mascot-hit]")).not.toBeNull();
+    expect(openPanel()).toHaveAttribute("data-tail", "down");
+    act(() => useAgentStore.setState({ open: false }));
+    // What he has to say waits until the field lets go, rather than sit over it.
+    act(() => useBubbleStore.getState().show({ id: "hi", text: "Need a hand?" }));
+    expect(document.querySelector("[data-amr-bubble]")).toBeNull();
 
     act(() => {
       field.blur();
     });
-    expect(amr()).toBeInTheDocument();
-    expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute("data-tail", "down");
+    // The same button all along, never unmounted; and now he speaks.
+    expect(amr()).toBe(button);
+    expect(document.querySelector("[data-amr-bubble-region] [role=status]")).toHaveTextContent(
+      "Need a hand?"
+    );
+    act(() => useBubbleStore.setState({ current: null }));
   });
 
   it("has no tail while the launcher stands in for him", () => {
@@ -1014,5 +1064,678 @@ describe("Enlarge", () => {
     expect(size("height")).toBe(PANEL_SIZE.normal.height);
     fireEvent.click(enlarge());
     expect(size("height")).toBe(PANEL_SIZE.large.height);
+  });
+});
+
+describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)", () => {
+  /** The visual viewport, as a phone reports it: resize events as a keyboard moves. */
+  class StubViewport extends EventTarget {
+    width = 0;
+    height = 0;
+    offsetTop = 0;
+    offsetLeft = 0;
+    scale = 1;
+  }
+  let vv: StubViewport;
+  /** The top and bottom safe areas his probe reads (jsdom can't resolve env()). */
+  let safe = { top: 0, bottom: 0 };
+
+  const dialog = () => screen.getByRole("dialog", { name: "Amr" });
+  /** A CSS variable the shell wrote on an element, in px. */
+  const px = (el: HTMLElement, name: string) => parseFloat(el.style.getPropertyValue(name));
+  const scale = MASCOT_BOX_PHONE.h / SHEET.cellH;
+  /** Let the viewport listener's animation frame run. */
+  const frames = () => act(() => new Promise((r) => setTimeout(r, 20)));
+
+  /**
+   * A screen `w` by `h`, its site header ending `header` px down (a notch's
+   * safe area above it included), and the safe areas given. Phone width is
+   * the PHONE_MEDIA_QUERY's, unless said.
+   */
+  function screenAt(
+    w: number,
+    h: number,
+    opts: { insetTop?: number; insetBottom?: number; header?: number; phone?: boolean } = {}
+  ) {
+    vi.stubGlobal("innerWidth", w);
+    vi.stubGlobal("innerHeight", h);
+    vv = new StubViewport();
+    vv.width = w;
+    vv.height = h;
+    vi.stubGlobal("visualViewport", vv);
+    safe = { top: opts.insetTop ?? 0, bottom: opts.insetBottom ?? 0 };
+    const header = document.createElement("header");
+    header.setAttribute("data-chrome", "header");
+    header.setAttribute("data-test-control", "");
+    const bottom = opts.header ?? HEADER_H;
+    vi.spyOn(header, "getBoundingClientRect").mockReturnValue({
+      left: 0,
+      top: 0,
+      width: w,
+      height: bottom,
+      x: 0,
+      y: 0,
+      right: w,
+      bottom,
+      toJSON: () => ({}),
+    } as DOMRect);
+    document.body.appendChild(header);
+    stubScreen({ phone: opts.phone ?? w <= 639, coarse: true });
+  }
+
+  /** The keyboard (or none) as iOS and Chrome report it: only the visual viewport shrinks. */
+  function keyboard(kb: number) {
+    vv.height = window.innerHeight - vv.offsetTop - kb;
+    vv.dispatchEvent(new Event("resize"));
+  }
+
+  /** The page's main, which the sheet makes inert. */
+  function pageMain(): HTMLElement {
+    const main = document.createElement("main");
+    main.id = "main-content";
+    main.setAttribute("data-test-control", "");
+    document.body.appendChild(main);
+    return main;
+  }
+
+  async function withFigure() {
+    act(() => {
+      window.dispatchEvent(new Event("pointerdown"));
+    });
+    await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
+  }
+
+  function openPanel() {
+    act(() => useAgentStore.setState({ open: true }));
+    return dialog();
+  }
+
+  async function guide() {
+    return screen.findByTestId("mascot-visitor-guide", undefined, { timeout: 5000 });
+  }
+
+  /** Picks him up at the top left of his box (jsdom lays nothing out) and carries him to (x, y). */
+  function carry(x: number, y: number, drop = true) {
+    act(() => {
+      fireEvent.pointerDown(amrButton(), { button: 0, clientX: 0, clientY: 0 });
+    });
+    act(() => {
+      fireEvent.pointerMove(document, { clientX: x, clientY: y });
+    });
+    if (!drop) return;
+    act(() => {
+      fireEvent.pointerUp(document, { clientX: x, clientY: y });
+    });
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) =>
+      window.setTimeout(() => cb(performance.now()), 0)
+    );
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => window.clearTimeout(id));
+    // The probe's safe areas; every other element as jsdom has it.
+    const real = window.getComputedStyle.bind(window);
+    vi.spyOn(window, "getComputedStyle").mockImplementation((el, pseudo) => {
+      const cs = real(el, pseudo);
+      if (!(el instanceof HTMLElement) || !el.hasAttribute("data-amr-inset-probe")) return cs;
+      const used: Record<string, string> = {
+        paddingTop: `${safe.top}px`,
+        paddingBottom: `${safe.bottom}px`,
+        paddingLeft: "0px",
+        paddingRight: "0px",
+      };
+      return new Proxy(cs, {
+        get(target, prop) {
+          if (typeof prop === "string" && prop in used) return used[prop];
+          const v = Reflect.get(target, prop, target);
+          return typeof v === "function" ? v.bind(target) : v;
+        },
+      });
+    });
+  });
+
+  afterEach(() => {
+    act(() => useAgentStore.setState({ open: false }));
+    document.querySelectorAll("[data-test-control]").forEach((n) => n.remove());
+    useMascotStore.getState().setCorner("bottomRight");
+  });
+
+  for (const s of [
+    { w: 320, h: 568 },
+    { w: 360, h: 640 },
+    { w: 375, h: 812 },
+  ]) {
+    for (const inset of [0, 34]) {
+      it(`${s.w}x${s.h}${inset ? ", notch and home indicator" : ""}: the sheet fills the visible box, and he docks in its bottom corner at his phone size`, async () => {
+        // An iPhone's notch sits above the header (44 px), its home indicator below.
+        const header = (inset ? 44 : 0) + HEADER_H;
+        screenAt(s.w, s.h, { insetTop: inset ? 44 : 0, insetBottom: inset, header });
+        const main = pageMain();
+        render(<MascotAssistant />);
+        await withFigure();
+        const panel = openPanel();
+        expect(panel).toHaveAttribute("data-amr-layout", "sheet");
+
+        // Its edges: under the header, above the home indicator, in line with his side offset.
+        expect(px(panel, "--amr-vv-top")).toBe(header + VISIBLE_GAP);
+        expect(px(panel, "--amr-vv-bottom")).toBe(inset + VISIBLE_GAP);
+        expect(px(panel, "--amr-vv-left")).toBe(BUTTON_SIDE);
+        expect(px(panel, "--amr-vv-right")).toBe(BUTTON_SIDE);
+        expect(panel.style.top).toContain("--amr-vv-top");
+        expect(panel.style.bottom).toContain("--amr-vv-bottom");
+        expect(panel.style.getPropertyValue("--amr-panel-height")).toBe("auto");
+        expect(panel).not.toHaveAttribute("data-amr-compact");
+        // No tail and no Enlarge: he stands inside it, and it fills its room.
+        expect(panel).toHaveAttribute("data-tail", "none");
+        expect(screen.queryByRole("button", { name: "Enlarge chat" })).toBeNull();
+
+        // Docked in its bottom right corner: the phone's figure, never scaled.
+        const button = amrButton();
+        expect(button).toHaveAttribute("data-amr-docked");
+        expect(button.style.bottom).toContain("--amr-dock-bottom");
+        expect(button.style.right).toContain("--amr-dock-inline");
+        const dockBottom = px(button, "--amr-dock-bottom");
+        const dockRight = px(button, "--amr-dock-inline");
+        expect(dockBottom).toBeCloseTo(inset + VISIBLE_GAP + DOCK_INSET - FEET_TRIM * scale, 1);
+        expect(dockRight).toBeCloseTo(BUTTON_SIDE + DOCK_INSET - MASCOT_BOX_PHONE.w * HIT_SIDE, 1);
+        const figure = screen.getByTestId("mascot-sprite");
+        expect(figure).toHaveAttribute("data-w", String(MASCOT_BOX_PHONE.w));
+        expect(figure).toHaveAttribute("data-h", String(MASCOT_BOX_PHONE.h));
+        // His figure (the hit span) stands inside the sheet, DOCK_INSET in from its corner.
+        const hitRight = s.w - dockRight - MASCOT_BOX_PHONE.w * HIT_SIDE;
+        const hitBottom = s.h - dockBottom - (MASCOT_BOX_PHONE.h - FIGURE_BOTTOM * scale);
+        const hitTop = s.h - dockBottom - MASCOT_BOX_PHONE.h + FIGURE_TOP * scale;
+        const sheetBottom = s.h - inset - VISIBLE_GAP;
+        expect(hitRight).toBeCloseTo(s.w - BUTTON_SIDE - DOCK_INSET, 1);
+        expect(hitBottom).toBeCloseTo(sheetBottom - DOCK_INSET, 1);
+        expect(hitTop).toBeGreaterThan(header + VISIBLE_GAP + 52);
+        // The views keep his gutter beside the footer, and the footer is as tall as he is.
+        const dock = dockInsets("bottomRight");
+        expect(panel).toHaveAttribute("data-amr-dock", "right");
+        expect(panel.style.getPropertyValue("--amr-dock-gutter")).toBe(
+          `calc(${dock.gutter}px - var(--panel-w) - 0.375rem)`
+        );
+        expect(panel.style.getPropertyValue("--amr-dock-footer")).toBe(
+          `calc(${dock.footer}px - var(--panel-w) - 0.375rem)`
+        );
+        expect(dock.footer).toBeGreaterThanOrEqual(sheetBottom - hitTop);
+        // ...and DOCK_GAP clear of his figure: the footer's inner edge never reaches him.
+        const hitLeft = hitRight - MASCOT_BOX_PHONE.w * (1 - 2 * HIT_SIDE);
+        expect(s.w - BUTTON_SIDE - dock.gutter).toBeLessThanOrEqual(hitLeft - DOCK_GAP);
+        // The page behind holds still, in this layout only.
+        expect(document.documentElement).toHaveAttribute("data-amr-sheet");
+        expect(main).toHaveAttribute("inert");
+        // The bubble and the moment chip learn he is at the bottom.
+        expect(useMascotStore.getState().placed).toEqual({ side: "right", edge: "bottom" });
+
+        act(() => useAgentStore.setState({ open: false }));
+        expect(document.documentElement).not.toHaveAttribute("data-amr-sheet");
+        expect(main).not.toHaveAttribute("inert");
+        expect(amrButton()).not.toHaveAttribute("data-amr-docked");
+        expect(amrButton().style.getPropertyValue("--amr-dock-bottom")).toBe("");
+        expect(amrButton().style.bottom).toContain("safe-area-inset-bottom");
+      });
+    }
+  }
+
+  it("320x460, an upright phone under Safari's bars: still the sheet, with him docked in it", async () => {
+    // Its layout height is the screen less the browser's bars, 500 px or
+    // less, but it is taller than it is wide: never the side panel.
+    screenAt(320, 460);
+    const main = pageMain();
+    render(<MascotAssistant />);
+    await withFigure();
+    const panel = openPanel();
+    expect(panel).toHaveAttribute("data-amr-layout", "sheet");
+    expect(px(panel, "--amr-vv-top")).toBeGreaterThanOrEqual(VISIBLE_GAP);
+    expect(px(panel, "--amr-vv-top")).toBe(HEADER_H + VISIBLE_GAP);
+    expect(px(panel, "--amr-vv-bottom")).toBe(VISIBLE_GAP);
+    const button = amrButton();
+    expect(button).toHaveAttribute("data-amr-docked");
+    expect(screen.getByTestId("mascot-sprite")).toHaveAttribute(
+      "data-w",
+      String(MASCOT_BOX_PHONE.w)
+    );
+    expect(panel.style.getPropertyValue("--amr-dock-gutter")).not.toBe("");
+    expect(panel.style.getPropertyValue("--amr-dock-footer")).not.toBe("");
+    expect(document.documentElement).toHaveAttribute("data-amr-sheet");
+    expect(main).toHaveAttribute("inert");
+  });
+
+  for (const w of [320, 360, 375]) {
+    for (const inset of [0, 34]) {
+      for (const figure of [true, false]) {
+        it(`${w}x812${inset ? ", home indicator" : ""}, ${figure ? "his figure" : "the launcher plate"} docked: the tool finder ends above him, so no tile is his`, async () => {
+          screenAt(w, 812, { insetTop: inset ? 44 : 0, insetBottom: inset, header: HEADER_H });
+          render(<MascotAssistant />);
+          if (figure) await withFigure();
+          const panel = openPanel();
+          const finder = await guide();
+          await frames();
+          const button = amrButton();
+          expect(button).toHaveAttribute("data-amr-docked");
+          // Sized h-full, so its height gives way while he is docked.
+          expect(finder.className).toContain(DOCK_END_FULL);
+          expect(finder.className).not.toContain("pb-[var(--amr-dock-footer)]");
+          // Its foot on the screen: the sheet's, less the footer's room.
+          const finderBottom =
+            812 - px(panel, "--amr-vv-bottom") - dockRoom(panel, "--amr-dock-footer");
+          const dockBottom = px(button, "--amr-dock-bottom");
+          const top = figure
+            ? 812 - dockBottom - MASCOT_BOX_PHONE.h + FIGURE_TOP * scale
+            : 812 - dockBottom - LAUNCHER_PLATE.h;
+          expect(finderBottom).toBeLessThanOrEqual(top + 1e-6);
+        });
+      }
+    }
+  }
+
+  /**
+   * A dock variable's room, px from the sheet's outer edge (its line and
+   * padding added back), worked out at a root font of `rem` px with the
+   * plate's size as the panel has it measured.
+   */
+  function dockRoom(panel: HTMLElement, name: string, rem = 16): number {
+    const css = panel.style
+      .getPropertyValue(name)
+      .replace(
+        /var\((--amr-plate-[wh]), 0px\)/g,
+        (_, v: string) => panel.style.getPropertyValue(v) || "0px"
+      )
+      .replace(/var\(--panel-w\)/g, "0px")
+      .replace(/(\d+(?:\.\d+)?)rem/g, (_, n: string) => `${Number(n) * rem}px`);
+    return cssPx(css, 0) + 0.375 * rem;
+  }
+
+  /**
+   * The launcher plate docked in the sheet's bottom right corner: on the
+   * screen, clear of the views. `plate` is its drawn size (larger text grows
+   * it), at a root font of `rem` px.
+   */
+  function expectPlateDocked(
+    w: number,
+    h: number,
+    inset: number,
+    { plate = LAUNCHER_PLATE, rem = 16 }: { plate?: { w: number; h: number }; rem?: number } = {}
+  ) {
+    const panel = dialog();
+    const button = amrButton();
+    expect(button).toHaveAttribute("data-launcher");
+    expect(button).toHaveAttribute("data-amr-docked");
+    const inline = px(button, "--amr-dock-inline");
+    const bottom = px(button, "--amr-dock-bottom");
+    // Its whole box is drawn: DOCK_INSET inside the corner, never off the screen.
+    expect(inline).toBeGreaterThanOrEqual(0);
+    expect(inline).toBeCloseTo(BUTTON_SIDE + DOCK_INSET, 1);
+    expect(bottom).toBeCloseTo(inset + VISIBLE_GAP + DOCK_INSET, 1);
+    // The views keep the plate's gutter and footer, as it is drawn: its
+    // inner edge stays DOCK_GAP clear of them, and it stands beside the
+    // composer's row, never over the log.
+    const gutter = dockRoom(panel, "--amr-dock-gutter", rem);
+    const footer = dockRoom(panel, "--amr-dock-footer", rem);
+    const floor = dockInsets("bottomRight", false);
+    expect(gutter).toBeGreaterThanOrEqual(floor.gutter);
+    expect(footer).toBeGreaterThanOrEqual(floor.footer);
+    expect(gutter).toBeGreaterThanOrEqual(DOCK_INSET + plate.w + DOCK_GAP);
+    expect(footer).toBeGreaterThanOrEqual(DOCK_INSET + plate.h);
+    const plateLeft = w - inline - plate.w;
+    const gutterEdge = w - BUTTON_SIDE - gutter;
+    expect(plateLeft).toBeGreaterThanOrEqual(gutterEdge + DOCK_GAP);
+    const sheetBottom = h - inset - VISIBLE_GAP;
+    const plateTop = h - bottom - plate.h;
+    expect(plateTop).toBeGreaterThanOrEqual(sheetBottom - footer);
+    // A 44 px Send at the end of the composer's row, at the gutter's edge:
+    // its centre is never on the plate.
+    const send = { x: gutterEdge - 22, y: sheetBottom - 8 - 22 };
+    const onPlate =
+      send.x >= plateLeft && send.x <= w - inline && send.y >= plateTop && send.y <= h - bottom;
+    expect(onPlate).toBe(false);
+  }
+
+  for (const inset of [0, 34]) {
+    it(`375x812${inset ? ", notch and home indicator" : ""}: the launcher plate docks inside the sheet's corner until his figure comes, then he takes its place`, async () => {
+      const header = (inset ? 44 : 0) + HEADER_H;
+      screenAt(375, 812, { insetTop: inset ? 44 : 0, insetBottom: inset, header });
+      render(<MascotAssistant />);
+      openPanel();
+      await frames();
+      expectPlateDocked(375, 812, inset);
+
+      // His figure comes while the sheet is open: the dock moves to it.
+      await withFigure();
+      await frames();
+      const panel = dialog();
+      const button = amrButton();
+      expect(button).not.toHaveAttribute("data-launcher");
+      expect(panel.style.getPropertyValue("--amr-plate-w")).toBe("");
+      expect(panel.style.getPropertyValue("--amr-plate-h")).toBe("");
+      expect(px(button, "--amr-dock-inline")).toBeCloseTo(
+        BUTTON_SIDE + DOCK_INSET - MASCOT_BOX_PHONE.w * HIT_SIDE,
+        1
+      );
+      expect(px(button, "--amr-dock-bottom")).toBeCloseTo(
+        inset + VISIBLE_GAP + DOCK_INSET - FEET_TRIM * scale,
+        1
+      );
+      const fig = dockInsets("bottomRight");
+      expect(panel.style.getPropertyValue("--amr-dock-gutter")).toBe(
+        `calc(${fig.gutter}px - var(--panel-w) - 0.375rem)`
+      );
+      expect(panel.style.getPropertyValue("--amr-dock-footer")).toBe(
+        `calc(${fig.footer}px - var(--panel-w) - 0.375rem)`
+      );
+    });
+  }
+
+  it("keeps the room for the launcher plate as drawn, when larger text grows it", async () => {
+    screenAt(375, 812);
+    render(<MascotAssistant />);
+    // At 200% text the plate is about 200x88: what the shell reads off it.
+    const button = amrButton();
+    Object.defineProperty(button, "offsetWidth", { configurable: true, get: () => 200 });
+    Object.defineProperty(button, "offsetHeight", { configurable: true, get: () => 88 });
+    const panel = openPanel();
+    await frames();
+    expect(px(panel, "--amr-plate-w")).toBe(200);
+    expect(px(panel, "--amr-plate-h")).toBe(88);
+    expect(dockRoom(panel, "--amr-dock-gutter")).toBe(DOCK_INSET + 200 + DOCK_GAP);
+    expect(dockRoom(panel, "--amr-dock-footer")).toBe(DOCK_INSET + 88);
+    expectPlateDocked(375, 812, 0, { plate: { w: 200, h: 88 } });
+  });
+
+  it("at a 32 px root font, keeps the plate's rem box before any reading is larger", async () => {
+    screenAt(375, 812);
+    render(<MascotAssistant />);
+    openPanel();
+    await frames();
+    // jsdom draws nothing (a reading of 0): the rem box alone grows the room.
+    const plate = { w: LAUNCHER_PLATE.w * 2, h: LAUNCHER_PLATE.h * 2 };
+    expect(dockRoom(dialog(), "--amr-dock-gutter", 32)).toBe(DOCK_INSET + plate.w + DOCK_GAP);
+    expect(dockRoom(dialog(), "--amr-dock-footer", 32)).toBe(DOCK_INSET + plate.h);
+    expectPlateDocked(375, 812, 0, { plate, rem: 32 });
+  });
+
+  it("keeps the launcher plate docked inside the sheet's corner while his figure is tried again and after it gives up", async () => {
+    sprite.fail = true;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      screenAt(375, 812, { insetTop: 44, insetBottom: 34, header: 44 + HEADER_H });
+      render(<MascotAssistant />);
+      openPanel();
+      act(() => {
+        window.dispatchEvent(new Event("pointerdown"));
+      });
+      // (the idle moment, then the sheet fails, and each try after it)
+      await act(() => vi.advanceTimersByTimeAsync(300));
+      for (const wait of FIGURE_RETRY_MS) {
+        expectPlateDocked(375, 812, 34);
+        await act(() => vi.advanceTimersByTimeAsync(wait));
+      }
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expectPlateDocked(375, 812, 34);
+    } finally {
+      sprite.fail = false;
+    }
+  });
+
+  for (const s of [
+    { w: 812, h: 375, phone: false, box: MASCOT_BOX },
+    { w: 568, h: 320, phone: true, box: MASCOT_BOX_PHONE },
+  ]) {
+    it(`${s.w}x${s.h}: the panel runs down one side beside him, top to bottom, and the page stays live`, async () => {
+      screenAt(s.w, s.h, { phone: s.phone });
+      const main = pageMain();
+      render(<MascotAssistant />);
+      await withFigure();
+      const panel = openPanel();
+      expect(panel).toHaveAttribute("data-amr-layout", "side");
+      // Under 360 px to see: compact, from just under the top of the screen to its bottom.
+      expect(panel).toHaveAttribute("data-amr-compact");
+      expect(px(panel, "--amr-vv-top")).toBe(COMPACT_TOP);
+      expect(px(panel, "--amr-vv-bottom")).toBe(VISIBLE_GAP);
+      // On his side, clear of his figure, as wide as the room allows up to its cap.
+      const reach = s.box.w * (1 - HIT_SIDE);
+      const inline = px(panel, "--amr-vv-inline");
+      const width = px(panel, "--amr-vv-width");
+      expect(panel.style.right).toContain("--amr-vv-inline");
+      expect(inline).toBeCloseTo(BUTTON_SIDE + reach + PANEL_GAP, 1);
+      expect(width).toBeCloseTo(
+        Math.min(SIDE_PANEL_MAX_W, s.w - 2 * BUTTON_SIDE - reach - PANEL_GAP),
+        1
+      );
+      expect(s.w - inline - width).toBeGreaterThanOrEqual(BUTTON_SIDE);
+      // He stays in his corner at his usual size; the tail is on the edge facing him.
+      expect(amrButton()).not.toHaveAttribute("data-amr-docked");
+      expect(amrButton().style.bottom).toContain("safe-area-inset-bottom");
+      expect(screen.getByTestId("mascot-sprite")).toHaveAttribute("data-w", String(s.box.w));
+      expect(panel).toHaveAttribute("data-tail", "right");
+      expect(panel).toHaveAttribute("data-tail-from", "bottom");
+      // Nothing is locked: the page beside it stays live.
+      expect(document.documentElement).not.toHaveAttribute("data-amr-sheet");
+      expect(main).not.toHaveAttribute("inert");
+    });
+  }
+
+  it("keeps the sheet through a Firefox-style shrink while a panel field has focus, and lays out again once none has", async () => {
+    screenAt(360, 640);
+    render(<MascotAssistant />);
+    await withFigure();
+    openPanel();
+    await guide();
+    const search = screen.getByLabelText("What do you need to do?");
+    act(() => search.focus());
+
+    // Firefox shrinks both viewports for its keyboard: no keyboard can be
+    // told, the screen just looks 340 px tall.
+    vi.stubGlobal("innerHeight", 340);
+    vv.height = 340;
+    window.dispatchEvent(new Event("resize"));
+    vv.dispatchEvent(new Event("resize"));
+    await frames();
+    expect(dialog()).toHaveAttribute("data-amr-layout", "sheet");
+    // Fixed boxes already stop above it; with little room left, compact.
+    expect(px(dialog(), "--amr-vv-bottom")).toBe(VISIBLE_GAP);
+    expect(dialog()).toHaveAttribute("data-amr-compact");
+    expect(px(dialog(), "--amr-vv-top")).toBe(COMPACT_TOP);
+
+    // The field lets go and the screen is still that short: now it is a short screen.
+    act(() => search.blur());
+    window.dispatchEvent(new Event("resize"));
+    await frames();
+    expect(dialog()).toHaveAttribute("data-amr-layout", "side");
+
+    // Its full height again: the sheet.
+    vi.stubGlobal("innerHeight", 640);
+    vv.height = 640;
+    window.dispatchEvent(new Event("resize"));
+    await frames();
+    expect(dialog()).toHaveAttribute("data-amr-layout", "sheet");
+    expect(dialog()).not.toHaveAttribute("data-amr-compact");
+  });
+
+  it("lays out again when the phone is turned, even while a panel field has focus", async () => {
+    screenAt(360, 640);
+    render(<MascotAssistant />);
+    await withFigure();
+    openPanel();
+    await guide();
+    act(() => screen.getByLabelText("What do you need to do?").focus());
+    vi.stubGlobal("innerWidth", 640);
+    vi.stubGlobal("innerHeight", 360);
+    vv.width = 640;
+    vv.height = 360;
+    window.dispatchEvent(new Event("orientationchange"));
+    await frames();
+    expect(dialog()).toHaveAttribute("data-amr-layout", "side");
+    expect(amrButton()).not.toHaveAttribute("data-amr-docked");
+  });
+
+  it("lays out again when the turn's new size comes only after its orientationchange, a panel field focused", async () => {
+    screenAt(360, 640);
+    render(<MascotAssistant />);
+    await withFigure();
+    openPanel();
+    await guide();
+    act(() => screen.getByLabelText("What do you need to do?").focus());
+
+    // Android Chrome and older iOS: orientationchange first, still at the old size...
+    window.dispatchEvent(new Event("orientationchange"));
+    await frames();
+    expect(dialog()).toHaveAttribute("data-amr-layout", "sheet");
+
+    // ...then the resize that carries the new one: a new width is a turn,
+    // never a keyboard, so it lays out again with the field still focused.
+    vi.stubGlobal("innerWidth", 640);
+    vi.stubGlobal("innerHeight", 360);
+    vv.width = 640;
+    vv.height = 360;
+    window.dispatchEvent(new Event("resize"));
+    vv.dispatchEvent(new Event("resize"));
+    await frames();
+    expect(dialog()).toHaveAttribute("data-amr-layout", "side");
+    expect(amrButton()).not.toHaveAttribute("data-amr-docked");
+    expect(document.documentElement).not.toHaveAttribute("data-amr-sheet");
+  });
+
+  const corners: { keys: string[]; corner: AmrCorner; side: "left" | "right" }[] = [
+    { keys: [], corner: "bottomRight", side: "right" },
+    { keys: ["ArrowUp"], corner: "topRight", side: "right" },
+    { keys: ["ArrowLeft"], corner: "bottomLeft", side: "left" },
+    { keys: ["ArrowUp", "ArrowLeft"], corner: "topLeft", side: "left" },
+  ];
+  for (const c of corners) {
+    it(`${c.corner}: docked at the bottom on his side, at his phone size, keyboard up or down`, async () => {
+      screenAt(360, 640);
+      render(<MascotAssistant />);
+      await withFigure();
+      for (const key of c.keys) fireEvent.keyDown(amrButton(), { key });
+      const panel = openPanel();
+      await guide();
+      const other = c.side === "left" ? "right" : "left";
+      const button = amrButton();
+      expect(button).toHaveAttribute("data-amr-docked");
+      expect(button.style[c.side]).toContain("--amr-dock-inline");
+      expect(button.style[other]).toBe("");
+      expect(button.style.top).toBe("");
+      expect(panel).toHaveAttribute("data-amr-dock", c.side);
+      // The panel says where he is drawn, as the store does: the balloons in
+      // it count their tails from there.
+      expect(panel).toHaveAttribute("data-amr-edge", "bottom");
+      expect(panel).toHaveAttribute("data-amr-side", c.side);
+      // His corner is kept for after; he is drawn at the bottom.
+      expect(useMascotStore.getState().corner).toBe(c.corner);
+      expect(useMascotStore.getState().placed).toEqual({ side: c.side, edge: "bottom" });
+      const rest = px(button, "--amr-dock-bottom");
+      expect(rest).toBeCloseTo(VISIBLE_GAP + DOCK_INSET - FEET_TRIM * scale, 1);
+
+      // The tool finder's search has the keyboard: the sheet goes compact
+      // above it, and he stays where he stands (he rides it only beside the
+      // chat's composer).
+      act(() => screen.getByLabelText("What do you need to do?").focus());
+      keyboard(300);
+      await frames();
+      expect(panel).toHaveAttribute("data-amr-compact");
+      expect(px(panel, "--amr-vv-bottom")).toBe(300 + VISIBLE_GAP);
+      expect(px(button, "--amr-dock-bottom")).toBeCloseTo(rest, 2);
+      expect(screen.getByTestId("mascot-sprite")).toHaveAttribute(
+        "data-w",
+        String(MASCOT_BOX_PHONE.w)
+      );
+
+      act(() => screen.getByLabelText("What do you need to do?").blur());
+      keyboard(0);
+      await frames();
+      expect(panel).not.toHaveAttribute("data-amr-compact");
+      expect(px(button, "--amr-dock-bottom")).toBeCloseTo(rest, 2);
+      expect(screen.getByTestId("mascot-sprite")).toHaveAttribute(
+        "data-h",
+        String(MASCOT_BOX_PHONE.h)
+      );
+
+      // Closed, he stands in the corner he chose.
+      act(() => useAgentStore.setState({ open: false }));
+      expect(amrButton().style[c.side]).toContain(`safe-area-inset-${c.side}`);
+      if (c.corner.startsWith("top")) expect(amrButton().style.top).toContain("--header-h");
+      else expect(amrButton().style.bottom).toContain("safe-area-inset-bottom");
+    });
+  }
+
+  it("is still carried while docked: a drop mid-sheet picks his side now and his corner for after", async () => {
+    screenAt(360, 640);
+    render(<MascotAssistant />);
+    await withFigure();
+    const panel = openPanel();
+    // Mid-sheet on the left, above the visible box's middle ((64 + 632) / 2).
+    carry(60, 300, false);
+    expect(amrButton().style.top).toBe("300px");
+    act(() => {
+      fireEvent.pointerUp(document, { clientX: 60, clientY: 300 });
+    });
+    expect(useMascotStore.getState().corner).toBe("topLeft");
+    expect(useMascotStore.getState().placed).toEqual({ side: "left", edge: "bottom" });
+    expect(amrButton()).toHaveAttribute("data-amr-docked");
+    expect(amrButton().style.left).toContain("--amr-dock-inline");
+    expect(panel).toHaveAttribute("data-amr-dock", "left");
+
+    act(() => useAgentStore.setState({ open: false }));
+    expect(amrButton().style.top).toContain("--header-h");
+    expect(amrButton().style.left).toContain("safe-area-inset-left");
+  });
+
+  it("drops him by the visible box: at y=250 with 300 px in view, a bottom corner", async () => {
+    screenAt(360, 640);
+    // A page field's keyboard is up: 300 px of the page can be seen.
+    vv.height = 300;
+    render(<MascotAssistant />);
+    await withFigure();
+    // Carried under the keyboard, he stops at the visible bottom (640 - 340).
+    carry(40, 600, false);
+    expect(amrButton().style.top).toBe("300px");
+    act(() => {
+      fireEvent.pointerMove(document, { clientX: 40, clientY: 250 });
+    });
+    act(() => {
+      fireEvent.pointerUp(document, { clientX: 40, clientY: 250 });
+    });
+    // y=250 is below the visible box's middle ((64 + 292) / 2), though above the screen's.
+    expect(useMascotStore.getState().corner).toBe("bottomLeft");
+  });
+
+  it("holds the page still in the sheet only: the document's computed overflow is hidden, and its scrollers pan", async () => {
+    // globals.css "AMR SHEET", as the page has it.
+    const source = readFileSync(path.resolve(__dirname, "../../src/app/globals.css"), "utf8");
+    const start = source.indexOf("/* AMR SHEET");
+    const block = source.slice(start, source.indexOf("/* Presentation mode", start));
+    expect(block).toContain("html[data-amr-sheet]");
+    const style = document.createElement("style");
+    style.textContent = block;
+    document.head.appendChild(style);
+    try {
+      screenAt(360, 640);
+      const view = render(<MascotAssistant />);
+      expect(window.getComputedStyle(document.documentElement).overflow).not.toBe("hidden");
+      openPanel();
+      const finder = await guide();
+      expect(window.getComputedStyle(document.documentElement).overflow).toBe("hidden");
+      // The sheet's chrome takes no swipe but still pinch-zooms (WCAG 1.4.4);
+      // its scrollers pan, zoom too, and keep their scrolling.
+      expect(window.getComputedStyle(dialog()).touchAction).toBe("pinch-zoom");
+      expect(window.getComputedStyle(finder).touchAction).toBe("pan-y pinch-zoom");
+      expect(window.getComputedStyle(finder).overscrollBehavior).toBe("contain");
+
+      act(() => useAgentStore.setState({ open: false }));
+      expect(window.getComputedStyle(document.documentElement).overflow).not.toBe("hidden");
+      view.unmount();
+
+      // Beside a floating card the page stays live.
+      vi.stubGlobal("innerWidth", 1024);
+      vi.stubGlobal("innerHeight", 768);
+      stubScreen({ phone: false, coarse: false });
+      render(<MascotAssistant />);
+      expect(openPanel()).toHaveAttribute("data-amr-layout", "float");
+      expect(window.getComputedStyle(document.documentElement).overflow).not.toBe("hidden");
+    } finally {
+      style.remove();
+    }
   });
 });

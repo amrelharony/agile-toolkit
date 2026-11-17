@@ -20,6 +20,9 @@
  * is drawn (the mascot store's `placed`, the other side when he has stepped
  * aside) and as far off his edge as he has stepped (`lift`). A moment chip or
  * his open panel has the spot first: the bubble waits, a line's clock too.
+ * So does everything while `waiting` (a field on the page has a phone's
+ * keyboard): he stays on the page, and what he has to say shows, its clock
+ * starting then, once the field lets go. A question isn't lost meanwhile.
  *
  * For screen readers the outer region is not live (it is held still during a
  * page change). Inside it a status line holding only the words is always
@@ -81,7 +84,12 @@ function useToolLabel(need: boolean): LabelOf | null {
   return labelOf;
 }
 
-export function MascotBubble() {
+export function MascotBubble({
+  waiting = false,
+}: {
+  /** Hold everything back for now (a page field has a phone's keyboard); nothing is dropped. */
+  waiting?: boolean;
+} = {}) {
   const bubble = useBubbleStore((s) => s.current);
   const dismiss = useBubbleStore((s) => s.dismiss);
   const placed = useMascotStore((s) => s.placed);
@@ -98,8 +106,9 @@ export function MascotBubble() {
   // The narrator first (behind a moment chip, which has the spot). His own
   // line waits behind both, and behind his open panel: while a turn runs with
   // the panel shut it waits even before the narration has its words.
-  const narration = momentUp ? null : outsideNarration(phase, labelOf);
-  const line = bubble && !momentUp && !panelOpen && phase === null ? bubble : null;
+  const holdBack = momentUp || waiting;
+  const narration = holdBack ? null : outsideNarration(phase, labelOf);
+  const line = bubble && !holdBack && !panelOpen && phase === null ? bubble : null;
 
   // A line fades on its own unless held; a question has no clock.
   useEffect(() => {

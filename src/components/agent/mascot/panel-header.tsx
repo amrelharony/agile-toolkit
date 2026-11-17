@@ -24,25 +24,37 @@
  *
  * At least 52 px tall. Icons are ghost Buttons, 44 px on touch screens. The
  * slots fill only inside a <PanelChrome> (panel-chrome.tsx); without one the
- * header shows its defaults. Small on purpose: it ships in the mascot chunk.
+ * header shows its defaults.
+ *
+ * In compact mode (the panel's data-amr-compact: a phone's keyboard is up, or
+ * there is little room) it folds to one 44 px row: the back slot, the plate,
+ * the view's icons, More and Close, every one still in reach (a landscape
+ * phone is always compact, and History, New chat and Move Amr live there);
+ * only the subtitle's line (and Enlarge, float-only anyway) waits until there
+ * is room again. Under 360 px wide, the shell can hand it New chat
+ * (onNewChat), which then heads the More menu instead of sitting beside
+ * History. Small on purpose: it ships in the mascot chunk.
  * The menu is the site's dropdown (ui/dropdown-menu), which the page header's
  * account menu already loads on every page.
  */
 
 import { useId, type ReactNode } from "react";
-import { Ellipsis, Maximize2, Minimize2, X } from "lucide-react";
+import { Ellipsis, Maximize2, Minimize2, Plus, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 import { AMR_CORNERS, cornerName, type AmrCorner } from "./amr-geometry";
 import { PanelIconButton, usePanelHosts } from "./panel-chrome";
+import { COMPACT_HIDDEN } from "./panel-context";
 import { platformShortcut } from "./panel-ids";
 
 /** The plate's id unless the shell gives one: the dialog's aria-labelledby. */
@@ -95,6 +107,11 @@ export interface PanelHeaderProps {
   enlarged?: boolean;
   /** Toggles the enlarged size. Without it there is no Enlarge button. */
   onToggleEnlarge?: () => void;
+  /**
+   * New chat, at the head of the More menu: the shell passes it under 360 px
+   * wide, where the owner's own New chat icon hides. Without it, none.
+   */
+  onNewChat?: () => void;
   onClose: () => void;
 }
 
@@ -107,6 +124,7 @@ export function PanelHeader({
   move,
   enlarged = false,
   onToggleEnlarge,
+  onNewChat,
   onClose,
 }: PanelHeaderProps) {
   const slots = usePanelHosts();
@@ -118,7 +136,7 @@ export function PanelHeader({
   return (
     <div
       data-panel-header=""
-      className="flex min-h-[52px] shrink-0 items-center gap-1 border-b border-border px-3 py-1"
+      className="flex min-h-[52px] shrink-0 items-center gap-1 border-b border-border px-3 py-1 group-data-[amr-compact]/amr:min-h-11 group-data-[amr-compact]/amr:py-0"
     >
       <span
         ref={slots.ref("back")}
@@ -129,7 +147,7 @@ export function PanelHeader({
         <h2 id={plateId} className="comic-name-plate" tabIndex={-1}>
           Amr
         </h2>
-        <p className="w-full truncate text-xs text-sub">
+        <p className={cn("w-full truncate text-xs text-sub", COMPACT_HIDDEN)}>
           {!filled && subtitle}
           {/* dir=auto: a thread title in Arabic keeps its own direction. */}
           <span ref={slots.ref("subtitle")} data-panel-slot="subtitle" dir="auto" />
@@ -148,14 +166,14 @@ export function PanelHeader({
           className="flex items-center gap-0.5 empty:hidden"
         />
         {controls}
-        {hasMenu && <PanelMore shortcut={shortcut} tilt={tilt} move={move} />}
+        {hasMenu && <PanelMore shortcut={shortcut} tilt={tilt} move={move} onNewChat={onNewChat} />}
         {onToggleEnlarge && (
           <PanelIconButton
             label="Enlarge chat"
             title={enlarged ? "Make chat smaller" : "Enlarge chat"}
             aria-pressed={enlarged}
             onClick={onToggleEnlarge}
-            className="hidden md:inline-flex"
+            className={cn("hidden md:inline-flex", COMPACT_HIDDEN)}
           >
             {enlarged ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
           </PanelIconButton>
@@ -185,10 +203,12 @@ function PanelMore({
   shortcut,
   tilt,
   move,
+  onNewChat,
 }: {
   shortcut?: string;
   tilt?: PanelTilt;
   move?: PanelMove;
+  onNewChat?: () => void;
 }) {
   const moveLabelId = useId();
   return (
@@ -199,6 +219,15 @@ function PanelMore({
         </PanelIconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
+        {onNewChat && (
+          <>
+            <DropdownMenuItem onSelect={onNewChat}>
+              <Plus aria-hidden="true" className="h-4 w-4" />
+              New chat
+            </DropdownMenuItem>
+            {(move || tilt) && <DropdownMenuSeparator />}
+          </>
+        )}
         {move && (
           <>
             <DropdownMenuLabel id={moveLabelId} className="text-xs text-sub">

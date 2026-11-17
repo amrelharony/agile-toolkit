@@ -16,6 +16,8 @@ import { isVipHidden } from "@/lib/tools/catalog";
 import { getGuide, type ToolGuide } from "@/lib/tools/guides";
 import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { useMascotStore } from "@/lib/agent/mascot/store";
+import { closeAmrSheet } from "@/lib/layout/amr-sheet";
+import { DOCK_END_FULL, useAmrPanel } from "./panel-context";
 
 /** A search with no match, left alone this long, gets a shrug from Amr. */
 export const SHRUG_AFTER_MS = 900;
@@ -186,10 +188,18 @@ export function VisitorGuide({
     return () => clearTimeout(id);
   }, [typed, trimmed, count, more, announce]);
 
+  // A tool picked closes the panel: the caller's way, else the panel
+  // context's (its links replace the phone sheet's Back marker, ToolLink).
+  // The settings button opens a dialog, not a page, so it first closes the
+  // phone sheet as a surface opening over it (Back's marker taken out), then
+  // closes the panel this way (nothing left to close in the sheet).
+  const panel = useAmrPanel();
+  const navigate = onNavigate ?? panel.onNavigate;
+
   // Picking a tool: "you've got this".
   const chose = () => {
     useMascotStore.getState().queueReaction("cheer");
-    onNavigate?.();
+    navigate();
   };
 
   return (
@@ -200,7 +210,9 @@ export function VisitorGuide({
       ref={guideRef}
       tabIndex={-1}
       data-testid="mascot-visitor-guide"
-      className="flex h-full flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-3 focus:outline-none"
+      // It ends above Amr docked in the phone's sheet: no tile scrolls under him.
+      data-amr-scroll=""
+      className={`flex h-full flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-3 focus:outline-none ${DOCK_END_FULL}`}
     >
       {note}
       {/* The search comes first. A phone shows about 360 px of this panel, and
@@ -359,7 +371,8 @@ export function VisitorGuide({
           size="sm"
           className="text-sub pointer-coarse:min-h-11"
           onClick={() => {
-            onNavigate?.();
+            closeAmrSheet();
+            navigate();
             openSettings();
           }}
         >
@@ -413,7 +426,10 @@ function AskButton({
  * A tool to open: a `row` for a search result (name over a two-line
  * description) or a `tile` for a popular task (the job over its tool's name).
  * Tiles get the 44 px touch floor; neither presses yet (the site's press for
- * rows and cards comes with wave P).
+ * rows and cards comes with wave P). In the phone's sheet, while its Back
+ * marker is the newest history entry, the tool's page takes its place (the
+ * panel context's replaceOnNavigate), so Back from the tool leaves the site's
+ * page it was opened on, not a marker for a sheet that has gone.
  */
 function ToolLink({
   href,
@@ -428,10 +444,12 @@ function ToolLink({
   onNavigate?: () => void;
   variant?: "row" | "tile";
 }) {
+  const { replaceOnNavigate } = useAmrPanel();
   if (variant === "tile") {
     return (
       <Link
         href={href}
+        replace={replaceOnNavigate}
         onClick={onNavigate}
         className="min-touch-coarse group flex h-full min-w-0 flex-col justify-center gap-0.5 rounded-md border border-border bg-card px-2.5 py-2 transition-colors hover:border-accent hover:bg-accent/10 focus-visible:bg-accent/10"
       >
@@ -450,6 +468,7 @@ function ToolLink({
   return (
     <Link
       href={href}
+      replace={replaceOnNavigate}
       onClick={onNavigate}
       className="group flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/10 focus-visible:bg-accent/10"
     >
