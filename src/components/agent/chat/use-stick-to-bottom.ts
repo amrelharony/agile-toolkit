@@ -111,7 +111,8 @@ function distanceToEnd(el: HTMLElement): number {
   return el.scrollHeight - el.clientHeight - el.scrollTop;
 }
 
-function scrollElTo(el: HTMLElement, top: number, behavior: ScrollBehavior) {
+/** Scroll one scroller (never scrollIntoView, which moves every scroller around it). */
+export function scrollElTo(el: HTMLElement, top: number, behavior: ScrollBehavior) {
   if (typeof el.scrollTo === "function") el.scrollTo({ top, behavior });
   else el.scrollTop = top;
 }

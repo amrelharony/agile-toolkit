@@ -42,8 +42,11 @@
  * Focus. A control that takes itself away hands focus to the composer, caret
  * at the end, before it goes (the chat context's focusComposer): Latest does
  * here, except after a tap on a touch screen (a key press there still hands
- * focus over); Try again, Go on, starters and follow-ups do where they are
- * drawn.
+ * focus over); Try again and Go on do the same in the notice (chat-notice),
+ * except that a tap on a touch screen hands focus to the latest question's
+ * caption; starters and follow-ups do where they are drawn, and a decided
+ * confirm card hands it to the composer, or on a touch screen to its step's
+ * caption (confirm-card).
  * The safety net catches any other case: when what had focus inside the
  * frame is taken out of the page and focus is left on nothing (the body),
  * the composer takes it, except on a coarse pointer, where a text field
@@ -65,17 +68,10 @@ import type { ChatItem } from "@/lib/agent/chat-view";
 import { cn } from "@/lib/utils";
 import { useChatVisible } from "../chat-visibility";
 import { DOCK_FOOTER_IN_PX3 } from "../mascot/panel-context";
-import { useChat } from "./chat-context";
+import { onTouchScreen, tapOnTouchScreen, useChat } from "./chat-context";
 import { ChatLog } from "./chat-log";
 import { useStickToBottom } from "./use-stick-to-bottom";
 import { useTurnAnnouncer } from "./use-turn-announcer";
-
-/**
- * A touch screen: a text field taking focus there raises the keyboard. Kept
- * here, not panel-context's helper, so nothing new reaches mascot code.
- */
-const onTouchScreen = (doc: Document | undefined) =>
-  doc?.defaultView?.matchMedia?.("(pointer: coarse)")?.matches === true;
 
 export interface ChatFrameProps {
   /** The strip's items, from lib/agent/chat-view. */
@@ -85,7 +81,7 @@ export interface ChatFrameProps {
    * items yet. The turn is spoken once when this goes false.
    */
   busy?: boolean;
-  /** What the log shows after its items: the empty line, thinking, the confirm card, a notice. */
+  /** What the log shows after its items: the empty line, thinking, a notice. */
   children?: ReactNode;
   /** The composer's row: the message form, and the lines and buttons under it. */
   footer: ReactNode;
@@ -181,14 +177,13 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
     };
   }, [focusComposer]);
 
-  const latest = (e: MouseEvent) => {
+  const latest = (e: MouseEvent<HTMLButtonElement>) => {
     // Focus first: the button goes as the log reaches its end. Not after a
     // tap on a touch screen: there a tap means "show me the newest", and the
     // box taking focus would raise the keyboard (compact mode, the log at its
     // floor) over it; as with the safety net, focus stays where the tap left
     // it. A key press (detail 0) still hands focus over.
-    const tap = e.detail > 0 && onTouchScreen(rootRef.current?.ownerDocument);
-    if (!tap) focusComposer();
+    if (!tapOnTouchScreen(e)) focusComposer();
     scrollToLatest();
   };
 

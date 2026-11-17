@@ -81,7 +81,7 @@ export function ThinkingBalloon({ className, ...rest }: DivProps) {
 }
 
 export interface SceneCaptionProps extends Omit<HTMLAttributes<HTMLParagraphElement>, "children"> {
-  /** The change: "Earlier today", "Picked up where you left off". */
+  /** The change: "Yesterday", "Picking up where you left off". */
   children: ReactNode;
 }
 

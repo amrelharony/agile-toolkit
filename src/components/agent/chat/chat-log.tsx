@@ -4,7 +4,9 @@
  * The chat's log: the comic strip itself, shared by both chats (the owner's
  * and a visitor's). It draws each lib/agent/chat-view item (chat-items) in
  * order, then whatever the chat shows after them (`children`: the empty
- * line, the thinking balloon, the confirm card, a notice).
+ * line, the thinking balloon, a notice). The confirm card shows under the
+ * step it asks about (chat/tool-steps); one whose call isn't in the chat
+ * shows here, after the items, so a turn never waits on a card no one sees.
  *
  *   role="log", named "Conversation"
  *   aria-live="off"   a log is polite by default, which would read out every
@@ -32,11 +34,13 @@ import { cn } from "@/lib/utils";
 import { COMPACT_LOG } from "../mascot/panel-context";
 import { useChat } from "./chat-context";
 import { ChatItemView } from "./chat-items";
+import { ConfirmCard } from "./confirm-card";
+import { cardUnderStep } from "./tool-steps";
 
 export interface ChatLogProps {
   /** The strip's items, from lib/agent/chat-view. */
   items: readonly ChatItem[];
-  /** What the log shows after its items: the empty line, thinking, the confirm card, a notice. */
+  /** What the log shows after its items: the empty line, thinking, a notice. */
   children?: ReactNode;
   /** The wrapper around the log's content, whose size grows as a reply streams in. */
   contentRef?: Ref<HTMLDivElement>;
@@ -48,7 +52,7 @@ export const ChatLog = forwardRef<HTMLDivElement, ChatLogProps>(function ChatLog
   { items, children, contentRef, className },
   ref
 ) {
-  const { logId } = useChat();
+  const { logId, profile } = useChat();
   return (
     <div
       ref={ref}
@@ -67,6 +71,7 @@ export const ChatLog = forwardRef<HTMLDivElement, ChatLogProps>(function ChatLog
         {items.map((item) => (
           <ChatItemView key={item.key} item={item} />
         ))}
+        {!cardUnderStep(items) && <ConfirmCard allowApproveAll={profile === "owner"} />}
         {children}
       </div>
     </div>

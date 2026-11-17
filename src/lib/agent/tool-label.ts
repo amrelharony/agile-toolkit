@@ -198,6 +198,63 @@ const VERBS: ReadonlySet<string> = new Set([
   "update",
 ]);
 
+/**
+ * First words of a verb that only reads: a tool's own state ("Read", from
+ * `list_state`), a list, a figure worked out, a suggestion. Everything else
+ * is a change.
+ */
+const READ_VERBS: ReadonlySet<string> = new Set([
+  "classify",
+  "compare",
+  "compute",
+  "derive",
+  "digest",
+  "export",
+  "find",
+  "forecast",
+  "get",
+  "list",
+  "read",
+  "recognition",
+  "search",
+  "show",
+  "status",
+  "suggest",
+  "summarize",
+  "trend",
+]);
+
+/**
+ * Whole verbs that only read but don't open on a read word: a report or a
+ * figure named as a noun ("Room status", "Weekly summary", "Risk"), a pick
+ * ("Surprise me"), a look ("Check goal", where "Check in" is a change), and
+ * the order worked out from the scores ("Decide order"). Keyed in lower case.
+ */
+const READ_NAMES: ReadonlySet<string> = new Set([
+  "by stage",
+  "check goal",
+  "decide order",
+  "meeting cost",
+  "risk",
+  "room status",
+  "surprise me",
+  "throughput forecast",
+  "weekly summary",
+]);
+
+/**
+ * The call only reads, going by its verb (the registry, which files each
+ * action as a read or a change, is owner-only code): the chat inks no tick
+ * for a read (DNA-SPEC section 9 keeps ink for a finished change). A verb
+ * that saves ("Classify and save") is a change. test/agent/tool-label.test.ts
+ * checks this against every registered action.
+ */
+export function readsOnly({ verb }: ToolLabel): boolean {
+  const lower = verb.toLowerCase();
+  const words = lower.split(" ");
+  return !words.includes("save") && (READ_VERBS.has(words[0]) || READ_NAMES.has(lower));
+}
+
 /** A name's words, in lower case: any run of letters and digits. */
 function wordsOf(text: string): string[] {
   return text.toLowerCase().match(/[a-z0-9]+/g) ?? [];

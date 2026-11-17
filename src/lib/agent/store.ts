@@ -94,6 +94,12 @@ interface AgentState {
   activeMeta: ConversationMeta | null;
   /** Messages in the active conversation, in chronological order. */
   messages: ChatMessage[];
+  /**
+   * The last message of the thread last opened with its messages (resumed,
+   * or picked from History): the strip says "Picking up where you left off"
+   * after it (lib/agent/chat-view). Null for a fresh chat.
+   */
+  resumedAfter: string | null;
   /** Set true while a Claude request is streaming. */
   streaming: boolean;
   /**
@@ -138,6 +144,13 @@ interface AgentState {
    * (VISITOR_FALLBACK_CODES): the panel goes back to the tool finder.
    */
   visitorFallback: VisitorErrorCode | null;
+  /**
+   * The chat's tool steps whose tick has inked, and the turns that had one
+   * (chat/tool-steps): a tick inks once, live, at most once a turn. A record,
+   * not state: added to in place, never saved and nothing subscribes, so a
+   * reload, a remount or a loaded thread draws every tick still.
+   */
+  inkedToolIds: Set<string>;
 }
 
 interface AgentActions {
@@ -212,6 +225,7 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   activeConversationId: null,
   activeMeta: null,
   messages: [],
+  resumedAfter: null,
   streaming: false,
   streamingMessageId: null,
   pendingToolUse: null,
@@ -225,6 +239,7 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   chatProfile: "owner",
   visitorQuota: null,
   visitorFallback: null,
+  inkedToolIds: new Set(),
 
   openSheet: ({ via }: OpenSheetOptions = {}) =>
     set((s) => ({
@@ -271,6 +286,8 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
       activeConversationId: meta?.id ?? null,
       activeMeta: meta,
       messages,
+      // The same thread reloaded is no new pick-up.
+      ...(switching ? { resumedAfter: (meta && messages.at(-1)?.id) || null } : {}),
       pendingToolUse: null,
       notice: null,
       error: null,
@@ -363,6 +380,7 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
       activeConversationId: null,
       activeMeta: null,
       messages: [],
+      resumedAfter: null,
       streaming: false,
       streamingMessageId: null,
       pendingToolUse: null,

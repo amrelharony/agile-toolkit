@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
 import { useAgentStore } from "@/lib/agent/store";
-import { noticeAction } from "@/lib/agent/notice-actions";
-import { toolIdForPath } from "@/lib/agent/page-tool";
+import { OWNER_EMPTY, ownerStarters } from "@/lib/agent/owner-starters";
+import { resolvePageTool, toolIdForPath } from "@/lib/agent/page-tool";
 import { useAuth } from "@/lib/auth/auth-provider";
 import {
   sendUserMessage,
@@ -25,21 +25,43 @@ import {
 } from "@/lib/agent/persist";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { Narration } from "./comic/comic-parts";
 import { useChatVisible } from "./chat-visibility";
-import { ChatProvider, focusAtEnd } from "./chat/chat-context";
+import { ChatProvider } from "./chat/chat-context";
+import { ChatEmpty } from "./chat/chat-empty";
 import { ThinkingItemView } from "./chat/chat-items";
-import { ChatStrip, ThinkingStatus, useAwaitingReply } from "./chat/chat-strip";
-import { ConfirmCard } from "./chat/confirm-card";
+import { ChatNotice } from "./chat/chat-notice";
+import { ChatStatus } from "./chat/chat-status";
+import { ChatStrip, useAwaitingReply } from "./chat/chat-strip";
+import { StepDetails } from "./chat/step-details";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
 import { COMPACT_HIDDEN, useInitialFocus } from "./mascot/panel-context";
 import { Send, Mic, Square } from "lucide-react";
 import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 
-/** Resume the most recent thread at most once per page load (not on every
- *  panel reopen — that would override an intentional "New chat"). */
-let resumedThisLoad = false;
+/**
+ * The look for a thread to resume: once per page load (not on every panel
+ * reopen, which would override an intentional "New chat"). "idle" until the
+ * first open starts it, "checking" while it runs, "done" once it has
+ * settled, whatever it found. The empty chat waits for "done", so its
+ * starters never flash up before a thread loads over them.
+ */
+let resumeCheck: "idle" | "checking" | "done" = "idle";
+const resumeListeners = new Set<() => void>();
+
+function setResumeCheck(next: typeof resumeCheck) {
+  resumeCheck = next;
+  resumeListeners.forEach((listener) => listener());
+}
+
+function subscribeResumeCheck(listener: () => void): () => void {
+  resumeListeners.add(listener);
+  return () => {
+    resumeListeners.delete(listener);
+  };
+}
+
+const resumeSettled = () => resumeCheck === "done";
 
 /** Conversations created this page-load that are awaiting a model-generated
  *  title (resumed threads are never re-titled). */
@@ -50,32 +72,38 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
 
 /**
  * Active conversation view: the comic strip (chat/chat-strip: Amr's balloons,
- * the owner's captions, one caption per run of tool steps, with Details),
- * the composer and the confirmation card.
+ * the owner's captions, one caption per run of tool steps, with Details (the
+ * raw arguments and result), which only this chat hands the strip, and the
+ * confirmation card under the step it asks about, with Approve all) and the
+ * composer.
  *
  * The conversation is created in Supabase on the first message and every
  * message is persisted (via the client orchestrator's conversationId path), so
- * the thread survives reload; the most recent thread auto-resumes on open. The
+ * the thread survives reload; the most recent thread auto-resumes on open,
+ * and the strip marks where it was picked up (a scene caption). The
  * conversation list (switch / rename / delete) lives in ConversationList.
+ *
+ * An empty chat shows a narration line about Amr, in the third person, and up
+ * to three starters for the page the owner is on (chat/chat-empty, words in
+ * lib/agent/owner-starters), once the resume check has settled; a starter
+ * fills the message box and never sends.
  *
  * Closing the panel unmounts this and stops nothing: the turn and what the
  * owner has typed but not sent (drafts.owner) live in the agent store. Notes
- * and errors show as a narration caption, with "Try again" or "Go on" when
- * the notice calls for one (lib/agent/notice-actions).
+ * and errors show as a narration caption under the strip (chat/chat-notice),
+ * with "Try again" or "Go on" when the notice calls for one; the chat's
+ * status line (chat/chat-status) says what Amr is doing while he answers.
  *
  * Nothing here reads the messages themselves, only plain values a streamed
  * chunk leaves as they were, so a chunk re-renders the strip alone
- * (chat-strip), never this view, its composer or the card.
+ * (chat-strip), never this view or its composer.
  */
 export function AgentConversation() {
   const { user } = useAuth();
   const streaming = useAgentStore((s) => s.streaming);
-  const notice = useAgentStore((s) => s.notice);
   const input = useAgentStore((s) => s.drafts.owner);
   const empty = useAgentStore((s) => s.messages.length === 0);
-  // Try again only when the last turn ran no change; nothing to press while Amr answers.
-  const retryable = useAgentStore((s) => !s.streaming && canRetryLastTurn(s.messages));
-  // The thinking balloon and status, until the reply's first words or steps arrive.
+  // The thinking balloon, until the reply's first words or steps arrive.
   const awaiting = useAwaitingReply(streaming);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   // A send waiting for its new conversation: a second one waits its turn.
@@ -83,6 +111,12 @@ export function AgentConversation() {
   const pathname = usePathname();
   // False while Amr's Scenes view covers the chat (mounted, hidden).
   const visible = useChatVisible();
+  // The empty chat waits for the resume check; its starters follow the page.
+  const settled = useSyncExternalStore(subscribeResumeCheck, resumeSettled, () => false);
+  const starters = useMemo(
+    () => ownerStarters(resolvePageTool(toolIdForPath(pathname))),
+    [pathname]
+  );
 
   // The composer is where the panel's focus owner puts focus when it opens
   // (this component mounts on open), and again when the chat comes back from
@@ -97,23 +131,29 @@ export function AgentConversation() {
   // we're sitting on a blank draft. Guarded so it never clobbers an in-progress
   // thread or a deliberate New chat.
   useEffect(() => {
-    if (resumedThisLoad) return;
-    resumedThisLoad = true;
+    if (resumeCheck !== "idle") return;
     const blank = () => {
       const s = useAgentStore.getState();
       return !s.activeConversationId && s.messages.length === 0;
     };
-    if (!blank()) return;
+    if (!blank()) {
+      setResumeCheck("done");
+      return;
+    }
+    setResumeCheck("checking");
     // No alive-guard abort here: React StrictMode (dev) mounts → unmounts →
     // mounts, so an abort-on-cleanup would kill the in-flight resume while the
     // flag blocks the retry. setActiveConversation targets a zustand store (not
     // local state), so completing after unmount is safe; the blank() re-checks
     // prevent clobbering a chat the user started while it loaded.
-    void listConversations().then(async (list) => {
-      if (list.length === 0 || !blank()) return;
-      const msgs = await loadMessages(list[0].id);
-      if (blank()) useAgentStore.getState().setActiveConversation(list[0], msgs);
-    });
+    void listConversations()
+      .then(async (list) => {
+        if (list.length === 0 || !blank()) return;
+        const msgs = await loadMessages(list[0].id);
+        if (blank()) useAgentStore.getState().setActiveConversation(list[0], msgs);
+      })
+      // Settled either way: a failed look leaves the chat empty, its starters shown.
+      .finally(() => setResumeCheck("done"));
   }, []);
 
   // After a freshly-created conversation's first turn settles, upgrade its
@@ -196,24 +236,16 @@ export function AgentConversation() {
           conversationId: useAgentStore.getState().activeConversationId ?? undefined,
         }
       : null;
-  // The notice's buttons go with it once the turn starts, so focus moves to
-  // the message box first, caret at the end (read-only, never disabled,
-  // while Amr answers).
+  // The notice hands focus to the message box before these run (read-only,
+  // never disabled, while Amr answers).
   const tryAgain = () => {
     const opts = turnOptions();
-    if (!opts) return;
-    focusAtEnd(composerRef.current);
-    void retryLastTurn(opts);
+    if (opts) void retryLastTurn(opts);
   };
   const goOnNow = () => {
     const opts = turnOptions();
-    if (!opts) return;
-    focusAtEnd(composerRef.current);
-    void goOn(opts);
+    if (opts) void goOn(opts);
   };
-
-  const action = streaming || !user ? null : noticeAction(notice, "owner");
-  const canRetry = action === "retry" && retryable;
 
   // The composer's row: the frame keeps it shrink-0 (the form its direct
   // child) and makes room beside it for docked Amr.
@@ -266,19 +298,26 @@ export function AgentConversation() {
             size="icon"
             onClick={() => abortInFlight()}
             aria-label="Stop generating"
+            data-chat-send=""
             title="Stop"
             className="border-destructive text-destructive hover:bg-destructive/10"
           >
             <Square className="w-4 h-4" aria-hidden="true" />
           </Button>
         ) : (
-          <Button type="submit" disabled={!input.trim()} size="icon" aria-label="Send">
+          <Button
+            type="submit"
+            disabled={!input.trim()}
+            size="icon"
+            aria-label="Send"
+            data-chat-send=""
+          >
             <Send className="w-4 h-4" aria-hidden="true" />
           </Button>
         )}
       </form>
       {voice.error && <p className="mt-1.5 text-xs text-destructive">{voice.error}</p>}
-      <ThinkingStatus awaiting={awaiting} />
+      <ChatStatus busy={streaming} />
       <p className={cn("mt-1.5 text-xs text-sub", COMPACT_HIDDEN)}>
         {/* Key hints mean nothing on a touch screen; the safety note stays. It
             is true: every delete, remove, reset, clear or archive asks
@@ -295,40 +334,23 @@ export function AgentConversation() {
     // footer staying in reach. Its padding is inside that scroller, which
     // clips at its padding box: the composer's and Send's focus rings (High
     // contrast's reach 5 px out) stay clear of its edges.
-    <ChatProvider profile="owner" composerRef={composerRef}>
+    <ChatProvider profile="owner" composerRef={composerRef} stepDetails={StepDetails}>
       <ChatStrip busy={streaming} footer={footer} className="px-3 py-2">
         {empty && (
-          <div className="text-sm text-sub py-12 text-center space-y-2">
-            <p>Ask me to drive any tool: planning, retros, canvas, OKRs.</p>
-            <p className="text-xs">Examples:</p>
-            <ul className="text-xs space-y-1">
-              <li>&quot;Create a sprint called Sprint 47 starting today for 2 weeks.&quot;</li>
-              <li>&quot;Add a sticky to my active board saying &lsquo;flaky CI&rsquo;.&quot;</li>
-              <li>&quot;Plan the next sprint at 30 points capacity.&quot;</li>
-            </ul>
-          </div>
+          <ChatEmpty
+            line={OWNER_EMPTY.line}
+            short={OWNER_EMPTY.short}
+            starters={starters}
+            held={!settled}
+          />
         )}
         {awaiting && <ThinkingItemView />}
-        <ConfirmCard allowApproveAll />
-        {notice && (
-          <Narration
-            tone={notice.tone}
-            data-notice-kind={notice.kind}
-            actions={
-              canRetry ? (
-                <Button type="button" variant="outline" size="sm" onClick={tryAgain}>
-                  Try again
-                </Button>
-              ) : action === "go_on" ? (
-                <Button type="button" variant="outline" size="sm" onClick={goOnNow}>
-                  Go on
-                </Button>
-              ) : null
-            }
-          >
-            {notice.text}
-          </Narration>
-        )}
+        <ChatNotice
+          ready={!streaming && !!user}
+          canRetry={canRetryLastTurn}
+          onTryAgain={tryAgain}
+          onGoOn={goOnNow}
+        />
       </ChatStrip>
     </ChatProvider>
   );

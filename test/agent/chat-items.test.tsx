@@ -20,7 +20,8 @@ import {
   useChat,
   type ChatContextValue,
 } from "@/components/agent/chat/chat-context";
-import { ChatItemView } from "@/components/agent/chat/chat-items";
+import { ChatItemView, PICKED_UP } from "@/components/agent/chat/chat-items";
+import { StepDetails } from "@/components/agent/chat/step-details";
 import { useChatItems } from "@/components/agent/chat/chat-strip";
 import {
   LEAD_MAX,
@@ -88,7 +89,7 @@ const all = (root: Element) => [root, ...Array.from(root.querySelectorAll("*"))]
 /** A string of `n` characters of plain Latin words, with no sentence end. */
 const words = (n: number) => "word ".repeat(Math.ceil(n / 5)).slice(0, n);
 
-/** The strip's items in a chat, as a log draws them. */
+/** The strip's items in a chat, as a log draws them, with Details handed in as the owner's chat does. */
 function Strip({
   items,
   profile = "visitor",
@@ -97,7 +98,7 @@ function Strip({
   profile?: ChatProfile;
 }) {
   return (
-    <ChatProvider profile={profile}>
+    <ChatProvider profile={profile} stepDetails={StepDetails}>
       <div data-testid="log">
         {items.map((item) => (
           <ChatItemView key={item.key} item={item} />
@@ -391,7 +392,9 @@ describe("tool steps", () => {
   });
 
   it("gives the owner Details with the raw arguments and result, named for the step", () => {
-    strip([assistant("a1", call("c1")), toolMsg("t1", result("c1"))], { profile: "owner" });
+    const log = strip([assistant("a1", call("c1")), toolMsg("t1", result("c1"))], {
+      profile: "owner",
+    });
     const summary = screen.getByText("Details").closest("summary")!;
     expect(summary).toHaveClass("pointer-coarse:min-h-11");
     act(() => summary.parentElement!.setAttribute("open", ""));
@@ -408,6 +411,21 @@ describe("tool steps", () => {
       expect(block).toHaveAttribute("dir", "ltr");
       expect(block).toHaveClass("font-data");
     }
+    // The step's own line stays in words: no JSON, no wire name.
+    const line = log.querySelector("[data-tool-step] p")!;
+    expect(line.textContent).not.toMatch(/[{}]|"added"|tool_retro/);
+    expect(log.textContent).not.toMatch(/tool_retro/);
+  });
+
+  it("cuts the owner's raw Details at 4,000 characters", () => {
+    const long = "x".repeat(5000);
+    strip([assistant("a1", call("c1")), toolMsg("t1", result("c1", long))], { profile: "owner" });
+    const summary = screen.getByText("Details").closest("summary")!;
+    act(() => summary.parentElement!.setAttribute("open", ""));
+    const output = screen.getByRole("region", {
+      name: "Result for Retro Board · Add card “flaky CI”",
+    });
+    expect(output.textContent).toBe(`${"x".repeat(4000)}…`);
   });
 
   it("puts a run of calls in one caption, a line each", () => {
@@ -423,8 +441,10 @@ describe("tool steps", () => {
       "failed",
     ]);
     expect(lines[1]).toHaveTextContent("Retro Board · Add card · Didn't work · “slow build”");
-    // Trouble is said in words, with the danger colour as a second cue.
+    // Trouble is said in words, with the caption's danger line and the
+    // danger colour as second cues.
     expect(screen.getByText("Didn't work")).toHaveClass("text-danger");
+    expect(captions[0].querySelector("[data-tool-steps]")).toHaveAttribute("data-tone", "error");
   });
 
   it("keeps a streaming call at Getting ready…, without its arguments", () => {
@@ -436,6 +456,31 @@ describe("tool steps", () => {
   it("still shows a result whose call isn't in the chat", () => {
     const log = strip([toolMsg("t1", result("c9", "Cancelled.", true))]);
     expect(log).toHaveTextContent("Step · Stopped");
+  });
+});
+
+describe("scene captions", () => {
+  it("names a new day in a <time> and marks where a picked-up thread left off, as scene captions", () => {
+    const today = new Date();
+    const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 12);
+    const log = strip(
+      [
+        { ...user("u1", "Plan the sprint"), createdAt: yesterday.toISOString() },
+        { ...assistant("a1", text("Planned.")), createdAt: yesterday.toISOString() },
+        { ...user("u2", "And now?"), createdAt: today.toISOString() },
+      ],
+      { resumedAfter: "a1" }
+    );
+    const scenes = Array.from(log.querySelectorAll('[data-chat-item="scene"]'));
+    expect(scenes.map((s) => s.textContent)).toEqual(["Yesterday", PICKED_UP, "Today"]);
+    for (const scene of scenes) {
+      const caption = scene.querySelector(".comic-caption")!;
+      expect(caption).toHaveAttribute("data-voice", "scene");
+      // Narration, not anyone's words: no speaker.
+      expect(caption.querySelector("[data-speaker]")).toBeNull();
+    }
+    expect(scenes[0].querySelector("time")).toHaveAttribute("dateTime", yesterday.toISOString());
+    expect(scenes[1].querySelector("time")).toBeNull();
   });
 });
 

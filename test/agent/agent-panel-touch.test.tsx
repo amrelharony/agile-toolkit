@@ -288,6 +288,46 @@ describe("ConversationList on touch", () => {
     expect(useAgentStore.getState().messages).toEqual(messages);
   });
 
+  /** Delete the open thread from its row, then tap Undo. */
+  async function deleteThenUndo() {
+    await renderList();
+    vi.useFakeTimers();
+    fireEvent.click(
+      within(rowOf("Sprint 42 retro prep")).getByRole("button", { name: "Delete conversation" })
+    );
+    expect(useAgentStore.getState().activeConversationId).toBeNull();
+    clickUndo();
+    expect(useAgentStore.getState().activeConversationId).toBe("c1");
+  }
+
+  it("puts a thread started here back on Undo as it was, never as a picked-up one", async () => {
+    const messages = [
+      { id: "m1", role: "user" as const, content: [], createdAt: "2026-11-08T09:00:00Z" },
+    ];
+    // Started in this chat: saved on its first message, nothing picked up.
+    useAgentStore.setState({ messages, resumedAfter: null });
+    expect(useAgentStore.getState().attachConversation(THREADS[0])).toBe(true);
+
+    await deleteThenUndo();
+    // Undone, not picked up: no "Picking up where you left off" after it.
+    expect(useAgentStore.getState().messages).toEqual(messages);
+    expect(useAgentStore.getState().resumedAfter).toBeNull();
+  });
+
+  it("keeps where a picked-up thread left off through Delete and Undo", async () => {
+    const at = "2026-11-08T09:00:00Z";
+    useAgentStore
+      .getState()
+      .setActiveConversation(THREADS[0], [{ id: "m1", role: "user", content: [], createdAt: at }]);
+    // Picked up after m1; the owner has written on since.
+    useAgentStore.getState().appendMessage({ id: "m2", role: "user", content: [], createdAt: at });
+    expect(useAgentStore.getState().resumedAfter).toBe("m1");
+
+    await deleteThenUndo();
+    expect(useAgentStore.getState().messages.map((m) => m.id)).toEqual(["m1", "m2"]);
+    expect(useAgentStore.getState().resumedAfter).toBe("m1");
+  });
+
   it("makes the rename Save and Cancel buttons 44 px on touch", async () => {
     await renderList();
     fireEvent.click(
@@ -510,7 +550,9 @@ describe("AgentConversation: the comic strip", () => {
       });
     });
     expect(log.querySelector("[data-thinking]")).toBeNull();
-    // Still there, empty, for the next turn.
+    // The same status line says the next phase, and empties when the turn is over.
+    expect(status).toHaveTextContent("Amr is writing…");
+    act(() => useAgentStore.getState().setStreaming(false));
     expect(status).toBeInTheDocument();
     expect(status).toBeEmptyDOMElement();
   });
