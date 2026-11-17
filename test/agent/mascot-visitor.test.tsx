@@ -62,6 +62,7 @@ import { peakNote } from "@/components/agent/mascot/visitor-agent-panel";
 import { VISITOR_FALLBACK_CODES } from "@/lib/visitor-ai/contract";
 import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
+import { useMascotStore } from "@/lib/agent/mascot/store";
 import { LIVE_ROOM_KEY_PREFIX, enterLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { OWNER_UNVERIFIED } from "@/lib/auth/owner-check";
 import { PRIVACY_PATH, PRIVACY_TITLE } from "@/lib/site/owner";
@@ -227,13 +228,63 @@ describe("MascotAssistant — owner gating", () => {
     expect(settings).toHaveAttribute("data-variant", "ghost");
   });
 
-  it("hides the Cmd/Ctrl+J hint on touch screens", async () => {
+  it("hides the Ctrl J hint on touch screens", async () => {
     h.auth = { status: "anonymous", user: null };
     await renderAmr();
 
-    const hint = screen.getByText(/Cmd\/Ctrl\+J/);
+    // jsdom is no Mac, so Ctrl; a Mac shows ⌘J (panel-header's shortcutLabel).
+    const hint = screen.getByText(/Ctrl J/);
     expect(hint).toHaveClass("pointer-coarse:hidden");
     expect(screen.getByText("Find the right tool")).not.toHaveClass("pointer-coarse:hidden");
+  });
+
+  it("keeps the tilt switch, labelled, in the header's More menu on a phone that can send its tilt", async () => {
+    h.auth = { status: "anonymous", user: null };
+    // A touch screen with orientation readings and no prompt before them, so
+    // Amr feels the phone from the start.
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(pointer: coarse)",
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+    const w = window as unknown as Record<string, unknown>;
+    w.DeviceOrientationEvent = class {};
+    useMascotStore.setState({ feelPhone: null });
+    try {
+      await renderAmr();
+      const header = screen
+        .getByRole("dialog", { name: "Amr" })
+        .querySelector<HTMLElement>("[data-panel-header]")!;
+      // No bare phone icon among the chat's controls any more.
+      expect(within(header).queryByRole("button", { name: /feel your phone/i })).toBeNull();
+      // The shortcut moved into the menu with it (where a touch screen hides it).
+      expect(within(header).queryByText(/Ctrl J/)).toBeNull();
+
+      fireEvent.keyDown(within(header).getByRole("button", { name: "More" }), { key: "Enter" });
+      const menu = screen.getByRole("menu");
+      const tilt = within(menu).getByRole("menuitemcheckbox", {
+        name: "Let Amr feel your phone's tilt",
+      });
+      expect(tilt).toHaveAttribute("aria-checked", "true");
+      // In the page, but no Ctrl/⌘ key on this touch screen: hidden, like the subtitle's hint.
+      const shortcut = within(menu).getByText(/opens and closes Amr$/);
+      expect(shortcut.textContent).toBe("Ctrl J opens and closes Amr");
+      expect(shortcut).toHaveClass("pointer-coarse:hidden");
+      expect(within(menu).getByRole("separator")).toHaveClass("pointer-coarse:hidden");
+
+      fireEvent.click(tilt);
+      await waitFor(() => expect(useMascotStore.getState().feelPhone).toBe(false));
+      expect(tilt).toHaveAttribute("aria-checked", "false");
+      expect(useAgentStore.getState().open).toBe(true);
+    } finally {
+      delete w.DeviceOrientationEvent;
+      useMascotStore.setState({ feelPhone: null });
+    }
   });
 
   it("gives the owner's New chat and History buttons a 44 px target on touch", async () => {
@@ -262,7 +313,7 @@ describe("MascotAssistant — owner gating", () => {
         "justify-center"
       );
     }
-    expect(screen.getByText(/Cmd\/Ctrl\+J/)).toHaveClass("pointer-coarse:hidden");
+    expect(screen.getByText(/Ctrl J/)).toHaveClass("pointer-coarse:hidden");
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
   });
 
@@ -1200,7 +1251,7 @@ describe("MascotAssistant — comic reader", () => {
     stubPhoneWidth(isPhone);
     h.pathname = pathname;
     await renderAmr();
-    expect(screen.getByRole("button", { name: "Open assistant" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Ask Amr" })).toBeInTheDocument();
     // The figure waits for the first interaction (or a few seconds after
     // load), so it never competes with the page becoming usable.
     expect(screen.queryByTestId("mascot-sprite")).toBeNull();

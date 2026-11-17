@@ -47,7 +47,7 @@ describe("mascot hit area", () => {
   it("takes clicks only on the figure and stands closer to the edge", async () => {
     render(<MascotAssistant />);
     // Before the figure loads: the round launcher takes clicks as before.
-    const launcher = screen.getByRole("button", { name: "Open assistant" });
+    const launcher = screen.getByRole("button", { name: "Ask Amr" });
     expect(launcher).not.toHaveClass("pointer-events-none");
 
     // First interaction starts the figure (after an idle moment).
@@ -56,7 +56,7 @@ describe("mascot hit area", () => {
     });
     expect(await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 })).toBeInTheDocument();
 
-    const button = screen.getByRole("button", { name: "Open assistant" });
+    const button = screen.getByRole("button", { name: "Ask Amr" });
     expect(button).toHaveClass("pointer-events-none");
     const hit = button.querySelector<HTMLElement>("[data-mascot-hit]");
     expect(hit).not.toBeNull();

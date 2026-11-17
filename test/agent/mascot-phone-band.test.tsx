@@ -57,7 +57,7 @@ describe("Amr's space on phones", () => {
     // Tall enough for the 104 px box's figure, not a launcher-sized sliver.
     expect(parseInt(published.match(/\d+/)![0], 10)).toBeGreaterThan(80);
     // He's still there, clear of the home indicator.
-    const button = screen.getByRole("button", { name: "Open assistant" });
+    const button = screen.getByRole("button", { name: "Ask Amr" });
     expect(button.style.bottom).toContain("safe-area-inset-bottom");
 
     unmount();

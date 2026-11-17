@@ -37,6 +37,7 @@ import { useChatVisible } from "../chat-visibility";
 import { ConfirmCard } from "../chat/confirm-card";
 import { MessageBubble, useToolSteps } from "../message-bubble";
 import { handleMascotCommand } from "./engine/customization/commands";
+import { useInitialFocus } from "./panel-context";
 import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
 
 /** The per-window allowance the busy-hours note names before the route reports one. */
@@ -231,12 +232,12 @@ export default function VisitorAgentPanel({
     );
   };
 
-  // The message box takes focus on mount, and again when the chat comes back
-  // from under the Scenes view. Leaving the chat stops nothing, so there is
-  // nothing to tidy up when it unmounts.
-  useEffect(() => {
-    if (visible) composerRef.current?.focus();
-  }, [visible]);
+  // The message box is where the panel's focus owner puts focus when the chat
+  // opens, and again when it comes back from under the Scenes view, on a fine
+  // pointer only: on a phone the keyboard would cover the answer to a question
+  // already sent. Leaving the chat stops nothing, so there is nothing else to
+  // tidy up when it unmounts.
+  useInitialFocus(composerRef, visible);
 
   // The question the visitor asked from the guide or the consent card.
   useEffect(() => {

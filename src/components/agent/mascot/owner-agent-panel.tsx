@@ -11,10 +11,10 @@
  * It fills the panel header (panel-chrome) from here, so New chat goes through
  * this chunk's store and the header icons arrive with the chat:
  *  - actions: New chat, then History. In History that button is "Back to chat"
- *    with an arrow, the same button (focus stays on it going into History; on
- *    the way back the chat's own mount focus takes it to the composer until
- *    PR 6's focus owner sends it to this button), and it carries a dot while a
- *    confirm card waits in the chat behind it.
+ *    with an arrow, the same button (focus stays on it both ways: the chat
+ *    coming back offers its composer to the panel's focus owner, which leaves
+ *    focus that a control inside the panel holds), and it carries a dot while
+ *    a confirm card waits in the chat behind it.
  *  - subtitle: the open thread's title, or "New chat"; "Your chats" in History.
  * Whether History shows is kept by the shell, so it outlasts the panel closing.
  *
@@ -80,6 +80,8 @@ export default function OwnerAgentPanel({
           }
           onClick={onToggleHistory}
           className="relative"
+          // Where focus goes when Escape takes the owner back from History.
+          data-panel-history=""
         >
           {showHistory ? <ArrowLeft aria-hidden="true" /> : <History aria-hidden="true" />}
           {cardWaits && (

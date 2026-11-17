@@ -29,12 +29,14 @@
  * import again. And it does the same when the loaded chat fails while it is
  * drawn. A note is a narration caption: the narrator's line, never Amr's.
  *
- * Focus follows the step: the consent card and the chat's message box take it
- * themselves, and a return to the guide puts it on the note, or on the guide
- * when there is no note. A panel that opens on the guide moves no focus (one
- * opened again mid-chat opens on the chat). A note is read out once: by taking
- * focus, or through the announcer when the guide was already showing and no
- * focus moves.
+ * Focus follows the step: the consent card takes it itself, the chat offers its
+ * message box to the panel's focus owner (lib/agent/mascot/use-panel-focus),
+ * which focuses it on a fine pointer only, and a return to the guide puts it
+ * on the note, or on the guide when there is no note. A panel that opens on
+ * the guide moves no focus here: the focus owner puts a keyboard open on Amr's
+ * name plate (one opened again mid-chat opens on the chat). A note is read
+ * out once: by taking focus, or through the announcer when the guide was
+ * already showing and no focus moves.
  *
  * This module stays light: every visitor fetches it, in the visitor body's
  * chunk (visitor-body), which the mascot fetches ahead while the browser is idle.

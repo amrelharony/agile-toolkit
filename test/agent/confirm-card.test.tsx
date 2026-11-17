@@ -140,75 +140,30 @@ describe("ConfirmCard", () => {
     );
   });
 
-  it("denies on Escape, but not on one already handled or still composing", () => {
-    render(<ConfirmCard />);
-    const resolve = waiting(ADD);
-    fireEvent.keyDown(window, { key: "Escape", isComposing: true });
-    const handled = (e: KeyboardEvent) => e.preventDefault();
-    window.addEventListener("keydown", handled, { capture: true });
-    fireEvent.keyDown(window, { key: "Escape" });
-    window.removeEventListener("keydown", handled, { capture: true });
-    expect(resolve).not.toHaveBeenCalled();
-    fireEvent.keyDown(window, { key: "Escape" });
-    expect(resolve).toHaveBeenCalledWith(false);
-  });
-
-  it("leaves an Escape on the page behind the panel alone, and denies on one from inside it", () => {
-    // The owner's panel floats non-modal over the tool page: an Escape a page
-    // field uses must not answer the card.
-    const pageField = document.createElement("input");
-    document.body.appendChild(pageField);
+  it("has no Escape of its own: the panel's Escape order denies it (mascot-escape.test)", () => {
+    // Inside the panel or out, with nothing focused or on the card itself:
+    // the card alone answers no Escape. The shell denies a waiting card first,
+    // before History or closing, and only for an Escape meant for the panel.
     render(
-      <div role="dialog" aria-label="Amr assistant">
-        <textarea aria-label="Message Amr" />
+      <div role="dialog" aria-label="Amr">
         <ConfirmCard allowApproveAll />
       </div>
     );
     const resolve = waiting(ADD);
-    try {
-      fireEvent.keyDown(pageField, { key: "Escape" });
-      expect(resolve).not.toHaveBeenCalled();
-      // The panel's own composer, outside the card but inside the dialog.
-      fireEvent.keyDown(screen.getByRole("textbox", { name: "Message Amr" }), { key: "Escape" });
-      expect(resolve).toHaveBeenLastCalledWith(false);
-      fireEvent.keyDown(screen.getByRole("button", { name: "Not now" }), { key: "Escape" });
-      expect(resolve).toHaveBeenCalledTimes(2);
-    } finally {
-      pageField.remove();
-    }
-  });
-
-  it("denies on an Escape from Amr himself or with nothing focused", () => {
-    const amr = document.createElement("button");
-    amr.setAttribute("data-amr-button", "");
-    document.body.appendChild(amr);
-    render(<ConfirmCard />);
-    const resolve = waiting(ADD);
-    try {
-      fireEvent.keyDown(amr, { key: "Escape" });
-      expect(resolve).toHaveBeenLastCalledWith(false);
-      fireEvent.keyDown(document.body, { key: "Escape" });
-      expect(resolve).toHaveBeenCalledTimes(2);
-    } finally {
-      amr.remove();
-    }
-  });
-
-  it("knows Amr by the marker his real button carries, and the panel as its dialog", () => {
-    // Not by his view-transition hold name: held-layers-css.test.ts counts
-    // every data-vt-hold="…" in src as an element, so a selector naming it
-    // counts twice. Not by data-agent-sheet-root either: the bundle budget
-    // finds the mascot chunk by that string, and the card's chunk is not it.
-    const src = readFileSync(
-      path.resolve(__dirname, "../../src/components/agent/mascot/mascot-assistant.tsx"),
-      "utf8"
-    );
-    expect(src).toMatch(/data-vt-hold="amr"\s+data-amr-button\s/);
-    expect(src).toMatch(/data-agent-sheet-root\s+data-vt-hold="amr-panel"\s+role="dialog"\s/);
+    expect(
+      fireEvent.keyDown(screen.getByRole("button", { name: "Not now" }), { key: "Escape" })
+    ).toBe(true);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(resolve).not.toHaveBeenCalled();
     const card = readFileSync(
       path.resolve(__dirname, "../../src/components/agent/chat/confirm-card.tsx"),
       "utf8"
     );
+    expect(card).not.toMatch(/addEventListener|onKeyDown/);
+    // Never the shell's markers: held-layers-css.test.ts counts every
+    // data-vt-hold="…" in src, and the bundle budget finds the mascot chunk
+    // by data-agent-sheet-root.
     expect(card).not.toContain("data-vt-hold");
     expect(card).not.toContain("data-agent-sheet-root");
   });

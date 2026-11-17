@@ -68,7 +68,7 @@ import { useAgentStore } from "@/lib/agent/store";
 const VISITOR = { status: "anonymous", user: null };
 const OWNER = { status: "authenticated", user: { id: "u1" } };
 
-const amrButton = () => screen.getByRole("button", { name: /assistant$/ });
+const amrButton = () => screen.getByRole("button", { name: "Ask Amr" });
 
 /** Collects requestIdleCallback callbacks, so the test decides when the browser is idle. */
 function stubIdle() {

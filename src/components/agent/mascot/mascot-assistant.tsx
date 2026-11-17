@@ -43,6 +43,20 @@
  * this browser remembers. Where he is drawn goes to the mascot store
  * (setPlacement), for the things beside him to follow.
  *
+ * Every close goes through closePanel(reason): Amr's button, Ctrl/Cmd+J,
+ * Escape, the Close button, a link followed and a scene picked alike, and a
+ * second call does nothing. Focus has one owner (lib/agent/mascot/use-panel-focus): a keyboard
+ * open goes to the name plate, then to a view's registered target (the
+ * composer, on a fine pointer); a pointer open leaves focus where it is; a
+ * close brings it back to the opener or to Amr's button, except after a link.
+ *
+ * Escape belongs to the panel only when it is meant for it: pressed inside it,
+ * with nothing focused, or on Amr or the header's opener. It goes in one
+ * order: a field's own Escape first (the tool finder's search clears, History's
+ * rename cancels), then a waiting card is denied, then History goes back to
+ * the chat, and only then does the panel close. Ctrl/Cmd+J closes it from
+ * anywhere inside, its composer too, except History's rename field.
+ *
  * Those visitor views (the guide, the visitor panel, the consent card and the
  * guide's data) are a chunk of their own too, not part of this one, which
  * every page loads: lazy-visitor-body imports them ahead of time, once the
@@ -54,6 +68,7 @@
  */
 
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -65,9 +80,9 @@ import {
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
-import { Sparkles, Smartphone, Clapperboard } from "lucide-react";
+import { Sparkles, Clapperboard } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAgentStore } from "@/lib/agent/store";
+import { useAgentStore, type PanelOpenVia } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { ChatVisibleContext } from "../chat-visibility";
 import { visitorAiEnabled } from "@/lib/visitor-ai/contract";
@@ -78,6 +93,7 @@ import { useMascotCelebrationReactions } from "@/lib/agent/mascot/use-celebratio
 import { useQuietCompanion } from "@/lib/agent/mascot/use-quiet-companion";
 import { useMuteScene } from "@/lib/agent/mascot/use-mute-scene";
 import { playEventScene } from "@/lib/agent/mascot/event-scenes";
+import { usePanelFocus, type PanelCloseReason } from "@/lib/agent/mascot/use-panel-focus";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { createTouchInteraction, zoneAt, type TouchPoint } from "./engine/interactions/touch";
 import {
@@ -117,7 +133,8 @@ import {
   type PanelSizeName,
 } from "./amr-geometry";
 import { LazyVisitorBody, prefetchVisitorBody } from "./lazy-visitor-body";
-import { AMR_PANEL_TITLE_ID, PanelHeader } from "./panel-header";
+import { AMR_PANEL_TITLE_ID, PanelHeader, shortcutLabel } from "./panel-header";
+import { AMR_PANEL_ID } from "./panel-ids";
 import { PANEL_SUBTITLE, PanelChrome, PanelIconButton } from "./panel-chrome";
 import {
   AmrPanelContext,
@@ -151,6 +168,32 @@ const TAP_TOGGLE_GAP_MS = 600;
 const THROW_SPEED = 1100;
 /** He points at the panel when it opens, at most this often. */
 const POINT_AT_PANEL_MS = 60_000;
+
+/** History's rename field (conversation-list): it keeps Ctrl/Cmd+J, so an edit isn't lost. */
+const RENAME_FIELD = "[data-agent-rename]";
+/** History's own button (owner-agent-panel), where focus goes when Escape leaves History. */
+const HISTORY_BUTTON = "[data-panel-history]";
+/**
+ * What opens the panel, outside it: Amr himself and, while the panel is open,
+ * the header's opener (both name it in aria-controls). An Escape there is
+ * meant for the panel.
+ */
+const PANEL_OPENERS = `[data-amr-button], [aria-controls="${AMR_PANEL_ID}"]`;
+
+/** An input method is composing: its key presses end or change the composition, nothing else. */
+function composing(e: KeyboardEvent): boolean {
+  return e.isComposing || e.keyCode === 229;
+}
+
+/** A field that types: a key press there is the field's. */
+function typesInto(el: Element): boolean {
+  return (
+    (el as HTMLElement).isContentEditable ||
+    el.tagName === "INPUT" ||
+    el.tagName === "TEXTAREA" ||
+    el.tagName === "SELECT"
+  );
+}
 
 /** A layout effect in the browser, a plain one on the server (no SSR warning). */
 const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
@@ -740,8 +783,9 @@ function UnverifiedOwnerNote() {
 
 export function MascotAssistant() {
   const open = useAgentStore((s) => s.open);
-  const toggleSheet = useAgentStore((s) => s.toggleSheet);
-  const closeSheet = useAgentStore((s) => s.closeSheet);
+  const openedVia = useAgentStore((s) => s.openedVia);
+  // Bumped by a key press on the header's opener while the panel is open.
+  const focusRequest = useAgentStore((s) => s.focusRequest);
   const [showHistory, setShowHistory] = useState(false);
   const [showScenes, setShowScenes] = useState(false);
   // A write waiting for a yes: its card has to be seen (scenesOpen, below).
@@ -795,11 +839,12 @@ export function MascotAssistant() {
   // A tapped scene plays with the panel closed, so he's in view. While a turn is
   // still running or a card waits, the answer is what to watch (closing the panel
   // wouldn't stop it, but would hide it): back to the chat instead, with him beside
-  // the panel.
+  // the panel. The close is the panel's one way (closePanel, below), so focus
+  // comes back to the opener or to him.
   const onScenePlayed = () => {
     const { streaming, pendingToolUse } = useAgentStore.getState();
     if (streaming || pendingToolUse) setShowScenes(false);
-    else closeSheet();
+    else closePanel("scene");
   };
 
   // Owner signed out mid-session: drop the conversation from memory (reset
@@ -852,7 +897,44 @@ export function MascotAssistant() {
   const buttonRef = useRef<HTMLButtonElement>(null);
   const hitRef = useRef<HTMLSpanElement>(null);
   const insetProbeRef = useRef<HTMLSpanElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
   const lastTapRef = useRef(0);
+
+  // Focus has one owner: where it goes as the panel opens (the plate for a
+  // keyboard open, a view's target), the safety net while it is open, and
+  // the way back to the opener (or Amr's button) when it closes.
+  const panelFocus = usePanelFocus({
+    open,
+    openedVia,
+    focusRequest,
+    rootRef: panelRef,
+    plateId: AMR_PANEL_TITLE_ID,
+    fallbackRef: buttonRef,
+  });
+  // The one way the panel closes, whatever closes it: it tells the focus
+  // owner why (a link followed gets no focus back), then closes the store
+  // (closeSheet clears Approve all and denies a waiting card). Safe to call
+  // twice: once the panel is closed it does nothing.
+  const closePanel = useCallback(
+    (reason: PanelCloseReason) => {
+      const agent = useAgentStore.getState();
+      if (!agent.open) return;
+      panelFocus.willClose(reason);
+      agent.closeSheet();
+    },
+    [panelFocus]
+  );
+  // Amr's button and Ctrl/Cmd+J: open, saying how, or close through closePanel.
+  const togglePanel = useCallback(
+    (via: PanelOpenVia, reason: PanelCloseReason) => {
+      const agent = useAgentStore.getState();
+      if (agent.open) closePanel(reason);
+      else agent.openSheet({ via });
+    },
+    [closePanel]
+  );
+  // A link or a tool followed from inside the panel: no focus comes back.
+  const navigateAway = useCallback(() => closePanel("navigate"), [closePanel]);
   const draggedRef = useRef(false);
   const onMascotClick = (e: ReactMouseEvent<HTMLButtonElement>) => {
     if (draggedRef.current) return; // a drag-release or a high five, not a click
@@ -873,10 +955,12 @@ export function MascotAssistant() {
       clickRef.current?.onClick(p ? zoneAt(p) : "body", side);
     }
     // The first tap of a burst opens or closes the panel; the rest are play.
+    // Enter or Space clicks with detail 0: a keyboard open, which the panel's
+    // focus owner treats apart from a pointer's.
     const now = Date.now();
     const gap = now - lastTapRef.current;
     lastTapRef.current = now;
-    if (gap > TAP_TOGGLE_GAP_MS) toggleSheet();
+    if (gap > TAP_TOGGLE_GAP_MS) togglePanel(e.detail === 0 ? "keyboard" : "pointer", "toggle");
   };
   useEffect(
     () => () => {
@@ -1172,58 +1256,88 @@ export function MascotAssistant() {
   // The visitor switches the sounds off: he sleeves his tuning fork (X109), once a page.
   useMuteScene();
 
-  // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
-  // Skip when typing in an editable element so it can't steal focus mid-edit.
+  // Cmd/Ctrl+J toggles, the de-facto AI-chat shortcut. In a field on the page
+  // it does nothing (the key is the field's, and it can't take focus from an
+  // edit), but anywhere inside the panel, its composer included, it closes it
+  // (Chrome, Edge and Firefox would open Downloads instead). Only History's
+  // rename field keeps it, so a name being typed isn't lost. While an input
+  // method composes, the key is its own.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
       if (e.key !== "j" && e.key !== "J") return;
-      const t = e.target as HTMLElement | null;
-      if (
-        t &&
-        (t.isContentEditable ||
-          t.tagName === "INPUT" ||
-          t.tagName === "TEXTAREA" ||
-          t.tagName === "SELECT")
-      ) {
-        return;
-      }
-      if (e.repeat) return;
+      if (composing(e)) return;
+      const t = e.target instanceof Element ? e.target : null;
+      if (t && (panelRef.current?.contains(t) ? t.closest(RENAME_FIELD) : typesInto(t))) return;
       e.preventDefault();
-      toggleSheet();
+      // Held down: one toggle, not a flicker.
+      if (e.repeat) return;
+      togglePanel("keyboard", "shortcut");
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [toggleSheet]);
+  }, [togglePanel]);
 
-  // Escape closes the panel — unless a confirm card is up (it owns Escape to
-  // deny) or focus is in the rename field (it stops propagation to cancel edit).
+  // Escape leaves History for the chat. Focus goes to History's own button,
+  // which stays as the list goes (it turns back into "Conversation history"),
+  // unless it is on something outside the panel (Amr himself), which keeps it.
+  const leaveHistory = useCallback(() => {
+    const panel = panelRef.current;
+    const held = document.activeElement;
+    if (panel && (!held || held === document.body || panel.contains(held))) {
+      panel.querySelector<HTMLElement>(HISTORY_BUTTON)?.focus({ preventScroll: true });
+    }
+    setShowHistory(false);
+  }, []);
+  // Escape, in one order (design §1.3 item 10), wherever the panel takes it:
+  //   0. an input method composing: its own (it ends the composition);
+  //   1. one a field inside the panel has used (the tool finder's search
+  //      clearing itself, History's rename field cancelling): the field's;
+  //   2. a card waiting for the OK: denied (the card has no Escape of its own);
+  //   3. History: back to the chat;
+  //   4. otherwise the panel closes.
+  // Every step it takes calls preventDefault, so nothing else acts on it too.
+  const panelEscape = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || composing(e) || e.defaultPrevented) return;
+      const agent = useAgentStore.getState();
+      if (!agent.open) return;
+      e.preventDefault();
+      if (agent.pendingToolUse) agent.pendingToolUse.resolve(false);
+      else if (showHistory) leaveHistory();
+      else closePanel("escape");
+    },
+    [showHistory, leaveHistory, closePanel]
+  );
+  // The panel takes Escape from inside it through its own onKeyDown (below),
+  // after the fields in it have had theirs. Outside it, only an Escape meant
+  // for it: with nothing focused, or on Amr or the header's opener. A page
+  // field's or overlay's stays theirs: the panel floats over the tool page,
+  // not as a modal.
   useEffect(() => {
     if (!open) return;
-    const onEsc = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      // An input method is composing: Escape cancels the composition, not the
-      // panel (keyCode 229 is how older browsers say so).
-      if (e.isComposing || e.keyCode === 229) return;
-      // A field inside the panel already used this Escape (the guide's search
-      // clears itself first); the next one closes.
-      if (e.defaultPrevented) return;
-      if (useAgentStore.getState().pendingToolUse) return;
-      // Renaming a thread: Escape cancels that edit, not the whole panel.
-      const ae = document.activeElement;
-      if (ae?.getAttribute("aria-label") === "Rename conversation") return;
-      closeSheet();
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target;
+      if (t instanceof Node && panelRef.current?.contains(t)) return; // its onKeyDown's
+      if (t instanceof Element && t !== document.body && !t.closest(PANEL_OPENERS)) return;
+      panelEscape(e);
     };
-    document.addEventListener("keydown", onEsc);
-    return () => document.removeEventListener("keydown", onEsc);
-  }, [open, closeSheet]);
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [open, panelEscape]);
 
   // What the views inside the panel may ask of it. A link followed closes it,
-  // as a page change does; focus and Back aren't handled here yet, so those
-  // stay the safe no-ops.
+  // as a page change does, with no focus brought back; a view's first focus
+  // target goes to the focus owner. Back isn't handled here yet, so that
+  // stays the safe default.
   const panelContext = useMemo<AmrPanelContextValue>(
-    () => ({ ...NO_AMR_PANEL, layout, onNavigate: closeSheet }),
-    [layout, closeSheet]
+    () => ({
+      ...NO_AMR_PANEL,
+      layout,
+      onNavigate: navigateAway,
+      registerInitialFocus: panelFocus.registerInitialFocus,
+    }),
+    [layout, navigateAway, panelFocus]
   );
 
   // The panel's tail points at his figure: none while the launcher stands in for
@@ -1258,12 +1372,19 @@ export function MascotAssistant() {
     <>
       <MascotChatReactions />
       {open && (
+        // The dialog takes Escape from inside it (panelEscape) in a React
+        // handler, so the fields in it, React handlers too, have had theirs
+        // first; a native listener on it would run before them.
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
         <div
+          ref={panelRef}
+          id={AMR_PANEL_ID}
           data-agent-sheet-root
           data-vt-hold="amr-panel"
           role="dialog"
           aria-labelledby={AMR_PANEL_TITLE_ID}
           aria-modal={false}
+          onKeyDown={(e) => panelEscape(e.nativeEvent)}
           data-tail={tail?.tail ?? "none"}
           data-tail-from={tail?.from}
           data-amr-side={amrSide(placed)}
@@ -1287,47 +1408,37 @@ export function MascotAssistant() {
                   subtitle={
                     settled ? (isOwner ? PANEL_SUBTITLE.owner : PANEL_SUBTITLE.guide) : undefined
                   }
-                  shortcut="Cmd/Ctrl+J"
+                  shortcut={shortcutLabel("J")}
                   controls={
-                    <>
-                      {/* No figure, no one to act a scene out; a confirmation waiting comes first. */}
-                      {!figureFailed && (
-                        <PanelIconButton
-                          label="Amr's scenes"
-                          title={
-                            confirmPending
-                              ? "Scenes, once the action is confirmed or denied"
-                              : "Scenes"
-                          }
-                          aria-pressed={scenesOpen}
-                          disabled={confirmPending}
-                          onClick={() => {
-                            setShowScenes(!scenesOpen);
-                            setShowHistory(false);
-                          }}
-                        >
-                          <Clapperboard aria-hidden="true" />
-                        </PanelIconButton>
-                      )}
-                      {motionAvailable && (
-                        <PanelIconButton
-                          label="Let Amr feel your phone"
-                          title={
-                            feelsMotion
-                              ? "Amr feels your phone's tilt and shakes · tap to stop"
-                              : "Let Amr feel your phone's tilt and shakes"
-                          }
-                          aria-pressed={feelsMotion}
-                          onClick={() => void toggleMotion()}
-                        >
-                          <Smartphone aria-hidden="true" />
-                        </PanelIconButton>
-                      )}
-                    </>
+                    // No figure, no one to act a scene out; a confirmation waiting comes first.
+                    !figureFailed && (
+                      <PanelIconButton
+                        label="Amr's scenes"
+                        title={
+                          confirmPending
+                            ? "Scenes, once the action is confirmed or denied"
+                            : "Scenes"
+                        }
+                        aria-pressed={scenesOpen}
+                        disabled={confirmPending}
+                        onClick={() => {
+                          setShowScenes(!scenesOpen);
+                          setShowHistory(false);
+                        }}
+                      >
+                        <Clapperboard aria-hidden="true" />
+                      </PanelIconButton>
+                    )
+                  }
+                  // The tilt switch, labelled, in the header's More menu.
+                  tilt={
+                    motionAvailable
+                      ? { on: feelsMotion, onToggle: () => void toggleMotion() }
+                      : undefined
                   }
                   enlarged={panelSize.enlarged}
                   onToggleEnlarge={panelSize.toggle}
-                  onClose={closeSheet}
+                  onClose={() => closePanel("close-button")}
                 />
                 {/* The strip's ground: the page's paper, so card balloons stand out. */}
                 <div className="flex min-h-0 flex-1 flex-col bg-bg">
@@ -1341,7 +1452,7 @@ export function MascotAssistant() {
                           {settled && (
                             <LazyVisitorBody
                               ai={visitorAi}
-                              onNavigate={closeSheet}
+                              onNavigate={navigateAway}
                               note={unverified ? <UnverifiedOwnerNote /> : undefined}
                             />
                           )}
@@ -1399,7 +1510,13 @@ export function MascotAssistant() {
           onTouchStart={reachForAmr}
           onFocus={reachForAmr}
           onContextMenu={(e) => showFigure && e.preventDefault()}
-          aria-label={open ? "Close assistant" : "Open assistant"}
+          // One name in every state (the panel has its own Close button);
+          // aria-expanded carries the state, and aria-controls names the panel
+          // only while it is in the page.
+          aria-label="Ask Amr"
+          aria-expanded={open}
+          aria-controls={open ? AMR_PANEL_ID : undefined}
+          aria-keyshortcuts="Control+J Meta+J"
           title="Ask Amr · drag to reposition"
           style={
             dragPos

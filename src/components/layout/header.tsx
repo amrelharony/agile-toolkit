@@ -33,6 +33,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { SonificationToggle } from "@/components/shared/sonification-toggle";
 import { LlmStatusChip } from "@/components/ai/llm-status-chip";
 import { useAgentStore } from "@/lib/agent/store";
+import { AMR_PANEL_ID, platformShortcut } from "@/components/agent/mascot/panel-ids";
 import { XpBar } from "@/components/gamification/xp-bar";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
@@ -103,6 +104,9 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
   const tool = onVipTool ? undefined : pathTool;
   const pageTitle = pageTitleFor(pathname);
   const openAgent = useAgentStore((s) => s.openSheet);
+  // The opener says whether Amr's panel is open (it may be: Amr's own button
+  // and Ctrl/Cmd+J open it too), and which panel it opens.
+  const agentOpen = useAgentStore((s) => s.open);
   // The agent and the Cairo weather are the owner's; visitors get the
   // mascot's help panel behind the same button instead.
   const isOwner = useIsOwner();
@@ -124,6 +128,9 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
     );
     setMounted(true);
   }, []);
+
+  // Ctrl until mounted, on the server too, so the first render matches it.
+  const agentKey = platformShortcut("J", mounted && isMac);
 
   const nextTheme = theme === "light" ? "dark" : theme === "dark" ? "hc" : "light";
   const cycleTheme = () => {
@@ -295,7 +302,7 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
           <span className="hidden lg:inline truncate">Search tools...</span>
         </span>
         <kbd className="hidden lg:inline shrink-0 font-mono text-xs text-sub bg-[var(--card)] border border-border rounded px-1.5 py-0.5">
-          {mounted && isMac ? "⌘K" : "Ctrl K"}
+          {platformShortcut("K", mounted && isMac)}
         </kbd>
       </button>
 
@@ -356,14 +363,21 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
             back to its other anchors when the beacon is hidden). */}
         {beaconHeader && <KudosHeaderBeacon />}
         {/* Agent chat button. Visible from xs+ — keyboard users can also
-            hit Cmd/Ctrl+J to toggle (matches ChatGPT / Claude.ai). It and
+            hit ⌘J / Ctrl J to toggle (matches ChatGPT / Claude.ai). It and
             the theme button are 36×36 for a mouse, 44×44 on touch. */}
         <button
-          onClick={openAgent}
+          // A key press clicks with detail 0, so the focus owner of the panel
+          // can tell a keyboard open from a pointer one. It only opens: a key
+          // press while the panel is open brings focus into it instead.
+          onClick={(e) => openAgent({ via: e.detail === 0 ? "keyboard" : "pointer" })}
           data-no-sound="true"
           className="pointer-coarse:min-h-11 pointer-coarse:min-w-11 w-9 h-9 rounded-lg flex items-center justify-center text-sub hover:text-accent hover:bg-accent/5 transition-all duration-fast"
           aria-label={isOwner ? "Open agent chat" : "Open help"}
-          title={isOwner ? "Open agent (Cmd/Ctrl+J)" : "Find a tool or get help (Cmd/Ctrl+J)"}
+          aria-expanded={agentOpen}
+          // The panel is in the page only while it is open.
+          aria-controls={agentOpen ? AMR_PANEL_ID : undefined}
+          // Spelled like the search keycap and Amr's panel: ⌘J on Apple, Ctrl J elsewhere.
+          title={isOwner ? `Open agent (${agentKey})` : `Find a tool or get help (${agentKey})`}
         >
           {isOwner ? (
             <MessageSquare className="w-4 h-4" aria-hidden="true" />

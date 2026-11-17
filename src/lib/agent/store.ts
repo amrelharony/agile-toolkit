@@ -63,8 +63,32 @@ export type TurnAbortReason = "stop" | "reset" | "thread" | "profile";
 /** The live turn's way to stop itself, registered by the client. */
 export type TurnAbort = (reason: TurnAbortReason) => void;
 
+/**
+ * How someone opened the panel: a key ("keyboard": Enter or Space on Amr or
+ * the header's opener, which click with `detail === 0`, or Ctrl/Cmd+J) or a
+ * mouse, pen or finger ("pointer"). Where focus goes on open depends on it.
+ */
+export type PanelOpenVia = "keyboard" | "pointer";
+
+/** What an open request says about itself (nothing, when code opens the panel). */
+export interface OpenSheetOptions {
+  via?: PanelOpenVia;
+}
+
 interface AgentState {
   open: boolean;
+  /**
+   * How the latest open request came in, for the panel's focus owner: set by
+   * openSheet and toggleSheet's opening branch, null while the panel is
+   * closed and when code opened it without saying (a bubble's tap, a test).
+   */
+  openedVia: PanelOpenVia | null;
+  /**
+   * Bumped when a keyboard open request (the header's opener, pressed with a
+   * key) arrives while the panel is already open: the focus owner watches it
+   * and brings focus into the panel, so the press is never a dead end.
+   */
+  focusRequest: number;
   /** Currently-loaded conversation, or null for a fresh draft. */
   activeConversationId: string | null;
   activeMeta: ConversationMeta | null;
@@ -117,10 +141,16 @@ interface AgentState {
 }
 
 interface AgentActions {
-  openSheet(): void;
+  /**
+   * Open the panel, noting how (`via`) for the focus owner. Opening it again
+   * while it is open records the newer request's way in and, for a keyboard
+   * request, bumps `focusRequest` so focus moves into the panel.
+   */
+  openSheet(opts?: OpenSheetOptions): void;
   /** Close the panel: clears "Approve all" and denies a waiting card, but the turn goes on. */
   closeSheet(): void;
-  toggleSheet(): void;
+  /** Open the panel the way openSheet does (with `via`), or close it through closeSheet. */
+  toggleSheet(opts?: OpenSheetOptions): void;
   setAutoApprove(v: boolean): void;
   /**
    * Show a conversation (a thread from History, a resumed one, or null for a
@@ -177,6 +207,8 @@ interface AgentActions {
 
 export const useAgentStore = create<AgentState & AgentActions>()((set, get) => ({
   open: false,
+  openedVia: null,
+  focusRequest: 0,
   activeConversationId: null,
   activeMeta: null,
   messages: [],
@@ -194,7 +226,12 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
   visitorQuota: null,
   visitorFallback: null,
 
-  openSheet: () => set({ open: true }),
+  openSheet: ({ via }: OpenSheetOptions = {}) =>
+    set((s) => ({
+      open: true,
+      openedVia: via ?? null,
+      focusRequest: s.open && via === "keyboard" ? s.focusRequest + 1 : s.focusRequest,
+    })),
   // BUG-G1: also reset autoApprove on close. The docstring promised
   // "until the sheet is closed" but the prior implementation kept the
   // flag set across close/reopen, silently widening write-approval
@@ -207,13 +244,14 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
     // is awaiting that resolve; without this it would wedge. Capture
     // BEFORE the set so we don't fight the set's pending=null write.
     const pending = get().pendingToolUse;
-    set({ open: false, pendingToolUse: null, autoApprove: false });
+    set({ open: false, openedVia: null, pendingToolUse: null, autoApprove: false });
     pending?.resolve(false);
   },
   // Tapping Amr and Ctrl/Cmd+J close through here, so the closing branch
   // goes through closeSheet: every close path clears "Approve all" and
   // denies a card that is still waiting, not just the X button and Escape.
-  toggleSheet: () => (get().open ? get().closeSheet() : set({ open: true })),
+  // The opening branch is openSheet's, so it notes the way in too.
+  toggleSheet: (opts) => (get().open ? get().closeSheet() : get().openSheet(opts)),
   setAutoApprove: (v) => set({ autoApprove: v }),
 
   setActiveConversation: (meta, messages) => {

@@ -20,19 +20,16 @@
  * each change.
  *
  * Every button is 44 px on a coarse pointer (size "sm") and wraps a long label
- * rather than running out of the panel. Escape denies the change, as the store
- * does when the panel closes, until the panel's own Escape order takes this
- * over. Only an Escape meant for the chat denies: one from inside the panel,
- * from Amr himself, or with nothing focused. It leaves page fields and
- * overlays alone (the panel floats non-modal over the tool page), and an
- * Escape that something else already handled or that an input method is
- * composing.
+ * rather than running out of the panel. The card has no Escape of its own:
+ * the panel's Escape order (mascot-assistant) denies a waiting change first,
+ * before it leaves History or closes, and only for an Escape meant for the
+ * panel, never one a page field or overlay uses.
  *
  * Runtime code (the agent store), so it lives in chat/, which every-page code
  * may not reach (test/agent/bundle-boundary.test.ts).
  */
 
-import { useEffect, useId, useRef } from "react";
+import { useId } from "react";
 import { Button } from "@/components/ui/button";
 import { useAgentStore } from "@/lib/agent/store";
 
@@ -52,34 +49,6 @@ export function ConfirmCard({ allowApproveAll = false }: ConfirmCardProps) {
   const pending = useAgentStore((s) => s.pendingToolUse);
   const setAutoApprove = useAgentStore((s) => s.setAutoApprove);
   const id = useId();
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  // Escape = deny. The store denies on closeSheet, setActiveConversation and
-  // reset, but not when the reader just presses Escape while the card shows,
-  // and the turn would wait for the answer forever.
-  useEffect(() => {
-    if (!pending) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing || e.keyCode === 229) return;
-      // Only an Escape meant for Amr's chat denies: one from inside the panel,
-      // from Amr himself, or with nothing focused. An Escape a page field or
-      // overlay uses (a cycle-time cell, the comic overlay) leaves the change
-      // waiting. The panel is the dialog the card sits in; Amr's button
-      // carries data-amr-button (mascot-assistant).
-      const t = e.target;
-      const panel = rootRef.current?.closest('[role="dialog"]');
-      const ours =
-        !(t instanceof Element) ||
-        t === document.body ||
-        !!panel?.contains(t) ||
-        !!t.closest("[data-amr-button]");
-      if (!ours) return;
-      e.preventDefault();
-      pending.resolve(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [pending]);
 
   if (!pending) return null;
   const { prompt } = pending;
@@ -90,7 +59,6 @@ export function ConfirmCard({ allowApproveAll = false }: ConfirmCardProps) {
 
   return (
     <div
-      ref={rootRef}
       role="group"
       aria-labelledby={questionId}
       aria-describedby={prompt.detail ? detailId : undefined}
