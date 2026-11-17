@@ -1629,6 +1629,9 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
               ],
             });
           });
+          // The visitor's runtime brings the parts that draw messages: the
+          // reader scrolls a log that shows them, not one they arrive in later.
+          await screen.findByText("Start with what went well.");
           // The reader goes up the log (jsdom lays nothing out: its scroll is stubbed).
           Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => 900 });
           Object.defineProperty(log, "clientHeight", { configurable: true, get: () => 300 });
