@@ -30,7 +30,8 @@
  * With visitor AI on (visitorAiEnabled), a confirmed visitor gets
  * <VisitorPanel/> instead: the same guide first, then, after a consent card,
  * Amr's AI through /api/agent/visitor (its own chunks, loaded on demand). An
- * unverified owner session (owner check unanswered) keeps the plain guide.
+ * unverified owner session (owner check unanswered) keeps the plain guide, with
+ * a narration note that Amr's chat comes back once owner access is confirmed.
  */
 
 import {
@@ -91,6 +92,7 @@ import {
 } from "./amr-geometry";
 import { VisitorGuide } from "./visitor-guide";
 import { VisitorPanel } from "./visitor-panel";
+import { Narration } from "@/components/agent/comic/comic-parts";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import {
   HOME,
@@ -606,6 +608,18 @@ const ScenesTab = dynamic(() => import("./scenes-tab"), {
   loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
 });
 
+/**
+ * Over the tool finder while a signed-in session waits on the owner check
+ * (offline, 5xx, timeout; AuthProvider retries). Narration, not an Amr line,
+ * in the account menu's words ("Signed in, checking owner access").
+ */
+export const UNVERIFIED_OWNER_NOTE =
+  "Signed in, checking owner access. Amr's chat comes back once it's confirmed.";
+
+function UnverifiedOwnerNote() {
+  return <Narration>{UNVERIFIED_OWNER_NOTE}</Narration>;
+}
+
 export function MascotAssistant() {
   const open = useAgentStore((s) => s.open);
   const toggleSheet = useAgentStore((s) => s.toggleSheet);
@@ -616,7 +630,7 @@ export function MascotAssistant() {
   const confirmPending = useAgentStore((s) => s.pendingToolUse !== null);
   // `settled` keeps the owner from seeing the visitor notice flash while
   // auth is still loading; no chat component mounts until it's settled.
-  const { isOwner, settled, visitor } = useOwnerState();
+  const { isOwner, settled, unverified, visitor } = useOwnerState();
   // Amr's AI for visitors: a confirmed visitor only, and only in a build that has it on.
   const visitorAi = visitor && visitorAiEnabled();
   const isPhone = useIsPhone();
@@ -1049,6 +1063,12 @@ export function MascotAssistant() {
     if (!open) return;
     const onEsc = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // An input method is composing: Escape cancels the composition, not the
+      // panel (keyCode 229 is how older browsers say so).
+      if (e.isComposing || e.keyCode === 229) return;
+      // A field inside the panel already used this Escape (the guide's search
+      // clears itself first); the next one closes.
+      if (e.defaultPrevented) return;
       if (useAgentStore.getState().pendingToolUse) return;
       // Renaming a thread: Escape cancels that edit, not the whole panel.
       const ae = document.activeElement;
@@ -1178,7 +1198,10 @@ export function MascotAssistant() {
                     (visitorAi ? (
                       <VisitorPanel onNavigate={closeSheet} />
                     ) : (
-                      <VisitorGuide onNavigate={closeSheet} />
+                      <VisitorGuide
+                        onNavigate={closeSheet}
+                        note={unverified ? <UnverifiedOwnerNote /> : undefined}
+                      />
                     ))}
                 </div>
               ) : (

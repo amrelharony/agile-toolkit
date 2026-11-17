@@ -43,12 +43,20 @@ describe("the disclosure wording", () => {
     expect(CARD_DAILY).toBe(disclosures.VISITOR_AI_DAILY_MESSAGES);
     expect(CARD_TEXT[0]).toBe(disclosures.VISITOR_AI_SENT);
     expect(CARD_TEXT[1]).toBe(disclosures.VISITOR_AI_KEPT);
-    render(<VisitorAiConsent question="" onAgree={() => {}} onDecline={() => {}} />);
-    const points = screen.getAllByRole("listitem").map((li) => li.textContent);
-    expect(points).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);
-    expect(points[4]).toContain(
+    const { rerender } = render(
+      <VisitorAiConsent question="" onAgree={() => {}} onDecline={() => {}} />
+    );
+    const points = () => screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(points()).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);
+    expect(points()[4]).toContain(
       `${disclosures.VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons`
     );
+    // The panel's search is the tool finder, the name the panel itself uses.
+    expect(points()[4]).toContain("The tools and the tool finder always work without AI.");
+    expect(disclosures.VISITOR_AI_CONSENT_TEXT.join(" ")).not.toMatch(/offline/i);
+    // A question is shown in its own caption, never as one of the points.
+    rerender(<VisitorAiConsent question="retro" onAgree={() => {}} onDecline={() => {}} />);
+    expect(points()).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);
   });
 
   it("is the compact card before a tool's first Ask Amr, the same points in the same order", () => {

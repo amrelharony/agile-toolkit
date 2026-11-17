@@ -7,12 +7,19 @@
  * says can ask again. The same agreement covers the tools' Ask Amr buttons
  * (components/ai/ai-consent-compact.tsx asks for it on a tool page).
  *
- * Light on purpose: it ships with the page, beside the offline guide, so it
- * imports nothing of the agent runtime.
+ * A column: the title, the visitor's question (in their own caption) and the
+ * points scroll, and the buttons sit in a footer that never does, so "Agree"
+ * and "Not now" stay in view in the shortest phone panel. The privacy page's
+ * link closes the panel on its way (`onNavigate`).
+ *
+ * Light on purpose: it ships with the page, beside the tool finder, so it
+ * imports nothing of the agent runtime (the comic parts are runtime-free).
  */
 
 import { useEffect, useRef } from "react";
 import { ShieldCheck } from "lucide-react";
+import { YouCaption } from "@/components/agent/comic/comic-parts";
+import { FormPrivacyNote } from "@/components/data/form-privacy-note";
 import { Button } from "@/components/ui/button";
 import { VISITOR_AI_CONSENT_TEXT, VISITOR_AI_DAILY_MESSAGES } from "@/lib/site/disclosures";
 import { storeVisitorAiConsent } from "@/lib/visitor-ai/consent";
@@ -37,18 +44,24 @@ export function VisitorAiConsent({
   question,
   onAgree,
   onDecline,
+  onNavigate,
 }: {
   /** What the visitor wants to ask, shown back to them (may be empty). */
   question: string;
   onAgree: () => void;
   onDecline: () => void;
+  /** The privacy link was followed: the panel closes as the page changes. */
+  onNavigate?: () => void;
 }) {
-  // Focus moves to the card when it appears: the card, not "Agree and ask",
-  // so a screen reader reads what it says before the buttons.
-  const cardRef = useRef<HTMLElement>(null);
+  // Focus moves to the card's scrolling text when it appears, not to "Agree
+  // and ask": a screen reader reads what it says before the buttons, and the
+  // arrow, Page and Space keys scroll the points (keys scroll the focused
+  // element or a scroller around it, never one inside it).
+  const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     cardRef.current?.focus();
   }, []);
+  const asked = question.trim() !== "";
   // Two answers, Agree and Not now: Amr holds out the two options and waits for
   // the visitor's, for as long as the card is up (every way out unmounts it).
   useEffect(() => {
@@ -57,46 +70,49 @@ export function VisitorAiConsent({
   }, []);
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-4 py-3">
-      <section
+    <section aria-labelledby="amr-ai-consent-title" className="flex h-full min-h-0 flex-col">
+      <div
         ref={cardRef}
         tabIndex={-1}
-        aria-labelledby="amr-ai-consent-title"
-        className="rounded-lg border border-border bg-card px-3 py-3 focus:outline-none"
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-2 pt-3 focus:outline-none"
       >
-        <p
-          id="amr-ai-consent-title"
-          className="flex items-center gap-2 text-sm font-semibold text-text"
-        >
-          <ShieldCheck className="h-4 w-4 text-accent" aria-hidden="true" />
-          Before you chat with Amr&apos;s AI
-        </p>
-        {question && (
-          <p className="mt-2 text-sm text-sub">
-            You asked: <span className="text-text">“{question}”</span>
-          </p>
-        )}
-        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-text">
-          {VISITOR_AI_CONSENT_TEXT.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              storeVisitorAiConsent();
-              onAgree();
-            }}
+        <div className="panel flex flex-col gap-3 px-3 py-3">
+          {/* A card title, so it is lettered (DNA-SPEC section 5). */}
+          <h3
+            id="amr-ai-consent-title"
+            className="flex items-center gap-2 font-display text-base font-semibold text-text"
           >
-            Agree and ask
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={onDecline}>
-            Not now
-          </Button>
+            <ShieldCheck className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+            Before you chat with Amr&apos;s AI
+          </h3>
+          {/* The visitor's own words, in their caption: sent once they agree. */}
+          {asked && <YouCaption>{question}</YouCaption>}
+          <ul className="list-disc space-y-1.5 ps-5 text-sm text-text">
+            {VISITOR_AI_CONSENT_TEXT.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          {/* The privacy page's link, in a sentence after the points (they
+              already say what is sent and kept). Following it closes the panel. */}
+          <FormPrivacyNote onNavigate={onNavigate} />
         </div>
-      </section>
-    </div>
+      </div>
+      {/* Never scrolls: both choices stay in view. Size "default" is 44 px on
+          touch and on narrow screens. */}
+      <div className="flex shrink-0 flex-wrap gap-2 border-t border-border px-4 py-3">
+        <Button
+          type="button"
+          onClick={() => {
+            storeVisitorAiConsent();
+            onAgree();
+          }}
+        >
+          {asked ? "Agree and ask" : "Agree and chat"}
+        </Button>
+        <Button type="button" variant="outline" onClick={onDecline}>
+          Not now
+        </Button>
+      </div>
+    </section>
   );
 }

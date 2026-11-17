@@ -3,20 +3,29 @@
 /**
  * What the mascot's panel shows a signed-out visitor when visitor AI is on.
  *
- * Three steps, offline first:
- *  - guide: the offline tool finder (VisitorGuide), as before, plus "Ask Amr
- *    about '…'" and "Chat with Amr". Opening the panel sends nothing.
+ * Three steps, the tool finder first:
+ *  - guide: the tool finder (VisitorGuide), with its one Ask button ("Chat
+ *    with Amr", "Ask Amr about '…'", or "Back to chat" once a chat is under
+ *    way). Opening the panel sends nothing.
  *  - consent: the first time, a card says where messages go
- *    (VisitorAiConsent). Nothing is sent before "Agree and ask".
+ *    (VisitorAiConsent). Nothing is sent before "Agree and ask" (or "Agree
+ *    and chat" when nothing was asked).
  *  - chat: Amr's AI (visitor-agent-panel), a separate chunk loaded only now;
  *    the agent runtime behind it loads on the first message.
+ *
+ * The search travels with the visitor: "Not now" on the card, and going back
+ * from the chat, open the guide on the question they took there. The chat's
+ * own question was sent already, so while the search still holds it the Ask
+ * button reads "Back to chat" and nothing is sent twice. A failure or a
+ * refusal drops it (the note says what happened, and asking again starts
+ * fresh), and so does Clear chat (the question is no longer in the chat).
  *
  * When the visitor route says there's no more AI for now (visitorFallback),
  * the panel goes back to the guide with a note saying which limit was reached
  * (visitorFallbackNote). It does the same when the chat's chunk can't load
  * (offline, or a tab left open across a deploy), and asking again tries the
  * import again. And it does the same when the loaded chat fails while it is
- * drawn.
+ * drawn. A note is a narration caption: the narrator's line, never Amr's.
  *
  * Focus follows the step: the consent card and the chat's message box take it
  * themselves, and a return to the guide puts it on the note, or on the guide
@@ -30,6 +39,7 @@
 
 import { Suspense, lazy, useEffect, useRef, useState, type LazyExoticComponent } from "react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
+import { Narration } from "@/components/agent/comic/comic-parts";
 import { ErrorBoundary } from "@/components/layout/error-boundary";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
 import type { VisitorErrorCode } from "@/lib/visitor-ai/contract";
@@ -75,16 +85,15 @@ function chatFor(load: LoadChat): LazyChat {
 }
 
 /** Shown over the guide for a refusal without a note of its own below. */
-export const VISITOR_FALLBACK_NOTE =
-  "Amr has answered all he can for now. Here's the offline guide.";
+export const VISITOR_FALLBACK_NOTE = "Amr has answered all he can for now. Here's the tool finder.";
 
 /** Shown over the guide when the chat's code couldn't load. */
 export const VISITOR_CHAT_LOAD_NOTE =
-  "Amr's chat couldn't load. Check your connection, or reload the page. Here's the offline guide.";
+  "Amr's chat couldn't load. Check your connection, or reload the page. Here's the tool finder.";
 
 /** Shown over the guide when the chat loaded and then failed while it was drawn. */
 export const VISITOR_CHAT_ERROR_NOTE =
-  "Amr's chat ran into a problem. Reload the page to try again. Here's the offline guide.";
+  "Amr's chat ran into a problem. Reload the page to try again. Here's the tool finder.";
 
 /**
  * The note over the guide for the refusal that sent the visitor back to it:
@@ -101,19 +110,19 @@ export function visitorFallbackNote(
   const until = ends && ends > now ? ` until ${formatPeakTime(ends)}` : "";
   switch (code) {
     case "visitor_limit":
-      return "You've used all of today's messages with Amr. Here's the offline guide until tomorrow.";
+      return "You've used all of today's messages with Amr. Here's the tool finder until tomorrow.";
     case "visitor_peak_limit":
-      return `You've used all your messages for these busy hours. Here's the offline guide${until || " until they end"}.`;
+      return `You've used all your messages for these busy hours. Here's the tool finder${until || " until they end"}.`;
     case "site_limit":
-      return "Amr has answered all he can for today. Here's the offline guide until tomorrow.";
+      return "Amr has answered all he can for today. Here's the tool finder until tomorrow.";
     case "site_peak_limit":
-      return `Amr has answered all he can for these busy hours. Here's the offline guide${until || " until they end"}.`;
+      return `Amr has answered all he can for these busy hours. Here's the tool finder${until || " until they end"}.`;
     case "site_busy":
-      return "Amr is too busy to answer right now. Here's the offline guide; try asking him again later.";
+      return "Amr is too busy to answer right now. Here's the tool finder; try asking him again later.";
     case "disabled":
-      return "Amr's AI is switched off right now. Here's the offline guide.";
+      return "Amr's AI is switched off right now. Here's the tool finder.";
     case "meter_unavailable":
-      return "Amr can't check today's message count right now. Here's the offline guide; try asking him again in a few minutes.";
+      return "Amr can't check today's message count right now. Here's the tool finder; try asking him again in a few minutes.";
     default:
       return VISITOR_FALLBACK_NOTE;
   }
@@ -137,8 +146,13 @@ export function VisitorPanel({
   loadChat?: () => Promise<ChatModule>;
 }) {
   const [mode, setMode] = useState<Mode>(initialMode);
-  // The question to send when the chat opens ("" opens it empty).
+  // The question to send when the chat opens ("" opens it empty, or goes back
+  // to the chat under way). Kept after "Not now", so the guide opens on it.
   const [question, setQuestion] = useState("");
+  // The question the chat under way opened with, sent already. The guide opens
+  // on it after "Tool finder", and while its search still holds it, the Ask
+  // button goes back to the chat instead of asking it again.
+  const [sent, setSent] = useState("");
   // The loader this panel started with, kept for its whole life.
   const [load] = useState(() => loadChat);
   // Why the chat last went back to the guide by itself: its code couldn't
@@ -146,11 +160,14 @@ export function VisitorPanel({
   const [failure, setFailure] = useState<"load" | "error" | null>(null);
   const fallback = useAgentStore((s) => s.visitorFallback);
   const quota = useAgentStore((s) => s.visitorQuota);
+  // A chat is under way (it lives in the store, not in the chat step), so the
+  // guide's Ask button can take the visitor back to it.
+  const chatUnderWay = useAgentStore((s) => s.chatProfile === "visitor" && s.messages.length > 0);
   const announce = useAnnounce();
   const guideRef = useRef<HTMLDivElement>(null);
-  const noteRef = useRef<HTMLParagraphElement>(null);
+  const noteRef = useRef<HTMLDivElement>(null);
 
-  // A "no more AI for now" refusal: back to the offline guide. Coming from
+  // A "no more AI for now" refusal: back to the tool finder. Coming from
   // another step, its note takes focus (below), and a screen reader reads it
   // then. It is announced only when the guide is already showing, so it is
   // never said twice. An old one still showing when the panel opens is not
@@ -162,10 +179,26 @@ export function VisitorPanel({
     lastFallback.current = fallback;
     if (!fallback) return;
     setMode("guide");
-    if (was !== fallback && lastMode.current === "guide") {
-      announce(visitorFallbackNote(fallback, quota));
-    }
+    if (was === fallback) return;
+    // A refusal drops the question: the panel can't tell which message was
+    // refused, so the guide opens empty and its Ask button goes back to the chat.
+    setQuestion("");
+    setSent("");
+    if (lastMode.current === "guide") announce(visitorFallbackNote(fallback, quota));
   }, [fallback, quota, announce]);
+
+  // Clear chat empties the chat under way: its opening question is no longer
+  // in it, so the guide neither opens on it nor treats it as sent. A fresh
+  // chat is unaffected: openChat() sets `sent` before the chat is under way.
+  const lastUnderWay = useRef(chatUnderWay);
+  useEffect(() => {
+    const was = lastUnderWay.current;
+    lastUnderWay.current = chatUnderWay;
+    if (was && !chatUnderWay) {
+      setSent("");
+      setQuestion("");
+    }
+  }, [chatUnderWay]);
 
   // Back on the guide from another step: focus goes to the note when there is
   // one, or else to the guide itself. Never when the panel opens.
@@ -176,29 +209,45 @@ export function VisitorPanel({
     (noteRef.current ?? guideRef.current)?.focus();
   }, [mode]);
 
-  // The chat couldn't be shown: back to the offline guide, with a note. The
-  // note takes focus, so it is not announced as well.
+  // The chat couldn't be shown: back to the tool finder, with a note, and
+  // without the question (it was never answered; asking again starts fresh).
+  // The note takes focus, so it is not announced as well.
   const chatFailed = (kind: "load" | "error") => {
     setQuestion("");
+    setSent("");
     setFailure(kind);
     setMode("guide");
   };
 
+  // The chat opens. A question becomes the chat's own; opening it empty with
+  // no chat under way starts afresh; going back to the chat keeps its own.
+  const openChat = (ask: string) => {
+    if (ask || !chatUnderWay) setSent(ask);
+    setMode("chat");
+  };
+
   const askAmr = (query: string) => {
-    setQuestion(query.trim());
+    const q = query.trim();
+    // Back to the chat under way, with no question or with the one it opened
+    // with: that one was sent already, so nothing is sent twice.
+    const ask = chatUnderWay && (q === "" || q === sent) ? "" : q;
+    setQuestion(ask);
     // Asking again is a fresh try: the route answers again if it can, and the
     // chat's code loads again if it didn't.
     setFailure(null);
     useAgentStore.getState().setVisitorFallback(null);
-    setMode(hasVisitorAiConsent() ? "chat" : "consent");
+    if (hasVisitorAiConsent()) openChat(ask);
+    else setMode("consent");
   };
 
   if (mode === "consent") {
     return (
       <VisitorAiConsent
         question={question}
-        onAgree={() => setMode("chat")}
+        onAgree={() => openChat(question)}
+        // Back to the guide with the question still in its search.
         onDecline={() => setMode("guide")}
+        onNavigate={onNavigate}
       />
     );
   }
@@ -220,6 +269,9 @@ export function VisitorPanel({
         <Suspense fallback={<div className="min-h-0 flex-1" aria-busy="true" />}>
           <Chat
             initialQuestion={question}
+            // Back to the guide, its search on the question the chat opened
+            // with (`sent`); the guide's "Back to chat" returns to this chat,
+            // which then has nothing to send.
             onOfflineGuide={() => {
               setQuestion("");
               setMode("guide");
@@ -242,19 +294,19 @@ export function VisitorPanel({
       onNavigate={onNavigate}
       onAskAmr={askAmr}
       guideRef={guideRef}
+      initialQuery={question || sent}
+      resumeChat={chatUnderWay}
+      resumeQuery={sent}
       // The note sits inside the guide's scroll area. Above it, in a panel as
       // short as 160 px, it left the guide a strip too low to use.
       note={
         note && (
-          // Not a live region: it is read once, when it takes focus or is
-          // announced (tabIndex -1: focusable from code only).
-          <p
-            ref={noteRef}
-            tabIndex={-1}
-            className="shrink-0 rounded-md border border-border bg-card px-3 py-2 text-sm text-text focus:outline-none"
-          >
-            {note}
-          </p>
+          // A narration caption, the narrator's line, in a box that takes
+          // focus from code only (tabIndex -1). Not a live region: it is read
+          // once, when it takes focus or is announced.
+          <div ref={noteRef} tabIndex={-1} className="shrink-0 focus:outline-none">
+            <Narration tone={failure ? "error" : "note"}>{note}</Narration>
+          </div>
         )
       }
     />

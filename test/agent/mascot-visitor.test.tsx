@@ -40,7 +40,7 @@ vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
   RateLimitBar: () => <div data-testid="rate-limit-bar" />,
 }));
 
-import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
+import { MascotAssistant, UNVERIFIED_OWNER_NOTE } from "@/components/agent/mascot/mascot-assistant";
 import {
   VISITOR_AI_CONSENT_KEY,
   VISITOR_AI_CONSENT_TEXT,
@@ -57,6 +57,7 @@ import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
 import { LIVE_ROOM_KEY_PREFIX, enterLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { OWNER_UNVERIFIED } from "@/lib/auth/owner-check";
+import { PRIVACY_PATH, PRIVACY_TITLE } from "@/lib/site/owner";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 
 const OWNER = { status: "authenticated", user: { id: "u1" } };
@@ -106,18 +107,38 @@ describe("MascotAssistant — owner gating", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("links visitors to AI settings and owner sign-in for the current page", () => {
+  it("links visitors to AI settings, and leaves signing in to the account menu", () => {
     h.auth = null; // no AuthProvider at all reads as a visitor too
     h.pathname = "/kudos";
     render(<MascotAssistant />);
 
-    expect(screen.getByRole("link", { name: "Owner sign in" })).toHaveAttribute(
-      "href",
-      "/auth/sign-in?next=%2Fkudos"
-    );
+    // A sign-in a visitor can't use has no place in Amr's help panel; the
+    // owner signs in from the header's account menu.
+    const guide = screen.getByTestId("mascot-visitor-guide");
+    expect(within(guide).queryByRole("link", { name: /sign in/i })).toBeNull();
+    expect(within(guide).queryByText(/Owner sign in/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "AI settings" }));
     expect(useLlmUiStore.getState().settingsOpen).toBe(true);
     expect(useAgentStore.getState().open).toBe(false);
+  });
+
+  it("tells an owner whose check is unanswered that the chat comes back, in narration", () => {
+    h.auth = { status: "error", user: null, error: OWNER_UNVERIFIED };
+    render(<MascotAssistant />);
+
+    const guide = screen.getByTestId("mascot-visitor-guide");
+    const note = within(guide).getByText(UNVERIFIED_OWNER_NOTE);
+    // A narration caption, not an Amr line, and in the third person.
+    expect(note.closest(".comic-caption")).toHaveAttribute("data-voice", "narration");
+    expect(UNVERIFIED_OWNER_NOTE).not.toMatch(/\b(I|me|my)\b/i);
+    expect(screen.queryByTestId("agent-conversation")).toBeNull();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("shows a confirmed visitor no owner-check note", () => {
+    h.auth = { status: "anonymous", user: null };
+    render(<MascotAssistant />);
+    expect(screen.queryByText(UNVERIFIED_OWNER_NOTE)).toBeNull();
   });
 
   it("mounts neither the notice nor the chat while auth is loading", () => {
@@ -146,7 +167,10 @@ describe("MascotAssistant — owner gating", () => {
     render(<MascotAssistant />);
 
     const tool = screen.getByRole("region", { name: "This tool" });
-    expect(await within(tool).findByText("How to run it")).toBeInTheDocument();
+    const howTo = await within(tool).findByText(/^How to run it \(\d+ steps\)$/);
+    // The steps wait in a closed disclosure: the page's own guide has them too.
+    expect(howTo.tagName).toBe("SUMMARY");
+    expect(howTo.closest("details")).not.toHaveAttribute("open");
     expect(within(tool).getByText(/WSJF = cost of delay ÷ job size/)).toBeInTheDocument();
   });
 
@@ -157,7 +181,7 @@ describe("MascotAssistant — owner gating", () => {
 
     const search = screen.getByLabelText("What do you need to do?");
     const tool = screen.getByRole("region", { name: "This tool" });
-    const howTo = await within(tool).findByText("How to run it");
+    const howTo = await within(tool).findByText(/^How to run it/);
     const popular = screen.getByRole("list", { name: "Popular tasks" });
     const follows = (a: Node, b: Node) =>
       Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -174,18 +198,14 @@ describe("MascotAssistant — owner gating", () => {
     expect(screen.queryByRole("list", { name: "Popular tasks" })).toBeNull();
   });
 
-  it("gives the footer controls a 44 px target on touch", () => {
+  it("gives the quiet AI settings footer a 44 px target on touch", () => {
     h.auth = { status: "anonymous", user: null };
     render(<MascotAssistant />);
 
-    expect(screen.getByRole("button", { name: "AI settings" })).toHaveClass(
-      "pointer-coarse:min-h-11"
-    );
-    expect(screen.getByRole("link", { name: "Owner sign in" })).toHaveClass(
-      "min-touch-coarse",
-      "inline-flex",
-      "items-center"
-    );
+    const settings = screen.getByRole("button", { name: "AI settings" });
+    expect(settings).toHaveClass("pointer-coarse:min-h-11");
+    // A ghost button: the own-key settings are no longer the loudest control.
+    expect(settings).toHaveAttribute("data-variant", "ghost");
   });
 
   it("hides the Cmd/Ctrl+J hint on touch screens", () => {
@@ -243,6 +263,72 @@ describe("MascotAssistant — owner gating", () => {
   });
 });
 
+describe("MascotAssistant — Escape", () => {
+  beforeEach(() => {
+    h.auth = { status: "anonymous", user: null };
+    h.pathname = "/";
+    vi.stubGlobal("fetch", vi.fn());
+    stubPhoneWidth(false);
+    useAgentStore.setState({ open: true });
+  });
+
+  afterEach(() => {
+    useAgentStore.getState().reset();
+    useAgentStore.setState({ open: false });
+    vi.unstubAllGlobals();
+  });
+
+  const search = () => screen.getByLabelText("What do you need to do?");
+
+  it("closes the panel", () => {
+    render(<MascotAssistant />);
+    fireEvent.keyDown(search(), { key: "Escape" });
+    expect(useAgentStore.getState().open).toBe(false);
+    expect(screen.queryByRole("dialog", { name: "Amr assistant" })).toBeNull();
+  });
+
+  it("leaves the panel open when a field inside it already used the Escape", () => {
+    render(<MascotAssistant />);
+    const field = search();
+    // The field's own Escape (the guide's search clearing itself) runs first.
+    const own = (e: KeyboardEvent) => {
+      if (e.key === "Escape") e.preventDefault();
+    };
+    field.addEventListener("keydown", own);
+
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(useAgentStore.getState().open).toBe(true);
+
+    // Once the field lets it through, the next Escape closes.
+    field.removeEventListener("keydown", own);
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(useAgentStore.getState().open).toBe(false);
+  });
+
+  it("clears the tool finder's search on the first Escape, and closes on the next", () => {
+    render(<MascotAssistant />);
+    fireEvent.change(search(), { target: { value: "retro" } });
+
+    fireEvent.keyDown(search(), { key: "Escape" });
+    expect(search()).toHaveValue("");
+    expect(useAgentStore.getState().open).toBe(true);
+    expect(screen.getByRole("dialog", { name: "Amr assistant" })).toBeInTheDocument();
+
+    fireEvent.keyDown(search(), { key: "Escape" });
+    expect(useAgentStore.getState().open).toBe(false);
+  });
+
+  it("ignores an Escape that ends an input method's composition", () => {
+    render(<MascotAssistant />);
+    fireEvent.keyDown(search(), { key: "Escape", isComposing: true });
+    expect(useAgentStore.getState().open).toBe(true);
+    // Older browsers say "composing" with keyCode 229 instead.
+    fireEvent.keyDown(search(), { key: "Escape", keyCode: 229 });
+    expect(useAgentStore.getState().open).toBe(true);
+    expect(screen.getByRole("dialog", { name: "Amr assistant" })).toBeInTheDocument();
+  });
+});
+
 describe("MascotAssistant — visitor AI", () => {
   let fetchSpy: ReturnType<typeof vi.fn>;
   const VISITOR = { status: "anonymous", user: null };
@@ -289,7 +375,7 @@ describe("MascotAssistant — visitor AI", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("opens on the offline guide and sends nothing until the visitor agrees", () => {
+  it("opens on the tool finder and sends nothing until the visitor agrees", () => {
     render(<MascotAssistant />);
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Chat with Amr" })).toBeInTheDocument();
@@ -302,6 +388,8 @@ describe("MascotAssistant — visitor AI", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
+    // The search the visitor took to the card is still in the box.
+    expect(screen.getByLabelText("What do you need to do?")).toHaveValue("retro");
     expect(window.localStorage.getItem(VISITOR_AI_CONSENT_KEY)).toBeNull();
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(h.sendVisitorMessage).not.toHaveBeenCalled();
@@ -323,7 +411,7 @@ describe("MascotAssistant — visitor AI", () => {
       expect(h.sendVisitorMessage).toHaveBeenCalledWith("retro", { toolId: "retro" })
     );
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
-    expect(await screen.findByRole("button", { name: "Offline guide" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Tool finder" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear chat" })).toBeInTheDocument();
     // The runtime is mocked; the panel itself fetched nothing.
     expect(fetchSpy).not.toHaveBeenCalled();
@@ -335,7 +423,7 @@ describe("MascotAssistant — visitor AI", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
 
     expect(screen.queryByText(/Before you chat with Amr/)).toBeNull();
-    expect(await screen.findByRole("button", { name: "Offline guide" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Tool finder" })).toBeInTheDocument();
     expect(screen.getByLabelText("Message")).toBeInTheDocument();
     expect(h.sendVisitorMessage).not.toHaveBeenCalled();
   });
@@ -352,11 +440,79 @@ describe("MascotAssistant — visitor AI", () => {
     }
   });
 
+  it("says Agree and chat when nothing was asked, and shows a question in the visitor's caption", () => {
+    render(<MascotAssistant />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    expect(screen.getByRole("button", { name: "Agree and chat" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Agree and ask" })).toBeNull();
+    expect(document.querySelector('[data-voice="you"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Not now" }));
+    askAbout("retro");
+    expect(screen.getByRole("button", { name: "Agree and ask" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Agree and chat" })).toBeNull();
+    const caption = screen.getByText("retro").closest('[data-voice="you"]');
+    expect(caption).not.toBeNull();
+    // A screen reader hears whose words they are.
+    expect(caption).toHaveTextContent("You said: retro");
+  });
+
+  // jsdom has no layout, so this checks the structure and classes.
+  it("keeps the card's buttons in a footer that never scrolls, under a lettered title", () => {
+    render(<MascotAssistant />);
+    askAbout("retro");
+    const card = screen.getByRole("region", { name: "Before you chat with Amr's AI" });
+    const title = within(card).getByRole("heading", {
+      level: 3,
+      name: "Before you chat with Amr's AI",
+    });
+    expect(title).toHaveClass("font-display");
+    expect(card).toHaveClass("flex", "h-full", "min-h-0", "flex-col");
+
+    // The title, the question and the points scroll, inside the card...
+    const scroller = title.closest(".overflow-y-auto");
+    expect(scroller).not.toBeNull();
+    expect(scroller).toHaveClass("min-h-0", "flex-1", "overscroll-contain");
+    expect(scroller?.parentElement).toBe(card);
+    expect(within(card).getByRole("list")).toHaveClass("ps-5");
+
+    // ...and the buttons sit below them, in a footer that keeps its height.
+    const agree = within(card).getByRole("button", { name: "Agree and ask" });
+    const notNow = within(card).getByRole("button", { name: "Not now" });
+    expect(scroller).not.toContainElement(agree);
+    const footer = agree.parentElement;
+    expect(footer?.parentElement).toBe(card);
+    expect(footer).toHaveClass("shrink-0");
+    expect(footer).toContainElement(notNow);
+    // 44 px on touch and on narrow screens.
+    for (const button of [agree, notNow]) expect(button).toHaveClass("min-h-[44px]");
+  });
+
+  it("links the privacy page from the card, and closes the panel when it is followed", () => {
+    render(<MascotAssistant />);
+    askAbout("retro");
+    const card = screen.getByRole("region", { name: "Before you chat with Amr's AI" });
+    const link = within(card).getByRole("link", { name: PRIVACY_TITLE });
+    expect(link).toHaveAttribute("href", PRIVACY_PATH);
+    // jsdom can't follow a link to another page, so the click stops short of it.
+    const stay = (e: Event) => e.preventDefault();
+    document.addEventListener("click", stay);
+    try {
+      fireEvent.click(link);
+    } finally {
+      document.removeEventListener("click", stay);
+    }
+    expect(useAgentStore.getState().open).toBe(false);
+    // Following it agrees to nothing.
+    expect(window.localStorage.getItem(VISITOR_AI_CONSENT_KEY)).toBeNull();
+    expect(h.sendVisitorMessage).not.toHaveBeenCalled();
+  });
+
   it("shows the visitor's allowance in the chat", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Offline guide" });
+    await screen.findByRole("button", { name: "Tool finder" });
     act(() => {
       useAgentStore.getState().setVisitorQuota({
         remaining: 62,
@@ -370,11 +526,11 @@ describe("MascotAssistant — visitor AI", () => {
     expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent("62 of 100 left today");
   });
 
-  it("goes back to the offline guide when Amr can't answer any more", async () => {
+  it("goes back to the tool finder when Amr can't answer any more", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Offline guide" });
+    await screen.findByRole("button", { name: "Tool finder" });
 
     act(() => {
       useAgentStore.getState().setVisitorFallback("visitor_limit");
@@ -389,7 +545,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Offline guide" });
+    await screen.findByRole("button", { name: "Tool finder" });
 
     const ends = new Date(Date.now() + 90 * 60_000);
     act(() => {
@@ -405,7 +561,7 @@ describe("MascotAssistant — visitor AI", () => {
     });
     expect(
       screen.getByText(
-        `You've used all your messages for these busy hours. Here's the offline guide until ${formatPeakTime(ends)}.`
+        `You've used all your messages for these busy hours. Here's the tool finder until ${formatPeakTime(ends)}.`
       )
     ).toBeInTheDocument();
   });
@@ -441,13 +597,21 @@ describe("MascotAssistant — visitor AI", () => {
     expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
   });
 
-  it("gives Chat with Amr a 44 px target on touch, like the rest of the footer", () => {
+  it("offers one primary Ask button under the search, 44 px on touch", () => {
     render(<MascotAssistant />);
-    expect(screen.getByRole("button", { name: "Chat with Amr" })).toHaveClass(
-      "min-touch-coarse",
-      "flex",
-      "items-center"
-    );
+    const ask = screen.getByRole("button", { name: "Chat with Amr" });
+    expect(ask).toHaveClass("pointer-coarse:min-h-11", "inline-flex", "items-center");
+    expect(ask).toHaveAttribute("data-variant", "default");
+    // Right under the field, before the results.
+    const search = screen.getByLabelText("What do you need to do?");
+    expect(search.compareDocumentPosition(ask) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Typing turns the same button into the question: never two Ask buttons.
+    fireEvent.change(search, { target: { value: "retro" } });
+    expect(screen.getByRole("button", { name: "Ask Amr about “retro”" })).toBe(ask);
+    expect(screen.queryByRole("button", { name: "Chat with Amr" })).toBeNull();
+    const results = screen.getByRole("list", { name: "Matching tools" });
+    expect(ask.compareDocumentPosition(results) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   // jsdom has no layout, so this checks the classes, not the wrapped text.
@@ -515,7 +679,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Offline guide" });
+    await screen.findByRole("button", { name: "Tool finder" });
     expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
     // Out of a room the chat offers a change and says Amr asks first.
     expect(screen.getByText(/Add a card/)).toBeInTheDocument();
@@ -556,7 +720,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     render(<MascotAssistant />);
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Offline guide" });
+    await screen.findByRole("button", { name: "Tool finder" });
     expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
 
     // What the tab with the room does: it writes its stamp, and this tab gets
@@ -588,7 +752,7 @@ describe("MascotAssistant — visitor AI", () => {
       askAbout("retro");
       fireEvent.click(screen.getByRole("button", { name: "Agree and ask" }));
       await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1));
-      await screen.findByRole("button", { name: "Offline guide" });
+      await screen.findByRole("button", { name: "Tool finder" });
       return view;
     }
 
@@ -658,11 +822,12 @@ describe("MascotAssistant — visitor AI", () => {
       expect(useAgentStore.getState().messages).toEqual([]);
     });
 
-    it("Offline guide goes back to the guide and stops the answer", async () => {
+    it("Tool finder goes back to the guide and stops the answer", async () => {
       await openChatWithQuestion();
       h.abortVisitor.mockClear();
-      fireEvent.click(screen.getByRole("button", { name: "Offline guide" }));
+      fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
       expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
+      expect(screen.getByLabelText("What do you need to do?")).toHaveValue("retro");
       expect(screen.queryByLabelText("Message")).toBeNull();
       await waitFor(() => expect(h.abortVisitor).toHaveBeenCalledTimes(1));
     });
@@ -690,6 +855,7 @@ describe("MascotAssistant — visitor AI", () => {
     render(<MascotAssistant />);
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Chat with Amr" })).toBeNull();
+    expect(screen.getByText(UNVERIFIED_OWNER_NOTE)).toBeInTheDocument();
   });
 
   it("drops the visitor's chat when the visitor turns out to be the owner", () => {
@@ -816,7 +982,8 @@ describe("visitorFallbackNote (the note over the guide after a refusal)", () => 
   it.each(Array.from(VISITOR_FALLBACK_CODES))("has its own note for %s", (code) => {
     const note = visitorFallbackNote(code, null, NOW);
     expect(note).not.toBe(VISITOR_FALLBACK_NOTE);
-    expect(note).toMatch(/offline guide/);
+    expect(note).toMatch(/tool finder/);
+    expect(note).not.toMatch(/offline/);
   });
 
   it("gives each code a different note", () => {

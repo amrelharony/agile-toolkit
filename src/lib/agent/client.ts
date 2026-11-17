@@ -1185,7 +1185,7 @@ function isVisitorErrorCode(v: unknown): v is VisitorErrorCode {
  * the x-visitor-ai-* headers is read on EVERY response, refusals included (a
  * response without them keeps the last one). A refusal whose code means "no
  * more AI for now" (VISITOR_FALLBACK_CODES) sets visitorFallback, so the panel
- * goes back to the offline guide; every other refusal (a busy or failing AI
+ * goes back to the tool finder; every other refusal (a busy or failing AI
  * service, a timeout, a bad request) only shows an error. A visitor who
  * pressed Stop while the refusal was still arriving is told nothing: they know
  * why there is no answer, and the abort has usually taken the refusal's reason

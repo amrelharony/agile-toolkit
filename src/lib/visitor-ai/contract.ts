@@ -122,7 +122,7 @@ export type VisitorErrorCode =
   /** 504: the AI service didn't start answering in time. */
   | "timeout";
 
-/** Refusals that mean "no more AI today/now": the panel falls back to the offline guide. */
+/** Refusals that mean "no more AI today/now": the panel falls back to the tool finder. */
 export const VISITOR_FALLBACK_CODES: ReadonlySet<VisitorErrorCode> = new Set<VisitorErrorCode>([
   "disabled",
   "meter_unavailable",
