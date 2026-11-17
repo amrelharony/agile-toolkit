@@ -40,6 +40,25 @@ const CALM =
 const vtBlock = (inner: string) => `@supports (view-transition-name:none){@media screen{${inner}}}`;
 const VT = vtBlock(READY + NAMES + HOLD + STACK + TAPS + CALM);
 
+/**
+ * The chat strip's rules (AMR), minified the way the build writes them: one colon
+ * before before/after, no quotes, no leading zeros, the forced-colours pair reordered.
+ */
+const RIGHT =
+  ".balloon[data-tail=right]:before,[data-amr-side=right] .balloon[data-tail=amr]:before{left:auto;right:-.8rem;border-width:.4rem 0 .4rem .8rem;border-color:transparent transparent transparent var(--border)}" +
+  ".balloon[data-tail=right]:after,[data-amr-side=right] .balloon[data-tail=amr]:after{left:auto;right:-.6rem;border-width:.3rem 0 .3rem .65rem;border-color:transparent transparent transparent var(--balloon-fill)}";
+const TOP =
+  ".balloon[data-tail-from=top]:before,[data-amr-edge=top] .balloon[data-tail=amr]:before{top:var(--tail-at);bottom:auto}" +
+  ".balloon[data-tail-from=top]:after,[data-amr-edge=top] .balloon[data-tail=amr]:after{top:calc(var(--tail-at) + .1rem);bottom:auto}";
+const YOU =
+  ".comic-caption[data-voice=you]{background-color:var(--surface);border:var(--line-w) solid var(--border)}";
+const WASH =
+  "@supports (background-color:color-mix(in srgb,red 50%,blue)){.comic-caption[data-voice=you]{background-color:color-mix(in srgb,var(--accent2) 14%,var(--card))}}";
+const TAILS_OFF = "@media (forced-colors:active){.balloon:after,.balloon:before{display:none}}";
+const EDGE =
+  "@media (forced-colors:active){.comic-caption[data-voice=you]{border-inline-start-width:calc(var(--line-w)*3)}}";
+const AMR = RIGHT + TOP + YOU + WASH + EDGE + TAILS_OFF;
+
 const F2_HELD = MARKERS.F2[0].name;
 const F2_READY = MARKERS.F2[1].name;
 const F2_CALM = MARKERS.F2[3].name;
@@ -52,9 +71,10 @@ function failing(...sheets: string[]): string[] {
 
 describe("check-built-css", () => {
   it("lists each PR's markers", () => {
-    expect(Object.keys(MARKERS)).toEqual(["F1", "F2"]);
+    expect(Object.keys(MARKERS)).toEqual(["F1", "F2", "AMR"]);
     expect(MARKERS.F1).toHaveLength(5);
     expect(MARKERS.F2).toHaveLength(4);
+    expect(MARKERS.AMR).toHaveLength(5);
   });
 
   it("finds every marker in globals.css as written", () => {
@@ -62,69 +82,152 @@ describe("check-built-css", () => {
   });
 
   it("finds every marker in a minified sheet that keeps them", () => {
-    expect(failing(FALLBACK + LINEAR + GRAIN + OFF + VT)).toEqual([]);
+    expect(failing(FALLBACK + LINEAR + GRAIN + OFF + VT + AMR)).toEqual([]);
   });
 
   it("flags linear() that comes before its fallback, or outside @supports", () => {
-    expect(failing(LINEAR + FALLBACK + GRAIN + OFF + VT)).toHaveLength(2);
+    expect(failing(LINEAR + FALLBACK + GRAIN + OFF + VT + AMR)).toHaveLength(2);
     const unguarded = ":root{--ease-settle:linear(0,1.08,1);--ease-pop:linear(0,1.16,1)}";
-    expect(failing(FALLBACK + unguarded + GRAIN + OFF + VT)).toHaveLength(2);
-    expect(failing(LINEAR + GRAIN + OFF + VT)).toHaveLength(2);
+    expect(failing(FALLBACK + unguarded + GRAIN + OFF + VT + AMR)).toHaveLength(2);
+    expect(failing(LINEAR + GRAIN + OFF + VT + AMR)).toHaveLength(2);
   });
 
   it("flags a grain rule that lost a layer or its selector, and a missing removal", () => {
     const oneLayer = `html.light body{background-image:${TILE}}html.dark body{background-image:${TILE},${TILE}}`;
-    expect(failing(FALLBACK + LINEAR + oneLayer + OFF + VT)).toEqual([
+    expect(failing(FALLBACK + LINEAR + oneLayer + OFF + VT + AMR)).toEqual([
       "paper grain: two url(data:image/svg+xml) layers on html.light body",
     ]);
-    expect(failing(FALLBACK + LINEAR + GRAIN + VT)).toEqual([
+    expect(failing(FALLBACK + LINEAR + GRAIN + VT + AMR)).toEqual([
       "paper grain: removed for print, forced colours and more contrast",
     ]);
   });
 
   it("passes a marker found in any one of several files", () => {
-    expect(failing(FALLBACK + LINEAR, GRAIN + OFF, VT)).toEqual([]);
+    expect(failing(FALLBACK + LINEAR, GRAIN + OFF, VT, AMR)).toEqual([]);
   });
 });
 
 describe("check-built-css: F2's held layers", () => {
-  const F1 = FALLBACK + LINEAR + GRAIN + OFF;
+  const OTHERS = FALLBACK + LINEAR + GRAIN + OFF + AMR;
 
   it("lists every F2 marker as missing without the VIEW TRANSITIONS block", () => {
-    expect(failing(F1)).toEqual(MARKERS.F2.map((m: { name: string }) => m.name));
+    expect(failing(OTHERS)).toEqual(MARKERS.F2.map((m: { name: string }) => m.name));
   });
 
   it("reads the held names with or without quotes", () => {
     const quoted = NAMES.replace(/hold=([a-z-]+)\]/g, 'hold="$1"]');
     expect(quoted).not.toBe(NAMES);
-    expect(failing(F1 + vtBlock(READY + quoted + HOLD + STACK + TAPS + CALM))).toEqual([]);
+    expect(failing(OTHERS + vtBlock(READY + quoted + HOLD + STACK + TAPS + CALM))).toEqual([]);
   });
 
   it("flags a held name given outside html[data-vt] or outside @media screen", () => {
     const always = NAMES.replace(/html\[data-vt\] /g, "");
-    expect(failing(F1 + vtBlock(READY + always + HOLD + STACK + TAPS + CALM))).toEqual([F2_HELD]);
+    expect(failing(OTHERS + vtBlock(READY + always + HOLD + STACK + TAPS + CALM))).toEqual([
+      F2_HELD,
+    ]);
     const unscreened = `@supports (view-transition-name:none){${NAMES}}`;
-    expect(failing(F1 + unscreened + vtBlock(READY + HOLD + STACK + TAPS + CALM))).toEqual([
+    expect(failing(OTHERS + unscreened + vtBlock(READY + HOLD + STACK + TAPS + CALM))).toEqual([
       F2_HELD,
     ]);
   });
 
   it("flags a held group that lost its order, or an old picture still drawn", () => {
     const flat = STACK.replace("z-index:2", "z-index:3");
-    expect(failing(F1 + vtBlock(READY + NAMES + HOLD + flat + TAPS + CALM))).toEqual([F2_HELD]);
+    expect(failing(OTHERS + vtBlock(READY + NAMES + HOLD + flat + TAPS + CALM))).toEqual([F2_HELD]);
     const drawn = HOLD.replace("{display:none}", "{opacity:0}");
-    expect(failing(F1 + vtBlock(READY + NAMES + drawn + STACK + TAPS + CALM))).toEqual([F2_HELD]);
+    expect(failing(OTHERS + vtBlock(READY + NAMES + drawn + STACK + TAPS + CALM))).toEqual([
+      F2_HELD,
+    ]);
   });
 
   it("flags --vt-ready outside the screen block, or missing", () => {
     const outside = `@supports (view-transition-name:none){${READY}}`;
-    expect(failing(F1 + outside + vtBlock(NAMES + HOLD + STACK + TAPS + CALM))).toEqual([F2_READY]);
-    expect(failing(F1 + READY + vtBlock(NAMES + HOLD + STACK + TAPS + CALM))).toEqual([F2_READY]);
+    expect(failing(OTHERS + outside + vtBlock(NAMES + HOLD + STACK + TAPS + CALM))).toEqual([
+      F2_READY,
+    ]);
+    expect(failing(OTHERS + READY + vtBlock(NAMES + HOLD + STACK + TAPS + CALM))).toEqual([
+      F2_READY,
+    ]);
   });
 
   it("flags a reduced-motion rule that lost !important or left the block", () => {
     const soft = CALM.replace("!important", "");
-    expect(failing(F1 + vtBlock(READY + NAMES + HOLD + STACK + TAPS + soft))).toEqual([F2_CALM]);
-    expect(failing(F1 + CALM + vtBlock(READY + NAMES + HOLD + STACK + TAPS))).toEqual([F2_CALM]);
+    expect(failing(OTHERS + vtBlock(READY + NAMES + HOLD + STACK + TAPS + soft))).toEqual([
+      F2_CALM,
+    ]);
+    expect(failing(OTHERS + CALM + vtBlock(READY + NAMES + HOLD + STACK + TAPS))).toEqual([
+      F2_CALM,
+    ]);
+  });
+});
+
+describe("check-built-css: the chat strip (AMR)", () => {
+  const OTHERS = FALLBACK + LINEAR + GRAIN + OFF + VT;
+  const [RIGHT_TAIL, YOU_CAPTION, ALIAS, GUARD, YOU_EDGE] = MARKERS.AMR.map(
+    (m: { name: string }) => m.name
+  );
+
+  it("lists every AMR marker as missing without the chat rules", () => {
+    expect(failing(OTHERS)).toEqual([RIGHT_TAIL, YOU_CAPTION, ALIAS, GUARD, YOU_EDGE]);
+  });
+
+  it("reads the source's quotes, double colons and leading zeros as the build's", () => {
+    const source = (RIGHT + TOP)
+      .replace(/=([a-z-]+)\]/g, '="$1"]')
+      .replace(/:(before|after)/g, "::$1")
+      .replace(/(^|[^\d])\.(\d)/g, "$10.$2");
+    expect(source).toContain('[data-tail="right"]::before');
+    expect(source).toContain("right:-0.8rem");
+    expect(source).toContain("+ 0.1rem");
+    expect(failing(OTHERS + source + YOU + WASH + EDGE + TAILS_OFF)).toEqual([]);
+  });
+
+  it("flags a right tail that lost its paper colour, and an alias left out of it", () => {
+    const card = RIGHT.replace("var(--balloon-fill)", "var(--card)");
+    expect(failing(OTHERS + card + TOP + YOU + WASH + EDGE + TAILS_OFF)).toEqual([
+      RIGHT_TAIL,
+      ALIAS,
+    ]);
+    const noAlias = RIGHT.replace(/,\[data-amr-side=right\] \.balloon\[data-tail=amr\]:\w+/g, "");
+    expect(noAlias).not.toContain("data-amr-side");
+    expect(failing(OTHERS + noAlias + TOP + YOU + WASH + EDGE + TAILS_OFF)).toEqual([ALIAS]);
+    const noTop = TOP.replace(/,\[data-amr-edge=top\] \.balloon\[data-tail=amr\]:\w+/g, "");
+    expect(noTop).not.toContain("data-amr-edge");
+    expect(failing(OTHERS + RIGHT + noTop + YOU + WASH + EDGE + TAILS_OFF)).toEqual([ALIAS]);
+  });
+
+  it("flags a you wash outside @supports or before its fallback, and a lost outline", () => {
+    const bare =
+      ".comic-caption[data-voice=you]{background-color:color-mix(in srgb,var(--accent2) 14%,var(--card))}";
+    expect(failing(OTHERS + RIGHT + TOP + YOU + bare + EDGE + TAILS_OFF)).toEqual([YOU_CAPTION]);
+    expect(failing(OTHERS + RIGHT + TOP + WASH + YOU + EDGE + TAILS_OFF)).toEqual([YOU_CAPTION]);
+    const unlined = YOU.replace(";border:var(--line-w) solid var(--border)", "");
+    expect(failing(OTHERS + RIGHT + TOP + unlined + WASH + EDGE + TAILS_OFF)).toEqual([
+      YOU_CAPTION,
+    ]);
+  });
+
+  it("flags tails hidden only for print, or only one of the two", () => {
+    const print = TAILS_OFF.replace("(forced-colors:active)", "print");
+    expect(failing(OTHERS + RIGHT + TOP + YOU + WASH + EDGE + print)).toEqual([GUARD]);
+    const half = "@media (forced-colors:active){.balloon:before{display:none}}";
+    expect(failing(OTHERS + RIGHT + TOP + YOU + WASH + EDGE + half)).toEqual([GUARD]);
+  });
+
+  it("flags a you caption edge outside forced colours, missing, or no heavier than narration's", () => {
+    const CHAT = OTHERS + RIGHT + TOP + YOU + WASH + TAILS_OFF;
+    expect(failing(CHAT)).toEqual([YOU_EDGE]);
+    const unguarded =
+      ".comic-caption[data-voice=you]{border-inline-start-width:calc(var(--line-w)*3)}";
+    expect(failing(CHAT + unguarded)).toEqual([YOU_EDGE]);
+    expect(failing(CHAT + EDGE.replace("(forced-colors:active)", "print"))).toEqual([YOU_EDGE]);
+    expect(failing(CHAT + EDGE.replace("calc(var(--line-w)*3)", "var(--line-w)"))).toEqual([
+      YOU_EDGE,
+    ]);
+    expect(failing(CHAT + EDGE.replace("data-voice=you", "data-voice=narration"))).toEqual([
+      YOU_EDGE,
+    ]);
+    // The source keeps the attribute's quotes; the marker reads both.
+    expect(failing(CHAT + EDGE.replace("data-voice=you", 'data-voice="you"'))).toEqual([]);
   });
 });

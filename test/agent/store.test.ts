@@ -78,3 +78,62 @@ describe("useAgentStore – pending tool resolution", () => {
     expect(pending.resolve).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Tapping Amr and Ctrl/Cmd+J close the panel through toggleSheet, so its
+ * closing branch must do everything closeSheet does: clear "Approve all"
+ * and deny a card that is still waiting (audit toggle-keeps-autoapprove).
+ */
+describe("useAgentStore – toggleSheet", () => {
+  beforeEach(() => {
+    useAgentStore.getState().reset();
+  });
+
+  it("toggling closed resets autoApprove and denies a pending card", () => {
+    const pending = makePending();
+    useAgentStore.getState().openSheet();
+    useAgentStore.getState().setAutoApprove(true);
+    useAgentStore.getState().setPendingToolUse(pending);
+
+    useAgentStore.getState().toggleSheet();
+
+    const s = useAgentStore.getState();
+    expect(s.open).toBe(false);
+    expect(s.autoApprove).toBe(false);
+    expect(s.pendingToolUse).toBeNull();
+    expect(pending.resolve).toHaveBeenCalledTimes(1);
+    expect(pending.resolve).toHaveBeenCalledWith(false);
+    expect(pending._resolved).toBe(false);
+  });
+
+  it("toggling closed goes through closeSheet", () => {
+    useAgentStore.getState().openSheet();
+    const original = useAgentStore.getState().closeSheet;
+    const closeSheet = vi.fn(original);
+    useAgentStore.setState({ closeSheet });
+    try {
+      useAgentStore.getState().toggleSheet();
+      expect(closeSheet).toHaveBeenCalledTimes(1);
+      expect(useAgentStore.getState().open).toBe(false);
+    } finally {
+      // zustand copies state on every set, so put the real action back
+      // explicitly rather than relying on a spy restore.
+      useAgentStore.setState({ closeSheet: original });
+    }
+  });
+
+  it("toggling open just opens and leaves the rest alone", () => {
+    const pending = makePending();
+    useAgentStore.getState().setAutoApprove(true);
+    useAgentStore.getState().setPendingToolUse(pending);
+    expect(useAgentStore.getState().open).toBe(false);
+
+    useAgentStore.getState().toggleSheet();
+
+    const s = useAgentStore.getState();
+    expect(s.open).toBe(true);
+    expect(s.autoApprove).toBe(true);
+    expect(s.pendingToolUse).toBe(pending);
+    expect(pending.resolve).not.toHaveBeenCalled();
+  });
+});

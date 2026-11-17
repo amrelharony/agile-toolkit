@@ -89,6 +89,22 @@ const TINTS = [0, 0.05, 0.1, 0.15, 0.2];
 const AA = 4.5;
 const NON_TEXT = 3;
 
+/**
+ * The you caption's paper (globals.css, PANELS): a wash of one token mixed into
+ * another, `color-mix(in srgb, var(--tint) N%, var(--over))`, with a plain token
+ * as the fallback where color-mix is unknown.
+ */
+const YOU_CAPTION = (() => {
+  const wash = css.match(
+    /\.comic-caption\[data-voice="you"\]\s*\{\s*background-color:\s*color-mix\(in srgb, var\(--([\w-]+)\) (\d+)%, var\(--([\w-]+)\)\);/
+  );
+  const fallback = css.match(
+    /\.comic-caption\[data-voice="you"\]\s*\{\s*background-color:\s*var\(--([\w-]+)\);/
+  );
+  if (!wash || !fallback) throw new Error("no you caption paper in globals.css");
+  return { tint: wash[1], amount: Number(wash[2]) / 100, over: wash[3], fallback: fallback[1] };
+})();
+
 describe.each(THEMES)("%s theme", (_name, theme) => {
   it("keeps text, accent and status colours at AA on their own tints", () => {
     const failures: string[] = [];
@@ -112,6 +128,28 @@ describe.each(THEMES)("%s theme", (_name, theme) => {
     for (const surface of [...SURFACES, "surface-hover"]) {
       expect(contrast(hex(theme, "sub"), hex(theme, surface))).toBeGreaterThanOrEqual(AA);
     }
+  });
+
+  it("keeps the words on a you caption at AA, and its outline at 3:1", () => {
+    const { tint: token, amount, over, fallback } = YOU_CAPTION;
+    expect(amount).toBeLessThanOrEqual(0.2);
+    const papers: [string, Rgb][] = [
+      [
+        `${token}/${Math.round(amount * 100)} over --${over}`,
+        tint(hex(theme, token), hex(theme, over), amount),
+      ],
+      [`--${fallback}`, hex(theme, fallback)],
+    ];
+    const failures: string[] = [];
+    for (const [paper, ground] of papers) {
+      for (const words of ["text", "sub"]) {
+        const ratio = contrast(hex(theme, words), ground);
+        if (ratio < AA) failures.push(`--${words} on ${paper}: ${ratio.toFixed(2)}:1`);
+      }
+      const edge = contrast(hex(theme, "border"), ground);
+      if (edge < NON_TEXT) failures.push(`--border around ${paper}: ${edge.toFixed(2)}:1`);
+    }
+    expect(failures).toEqual([]);
   });
 
   it("keeps words on solid fills at AA", () => {

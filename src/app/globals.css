@@ -59,6 +59,12 @@
     --panel-w: 2px;
     /* A pen-drawn box is never quite square: four slightly different corners. */
     --panel-radius: 9px 7px 10px 6px / 7px 10px 6px 9px;
+    /* A balloon on a page (EmptyState, the VIP intro) is rounder than a panel. A
+       chat balloon (`.balloon[data-tail]`) keeps every corner at 12px or less,
+       so a one-line reply is never a pill. A caption box is all but square. */
+    --balloon-radius-page: 1.25rem 1.5rem 1.35rem 1.1rem / 1.35rem 1.1rem 1.5rem 1.25rem;
+    --balloon-radius: 12px 10px 12px 9px / 10px 12px 9px 12px;
+    --caption-radius: 4px 3px 4px 2px / 3px 4px 2px 4px;
     /* Hard offset shadows: ink laid down, not light falling. Tailwind's shadow-*
        keys read these (tailwind.config.ts). */
     --shadow-color: #05060a;
@@ -233,6 +239,9 @@
     --surface-deep: #000000;
     --surface-hover: #1a1a1a;
     --panel-radius: 4px;
+    --balloon-radius-page: 4px;
+    --balloon-radius: 4px;
+    --caption-radius: 2px;
     /* `0 0 0 0` rather than `none`: Tailwind joins these into a comma list with
        the ring shadows, where `none` would void the whole declaration. */
     --shadow-1: 0 0 0 0 transparent;
@@ -319,8 +328,14 @@
 
 @layer base {
   html {
-    scroll-behavior: smooth;
     -webkit-tap-highlight-color: transparent;
+  }
+  /* Anchor jumps and scripted scrolls glide, unless the reader asked for less
+     motion: then they jump straight there. */
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
   }
 
   /* Page titles are lettered by hand, whichever component draws them. */
@@ -636,22 +651,44 @@ html.dark body {
 
   /**
    * .balloon
-   * A speech balloon: rounder than a panel, no shadow, with a tail. The tail sits
-   * on the balloon's lower-left edge, towards the speaker standing beside it, and
-   * is two triangles so the outline carries round it.
+   * A speech balloon: rounder than a panel, no shadow, with a tail. The tail is
+   * two triangles, ink then paper, so the outline carries round it. A bare
+   * .balloon (EmptyState, the VIP intro) keeps the page's round corners and its
+   * tail on the lower-left edge, towards the speaker standing beside it.
+   *
+   * A balloon with data-tail is the chat's: capped corners (--balloon-radius,
+   * every corner 12px or less, so a one-line reply is never a pill) and the tail
+   * on the edge it names.
+   *   data-tail       left | right | up | down | none | amr
+   *   data-tail-from  the end --tail-at counts from: bottom (the default) or
+   *                   top for a left or right tail; left (the default) or right
+   *                   for an up or down tail
+   *   --tail-at       how far along that edge the tail sits; 1rem unless set
+   *   --balloon-fill  the balloon's paper, shared by the tail's inner triangle
+   * `amr` points at the real Amr beside the panel: the nearest [data-amr-side]
+   * (left or right) picks the edge and [data-amr-edge] (top or bottom) the end,
+   * so nothing re-renders when he moves; with neither it is a left tail. Both
+   * properties are declared on every balloon, so a panel's own --tail-at never
+   * reaches the balloons inside it.
    */
   .balloon {
+    --tail-at: 1rem;
+    --balloon-fill: var(--card);
     position: relative;
-    background-color: var(--card);
+    background-color: var(--balloon-fill);
     color: var(--text);
     border: var(--panel-w) solid var(--border);
-    border-radius: 1.25rem 1.5rem 1.35rem 1.1rem / 1.35rem 1.1rem 1.5rem 1.25rem;
+    border-radius: var(--balloon-radius-page);
+  }
+  /* :where keeps it at one class, so a call site's rounded-* still wins. */
+  .balloon:where([data-tail]) {
+    border-radius: var(--balloon-radius);
   }
   .balloon::before,
   .balloon::after {
     content: "";
     position: absolute;
-    bottom: 1rem;
+    bottom: var(--tail-at);
     width: 0;
     height: 0;
     border-style: solid;
@@ -664,9 +701,140 @@ html.dark body {
   }
   .balloon::after {
     left: -0.6rem;
+    bottom: calc(var(--tail-at) + 0.1rem);
     border-width: 0.3rem 0.65rem 0.3rem 0;
-    margin-bottom: 0.1rem;
-    border-right-color: var(--card);
+    border-right-color: var(--balloon-fill);
+  }
+  /* Right: the left tail, mirrored. */
+  .balloon[data-tail="right"]::before,
+  [data-amr-side="right"] .balloon[data-tail="amr"]::before {
+    left: auto;
+    right: -0.8rem;
+    border-width: 0.4rem 0 0.4rem 0.8rem;
+    border-color: transparent transparent transparent var(--border);
+  }
+  .balloon[data-tail="right"]::after,
+  [data-amr-side="right"] .balloon[data-tail="amr"]::after {
+    left: auto;
+    right: -0.6rem;
+    border-width: 0.3rem 0 0.3rem 0.65rem;
+    border-color: transparent transparent transparent var(--balloon-fill);
+  }
+  /* A side tail counted from the top edge. */
+  .balloon[data-tail-from="top"]::before,
+  [data-amr-edge="top"] .balloon[data-tail="amr"]::before {
+    top: var(--tail-at);
+    bottom: auto;
+  }
+  .balloon[data-tail-from="top"]::after,
+  [data-amr-edge="top"] .balloon[data-tail="amr"]::after {
+    top: calc(var(--tail-at) + 0.1rem);
+    bottom: auto;
+  }
+  /* Down and up: on the bottom or the top edge, counted from the left. */
+  .balloon[data-tail="down"]::before {
+    top: auto;
+    bottom: -0.8rem;
+    left: var(--tail-at);
+    border-width: 0.8rem 0.4rem 0;
+    border-color: var(--border) transparent transparent;
+  }
+  .balloon[data-tail="down"]::after {
+    top: auto;
+    bottom: -0.6rem;
+    left: calc(var(--tail-at) + 0.1rem);
+    border-width: 0.65rem 0.3rem 0;
+    border-color: var(--balloon-fill) transparent transparent;
+  }
+  .balloon[data-tail="up"]::before {
+    top: -0.8rem;
+    bottom: auto;
+    left: var(--tail-at);
+    border-width: 0 0.4rem 0.8rem;
+    border-color: transparent transparent var(--border);
+  }
+  .balloon[data-tail="up"]::after {
+    top: -0.6rem;
+    bottom: auto;
+    left: calc(var(--tail-at) + 0.1rem);
+    border-width: 0 0.3rem 0.65rem;
+    border-color: transparent transparent var(--balloon-fill);
+  }
+  .balloon[data-tail="down"][data-tail-from="right"]::before,
+  .balloon[data-tail="up"][data-tail-from="right"]::before {
+    left: auto;
+    right: var(--tail-at);
+  }
+  .balloon[data-tail="down"][data-tail-from="right"]::after,
+  .balloon[data-tail="up"][data-tail-from="right"]::after {
+    left: auto;
+    right: calc(var(--tail-at) + 0.1rem);
+  }
+  .balloon[data-tail="none"]::before,
+  .balloon[data-tail="none"]::after {
+    content: none;
+  }
+
+  /**
+   * .comic-caption
+   * A caption box: all but square, a fine ink line on the narrator's deeper
+   * paper. It holds every line that isn't Amr's own words, told in the third
+   * person: status, tool steps, notes, errors, limits, the empty and resume
+   * lines. Its words stay in the body face.
+   *   data-voice="you"    the reader's own words: a light --accent2 wash on the
+   *                       card inside the same ink outline. When forced colours
+   *                       take the wash away, the outline stays and gains a
+   *                       heavier start edge, so it never reads as narration
+   *   data-voice="scene"  a change of time or place: no paper, a quiet rule,
+   *                       muted words, centred
+   *   data-tone="error"   something went wrong: the danger line, and words that
+   *                       say so
+   */
+  .comic-caption {
+    background-color: var(--surface-deep);
+    color: var(--text);
+    border: var(--line-w) solid var(--border);
+    border-radius: var(--caption-radius);
+  }
+  .comic-caption[data-voice="you"] {
+    background-color: var(--surface);
+    border: var(--line-w) solid var(--border);
+  }
+  @supports (background-color: color-mix(in srgb, red 50%, blue)) {
+    .comic-caption[data-voice="you"] {
+      background-color: color-mix(in srgb, var(--accent2) 14%, var(--card));
+    }
+  }
+  /* Forced colours paint both captions' fills as Canvas, which would leave the
+     reader's words in narration's frame. Widths survive, so the you caption
+     keeps a heavier start edge. Inside the layer, so it is purged with
+     .comic-caption. */
+  @media (forced-colors: active) {
+    .comic-caption[data-voice="you"] {
+      border-inline-start-width: calc(var(--line-w) * 3);
+    }
+  }
+  .comic-caption[data-voice="scene"] {
+    background-color: transparent;
+    color: var(--sub);
+    border-color: var(--rule);
+    text-align: center;
+  }
+  .comic-caption[data-tone="error"] {
+    border-color: var(--danger);
+  }
+}
+
+/* Forced colours (a Windows contrast theme) paint every border in the system's
+   ink, the see-through ones too, so a tail drawn from transparent borders would
+   turn into a solid block: the tails go. Every box keeps its own outline: a
+   balloon stands apart by its heavier line and rounder corners, a you caption
+   by the heavier start edge the layer gives it. Outside the layer, so it is
+   never purged and comes after every balloon rule. */
+@media (forced-colors: active) {
+  .balloon::before,
+  .balloon::after {
+    display: none;
   }
 }
 

@@ -72,7 +72,23 @@ import { EVENT_SCENES, sceneReaction } from "./engine/scenes";
 import { MascotBubble } from "./mascot-bubble";
 import { inviteMotion } from "./motion-invite";
 import { playMascotSound } from "./engine/audio/mascot-audio";
-import { FIGURE_BOTTOM, FIGURE_TOP, SHEET, pointToward, shippedScene } from "./engine/sprite-poses";
+import { pointToward, shippedScene } from "./engine/sprite-poses";
+import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "./engine/figure-metrics";
+import {
+  BUTTON_INSET,
+  BUTTON_SIDE,
+  FEET_TRIM,
+  HEAD_TRIM,
+  HIT_SIDE,
+  LAUNCHER_SIZE,
+  MASCOT_BOX,
+  MASCOT_BOX_PHONE,
+  PANEL_GAP,
+  PANEL_MARGIN,
+  PANEL_MIN_H,
+  PANEL_SIDE,
+  otherSide,
+} from "./amr-geometry";
 import { VisitorGuide } from "./visitor-guide";
 import { VisitorPanel } from "./visitor-panel";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
@@ -90,31 +106,10 @@ import styles from "./mascot-assistant.module.css";
 /** Which corner the mascot is parked in (drag-to-reposition). */
 export type Corner = MascotCorner;
 
-/** Inset of the float button from its corner. */
 /** Which toolkit scenes exist yet (their sheets shipped). Stable, for the hook. */
 const sceneShipped = (scene: string) => shippedScene(scene) !== undefined;
 
-const BUTTON_INSET = 4;
-/** Size of Amr's box inside that button: one sheet cell at an exact 12:13. */
-const MASCOT_BOX = { w: 132, h: 143 };
-/** Phones get a smaller figure, with space kept for him (phoneBandHeight). */
-const MASCOT_BOX_PHONE = { w: 96, h: 104 };
-/** The round launcher shown until the figure is ready (or if the sheet can't load). */
-const LAUNCHER_SIZE = 48;
-/**
- * How much of the empty box (in sheet px) may sit past the screen edge: all the
- * space below his feet when parked at the bottom, most of the headroom when
- * parked at the top. A margin is left there because he jumps into it.
- */
-const FEET_TRIM = SHEET.cellH - FIGURE_BOTTOM;
-const HEAD_TRIM = 16;
-/**
- * The part of the box that takes clicks: the figure, not the transparent space
- * around it. Fractions of the box width are left clear on each side.
- */
-const HIT_SIDE = 0.28;
-/** Breathing room between the mascot's silhouette and the panel. */
-const PANEL_GAP = 6;
+// His sizes and the gaps that place him and his panel live in amr-geometry.ts.
 /** Taps closer together than this are play (a tickle), not a request for the panel. */
 const TAP_TOGGLE_GAP_MS = 600;
 /** Let go faster than this (px/s), he's thrown rather than dropped. */
@@ -176,11 +171,6 @@ function phoneEdge(c: Corner): string {
   return c.startsWith("top") ? "var(--header-h, 56px)" : "env(safe-area-inset-bottom, 0px)";
 }
 
-/** The same edge, the other side of the screen (where he steps aside to). */
-function otherSide(c: Corner): Corner {
-  return `${c.startsWith("top") ? "top" : "bottom"}${c.endsWith("Left") ? "Right" : "Left"}` as Corner;
-}
-
 /** Offset from his edge: a phone's strip, or the screen clear of the home indicator. */
 function edgeOffset(c: Corner, px: number, phone: boolean): string | number {
   if (phone) return `calc(${px}px + ${phoneEdge(c)})`;
@@ -209,7 +199,7 @@ function buttonPos(
   return {
     position: "fixed",
     ...(c.startsWith("top") ? { top: offset } : { bottom: offset }),
-    ...sideOffset(c, 8),
+    ...sideOffset(c, BUTTON_SIDE),
   };
 }
 
@@ -226,10 +216,6 @@ function hitBox(box: { w: number; h: number }): CSSProperties {
 
 /** The panel's height, as its class sets it (h-[min(68vh,560px)]). */
 const PANEL_HEIGHT_CSS = "min(68vh, 560px)";
-/** On a short screen the panel gets shorter, down to this: its title row, a few lines, the input. */
-const PANEL_MIN_H = 160;
-/** Room kept between the panel and the header, or the screen's far edge. */
-const PANEL_MARGIN = 8;
 
 /**
  * Chat-panel style for a corner — hugs Amr's silhouette, not his box. `boxH` is
@@ -272,7 +258,7 @@ export function panelPos(
   const anchor = `min(${offset}, calc(${room} - min(${PANEL_HEIGHT_CSS}, ${PANEL_MIN_H}px)))`;
   return {
     ...(atTop ? { top: anchor } : { bottom: anchor }),
-    ...sideOffset(c, 16),
+    ...sideOffset(c, PANEL_SIDE),
     maxHeight: `max(${PANEL_MIN_H}px, calc(${room} - ${offset}))`,
   };
 }

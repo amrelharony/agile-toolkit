@@ -123,7 +123,10 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
     set({ open: false, pendingToolUse: null, autoApprove: false });
     pending?.resolve(false);
   },
-  toggleSheet: () => set((s) => ({ open: !s.open })),
+  // Tapping Amr and Ctrl/Cmd+J close through here, so the closing branch
+  // goes through closeSheet: every close path clears "Approve all" and
+  // denies a card that is still waiting, not just the X button and Escape.
+  toggleSheet: () => (get().open ? get().closeSheet() : set({ open: true })),
   setAutoApprove: (v) => set({ autoApprove: v }),
 
   setActiveConversation: (meta, messages) => {
