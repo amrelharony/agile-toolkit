@@ -366,6 +366,8 @@ describe("the Scenes button in Amr's panel", () => {
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
     expect(screen.getByText("Create Sprint 47?")).toBeVisible();
     expect(scenesButton()).toBeDisabled();
+    // Its tooltip waits on the card in the card's own terms: no "denied".
+    expect(scenesButton()).toHaveAttribute("title", "Scenes, once the waiting card is answered");
     fireEvent.click(scenesButton());
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
     expect(resolve).not.toHaveBeenCalled();

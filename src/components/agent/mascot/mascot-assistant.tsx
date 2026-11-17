@@ -2385,10 +2385,10 @@ export function MascotAssistant({
                     !noFigure && (
                       <PanelIconButton
                         label="Amr's scenes"
+                        // The card's answers are its verb and "Not now", so
+                        // the wait names no answer it doesn't offer.
                         title={
-                          confirmPending
-                            ? "Scenes, once the action is confirmed or denied"
-                            : "Scenes"
+                          confirmPending ? "Scenes, once the waiting card is answered" : "Scenes"
                         }
                         aria-pressed={scenesOpen}
                         disabled={confirmPending}
