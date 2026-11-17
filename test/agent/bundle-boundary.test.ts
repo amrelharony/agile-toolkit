@@ -59,6 +59,7 @@ const MARKDOWN_VIEW = "src/components/agent/markdown.tsx";
 const MARKDOWN_PARSER = "src/lib/agent/markdown.ts";
 const UTILS = "src/lib/utils.ts";
 const COMIC_DIR = "src/components/agent/comic/";
+const STRIP_PARTS = `${COMIC_DIR}strip-parts.tsx`;
 const CHAT_DIR = "src/components/agent/chat/";
 const INK_DIRS = ["src/components/ink/", "src/lib/ink/"];
 
@@ -576,6 +577,61 @@ describe("every-page bundle", () => {
 
   it("reaches the owner's chat only through a dynamic import in mascot-assistant", () => {
     expect(lazyTargets(MASCOT)).toContain(OWNER_PANEL);
+  });
+});
+
+describe("the chat strip (chat/)", () => {
+  const OWNER_CHAT = "src/components/agent/agent-conversation.tsx";
+  const STRIP = [
+    `${CHAT_DIR}chat-strip.tsx`,
+    `${CHAT_DIR}chat-frame.tsx`,
+    `${CHAT_DIR}chat-log.tsx`,
+    `${CHAT_DIR}chat-items.tsx`,
+    `${CHAT_DIR}chat-context.tsx`,
+    `${CHAT_DIR}use-stick-to-bottom.ts`,
+    `${CHAT_DIR}use-turn-announcer.ts`,
+  ];
+
+  it("is what both chats draw, reached by a static import from each container", () => {
+    const ownerChat = closure([OWNER_CHAT]);
+    for (const file of STRIP) {
+      expect(isFile(path.join(ROOT, file)), `${file} exists`).toBe(true);
+      expect(visitorChat.files.has(file), `the visitor's chat reaches ${file}`).toBe(true);
+      expect(ownerChat.files.has(file), `the owner's chat reaches ${file}`).toBe(true);
+    }
+    expect(staticTargets(VISITOR_CHAT)).toContain(`${CHAT_DIR}chat-strip.tsx`);
+    expect(staticTargets(OWNER_CHAT)).toContain(`${CHAT_DIR}chat-strip.tsx`);
+  });
+
+  it("is reached from no every-page root: the ban covers every file in the folder", () => {
+    const chatFiles = filesUnder(CHAT_DIR);
+    expect(chatFiles).toEqual(expect.arrayContaining(STRIP));
+    for (const file of chatFiles) {
+      expect(everyPage.files.has(file), `${file} stays off every page`).toBe(false);
+      expect(staticShell.files.has(file), `${file} stays out of the static shell`).toBe(false);
+    }
+  });
+
+  it("keeps the chat's own comic parts off every page, though both chats reach them", () => {
+    // webpack keeps each export a chunk uses inside the module that holds it,
+    // so a part in comic-parts.tsx (which every-page code imports) would ship
+    // on every page once the chat drew it. The chat-only parts live apart.
+    expect(comicFiles).toContain(STRIP_PARTS);
+    expect(everyPage.files.has(STRIP_PARTS), "strip-parts stays off every page").toBe(false);
+    expect(staticShell.files.has(STRIP_PARTS), "strip-parts stays out of the static shell").toBe(
+      false
+    );
+    expect(visitorChat.files.has(STRIP_PARTS)).toBe(true);
+    expect(closure([OWNER_CHAT]).files.has(STRIP_PARTS)).toBe(true);
+  });
+
+  it("replaced message-bubble: no file is left, and nothing imports it", () => {
+    expect(isFile(path.join(ROOT, "src/components/agent/message-bubble.tsx"))).toBe(false);
+    const reached = new Set([
+      ...Array.from(visitorChat.files.keys()),
+      ...Array.from(closure([OWNER_CHAT]).files.keys()),
+    ]);
+    expect(Array.from(reached).filter((f) => /message-bubble/.test(f))).toEqual([]);
   });
 });
 

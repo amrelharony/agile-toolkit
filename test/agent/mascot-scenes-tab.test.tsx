@@ -543,10 +543,15 @@ describe("a chat hidden under the scenes", () => {
     </ChatVisibleContext.Provider>
   );
 
-  it("focuses the message box and scrolls to the latest message once it shows again", () => {
+  it("focuses the message box and scrolls to the latest message once it shows again", async () => {
     const { rerender } = render(panel(false));
     const box = screen.getByRole("textbox", { name: "Message" });
     expect(box).not.toHaveFocus();
+    // jsdom has no layout: the log holds 1000 px in a 200 px view, so a pin
+    // to its end has somewhere to go.
+    const log = screen.getByRole("log", { name: "Conversation" });
+    Object.defineProperty(log, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(log, "clientHeight", { configurable: true, value: 200 });
 
     act(() =>
       useAgentStore.getState().appendMessage({
@@ -556,10 +561,20 @@ describe("a chat hidden under the scenes", () => {
         createdAt: "2026-11-16T08:00:00Z",
       })
     );
+    // The frame the log's writes wait for has run, and wrote nothing.
+    await act(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        )
+    );
     expect(scrollTo).not.toHaveBeenCalled();
 
     rerender(panel(true));
     expect(box).toHaveFocus();
-    expect(scrollTo).toHaveBeenCalled();
+    // The chat frame follows the log from its newest line again, with the
+    // log's own scrollTo, never scrollIntoView.
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 800, behavior: "instant" }));
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });

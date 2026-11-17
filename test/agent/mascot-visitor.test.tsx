@@ -904,9 +904,12 @@ describe("MascotAssistant — visitor AI", () => {
     expect(footer).toHaveClass("shrink-0");
   });
 
-  // jsdom has no layout and no scrollIntoView, so this checks the call. In a
-  // short panel the chat's root scrolls, and the log is above the message box.
-  it("brings the log into view when there is something new in it, not for an empty chat", async () => {
+  // jsdom has no layout, so the chat's root gets a stubbed short panel and
+  // this checks the call. In a short panel (a landscape phone) the root
+  // scrolls, and with the message box in view the log is above it. Never
+  // scrollIntoView: that scrolls every scroller around the log, the page
+  // included, and on iOS pans the visual viewport.
+  it("brings the log into view with the chat root's scrollTo when there is something new, not for an empty chat", async () => {
     const scrollIntoView = vi.fn();
     const proto = Element.prototype as { scrollIntoView?: unknown };
     const before = Object.getOwnPropertyDescriptor(proto, "scrollIntoView");
@@ -916,8 +919,33 @@ describe("MascotAssistant — visitor AI", () => {
       await renderAmr();
       fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
       const log = await screen.findByRole("log", { name: "Conversation" });
+      // The frame: 400 px of column in a 160 px view, scrolled 240 px down to
+      // the message box; the log starts 8 px from the column's top.
+      const root = log.parentElement!;
+      let top = 240;
+      Object.defineProperty(root, "scrollHeight", { configurable: true, get: () => 400 });
+      Object.defineProperty(root, "clientHeight", { configurable: true, get: () => 160 });
+      Object.defineProperty(root, "scrollTop", { configurable: true, get: () => top });
+      const scrollTo = vi.fn((opts: ScrollToOptions) => {
+        top = Math.min(Math.max(0, opts.top ?? top), 240);
+      });
+      Object.defineProperty(root, "scrollTo", { configurable: true, value: scrollTo });
+      vi.spyOn(root, "getBoundingClientRect").mockReturnValue(
+        DOMRect.fromRect({ x: 0, y: 100, width: 320, height: 160 })
+      );
+      vi.spyOn(log, "getBoundingClientRect").mockImplementation(() =>
+        DOMRect.fromRect({ x: 0, y: 100 + 8 - top, width: 320, height: 96 })
+      );
+      /** Two animation frames: the chat's one scroll write has run. */
+      const frames = () =>
+        act(
+          () =>
+            new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+        );
+
       // An empty chat stays on the message box.
-      expect(scrollIntoView).not.toHaveBeenCalled();
+      await frames();
+      expect(scrollTo).not.toHaveBeenCalled();
 
       act(() => {
         useAgentStore.getState().appendMessage({
@@ -927,9 +955,12 @@ describe("MascotAssistant — visitor AI", () => {
           createdAt: "2026-11-09T08:00:01Z",
         });
       });
-      // "nearest" moves only as far as needed, so a tall panel does not move.
-      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
-      expect(scrollIntoView.mock.instances.at(-1)).toBe(log);
+      await frames();
+      // Only as far as needed ("nearest"): the log's top at the view's top.
+      // In a tall panel the log is in view, so nothing would move.
+      expect(scrollTo).toHaveBeenCalledWith({ top: 8, behavior: "instant" });
+      expect(top).toBe(8);
+      expect(scrollIntoView).not.toHaveBeenCalled();
     } finally {
       if (before) Object.defineProperty(proto, "scrollIntoView", before);
       else delete proto.scrollIntoView;
@@ -1059,7 +1090,21 @@ describe("MascotAssistant — visitor AI", () => {
           ],
         });
       });
-      expect(screen.getByText("Amr is thinking…").closest('[role="status"]')).not.toBeNull();
+      const status = screen.getByText("Amr is thinking…").closest('[role="status"]');
+      expect(status).not.toBeNull();
+      // The status speaks from outside the log, which is never live itself.
+      const log = screen.getByRole("log", { name: "Conversation" });
+      expect(log).toHaveAttribute("aria-live", "off");
+      expect(log.contains(status)).toBe(false);
+      expect(
+        log.querySelector('[role="status"], [aria-live="polite"], [aria-live="assertive"]')
+      ).toBeNull();
+      // In the log: his scribbling balloon on his side, with no words and
+      // hidden from a screen reader (the status says it).
+      const thinking = log.querySelector('[data-thinking=""]');
+      expect(thinking).toHaveAttribute("aria-hidden", "true");
+      expect(thinking).toHaveAttribute("data-tail", "amr");
+      expect(thinking?.textContent).toBe("");
 
       act(() => {
         useAgentStore.getState().appendMessage({
@@ -1070,6 +1115,10 @@ describe("MascotAssistant — visitor AI", () => {
         });
       });
       expect(screen.queryByText("Amr is thinking…")).toBeNull();
+      expect(log.querySelector("[data-thinking]")).toBeNull();
+      // The same status line, still there and empty, for the next turn.
+      expect(status).toBeInTheDocument();
+      expect(status).toBeEmptyDOMElement();
     });
 
     /** A turn under way, as the runtime registers it: its abort is with the store. */

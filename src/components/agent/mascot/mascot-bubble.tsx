@@ -61,7 +61,8 @@ const UNNAMED: LabelOf = () => ({ tool: "Tool", verb: "" });
  * tool-label, which names the tool in "Amr is working in Retro Board…". It is
  * fetched only once a turn runs (`need`), never on a page where nobody chats.
  * Both chats' chunks already hold it (the owner's, and the visitor's through
- * message-bubble), so by then it is there at once and adds nothing.
+ * the chat strip's step captions), so by then it is there at once and adds
+ * nothing.
  */
 function useToolLabel(need: boolean): LabelOf | null {
   const [labelOf, setLabelOf] = useState<LabelOf | null>(() => loadedLabelOf);

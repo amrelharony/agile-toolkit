@@ -27,16 +27,13 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { Narration } from "./comic/comic-parts";
 import { useChatVisible } from "./chat-visibility";
+import { ChatProvider, focusAtEnd } from "./chat/chat-context";
+import { ThinkingItemView } from "./chat/chat-items";
+import { ChatStrip, ThinkingStatus, useAwaitingReply } from "./chat/chat-strip";
 import { ConfirmCard } from "./chat/confirm-card";
-import { MessageBubble, useToolSteps } from "./message-bubble";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
-import {
-  COMPACT_HIDDEN,
-  COMPACT_LOG,
-  DOCK_FOOTER_IN_PX3,
-  useInitialFocus,
-} from "./mascot/panel-context";
+import { COMPACT_HIDDEN, useInitialFocus } from "./mascot/panel-context";
 import { Send, Mic, Square } from "lucide-react";
 import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 
@@ -52,7 +49,9 @@ const freshConvos = new Set<string>();
 const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", text);
 
 /**
- * Active conversation view: message list + composer + confirmation card.
+ * Active conversation view: the comic strip (chat/chat-strip: Amr's balloons,
+ * the owner's captions, one caption per run of tool steps, with Details),
+ * the composer and the confirmation card.
  *
  * The conversation is created in Supabase on the first message and every
  * message is persisted (via the client orchestrator's conversationId path), so
@@ -63,14 +62,21 @@ const setDraft = (text: string) => useAgentStore.getState().setDraft("owner", te
  * owner has typed but not sent (drafts.owner) live in the agent store. Notes
  * and errors show as a narration caption, with "Try again" or "Go on" when
  * the notice calls for one (lib/agent/notice-actions).
+ *
+ * Nothing here reads the messages themselves, only plain values a streamed
+ * chunk leaves as they were, so a chunk re-renders the strip alone
+ * (chat-strip), never this view, its composer or the card.
  */
 export function AgentConversation() {
   const { user } = useAuth();
-  const messages = useAgentStore((s) => s.messages);
   const streaming = useAgentStore((s) => s.streaming);
   const notice = useAgentStore((s) => s.notice);
   const input = useAgentStore((s) => s.drafts.owner);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const empty = useAgentStore((s) => s.messages.length === 0);
+  // Try again only when the last turn ran no change; nothing to press while Amr answers.
+  const retryable = useAgentStore((s) => !s.streaming && canRetryLastTurn(s.messages));
+  // The thinking balloon and status, until the reply's first words or steps arrive.
+  const awaiting = useAwaitingReply(streaming);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   // A send waiting for its new conversation: a second one waits its turn.
   const sendingRef = useRef(false);
@@ -86,12 +92,6 @@ export function AgentConversation() {
   useInitialFocus(composerRef, visible);
   // Voice dictation fills the composer; the user reviews + sends.
   const voice = useVoiceInput((text) => setDraft(text));
-
-  useEffect(() => {
-    // A hidden log can't scroll: it catches up when it's in view again.
-    if (!visible) return;
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages.length, streaming, visible]);
 
   // On the first open after a page load, resume the most recent conversation if
   // we're sitting on a blank draft. Guarded so it never clobbers an in-progress
@@ -197,43 +197,107 @@ export function AgentConversation() {
         }
       : null;
   // The notice's buttons go with it once the turn starts, so focus moves to
-  // the message box first (read-only, never disabled, while Amr answers).
+  // the message box first, caret at the end (read-only, never disabled,
+  // while Amr answers).
   const tryAgain = () => {
     const opts = turnOptions();
     if (!opts) return;
-    composerRef.current?.focus();
+    focusAtEnd(composerRef.current);
     void retryLastTurn(opts);
   };
   const goOnNow = () => {
     const opts = turnOptions();
     if (!opts) return;
-    composerRef.current?.focus();
+    focusAtEnd(composerRef.current);
     void goOn(opts);
   };
 
-  // Show a "thinking" row while a turn is streaming but the assistant hasn't
-  // produced visible content yet (just sent, between tool rounds, or pre-token).
-  const last = messages[messages.length - 1];
-  const awaiting = streaming && (!last || last.role !== "assistant" || last.content.length === 0);
-  // Try again only when the last turn ran no change; nothing to press while Amr answers.
   const action = streaming || !user ? null : noticeAction(notice, "owner");
-  const canRetry = action === "retry" && canRetryLastTurn(messages);
-  const steps = useToolSteps(messages, streaming);
+  const canRetry = action === "retry" && retryable;
+
+  // The composer's row: the frame keeps it shrink-0 (the form its direct
+  // child) and makes room beside it for docked Amr.
+  const footer = (
+    <>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void onSend();
+        }}
+        className="flex gap-2 items-end"
+      >
+        <textarea
+          ref={composerRef}
+          data-amr-composer=""
+          value={input}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void onSend();
+            }
+          }}
+          placeholder="Ask Amr…"
+          rows={2}
+          className="flex-1 resize-none rounded-md border border-border bg-[var(--card)] px-3 py-2 text-sm text-text placeholder:text-sub focus:outline-none focus:ring-1 focus:ring-accent"
+          // Read-only while Amr answers, not disabled: a disabled box drops
+          // its focus, and Try again and Go on hand focus to it.
+          readOnly={streaming}
+          aria-label="Message"
+        />
+        {voice.supported && (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            disabled={streaming}
+            onClick={() => (voice.listening ? voice.stop() : voice.start())}
+            aria-label={voice.listening ? "Stop dictation" : "Dictate"}
+            title={voice.listening ? "Stop" : "Speak"}
+            className={voice.listening ? "animate-pulse border-accent text-accent" : ""}
+          >
+            <Mic className="w-4 h-4" aria-hidden="true" />
+          </Button>
+        )}
+        {streaming ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => abortInFlight()}
+            aria-label="Stop generating"
+            title="Stop"
+            className="border-destructive text-destructive hover:bg-destructive/10"
+          >
+            <Square className="w-4 h-4" aria-hidden="true" />
+          </Button>
+        ) : (
+          <Button type="submit" disabled={!input.trim()} size="icon" aria-label="Send">
+            <Send className="w-4 h-4" aria-hidden="true" />
+          </Button>
+        )}
+      </form>
+      {voice.error && <p className="mt-1.5 text-xs text-destructive">{voice.error}</p>}
+      <ThinkingStatus awaiting={awaiting} />
+      <p className={cn("mt-1.5 text-xs text-sub", COMPACT_HIDDEN)}>
+        {/* Key hints mean nothing on a touch screen; the safety note stays. It
+            is true: every delete, remove, reset, clear or archive asks
+            (lib/agent/execute-tool isDestructiveAction), even after Approve all. */}
+        <span className="pointer-coarse:hidden">Enter to send · Shift+Enter for newline · </span>
+        Amr asks before deleting or resetting anything
+      </p>
+    </>
+  );
 
   return (
-    // min-h-0, so in a short panel (a phone's keyboard up) this shrinks to the
-    // room it has and the footer stays in reach; compact, the panel's ground
-    // scrolls past the log's floor instead.
-    <div className="flex h-full min-h-0 flex-col">
-      <div
-        ref={scrollRef}
-        role="log"
-        aria-live="polite"
-        aria-label="Conversation"
-        data-amr-scroll=""
-        className={cn("flex-1 space-y-3 overflow-y-auto overscroll-contain px-1 py-2", COMPACT_LOG)}
-      >
-        {messages.length === 0 && (
+    // The frame is the log's direct parent: min-h-0, so in a short panel (a
+    // phone's keyboard up) it shrinks to the room it has and scrolls, the
+    // footer staying in reach. Its padding is inside that scroller, which
+    // clips at its padding box: the composer's and Send's focus rings (High
+    // contrast's reach 5 px out) stay clear of its edges.
+    <ChatProvider profile="owner" composerRef={composerRef}>
+      <ChatStrip busy={streaming} footer={footer} className="px-3 py-2">
+        {empty && (
           <div className="text-sm text-sub py-12 text-center space-y-2">
             <p>Ask me to drive any tool: planning, retros, canvas, OKRs.</p>
             <p className="text-xs">Examples:</p>
@@ -244,19 +308,7 @@ export function AgentConversation() {
             </ul>
           </div>
         )}
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} steps={steps} details />
-        ))}
-        {awaiting && (
-          <div className="flex items-center gap-2 px-1 text-xs text-sub">
-            <span className="inline-flex gap-1" aria-hidden="true">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.3s]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.15s]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" />
-            </span>
-            Amr is thinking…
-          </div>
-        )}
+        {awaiting && <ThinkingItemView />}
         <ConfirmCard allowApproveAll />
         {notice && (
           <Narration
@@ -277,77 +329,7 @@ export function AgentConversation() {
             {notice.text}
           </Narration>
         )}
-      </div>
-
-      {/* Docked Amr (the phone's sheet) stands beside this, in its gutter. */}
-      <div className={cn("mt-2 shrink-0 border-t border-border pt-3", DOCK_FOOTER_IN_PX3)}>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void onSend();
-          }}
-          className="flex gap-2 items-end"
-        >
-          <textarea
-            ref={composerRef}
-            data-amr-composer=""
-            value={input}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void onSend();
-              }
-            }}
-            placeholder="Ask Amr…"
-            rows={2}
-            className="flex-1 resize-none rounded-md border border-border bg-[var(--card)] px-3 py-2 text-sm text-text placeholder:text-sub focus:outline-none focus:ring-1 focus:ring-accent"
-            // Read-only while Amr answers, not disabled: a disabled box drops
-            // its focus, and Try again and Go on hand focus to it.
-            readOnly={streaming}
-            aria-label="Message"
-          />
-          {voice.supported && (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              disabled={streaming}
-              onClick={() => (voice.listening ? voice.stop() : voice.start())}
-              aria-label={voice.listening ? "Stop dictation" : "Dictate"}
-              title={voice.listening ? "Stop" : "Speak"}
-              className={voice.listening ? "animate-pulse border-accent text-accent" : ""}
-            >
-              <Mic className="w-4 h-4" aria-hidden="true" />
-            </Button>
-          )}
-          {streaming ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => abortInFlight()}
-              aria-label="Stop generating"
-              title="Stop"
-              className="border-destructive text-destructive hover:bg-destructive/10"
-            >
-              <Square className="w-4 h-4" aria-hidden="true" />
-            </Button>
-          ) : (
-            <Button type="submit" disabled={!input.trim()} size="icon" aria-label="Send">
-              <Send className="w-4 h-4" aria-hidden="true" />
-            </Button>
-          )}
-        </form>
-        {voice.error && <p className="mt-1.5 text-xs text-destructive">{voice.error}</p>}
-        <p className={cn("mt-1.5 text-xs text-sub", COMPACT_HIDDEN)}>
-          {/* Key hints mean nothing on a touch screen; the safety note stays. It
-              is true: every delete, remove, reset, clear or archive asks
-              (lib/agent/execute-tool isDestructiveAction), even after Approve all. */}
-          <span className="pointer-coarse:hidden">Enter to send · Shift+Enter for newline · </span>
-          Amr asks before deleting or resetting anything
-        </p>
-      </div>
-    </div>
+      </ChatStrip>
+    </ChatProvider>
   );
 }

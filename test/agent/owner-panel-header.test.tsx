@@ -108,6 +108,17 @@ describe("the owner's header actions", () => {
   });
 });
 
+describe("the chat under the header", () => {
+  it("leaves its padding to the chat's frame, inside the scroller (agent-panel-touch pins it there)", () => {
+    render(<Shell />);
+    // Padding out here would sit outside the frame's scroller, which clips the
+    // composer's and Send's focus rings at its edges.
+    const wrapper = screen.getByTestId("agent-conversation").parentElement!;
+    expect(wrapper).toHaveClass("flex", "min-h-0", "flex-1", "flex-col");
+    expect(wrapper.className).not.toMatch(/(?:^|\s)p[xy]?-\d/);
+  });
+});
+
 describe("the owner's subtitle", () => {
   it("says New chat with no thread open, then names the open thread", () => {
     render(<Shell />);

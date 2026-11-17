@@ -17,9 +17,15 @@
  * stays in the store too (drafts.visitor), so it survives the same trips, and
  * a question asked from the guide while that answer is under way waits there.
  *
- * Notes and errors show as a narration caption, the narrator's line and never
- * Amr's own words, with "Try again" or "Go on" when the notice calls for one
- * (lib/agent/notice-actions).
+ * The chat is the comic strip (chat/chat-strip): Amr's balloons, the
+ * visitor's captions and one caption per run of tool steps, in words only (a
+ * visitor never sees JSON). Notes and errors show as a narration caption,
+ * the narrator's line and never Amr's own words, with "Try again" or "Go on"
+ * when the notice calls for one (lib/agent/notice-actions).
+ *
+ * Nothing here reads the messages themselves, only plain values a streamed
+ * chunk leaves as they were, so a chunk re-renders the strip alone, never
+ * this view, its composer or the card.
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
@@ -35,10 +41,12 @@ import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import { formatPeakTime, peakWindow } from "@/lib/visitor-ai/peak";
 import { cn } from "@/lib/utils";
 import { useChatVisible } from "../chat-visibility";
+import { ChatProvider, focusAtEnd } from "../chat/chat-context";
+import { ThinkingItemView } from "../chat/chat-items";
+import { ChatStrip, ThinkingStatus, useAwaitingReply } from "../chat/chat-strip";
 import { ConfirmCard } from "../chat/confirm-card";
-import { MessageBubble, useToolSteps } from "../message-bubble";
 import { handleMascotCommand } from "./engine/customization/commands";
-import { COMPACT_HIDDEN, COMPACT_LOG, DOCK_FOOTER_IN_PX3, useInitialFocus } from "./panel-context";
+import { COMPACT_HIDDEN, useInitialFocus } from "./panel-context";
 import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
 
 /** The per-window allowance the busy-hours note names before the route reports one. */
@@ -151,7 +159,6 @@ export default function VisitorAgentPanel({
   initialQuestion,
   onOfflineGuide,
 }: VisitorAgentPanelProps) {
-  const messages = useAgentStore((s) => s.messages);
   const streaming = useAgentStore((s) => s.streaming);
   const notice = useAgentStore((s) => s.notice);
   const quota = useAgentStore((s) => s.visitorQuota);
@@ -164,7 +171,7 @@ export default function VisitorAgentPanel({
   const inLiveRoom = useSyncExternalStore(subscribeLiveVisitorRoom, inLiveVisitorRoom, () => false);
   // False while Amr's Scenes view covers the chat (mounted, hidden).
   const visible = useChatVisible();
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const empty = useAgentStore((s) => s.messages.length === 0);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const sentInitialRef = useRef(false);
 
@@ -215,9 +222,10 @@ export default function VisitorAgentPanel({
   };
 
   // The notice's buttons go with it once the turn starts, so focus moves to
-  // the message box first (read-only, never disabled, while Amr answers).
+  // the message box first, caret at the end (read-only, never disabled,
+  // while Amr answers).
   const tryAgain = () => {
-    composerRef.current?.focus();
+    focusAtEnd(composerRef.current);
     void startTurn(
       (runtime) => runtime.retryVisitorTurn({ toolId: toolIdForPath(pathname) }),
       null,
@@ -225,7 +233,7 @@ export default function VisitorAgentPanel({
     );
   };
   const goOn = () => {
-    composerRef.current?.focus();
+    focusAtEnd(composerRef.current);
     void startTurn(
       (runtime) => runtime.visitorGoOn({ toolId: toolIdForPath(pathname) }),
       null,
@@ -266,50 +274,112 @@ export default function VisitorAgentPanel({
   }, [initialQuestion]);
 
   const busy = streaming || loading;
-  useEffect(() => {
-    const log = scrollRef.current;
-    // A hidden log can't scroll: it catches up when it's in view again.
-    if (!log || !visible) return;
-    log.scrollTo?.({ top: log.scrollHeight, behavior: "smooth" });
-    // In a short panel the root scrolls too, and the message box's focus
-    // leaves the log above the view: bring the log back when there is
-    // something new in it. In a tall panel the log is in view, so this moves
-    // nothing. An empty chat stays on the message box.
-    if (messages.length > 0 || busy) log.scrollIntoView?.({ block: "nearest" });
-  }, [messages.length, streaming, busy, visible]);
-
-  // "Thinking…" until the reply's first words arrive (or between tool rounds).
-  const last = messages[messages.length - 1];
-  const awaiting = busy && (!last || last.role !== "assistant" || last.content.length === 0);
+  // The thinking balloon and status, until the reply's first words or steps
+  // arrive (or between tool rounds). The log follows itself (chat-frame).
+  const awaiting = useAwaitingReply(busy);
   const peak = peakNote(quota, now);
   // Try again only when the last turn ran no change; the runtime that ran it
   // knows (it holds the registry). Nothing to press while Amr answers.
+  const retryable = useAgentStore(
+    (s) => !busy && (loadedRuntime?.canRetryLastTurn(s.messages) ?? false)
+  );
   const action = busy ? null : noticeAction(notice, "visitor");
-  const canRetry = action === "retry" && (loadedRuntime?.canRetryLastTurn(messages) ?? false);
-  const steps = useToolSteps(messages, busy);
+  const canRetry = action === "retry" && retryable;
+
+  // The composer's row: the frame keeps it shrink-0 (the form its direct
+  // child) and makes room beside it for docked Amr.
+  const footer = (
+    <>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void send(input, true);
+        }}
+        className="flex items-end gap-2"
+      >
+        <textarea
+          ref={composerRef}
+          data-amr-composer=""
+          value={input}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              void send(input, true);
+            }
+          }}
+          maxLength={VISITOR_LIMITS.userChars}
+          placeholder="Ask Amr…"
+          rows={2}
+          className="flex-1 resize-none rounded-md border border-border bg-[var(--card)] px-3 py-2 text-sm text-text placeholder:text-sub focus:outline-none focus:ring-1 focus:ring-accent"
+          // Read-only while Amr answers, not disabled: a disabled box drops
+          // the focus it took when the chat opened, and never gets it back.
+          readOnly={busy}
+          aria-label="Message"
+        />
+        {streaming ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            onClick={() => loadedRuntime?.abortInFlight()}
+            aria-label="Stop generating"
+            title="Stop"
+            className="border-destructive text-destructive hover:bg-destructive/10"
+          >
+            <Square className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        ) : (
+          <Button type="submit" disabled={!input.trim() || busy} size="icon" aria-label="Send">
+            <Send className="h-4 w-4" aria-hidden="true" />
+          </Button>
+        )}
+      </form>
+      <ThinkingStatus awaiting={awaiting} />
+      {/* The status lines wait while the panel is compact. */}
+      <p className={cn("mt-1.5 text-xs text-sub", COMPACT_HIDDEN)} data-testid="visitor-ai-quota">
+        {quota
+          ? `${quota.remaining} of ${quota.limit} left today`
+          : `${VISITOR_AI_DAILY_MESSAGES} AI uses a day`}
+        {inLiveRoom ? " · Not saved" : " · Amr asks before changing anything · Not saved"}
+      </p>
+      {peak && <p className={cn("mt-1 text-xs text-sub", COMPACT_HIDDEN)}>{peak}</p>}
+      {inLiveRoom && (
+        <p className="mt-1 text-xs text-sub" data-testid="visitor-ai-live-room">
+          You&apos;re in a live room, so Amr only answers questions here: he won&apos;t read or
+          change your tools.
+        </p>
+      )}
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <Button type="button" variant="outline" size="sm" onClick={onOfflineGuide}>
+          <BookOpen aria-hidden="true" />
+          Tool finder
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          // Through the store: reset stops the answer under way before the
+          // chat empties, so none of it lands in the fresh one.
+          onClick={() => useAgentStore.getState().reset()}
+        >
+          <Eraser aria-hidden="true" />
+          Clear chat
+        </Button>
+      </div>
+    </>
+  );
 
   return (
-    // The panel can be as short as 160 px (a landscape phone). The log keeps a
-    // floor and the footer keeps its height, so in a short panel this root
-    // scrolls and the composer and buttons stay in reach. In a tall panel
-    // nothing overflows here: the log takes the rest and scrolls inside itself.
-    // Compact (a phone's keyboard up) the log's floor drops to 3rem.
-    <div
-      data-amr-scroll=""
-      className="flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain px-3 py-2"
-    >
-      <div
-        ref={scrollRef}
-        role="log"
-        aria-live="polite"
-        aria-label="Conversation"
-        data-amr-scroll=""
-        className={cn(
-          "min-h-[6rem] flex-1 space-y-3 overflow-y-auto overscroll-contain px-1 py-2",
-          COMPACT_LOG
-        )}
-      >
-        {messages.length === 0 && !busy && (
+    // The panel can be as short as 160 px (a landscape phone). The frame (the
+    // log's direct parent) keeps the log's floor and the footer's height, so
+    // in a short panel it scrolls and the composer and buttons stay in reach.
+    // In a tall panel nothing overflows there: the log takes the rest and
+    // scrolls inside itself. Compact (a phone's keyboard up) the log's floor
+    // drops to 3rem.
+    <ChatProvider profile="visitor" composerRef={composerRef}>
+      <ChatStrip busy={busy} footer={footer} className="px-3 py-2">
+        {empty && !busy && (
           <div className="space-y-2 py-10 text-center text-sm text-sub">
             <p>Ask Amr about agile, or about the tool you&apos;re on.</p>
             <ul className="space-y-1 text-xs">
@@ -324,19 +394,7 @@ export default function VisitorAgentPanel({
             </ul>
           </div>
         )}
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} steps={steps} />
-        ))}
-        {awaiting && (
-          <div className="flex items-center gap-2 px-1 text-xs text-sub" role="status">
-            <span className="inline-flex gap-1" aria-hidden="true">
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.3s]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent [animation-delay:-0.15s]" />
-              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-accent" />
-            </span>
-            Amr is thinking…
-          </div>
-        )}
+        {awaiting && <ThinkingItemView />}
         {/* A visitor approves every change: no Approve all. */}
         <ConfirmCard />
         {notice && (
@@ -358,87 +416,7 @@ export default function VisitorAgentPanel({
             {notice.text}
           </Narration>
         )}
-      </div>
-
-      {/* Docked Amr (the phone's sheet) stands beside this, in its gutter. */}
-      <div className={cn("mt-2 shrink-0 border-t border-border pt-3", DOCK_FOOTER_IN_PX3)}>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send(input, true);
-          }}
-          className="flex items-end gap-2"
-        >
-          <textarea
-            ref={composerRef}
-            data-amr-composer=""
-            value={input}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send(input, true);
-              }
-            }}
-            maxLength={VISITOR_LIMITS.userChars}
-            placeholder="Ask Amr…"
-            rows={2}
-            className="flex-1 resize-none rounded-md border border-border bg-[var(--card)] px-3 py-2 text-sm text-text placeholder:text-sub focus:outline-none focus:ring-1 focus:ring-accent"
-            // Read-only while Amr answers, not disabled: a disabled box drops
-            // the focus it took when the chat opened, and never gets it back.
-            readOnly={busy}
-            aria-label="Message"
-          />
-          {streaming ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              onClick={() => loadedRuntime?.abortInFlight()}
-              aria-label="Stop generating"
-              title="Stop"
-              className="border-destructive text-destructive hover:bg-destructive/10"
-            >
-              <Square className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          ) : (
-            <Button type="submit" disabled={!input.trim() || busy} size="icon" aria-label="Send">
-              <Send className="h-4 w-4" aria-hidden="true" />
-            </Button>
-          )}
-        </form>
-        {/* The status lines wait while the panel is compact. */}
-        <p className={cn("mt-1.5 text-xs text-sub", COMPACT_HIDDEN)} data-testid="visitor-ai-quota">
-          {quota
-            ? `${quota.remaining} of ${quota.limit} left today`
-            : `${VISITOR_AI_DAILY_MESSAGES} AI uses a day`}
-          {inLiveRoom ? " · Not saved" : " · Amr asks before changing anything · Not saved"}
-        </p>
-        {peak && <p className={cn("mt-1 text-xs text-sub", COMPACT_HIDDEN)}>{peak}</p>}
-        {inLiveRoom && (
-          <p className="mt-1 text-xs text-sub" data-testid="visitor-ai-live-room">
-            You&apos;re in a live room, so Amr only answers questions here: he won&apos;t read or
-            change your tools.
-          </p>
-        )}
-        <div className="mt-2 flex items-center justify-between gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={onOfflineGuide}>
-            <BookOpen aria-hidden="true" />
-            Tool finder
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            // Through the store: reset stops the answer under way before the
-            // chat empties, so none of it lands in the fresh one.
-            onClick={() => useAgentStore.getState().reset()}
-          >
-            <Eraser aria-hidden="true" />
-            Clear chat
-          </Button>
-        </div>
-      </div>
-    </div>
+      </ChatStrip>
+    </ChatProvider>
   );
 }

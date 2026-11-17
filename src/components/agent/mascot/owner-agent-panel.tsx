@@ -120,8 +120,9 @@ export default function OwnerAgentPanel({
             <RateLimitBar />
           </div>
           {/* A flex column that may shrink (min-h-0), so a short panel squeezes
-              the log, never the composer. */}
-          <div className="flex min-h-0 flex-1 flex-col px-3 py-2">
+              the log, never the composer. No padding here: the chat's frame
+              keeps it inside its own scroller, so focus rings aren't clipped. */}
+          <div className="flex min-h-0 flex-1 flex-col">
             <AgentConversation />
           </div>
         </>

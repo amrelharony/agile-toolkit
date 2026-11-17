@@ -1581,6 +1581,8 @@ describe("the visitor's tool calls", () => {
       `Amr used all ${VISITOR_LIMITS.maxToolRounds} tool rounds`
     );
     expect(JSON.stringify(last?.content)).toContain("Send a follow-up and he'll carry on.");
+    // Narration, not Amr's words: the chat draws it as a caption.
+    expect(last?.content[0]).toMatchObject({ type: "text", note: true });
     // Said once, in the stand-in: no notice repeats it under the reply, and
     // nothing is an error, so Amr doesn't frown.
     const { notice, error } = useAgentStore.getState();
