@@ -795,4 +795,30 @@ describe("confirmWords — every registered change asks a plain question", () =>
     expect(ask("tool.audience_wall.scoring")).toBe("Run the scoring in Audience Wall?");
     expect(ask("tool.audience_wall.set_open")).toBe("Open or close the wall?");
   });
+
+  it("reads a singular in -is or -us as one thing, not a plural", () => {
+    expect(ask("workspace.root_cause_analysis.create")).toBe(
+      "Create a root cause analysis in your workspace?"
+    );
+    expect(ask("workspace.root_cause_analysis.update")).toBe(
+      "Update this root cause analysis in your workspace?"
+    );
+    expect(ask("workspace.root_cause_analysis.delete")).toBe(
+      "Delete this root cause analysis from your workspace?"
+    );
+    expect(ask("tool.hypothesis_tracker.add_hypothesis")).toBe(
+      "Add a hypothesis to Hypothesis Tracker?"
+    );
+    expect(ask("tool.daci.set_status")).toBe("Set the status in DACI Decision Doc?");
+    // A plural still goes bare.
+    expect(ask("tool.picker.add_names")).toBe("Add names to Picker?");
+    expect(ask("tool.kudos.post_kudos")).toBe("Post kudos to Kudos Wall?");
+  });
+
+  it('opens something new with an article for a new one, not "this"', () => {
+    expect(ask("tool.audience_wall.open_round")).toBe("Open a round in Audience Wall?");
+    expect(ask("tool.incident_commander.open_incident")).toBe(
+      "Open an incident in Incident Commander?"
+    );
+  });
 });

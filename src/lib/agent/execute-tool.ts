@@ -271,6 +271,8 @@ const NEW_VERBS: ReadonlySet<string> = new Set([
   "cast",
   "create",
   "log",
+  // "Open a round", "Open an incident": both open_* actions put up a new one.
+  "open",
   "post",
   "raise",
   "record",
@@ -383,9 +385,12 @@ function withArticle(verb: string, object: string[]): string {
   const first = object[0].toLowerCase();
   const last = object[object.length - 1].toLowerCase();
   // Already says which, a participle on its own ("Mark resolved", not "a
-  // weighted criterion" or "this red team finding"), or a plural ("Add stories").
+  // weighted criterion" or "this red team finding"), or a plural ("Add
+  // stories"). A singular in -is or -us is no plural: "a root cause
+  // analysis", "a hypothesis", "the status".
   const participle = object.length === 1 && /(?:ed|ing)$/.test(first);
-  if (NO_ARTICLE.has(first) || participle || /[^s]s$/.test(last)) return thing;
+  const plural = /[^s]s$/.test(last) && !/(?:is|us)$/.test(last);
+  if (NO_ARTICLE.has(first) || participle || plural) return thing;
   if (verb === "set") return `the ${thing}`;
   if (!NEW_VERBS.has(verb)) return `this ${thing}`;
   return `${indefinite(object[0])} ${thing}`;
