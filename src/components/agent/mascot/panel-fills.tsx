@@ -23,7 +23,15 @@ export function PanelBack({ children }: FillProps) {
   return <PanelFill slot="back">{children}</PanelFill>;
 }
 
-/** The view's own header icons, drawn before the shell's Enlarge and Close. */
-export function PanelActions({ children }: FillProps) {
-  return <PanelFill slot="actions">{children}</PanelFill>;
+/**
+ * The view's own header icons, drawn before the shell's Enlarge and Close.
+ * `whileHidden` keeps them over Amr's scenes too (the owner's New chat and
+ * History, which take turns with the scenes); any other view's go with it.
+ */
+export function PanelActions({ children, whileHidden }: FillProps & { whileHidden?: boolean }) {
+  return (
+    <PanelFill slot="actions" whileHidden={whileHidden}>
+      {children}
+    </PanelFill>
+  );
 }

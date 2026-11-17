@@ -79,7 +79,8 @@ import { SCENE_THUMBS, THUMB_INDEX } from "@/components/agent/mascot/engine/scen
 import { COMPANION_SCENES, SCENES, galleryScene } from "@/components/agent/mascot/engine/scenes";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { useAgentStore } from "@/lib/agent/store";
-import type { PendingToolUse } from "@/lib/agent/types";
+import type { ChatMessage, PendingToolUse } from "@/lib/agent/types";
+import { VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION } from "@/lib/visitor-ai/consent";
 
 const FAMILY_HEADINGS: Array<[string, string]> = [
   ["reading", "Reading"],
@@ -374,6 +375,8 @@ describe("the Scenes button in Amr's panel", () => {
   });
 
   const scenesButton = () => screen.getByRole("button", { name: "Amr's scenes" });
+  const header = () => document.querySelector<HTMLElement>("[data-panel-header]")!;
+  const inHeader = (name: string) => within(header()).queryByRole("button", { name });
 
   const confirmation = (resolve: (approved: boolean) => void): PendingToolUse => ({
     toolUseId: "c1",
@@ -503,6 +506,11 @@ describe("the Scenes button in Amr's panel", () => {
     expect(scenesButton()).toHaveAttribute("aria-pressed", "true");
     // The chat stays mounted underneath, hidden, so a turn in flight goes on.
     expect(screen.getByTestId("agent-conversation")).not.toBeVisible();
+    // The header names the scenes, not the chat under them, and keeps the
+    // owner's New chat and History, which take turns with them.
+    expect(within(header()).getByText(PANEL_SUBTITLE.scenes)).toBeInTheDocument();
+    expect(within(header()).queryByText(PANEL_SUBTITLE.owner)).toBeNull();
+    expect(inHeader("New chat")).toBeInTheDocument();
 
     const history = screen.getByRole("button", { name: "Conversation history" });
     fireEvent.click(history);
@@ -542,6 +550,69 @@ describe("the Scenes button in Amr's panel", () => {
     fireEvent.click(scenesButton());
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
     expect(guide).toBeVisible();
+  });
+
+  it("keeps the consent card's Back and step out of the header while the scenes cover it", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+    h.auth = { status: "anonymous", user: null };
+    window.localStorage.removeItem(VISITOR_AI_CONSENT_KEY);
+    render(<MascotAssistant />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await waitFor(() => expect(inHeader("Back to tool finder")).not.toBeNull());
+    expect(within(header()).getByText(PANEL_SUBTITLE.consent)).toBeInTheDocument();
+
+    fireEvent.click(scenesButton());
+    await screen.findByTestId("mascot-scenes");
+    // Nothing in the header acts on the card nobody can see, or names its step.
+    expect(inHeader("Back to tool finder")).toBeNull();
+    expect(within(header()).queryByText(PANEL_SUBTITLE.consent)).toBeNull();
+    expect(within(header()).getByText(PANEL_SUBTITLE.scenes)).toBeInTheDocument();
+
+    // Back from the scenes, the card's own way back and step return.
+    fireEvent.click(scenesButton());
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(inHeader("Back to tool finder")).toBeInTheDocument();
+    expect(within(header()).getByText(PANEL_SUBTITLE.consent)).toBeInTheDocument();
+    expect(within(header()).queryByText(PANEL_SUBTITLE.scenes)).toBeNull();
+  });
+
+  it("offers no Back or Clear chat over the scenes for a chat they hide", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+    h.auth = { status: "anonymous", user: null };
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+    try {
+      render(<MascotAssistant />);
+      fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+      await screen.findByLabelText("Message");
+      const chat: ChatMessage[] = [
+        {
+          id: "u1",
+          role: "user",
+          content: [{ type: "text", text: "How do I run a retro?" }],
+          createdAt: "2026-11-16T09:00:00Z",
+        },
+      ];
+      act(() => useAgentStore.setState({ chatProfile: "visitor", messages: chat }));
+      expect(inHeader("Clear chat")).toBeInTheDocument();
+      expect(inHeader("Back to tool finder")).toBeInTheDocument();
+
+      fireEvent.click(scenesButton());
+      await screen.findByTestId("mascot-scenes");
+      // A clear here would empty a chat nobody can see.
+      expect(inHeader("Clear chat")).toBeNull();
+      expect(inHeader("Back to tool finder")).toBeNull();
+      expect(within(header()).queryByText(PANEL_SUBTITLE.chat)).toBeNull();
+      expect(within(header()).getByText(PANEL_SUBTITLE.scenes)).toBeInTheDocument();
+      expect(useAgentStore.getState().messages).toEqual(chat);
+
+      fireEvent.click(scenesButton());
+      expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+      expect(inHeader("Clear chat")).toBeInTheDocument();
+      expect(inHeader("Back to tool finder")).toBeInTheDocument();
+      expect(within(header()).getByText(PANEL_SUBTITLE.chat)).toBeInTheDocument();
+    } finally {
+      window.localStorage.removeItem(VISITOR_AI_CONSENT_KEY);
+    }
   });
 
   it("shows for a visitor with Amr's AI, plays the scene tapped and closes the panel", async () => {

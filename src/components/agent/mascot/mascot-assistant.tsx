@@ -2376,8 +2376,16 @@ export function MascotAssistant({
                 <PanelHeader
                   plateId={AMR_PANEL_TITLE_ID}
                   // The step the shell knows; a view fills its own as it moves on.
+                  // Over the scenes the view's fill is held back (panel-chrome),
+                  // so this names them, not the step hidden under them.
                   subtitle={
-                    settled ? (isOwner ? PANEL_SUBTITLE.owner : PANEL_SUBTITLE.guide) : undefined
+                    scenesOpen
+                      ? PANEL_SUBTITLE.scenes
+                      : settled
+                        ? isOwner
+                          ? PANEL_SUBTITLE.owner
+                          : PANEL_SUBTITLE.guide
+                        : undefined
                   }
                   shortcut={shortcutLabel("J")}
                   controls={

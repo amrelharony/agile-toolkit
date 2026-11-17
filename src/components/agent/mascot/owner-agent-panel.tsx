@@ -73,7 +73,8 @@ export default function OwnerAgentPanel({
 
   return (
     <>
-      <PanelActions>
+      {/* Over the scenes too: History and New chat take turns with them. */}
+      <PanelActions whileHidden>
         <PanelIconButton
           label="New chat"
           onClick={() => {

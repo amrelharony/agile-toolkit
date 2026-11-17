@@ -21,6 +21,12 @@
  * server, and an empty fill (null, false or "") leaves the default in place.
  * One view fills a slot at a time; two fills of one slot both show.
  *
+ * A view hidden under Amr's scenes (chat-visibility) fills nothing, so the
+ * header never names its step or offers its Back or Clear chat over the
+ * scenes; the shell's default subtitle shows instead. A fill marked
+ * `whileHidden` stays: the owner's New chat and History, which take turns
+ * with the scenes.
+ *
  * Small on purpose: it ships in the mascot chunk on every page.
  */
 
@@ -38,6 +44,7 @@ import {
 import { createPortal } from "react-dom";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useChatVisible } from "../chat-visibility";
 
 export type PanelSlot = "subtitle" | "back" | "actions";
 
@@ -95,11 +102,22 @@ export function usePanelHosts() {
 /**
  * Fills one header slot from a view. Only the views (lazy chunks) render it,
  * through panel-fills.tsx's wrappers, so no wrapper ships on every page.
+ * Under the scenes it draws nothing and leaves the slot unclaimed, unless
+ * `whileHidden` says it still belongs in the header there.
  */
-export function PanelFill({ slot, children }: { slot: PanelSlot; children?: ReactNode }) {
+export function PanelFill({
+  slot,
+  whileHidden = false,
+  children,
+}: {
+  slot: PanelSlot;
+  whileHidden?: boolean;
+  children?: ReactNode;
+}) {
   const chrome = useContext(PanelChromeContext);
   const claim = chrome?.claim;
-  const given = children != null && children !== false && children !== "";
+  const shown = useChatVisible() || whileHidden;
+  const given = shown && children != null && children !== false && children !== "";
   useIsomorphicLayoutEffect(() => (given && claim ? claim(slot) : undefined), [given, claim, slot]);
   const host = chrome?.hosts[slot];
   return given && host ? createPortal(children, host) : null;
@@ -107,13 +125,16 @@ export function PanelFill({ slot, children }: { slot: PanelSlot; children?: Reac
 
 /**
  * The subtitle at each step, in one place: the shell shows its default for
- * the step it knows (the owner's chat, or the tool finder), and a view fills
- * its own as it moves on (History, the visitor's consent card and chat). The
- * owner's open thread shows its own title instead of "New chat".
+ * the step it knows (the owner's chat, the tool finder, or the scenes over
+ * either), and a view fills its own as it moves on (History, the visitor's
+ * consent card and chat). The owner's open thread shows its own title
+ * instead of "New chat".
  */
 export const PANEL_SUBTITLE = {
   owner: "New chat",
   history: "Your chats",
+  // The shell's own while the scenes cover the view (its fill is held back).
+  scenes: "Scenes",
   guide: "Find the right tool",
   consent: "Before you chat",
   chat: "Chat · not saved",
