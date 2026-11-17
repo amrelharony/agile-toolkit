@@ -281,8 +281,8 @@ const NEW_VERBS: ReadonlySet<string> = new Set([
 ]);
 /**
  * Second words that make a verb one phrase of its own: "Score and save",
- * "Check in", "Save to prioritization", "Step back". Such a verb gets no
- * "this" or "a" put inside it.
+ * "Check in", "Save to prioritization", "Step back", "Open or close the
+ * wall". Such a verb gets no "this" or "a" put inside it.
  */
 const PARTICLES: ReadonlySet<string> = new Set([
   "and",
@@ -290,6 +290,7 @@ const PARTICLES: ReadonlySet<string> = new Set([
   "by",
   "in",
   "on",
+  "or",
   "out",
   "to",
   "up",
@@ -331,7 +332,7 @@ function describeAction(
   input: unknown,
   destructive: boolean
 ): ConfirmPrompt {
-  const { confirmLabel, ...words } = confirmWords(action);
+  const { confirmLabel, ...words } = confirmWords(action, input);
   return {
     ...words,
     detail: describeParams(input, action.paramsSchema),
@@ -341,16 +342,22 @@ function describeAction(
 }
 
 /**
- * The card's words that come from the action alone: the verb, the tool's
- * name and the question. Exported so a test can read every registered
- * action's question without building its arguments.
+ * The card's words: the verb, the tool's name and the question. Exported so a
+ * test can read every registered action's question without building its
+ * arguments; without `params`, a label worked out from them is left out and
+ * the question comes from the verb ("Open or close the wall in Audience
+ * Wall?"). The card always has its checked params.
  */
 export function confirmWords(
-  action: Pick<AnyToolAction, "id" | "name" | "confirmLabel">
+  action: Pick<AnyToolAction, "id" | "name" | "confirmLabel">,
+  params?: unknown
 ): Pick<ConfirmPrompt, "verb" | "title" | "question" | "confirmLabel"> {
   const label = toolLabel(action.id);
   const verb = label.verb || verbPhrase(keyWords(action.name)) || "Go ahead";
-  const confirmLabel = action.confirmLabel?.trim() || undefined;
+  const own = action.confirmLabel;
+  const written =
+    typeof own === "function" ? (params === undefined ? undefined : own(params)) : own;
+  const confirmLabel = written?.trim() || undefined;
   return {
     verb,
     title: label.tool,

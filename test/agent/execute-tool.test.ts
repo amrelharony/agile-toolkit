@@ -681,6 +681,18 @@ describe("executeToolUse — the confirm card (ConfirmPrompt) and the destructiv
     });
   });
 
+  it("works out a label from the checked params, so the button says which way it goes", async () => {
+    const close = await promptFor("tool_audience_wall_set_open", { open: false });
+    expect(close).toMatchObject({
+      title: "Audience Wall",
+      verb: "Open or close the wall",
+      question: "Close the wall?",
+      confirmLabel: "Close the wall",
+    });
+    const open = await promptFor("tool_audience_wall_set_open", { open: true });
+    expect(open).toMatchObject({ question: "Open the wall?", confirmLabel: "Open the wall" });
+  });
+
   it("asks before a delete even when it declares requiresConfirmation:false", async () => {
     const confirm = vi.fn().mockResolvedValue(false);
     const res = await executeToolUse(block("tool_retro_delete_card", { cardId: "c1" }), {
@@ -793,7 +805,12 @@ describe("confirmWords — every registered change asks a plain question", () =>
       "Set the acceptance criteria in Backlog Health?"
     );
     expect(ask("tool.audience_wall.scoring")).toBe("Run the scoring in Audience Wall?");
-    expect(ask("tool.audience_wall.set_open")).toBe("Open or close the wall?");
+    // Its label comes from the params (the card's own test); without them,
+    // the question comes from the verb.
+    expect(ask("tool.audience_wall.set_open")).toBe("Open or close the wall in Audience Wall?");
+    const setOpen = registry.get("tool.audience_wall.set_open")!;
+    expect(confirmWords(setOpen, { open: false }).question).toBe("Close the wall?");
+    expect(confirmWords(setOpen, { open: true }).question).toBe("Open the wall?");
   });
 
   it("reads a singular in -is or -us as one thing, not a plural", () => {

@@ -40,8 +40,11 @@ export interface ToolAction<P = unknown, R = unknown> {
    * its question too. Set it on actions that ask (`requiresConfirmation: true`
    * and the intents), where the words worked out from the name would read
    * badly. Without it the card uses the tool's name and the verb from the name.
+   * An action whose one verb can go either way works it out from the checked
+   * params instead (Audience Wall's set_open: "Close the wall" or "Open the
+   * wall"), so the button says which will happen.
    */
-  confirmLabel?: string;
+  confirmLabel?: string | ((params: P) => string);
   /**
    * Whether Amr may offer this action to a signed-out visitor's chat
    * (visitor AI). Defaults to true: an action runs in the visitor's own tab on
