@@ -419,10 +419,13 @@ describe("the Scenes button in Amr's panel", () => {
     h.auth = { status: "authenticated", user: { id: "u1" } };
     render(<MascotAssistant />);
     await screen.findByTestId("agent-conversation");
-    // The owner's step fills the header's one subtitle line, which truncates.
+    // The owner's step fills the header's one subtitle line, which truncates
+    // and adds nothing to the header's width (w-0 min-w-full); the plate's
+    // column shrinks down to the plate and no further, so the plate never lies
+    // over an icon.
     const subtitle = screen.getByText(PANEL_SUBTITLE.owner).closest("p");
-    expect(subtitle).toHaveClass("truncate");
-    expect(subtitle!.parentElement).toHaveClass("min-w-0");
+    expect(subtitle).toHaveClass("truncate", "w-0", "min-w-full");
+    expect(subtitle!.parentElement).toHaveClass("min-w-min", "flex-1");
     expect(scenesButton().parentElement).toHaveClass("shrink-0");
   });
 
@@ -432,8 +435,11 @@ describe("the Scenes button in Amr's panel", () => {
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
     expect(scenesButton()).toHaveAttribute("title", "Scenes");
     expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
-    // A header icon: 44 px on a touch screen.
-    expect(scenesButton()).toHaveClass("pointer-coarse:min-h-11", "pointer-coarse:min-w-11");
+    // A header icon: 44 px on a touch screen, in px so 200% text grows only the words.
+    expect(scenesButton()).toHaveClass(
+      "pointer-coarse:min-h-[44px]",
+      "pointer-coarse:min-w-[44px]"
+    );
 
     fireEvent.click(scenesButton());
     expect(await screen.findByTestId("mascot-scenes")).toBeInTheDocument();
