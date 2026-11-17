@@ -202,6 +202,7 @@ import {
   sideToastRoom,
   visibleBox,
   type AmrLayout,
+  type AmrSide,
   type PanelSizeName,
 } from "./amr-geometry";
 import {
@@ -223,6 +224,8 @@ import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import {
   AMR_SHEET_ATTR,
   AMR_SHEET_CLOSE_EVENT,
+  APP_RAIL_EVENT,
+  APP_RAIL_VAR,
   AMR_TOAST_ROOM_VAR,
   AMR_TOAST_TOP_VAR,
   AMR_TOASTS_HELD_ATTR,
@@ -398,11 +401,32 @@ function edgeOffset(c: Corner, px: number, phone: boolean): string | number {
   return c.startsWith("top") ? px : `calc(${px}px + env(safe-area-inset-bottom, 0px))`;
 }
 
-/** Offset from his side, clear of a landscape iPhone's notch and rounded corners. */
+/**
+ * What his offsets on a side count from: the screen's edge past a landscape
+ * iPhone's notch and rounded corners, and on his left, from md, the app's
+ * rail (lib/layout/amr-sheet APP_RAIL_VAR: the sidebar keeps its right edge
+ * there, which takes the inset's place, as the rail covers it), so the rail
+ * never paints over him or his panel.
+ */
+function sideEdge(side: AmrSide): string {
+  return side === "left"
+    ? `var(${APP_RAIL_VAR}, env(safe-area-inset-left, 0px))`
+    : "env(safe-area-inset-right, 0px)";
+}
+
+/** Offset from his side, clear of a notch and, on his left, the app's rail. */
 function sideOffset(c: Corner, px: number): CSSProperties {
-  return c.endsWith("Left")
-    ? { left: `calc(${px}px + env(safe-area-inset-left, 0px))` }
-    : { right: `calc(${px}px + env(safe-area-inset-right, 0px))` };
+  const side = amrSide(c);
+  return { [side]: `calc(${px}px + ${sideEdge(side)})` };
+}
+
+/**
+ * The app's rail's right edge, px, as the sidebar keeps it from md, or null
+ * where there is none (sideEdge).
+ */
+function readRail(): number | null {
+  const px = parseFloat(document.documentElement.style.getPropertyValue(APP_RAIL_VAR));
+  return Number.isFinite(px) ? px : null;
 }
 
 /**
@@ -510,7 +534,8 @@ function sheetPlace(): CSSProperties {
 /**
  * The side layout's panel (amr-geometry's sidePos): top to bottom beside him,
  * from the variables usePanelViewport writes; until its first reading, clear
- * of his figure (or the launcher plate) and up to SIDE_PANEL_MAX_W wide.
+ * of his figure (or the launcher plate) and of the app's rail, and up to
+ * SIDE_PANEL_MAX_W wide.
  */
 function sidePlace(c: Corner, phone: boolean, figure: boolean): StyleWithVars {
   const side = amrSide(c);
@@ -521,8 +546,10 @@ function sidePlace(c: Corner, phone: boolean, figure: boolean): StyleWithVars {
   return {
     top: PLACE_TOP,
     bottom: PLACE_BOTTOM,
-    [side]: `var(--amr-vv-inline, calc(${inline} + env(safe-area-inset-${side}, 0px)))`,
-    "--amr-panel-width": `var(--amr-vv-width, min(${SIDE_PANEL_MAX_W}px, calc(100vw - ${BUTTON_SIDE}px - ${inline})))`,
+    [side]: `var(--amr-vv-inline, calc(${inline} + ${sideEdge(side)}))`,
+    // Never under the app's rail, whichever side he is on. (The offset in
+    // brackets: it is a sum, all of it taken off.)
+    "--amr-panel-width": `var(--amr-vv-width, min(${SIDE_PANEL_MAX_W}px, calc(100vw - ${BUTTON_SIDE}px - (${inline}) - var(${APP_RAIL_VAR}, 0px))))`,
     "--amr-panel-height": "auto",
   };
 }
@@ -890,14 +917,22 @@ function readLayout(): AmrLayout {
   return typeof window === "undefined" ? "float" : panelLayout(layoutViewport());
 }
 
-/** The visible area and the box the sheet fits in, read off the page as it is now. */
+/**
+ * The visible area and the box the sheet fits in, read off the page as it is
+ * now. Amr's box (`box`) starts past the app's rail on his left, where there
+ * is one (from md); `screen` is the screen's own, for the toasts, which stand
+ * over the rail. `rail` is its right edge, px, or 0.
+ */
 function measureBox(probe: Element | null): {
   area: VisibleAreaReading;
   box: ReturnType<typeof visibleBox>;
+  screen: ReturnType<typeof visibleBox>;
+  rail: number;
   width: number;
   height: number;
 } {
   const safe = readSafeArea(probe);
+  const rail = readRail();
   const root = document.documentElement;
   const width = root.clientWidth || window.innerWidth;
   const height = root.clientHeight || window.innerHeight;
@@ -908,7 +943,16 @@ function measureBox(probe: Element | null): {
     safeTop: safe.top,
     safeBottom: safe.bottom,
   });
-  return { area, box: visibleBox({ width, height }, area, safe), width, height };
+  const size = { width, height };
+  return {
+    area,
+    // The rail covers the left inset, so it takes its place (sideEdge).
+    box: visibleBox(size, area, rail === null ? safe : { left: rail, right: safe.right }),
+    screen: visibleBox(size, area, safe),
+    rail: rail ?? 0,
+    width,
+    height,
+  };
 }
 
 /**
@@ -1055,7 +1099,7 @@ function usePanelViewport({
         panel.style.removeProperty(PLATE_W_VAR);
         panel.style.removeProperty(PLATE_H_VAR);
       }
-      const { area, box, width } = measureBox(probeRef.current);
+      const { area, box, screen, width } = measureBox(probeRef.current);
       setPx(panel, "--amr-kb", area.kb);
       setPx(panel, "--amr-visible-h", box.height);
       const compact = current !== "float" && isCompact(area.keyboardUp, box);
@@ -1074,7 +1118,7 @@ function usePanelViewport({
         setPx(panel, "--amr-vv-bottom", pos.bottom);
         setPx(panel, "--amr-vv-inline", pos.left ?? pos.right ?? 0);
         setPx(panel, "--amr-vv-width", pos.width);
-        setToastPlace(null, sideToastRoom(width, box, pos));
+        setToastPlace(null, sideToastRoom(width, screen, pos));
       } else {
         setToastPlace(null, null);
       }
@@ -1138,6 +1182,9 @@ function usePanelViewport({
     window.addEventListener("orientationchange", onRotate);
     document.addEventListener("focusin", onFocus);
     document.addEventListener("focusout", onFocus);
+    // The app's rail moving (pinned, widening on hover): the side panel,
+    // placed from the readings, keeps clear of it as he does.
+    document.addEventListener(APP_RAIL_EVENT, onScroll);
     const button = buttonRef.current;
     return () => {
       window.cancelAnimationFrame(frame);
@@ -1147,6 +1194,7 @@ function usePanelViewport({
       window.removeEventListener("orientationchange", onRotate);
       document.removeEventListener("focusin", onFocus);
       document.removeEventListener("focusout", onFocus);
+      document.removeEventListener(APP_RAIL_EVENT, onScroll);
       for (const name of DOCK_VARS) button?.style.removeProperty(name);
       button?.removeAttribute("data-amr-compact");
       setToastPlace(null, null);
@@ -1204,12 +1252,14 @@ const NUDGE_PLACED_MS = 700;
 /**
  * The screen's side safe areas (a landscape phone's notch or camera cutout, often
  * on one side only), read off a hidden probe padded by them. 0 where there are none.
+ * On the left, from md, the app's rail stands in for it (sideEdge), so stepping
+ * to the left side lands past the rail.
  */
 function readSideInsets(probe: HTMLElement | null): SideInsets {
   if (!probe) return { left: 0, right: 0 };
   const cs = window.getComputedStyle(probe);
   const px = (v: string) => Math.max(0, parseFloat(v) || 0);
-  return { left: px(cs.paddingLeft), right: px(cs.paddingRight) };
+  return { left: readRail() ?? px(cs.paddingLeft), right: px(cs.paddingRight) };
 }
 
 /**
@@ -1930,8 +1980,8 @@ export function MascotAssistant({
     const w = el.offsetWidth;
     const h = el.offsetHeight;
     // The part of the screen that can be seen, read once as the drag starts: he
-    // is carried within it (never under the keyboard), and dropped into the
-    // corner of the visible box nearest to where he is let go.
+    // is carried within it (never under the keyboard, nor the app's rail), and
+    // dropped into the corner of the visible box nearest to where he is let go.
     const seen = measureBox(insetProbeRef.current);
     const minTop = seen.area.viewTop;
     const maxTop = seen.height - seen.area.kb - h;
@@ -1960,7 +2010,7 @@ export function MascotAssistant({
         return;
       }
       last = {
-        left: Math.max(0, Math.min(seen.width - w, ev.clientX + offset.x)),
+        left: Math.max(seen.rail, Math.min(seen.width - w, ev.clientX + offset.x)),
         top: Math.max(minTop, Math.min(maxTop, ev.clientY + offset.y)),
       };
       setDragPos(last);
@@ -2246,8 +2296,10 @@ export function MascotAssistant({
             ...panelPos(placed, !figureFailed, box.h, isPhone, nudge.lift, panelSize.size),
             // Its size, read by its w-/h- classes: as variables, a layout rule
             // in CSS can still replace them, which an inline width or height
-            // would beat.
-            "--amr-panel-width": size.width,
+            // would beat. Its width never takes it under the app's rail, or
+            // past the far edge on his left (768 px less a pinned 256 px rail
+            // leaves 512 px, under Enlarge's 640).
+            "--amr-panel-width": `min(${size.width}, calc(100% - ${2 * PANEL_SIDE}px - var(${APP_RAIL_VAR}, 0px)))`,
             "--amr-panel-height": size.height,
           }),
     // The entrance grows from where the tail meets the panel (the sheet slides
@@ -2274,7 +2326,7 @@ export function MascotAssistant({
   const dockStyle: CSSProperties = {
     position: "fixed",
     bottom: `var(--amr-dock-bottom, calc(${dockAt.bottom}px + env(safe-area-inset-bottom, 0px)))`,
-    [dockSide]: `var(--amr-dock-inline, calc(${dockAt[dockSide] ?? 0}px + env(safe-area-inset-${dockSide}, 0px)))`,
+    [dockSide]: `var(--amr-dock-inline, calc(${dockAt[dockSide] ?? 0}px + ${sideEdge(dockSide)}))`,
   };
 
   return (
@@ -2324,8 +2376,16 @@ export function MascotAssistant({
                 <PanelHeader
                   plateId={AMR_PANEL_TITLE_ID}
                   // The step the shell knows; a view fills its own as it moves on.
+                  // Over the scenes the view's fill is held back (panel-chrome),
+                  // so this names them, not the step hidden under them.
                   subtitle={
-                    settled ? (isOwner ? PANEL_SUBTITLE.owner : PANEL_SUBTITLE.guide) : undefined
+                    scenesOpen
+                      ? PANEL_SUBTITLE.scenes
+                      : settled
+                        ? isOwner
+                          ? PANEL_SUBTITLE.owner
+                          : PANEL_SUBTITLE.guide
+                        : undefined
                   }
                   shortcut={shortcutLabel("J")}
                   controls={
@@ -2333,10 +2393,10 @@ export function MascotAssistant({
                     !noFigure && (
                       <PanelIconButton
                         label="Amr's scenes"
+                        // The card's answers are its verb and "Not now", so
+                        // the wait names no answer it doesn't offer.
                         title={
-                          confirmPending
-                            ? "Scenes, once the action is confirmed or denied"
-                            : "Scenes"
+                          confirmPending ? "Scenes, once the waiting card is answered" : "Scenes"
                         }
                         aria-pressed={scenesOpen}
                         disabled={confirmPending}

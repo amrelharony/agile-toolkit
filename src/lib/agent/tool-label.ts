@@ -123,6 +123,8 @@ const VERB_PHRASES: Readonly<Record<string, string>> = {
   "score and persist option": "Score and save an option",
   scoring: "Run the scoring",
   "set gwt": "Set acceptance criteria",
+  // The step row and the card's tab have no params: the card's button says which.
+  "set open": "Open or close the wall",
 };
 
 /** Plurals English doesn't make with an s. */

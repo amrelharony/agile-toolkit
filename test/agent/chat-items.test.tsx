@@ -15,6 +15,8 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRef, type ReactNode } from "react";
 import { z } from "zod";
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import { ChatComposer } from "@/components/agent/chat/chat-composer";
 import {
   ChatProvider,
@@ -28,9 +30,9 @@ import {
   FOLLOW_UPS_LABEL,
   REPLY_COPIED,
   ReplyEnd,
-  retryCost,
   type ReplyRetry,
 } from "@/components/agent/chat/reply-end";
+import { retryCost } from "@/lib/visitor-ai/allowance";
 import { StepDetails } from "@/components/agent/chat/step-details";
 import { ChatStrip, useChatItems } from "@/components/agent/chat/chat-strip";
 import { registry } from "@/lib/actions/registry";
@@ -964,10 +966,11 @@ describe("the end of the latest reply (ReplyEnd)", () => {
   });
 
   it("says on a visitor's Try again that it spends one of the messages left", () => {
+    // The visitor's chat says what it spends, in lib/visitor-ai/allowance's words.
     const retry = (left: number | null): ReplyRetry => ({
       canRetry: () => true,
       onTryAgain: () => {},
-      left,
+      cost: retryCost(left),
     });
     setChat([user("u1", "How do retros work?"), assistant("a1", text("Look back, then plan."))]);
     const view = render(<Chat profile="visitor" retry={retry(12)} />);

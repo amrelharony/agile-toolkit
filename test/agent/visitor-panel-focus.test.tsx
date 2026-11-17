@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { StrictMode, type ReactElement } from "react";
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
@@ -28,17 +28,41 @@ import {
 } from "@/components/agent/mascot/visitor-ai-consent";
 import { SEARCH_ANNOUNCE_MS } from "@/components/agent/mascot/visitor-guide";
 import { VisitorPanel, visitorFallbackNote } from "@/components/agent/mascot/visitor-panel";
+import { readOnlyNote } from "@/components/agent/mascot/visitor-chat-footer";
+import { PanelChrome } from "@/components/agent/mascot/panel-chrome";
+import { PanelHeader } from "@/components/agent/mascot/panel-header";
+import { AmrPanelContext, NO_AMR_PANEL } from "@/components/agent/mascot/panel-context";
 import { useAgentStore } from "@/lib/agent/store";
+
+/**
+ * The panel as Amr's shell draws it: under the panel's header, whose slots the
+ * chat fills (its "Back to tool finder" chevron, Clear chat). The view sits in
+ * a box of its own, as in the shell.
+ */
+function renderPanel(panel: ReactElement = <VisitorPanel />) {
+  return render(
+    <PanelChrome>
+      <PanelHeader onClose={() => {}} />
+      <div>{panel}</div>
+    </PanelChrome>
+  );
+}
 
 /** Open the chat from the guide (consent already stored). */
 async function openChat() {
   window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
-  render(<VisitorPanel />);
+  renderPanel();
   fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-  await screen.findByRole("button", { name: "Tool finder" });
+  await screen.findByRole("button", { name: "Back to tool finder" });
 }
 
 const search = () => screen.getByLabelText("What do you need to do?");
+
+/** Clear chat in the panel header; its Undo's chunk may still be loading, so wait for the chat to empty. */
+async function clearChat() {
+  fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+  await waitFor(() => expect(useAgentStore.getState().messages).toHaveLength(0));
+}
 
 /** The page on a touch screen: (pointer: coarse) matches, nothing else does. */
 const touchScreen = () =>
@@ -58,10 +82,10 @@ const touchScreen = () =>
  * Ask a question from the guide (consent already stored), wait for it to be
  * sent, and put it in the chat as the (mocked) runtime would.
  */
-async function askInChat(text: string) {
+async function askInChat(text: string, panel?: ReactElement) {
   window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
   h.sendVisitorMessage.mockClear();
-  render(<VisitorPanel />);
+  renderPanel(panel);
   fireEvent.change(search(), { target: { value: text } });
   fireEvent.click(screen.getByRole("button", { name: `Ask Amr about “${text}”` }));
   await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1));
@@ -79,7 +103,25 @@ async function askInChat(text: string) {
       ],
     });
   });
-  await screen.findByRole("button", { name: "Tool finder" });
+  await screen.findByRole("button", { name: "Back to tool finder" });
+}
+
+/** A "no more AI for now" refusal as the client sets it: the fallback, and its notice, quiet. */
+function refuse(code: "visitor_limit") {
+  const s = useAgentStore.getState();
+  s.setVisitorFallback(code);
+  s.setNotice({
+    tone: "error",
+    kind: code,
+    text: "You've used all of today's messages with Amr.",
+    quiet: true,
+  });
+}
+
+/** The chat's read-only footer, once its chunk is in (it loads with the first message). */
+async function readOnlyFooter(): Promise<HTMLElement> {
+  await waitFor(() => expect(document.querySelector("[data-visitor-read-only]")).not.toBeNull());
+  return document.querySelector<HTMLElement>("[data-visitor-read-only]")!;
 }
 
 /**
@@ -110,14 +152,14 @@ describe("VisitorPanel: focus and announcements", () => {
   });
 
   it("moves no focus when the panel opens on the guide", () => {
-    render(<VisitorPanel />);
+    renderPanel();
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
     expect(document.body).toHaveFocus();
     expect(h.announce).not.toHaveBeenCalled();
   });
 
   it("puts focus on the consent card's scrolling text when it appears", () => {
-    render(<VisitorPanel />);
+    renderPanel();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     const card = screen.getByRole("region", { name: "Before you chat with Amr's AI" });
     // Keys scroll the focused element or a scroller around it, never one
@@ -133,7 +175,7 @@ describe("VisitorPanel: focus and announcements", () => {
   });
 
   it("Not now leaves focus on the guide, not on the page or the search box", () => {
-    render(<VisitorPanel />);
+    renderPanel();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     const guide = screen.getByTestId("mascot-visitor-guide");
@@ -144,11 +186,11 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(h.announce).not.toHaveBeenCalled();
   });
 
-  it("Tool finder leaves focus on the guide", async () => {
+  it("Back to tool finder leaves focus on the guide", async () => {
     await openChat();
     // The chat's message box takes focus itself, in an effect.
     await waitFor(() => expect(screen.getByLabelText("Message")).toHaveFocus());
-    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
     expect(screen.getByTestId("mascot-visitor-guide")).toHaveFocus();
     expect(screen.getByLabelText("What do you need to do?")).not.toHaveFocus();
   });
@@ -156,7 +198,7 @@ describe("VisitorPanel: focus and announcements", () => {
   it("Not now opens the guide on the question the visitor took to the card, read out by no one", () => {
     vi.useFakeTimers();
     try {
-      render(<VisitorPanel />);
+      renderPanel();
       fireEvent.change(search(), { target: { value: "retro" } });
       fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
       // The card shows the question in the visitor's own caption.
@@ -177,10 +219,27 @@ describe("VisitorPanel: focus and announcements", () => {
     }
   });
 
+  it("the consent card's header chevron goes back to the guide as Not now does, the question kept", () => {
+    renderPanel();
+    fireEvent.change(search(), { target: { value: "retro" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
+    screen.getByRole("region", { name: "Before you chat with Amr's AI" });
+    const header = document.querySelector<HTMLElement>("[data-panel-header]")!;
+    const back = within(header).getByRole("button", { name: "Back to tool finder" });
+
+    fireEvent.click(back);
+    expect(screen.queryByRole("region", { name: "Before you chat with Amr's AI" })).toBeNull();
+    expect(search()).toHaveValue("retro");
+    expect(screen.getByRole("button", { name: "Ask Amr about “retro”" })).toBeInTheDocument();
+    expect(screen.getByTestId("mascot-visitor-guide")).toHaveFocus();
+    // The guide has no way back: the chevron goes with the card.
+    expect(within(header).queryByRole("button", { name: "Back to tool finder" })).toBeNull();
+  });
+
   it("going back from the chat opens the guide on its question, and Back to chat returns to it without asking again", async () => {
     await askInChat("retro");
 
-    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
     expect(search()).toHaveValue("retro");
     expect(screen.getByRole("list", { name: "Matching tools" })).toBeInTheDocument();
     expect(screen.getByTestId("mascot-visitor-guide")).toHaveFocus();
@@ -195,7 +254,7 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
 
     // The next trip back still opens on it, and an empty search goes back too.
-    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
     expect(search()).toHaveValue("retro");
     expect(screen.getByRole("button", { name: "Back to chat" })).toBeInTheDocument();
     fireEvent.change(search(), { target: { value: "" } });
@@ -207,7 +266,7 @@ describe("VisitorPanel: focus and announcements", () => {
 
   it("a new search from the guide is asked in the chat under way", async () => {
     await askInChat("retro");
-    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
 
     fireEvent.change(search(), { target: { value: "estimate" } });
     expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
@@ -216,7 +275,7 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(h.sendVisitorMessage).toHaveBeenNthCalledWith(2, "estimate", expect.anything());
 
     // That is now the chat's own question: back on the guide, it goes back to the chat.
-    fireEvent.click(await screen.findByRole("button", { name: "Tool finder" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Back to tool finder" }));
     expect(search()).toHaveValue("estimate");
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
     expect(await screen.findByLabelText("Message")).toBeInTheDocument();
@@ -225,8 +284,7 @@ describe("VisitorPanel: focus and announcements", () => {
 
   it("Clear chat drops the question: with a new chat under way, the guide opens empty and Back to chat sends nothing", async () => {
     await askInChat("retro");
-    fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
-    expect(useAgentStore.getState().messages).toHaveLength(0);
+    await clearChat();
     // The visitor sends a new message from the composer (as the runtime would add it).
     act(() => {
       useAgentStore.setState({
@@ -241,7 +299,7 @@ describe("VisitorPanel: focus and announcements", () => {
       });
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
     // "retro" is no longer in the chat: the guide doesn't open on it.
     expect(search()).toHaveValue("");
     expect(screen.queryByRole("list", { name: "Matching tools" })).toBeNull();
@@ -252,7 +310,7 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
 
     // Typing "retro" again asks it: it is not the chat's own question any more.
-    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
     fireEvent.change(search(), { target: { value: "retro" } });
     expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
@@ -262,9 +320,9 @@ describe("VisitorPanel: focus and announcements", () => {
 
   it("Clear chat drops the question: with the chat left empty, the guide opens empty on Chat with Amr", async () => {
     await askInChat("retro");
-    fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
+    await clearChat();
 
-    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
     expect(search()).toHaveValue("");
     expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Ask Amr about “retro”" })).toBeNull();
@@ -274,20 +332,94 @@ describe("VisitorPanel: focus and announcements", () => {
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
   });
 
-  it("a refusal drops the question: the guide opens empty, and Back to chat sends nothing", async () => {
+  it("a refusal keeps a chat under way readable: the read-only footer takes the box's place and its focus", async () => {
+    await askInChat("retro");
+    const box = screen.getByLabelText("Message");
+    await waitFor(() => expect(box).toHaveFocus());
+    // As the client does: the fallback, and its notice, marked quiet.
+    act(() => refuse("visitor_limit"));
+    // Still the chat, with its question, and no tool finder.
+    expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
+    expect(screen.getByRole("log", { name: "Conversation" })).toHaveTextContent("retro");
+    expect(screen.queryByLabelText("Message")).toBeNull();
+    const footer = await readOnlyFooter();
+    expect(footer).toHaveTextContent("You've used all of today's messages with Amr.");
+    // Focus on it reads it out: nothing announces it as well, the notice included.
+    expect(footer).toHaveFocus();
+    await act(() => new Promise((r) => setTimeout(r, 30)));
+    expect(h.announce).not.toHaveBeenCalled();
+  });
+
+  it("a refusal while focus is held elsewhere leaves focus there, and the footer says its note once, assertively", async () => {
+    // As the shell's focus owner does: a registered target takes focus only when it is free.
+    const shell = {
+      ...NO_AMR_PANEL,
+      registerInitialFocus: (el: HTMLElement | null) => {
+        const held = document.activeElement;
+        if (!held || held === document.body) el?.focus();
+      },
+    };
+    await askInChat(
+      "retro",
+      <AmrPanelContext.Provider value={shell}>
+        <VisitorPanel />
+      </AmrPanelContext.Provider>
+    );
+    // The box takes focus itself first; the visitor moves on to Clear chat.
+    await waitFor(() => expect(screen.getByLabelText("Message")).toHaveFocus());
+    const clear = screen.getByRole("button", { name: "Clear chat" });
+    clear.focus();
+    h.announce.mockClear();
+    act(() => refuse("visitor_limit"));
+    const footer = await readOnlyFooter();
+    await act(() => new Promise((r) => setTimeout(r, 30)));
+    expect(clear).toHaveFocus();
+    expect(footer).not.toHaveFocus();
+    expect(h.announce).toHaveBeenCalledTimes(1);
+    expect(h.announce).toHaveBeenCalledWith(readOnlyNote("visitor_limit", null), "assertive");
+  });
+
+  it("the read-only footer opens the guide on the question Amr couldn't answer, and Back to chat returns to it as it was", async () => {
     await askInChat("retro");
     act(() => {
       useAgentStore.getState().setVisitorFallback("visitor_limit");
     });
-    expect(search()).toHaveValue("");
+    const footer = await readOnlyFooter();
+    fireEvent.click(within(footer).getByRole("button", { name: "Open the tool finder" }));
+    expect(search()).toHaveValue("retro");
+    expect(screen.getByRole("list", { name: "Matching tools" })).toBeInTheDocument();
+    // The guide's note says which limit was reached, and takes focus.
+    expect(noteBox(visitorFallbackNote("visitor_limit", null))).toHaveFocus();
+
+    // Back to chat is not a fresh try: the refusal still holds, and nothing is sent.
     fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
-    expect(await screen.findByLabelText("Message")).toBeInTheDocument();
+    expect(await readOnlyFooter()).toBeInTheDocument();
+    expect(useAgentStore.getState().visitorFallback).toBe("visitor_limit");
+    expect(screen.queryByLabelText("Message")).toBeNull();
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
+
+    // A new question is: it asks again.
+    fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
+    fireEvent.change(search(), { target: { value: "estimate" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “estimate”" }));
+    expect(useAgentStore.getState().visitorFallback).toBeNull();
+    await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(2));
+  });
+
+  it("a refusal with no chat to read still goes back to the guide, its question dropped", async () => {
+    await askInChat("retro");
+    await clearChat();
+    act(() => {
+      useAgentStore.getState().setVisitorFallback("visitor_limit");
+    });
+    expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
+    expect(search()).toHaveValue("");
+    expect(noteBox(visitorFallbackNote("visitor_limit", null))).toHaveFocus();
   });
 
   it("a question from the guide keeps focus in a message box that stays editable while Amr answers", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
-    render(<VisitorPanel />);
+    renderPanel();
     fireEvent.change(screen.getByLabelText("What do you need to do?"), {
       target: { value: "retro" },
     });
@@ -321,7 +453,7 @@ describe("VisitorPanel: focus and announcements", () => {
 
   it("a yes on the consent card with no question waiting puts focus in the box, even on a touch screen", async () => {
     touchScreen();
-    render(<VisitorPanel />);
+    renderPanel();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
     fireEvent.click(screen.getByRole("button", { name: "Agree and chat" }), { detail: 1 });
     const box = await screen.findByLabelText("Message");
@@ -332,7 +464,7 @@ describe("VisitorPanel: focus and announcements", () => {
   it("a yes with a question waiting leaves focus off the box on a touch screen: the answer is what comes next", async () => {
     touchScreen();
     h.sendVisitorMessage.mockClear();
-    render(<VisitorPanel />);
+    renderPanel();
     fireEvent.change(search(), { target: { value: "retro" } });
     fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
     fireEvent.click(screen.getByRole("button", { name: /^Agree and ask/ }), { detail: 1 });
@@ -380,7 +512,7 @@ describe("VisitorPanel: focus and announcements", () => {
 
   it("a refusal that arrives with the guide showing is announced once and moves no focus", async () => {
     await openChat();
-    fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
     const guide = screen.getByTestId("mascot-visitor-guide");
     expect(guide).toHaveFocus();
     h.announce.mockClear();

@@ -7,8 +7,9 @@
  * Another surface opening over the sheet (the sidebar, search, the trophy
  * case, AI settings, Activity, the account menu, the Kudos beacon) closes it
  * first, so two never stack. Where the toast stack goes beside his open panel is
- * published here too (below). No "use client" and no imports: on the server
- * the sheet is never open.
+ * published here too (below), and where the app's rail stands, so he keeps
+ * clear of it. No "use client" and no imports: on the server the sheet is
+ * never open.
  */
 
 /** The attribute on <html> while the sheet is open. */
@@ -46,6 +47,19 @@ export function closeAmrSheet(): void {
 export const AMR_TOAST_TOP_VAR = "--amr-toast-top";
 export const AMR_TOAST_ROOM_VAR = "--amr-toast-room";
 export const AMR_TOASTS_HELD_ATTR = "data-amr-toasts-held";
+
+/**
+ * The app's left rail (layout/sidebar), as Amr sees it. From md, while the
+ * rail is in the page and drawn, the sidebar keeps its right edge, px, on
+ * <html> as this variable, as it is pinned open, widens under a mouse or
+ * meets a notch, and sends APP_RAIL_EVENT on the document each time it moves.
+ * Below md (the drawer is off the screen), and wherever there is no rail, the
+ * variable is not there. Amr, his panel, his bubble and the moment chip count
+ * their offsets on his left from it, in place of the left safe area, which
+ * the rail already covers (its width includes that inset).
+ */
+export const APP_RAIL_VAR = "--app-rail";
+export const APP_RAIL_EVENT = "app-rail";
 
 /**
  * Whether Amr's open panel leaves the toaster no room of its own: his phone

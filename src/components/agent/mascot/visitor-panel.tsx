@@ -13,21 +13,30 @@
  *  - chat: Amr's AI (visitor-agent-panel), a separate chunk loaded only now;
  *    the agent runtime behind it loads on the first message.
  * The panel header's subtitle names the step ("Find the right tool", "Before
- * you chat", "Chat · not saved"; PANEL_SUBTITLE), filled from here.
+ * you chat", "Chat · not saved"; PANEL_SUBTITLE), filled from here. The
+ * consent card and the chat both put a "Back to tool finder" chevron before
+ * the name plate (the chat draws its own).
  *
  * The search travels with the visitor: "Not now" on the card, and going back
  * from the chat, open the guide on the question they took there. The chat's
  * own question was sent already, so while the search still holds it the Ask
  * button reads "Back to chat" and nothing is sent twice. A failure or a
- * refusal drops it (the note says what happened, and asking again starts
- * fresh), and so does Clear chat (the question is no longer in the chat).
+ * refusal on the guide drops it (the note says what happened, and asking
+ * again starts fresh), and so does Clear chat (the question is no longer in
+ * the chat). From the chat's read-only footer, the guide opens on the
+ * question Amr couldn't answer, which is then the one "Back to chat" keeps.
  *
  * When the visitor route says there's no more AI for now (visitorFallback),
- * the panel goes back to the guide with a note saying which limit was reached
- * (visitorFallbackNote). It does the same when the chat's chunk can't load
- * (offline, or a tab left open across a deploy), and asking again tries the
- * import again. And it does the same when the loaded chat fails while it is
- * drawn. A note is a narration caption: the narrator's line, never Amr's.
+ * a chat under way stays, read-only (fallbackWaits): the chat's footer says
+ * which limit was reached and takes the composer's place, so the visitor can
+ * still read it, and a reopened panel goes back to it. "Back to chat" from the
+ * guide returns to it as it is, the refusal still there; only a new question
+ * is a fresh try. With no chat to read, the panel goes back to the guide with
+ * a note saying which limit was reached (visitorFallbackNote). It does the
+ * same when the chat's chunk can't load (offline, or a tab left open across a
+ * deploy), and asking again tries the import again. And it does the same
+ * when the loaded chat fails while it is drawn. A note is a narration
+ * caption: the narrator's line, never Amr's.
  *
  * Focus follows the step: the consent card takes it itself, the chat offers its
  * message box to the panel's focus owner (lib/agent/mascot/use-panel-focus),
@@ -45,6 +54,7 @@
  */
 
 import { Suspense, lazy, useEffect, useRef, useState, type LazyExoticComponent } from "react";
+import { ChevronDown } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { ErrorBoundary } from "@/components/layout/error-boundary";
@@ -53,7 +63,8 @@ import type { VisitorErrorCode } from "@/lib/visitor-ai/contract";
 import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { VisitorGuide } from "./visitor-guide";
 import { VisitorAiConsent, hasVisitorAiConsent } from "./visitor-ai-consent";
-import { PANEL_SUBTITLE, PanelSubtitle } from "./panel-chrome";
+import { PANEL_SUBTITLE, PanelIconButton } from "./panel-chrome";
+import { PanelBack, PanelSubtitle } from "./panel-fills";
 import { PanelLoading } from "./panel-parts";
 
 type ChatModule = typeof import("./visitor-agent-panel");
@@ -139,11 +150,22 @@ export function visitorFallbackNote(
 
 type Mode = "guide" | "consent" | "chat";
 
-/** Reopening the panel mid-chat goes straight back to the chat. */
-function initialMode(): Mode {
-  const s = useAgentStore.getState();
-  const midChat = s.chatProfile === "visitor" && s.messages.length > 0 && !s.visitorFallback;
-  return midChat && hasVisitorAiConsent() ? "chat" : "guide";
+/**
+ * Whether a refusal (visitorFallback) waits in the chat: there is a visitor's
+ * chat to read, so it stays, read-only (its footer says which limit was
+ * reached and takes the composer's place), instead of the panel going back to
+ * the tool finder.
+ */
+export function fallbackWaits(s = useAgentStore.getState()): boolean {
+  return s.chatProfile === "visitor" && s.messages.length > 0;
+}
+
+/**
+ * Reopening the panel mid-chat goes straight back to the chat, a refusal and
+ * all (it waits there, read-only).
+ */
+export function initialMode(): Mode {
+  return fallbackWaits() && hasVisitorAiConsent() ? "chat" : "guide";
 }
 
 export function VisitorPanel({
@@ -179,17 +201,19 @@ export function VisitorPanel({
   const guideRef = useRef<HTMLDivElement>(null);
   const noteRef = useRef<HTMLDivElement>(null);
 
-  // A "no more AI for now" refusal: back to the tool finder. Coming from
-  // another step, its note takes focus (below), and a screen reader reads it
-  // then. It is announced only when the guide is already showing, so it is
-  // never said twice. An old one still showing when the panel opens is not
-  // said again.
+  // A "no more AI for now" refusal. In a chat under way it waits there,
+  // read-only: the chat's footer says it and takes the focus the composer
+  // had. Otherwise back to the tool finder: coming from another step, its
+  // note takes focus (below), and a screen reader reads it then. It is
+  // announced only when the guide is already showing, so it is never said
+  // twice. An old one still showing when the panel opens is not said again.
   const lastFallback = useRef(fallback);
   const lastMode = useRef(mode);
   useEffect(() => {
     const was = lastFallback.current;
     lastFallback.current = fallback;
     if (!fallback) return;
+    if (lastMode.current === "chat" && fallbackWaits()) return;
     setMode("guide");
     if (was === fallback) return;
     // A refusal drops the question: the panel can't tell which message was
@@ -243,12 +267,14 @@ export function VisitorPanel({
     const q = query.trim();
     // Back to the chat under way, with no question or with the one it opened
     // with: that one was sent already, so nothing is sent twice.
-    const ask = chatUnderWay && (q === "" || q === sent) ? "" : q;
+    const back = chatUnderWay && (q === "" || q === sent);
+    const ask = back ? "" : q;
     setQuestion(ask);
     // Asking again is a fresh try: the route answers again if it can, and the
-    // chat's code loads again if it didn't.
+    // chat's code loads again if it didn't. Going back to the chat isn't: a
+    // refusal waits there, read-only, as it was.
     setFailure(null);
-    useAgentStore.getState().setVisitorFallback(null);
+    if (!back) useAgentStore.getState().setVisitorFallback(null);
     if (hasVisitorAiConsent()) openChat(ask);
     else setMode("consent");
   };
@@ -260,6 +286,14 @@ export function VisitorPanel({
     return (
       <>
         {subtitle}
+        {/* Back to the guide, as "Not now" goes: the question stays in its
+            search. ChevronDown turned is the chat's ChevronLeft, and ships
+            here already with the guide. */}
+        <PanelBack>
+          <PanelIconButton label="Back to tool finder" onClick={() => setMode("guide")}>
+            <ChevronDown aria-hidden="true" className="rotate-90" />
+          </PanelIconButton>
+        </PanelBack>
         <VisitorAiConsent
           question={question}
           onAgree={() => openChat(question, true)}
@@ -293,10 +327,13 @@ export function VisitorPanel({
               initialQuestion={question}
               takeFocus={typeNow}
               // Back to the guide, its search on the question the chat opened
-              // with (`sent`); the guide's "Back to chat" returns to this chat,
-              // which then has nothing to send.
-              onOfflineGuide={() => {
+              // with (`sent`), or the one Amr couldn't answer (from the
+              // read-only footer), which is the chat's own from then on; the
+              // guide's "Back to chat" returns to this chat, which then has
+              // nothing to send.
+              onOfflineGuide={(unanswered) => {
                 setQuestion("");
+                if (unanswered) setSent(unanswered);
                 setMode("guide");
               }}
             />
