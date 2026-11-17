@@ -23,7 +23,8 @@
 
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
+import { usePrefersReducedMotion } from "@/hooks/use-media-query";
 import { useSignal, type Signal } from "@/lib/signals/signal-bus";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Kudos } from "@/lib/stores/workspace-types";
@@ -92,7 +93,7 @@ function lookupKudos(id: string): Kudos | undefined {
 }
 
 export function FlyingCardPortal() {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = usePrefersReducedMotion();
   const [mounted, setMounted] = useState(false);
   const [flights, setFlights] = useState<Flight[]>([]);
 

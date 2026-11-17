@@ -9,6 +9,10 @@
  *
  * Reduced-motion path renders a static dot (no pulse / spring) but
  * keeps the count badge — the count is information, not animation.
+ * The setting comes from `usePrefersReducedMotion`, which is false while
+ * hydrating: the beacon is on every page, and reading the setting during
+ * the first client render (framer-motion's `useReducedMotion` does) made
+ * it differ from the server's HTML for everyone with reduced motion on.
  *
  * The component stamps `id="kudos-header-beacon"` on its root so the
  * FlyingCard portal can fall back to the beacon's rect when sender or
@@ -22,8 +26,9 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
-import { motion, useReducedMotion } from "framer-motion";
+import { motion } from "framer-motion";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { usePrefersReducedMotion } from "@/hooks/use-media-query";
 import { useSignal } from "@/lib/signals/signal-bus";
 import { useGuestProfile } from "@/lib/auth/guest-profile-provider";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
@@ -59,7 +64,7 @@ function localRecent(): Kudos[] {
 }
 
 export function KudosHeaderBeacon() {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = usePrefersReducedMotion();
   const guest = useGuestProfile();
   const isOwner = useIsOwner();
   const [open, setOpen] = useState(false);

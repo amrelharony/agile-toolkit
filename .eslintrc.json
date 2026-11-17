@@ -16,6 +16,11 @@
           {
             "name": "sonner",
             "message": "Import { toast } from \"@/lib/utils/toast\" so the notification policy (lib/notify/policy.ts) applies."
+          },
+          {
+            "name": "framer-motion",
+            "importNames": ["useReducedMotion"],
+            "message": "Use usePrefersReducedMotion from \"@/hooks/use-media-query\". framer-motion's hook reads the setting in the first client render, which then differs from the server's HTML (React #418/#423) for anyone with reduced motion on."
           }
         ]
       }
