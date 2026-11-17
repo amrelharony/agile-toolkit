@@ -59,6 +59,7 @@ import {
   visitorFallbackNote,
 } from "@/components/agent/mascot/visitor-panel";
 import { peakNote } from "@/components/agent/mascot/visitor-agent-panel";
+import { SWAP_GUARD_MS } from "@/components/agent/chat/chat-composer";
 import { VISITOR_FALLBACK_CODES } from "@/lib/visitor-ai/contract";
 import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
@@ -1235,6 +1236,14 @@ describe("MascotAssistant — visitor AI", () => {
       act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
+    /**
+     * Past the composer's guard: a press this soon after Stop turned back into
+     * Send is taken for a double press and ignored.
+     */
+    const pastTheSwap = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, SWAP_GUARD_MS));
+      });
 
     it("Clear chat stops the answer through the store and empties the chat", async () => {
       await openChatWithQuestion();
@@ -1260,7 +1269,7 @@ describe("MascotAssistant — visitor AI", () => {
       expect(useAgentStore.getState().streaming).toBe(true);
       // Back to chat shows the answer still under way.
       fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
-      expect(await screen.findByRole("button", { name: "Stop generating" })).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "Stop answer" })).toBeInTheDocument();
     });
 
     it("keeps a new question asked from the guide mid-answer in the box, unsent", async () => {
@@ -1278,6 +1287,7 @@ describe("MascotAssistant — visitor AI", () => {
 
       // Once the answer ends, Send asks it.
       act(() => useAgentStore.setState({ streaming: false }));
+      await pastTheSwap();
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
       await waitFor(() =>
         expect(h.sendVisitorMessage).toHaveBeenCalledWith("sprint goal", { toolId: "retro" })
@@ -1338,6 +1348,7 @@ describe("MascotAssistant — visitor AI", () => {
 
     it("sends the draft and empties it", async () => {
       await openChatWithQuestion();
+      await pastTheSwap();
       fireEvent.change(screen.getByLabelText("Message"), { target: { value: "what next?" } });
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
       await waitFor(() =>

@@ -116,6 +116,14 @@ beforeEach(() => {
   useAgentStore.getState().reset();
   useAgentStore.setState({ chatProfile: "owner", visitorQuota: null, open: true });
   if (typeof Element.prototype.scrollTo !== "function") Element.prototype.scrollTo = () => {};
+  // No media query matches. unstubAllGlobals below takes test/setup's
+  // matchMedia away too, and the composer reads one (its narrow width).
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {

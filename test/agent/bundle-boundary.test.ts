@@ -593,6 +593,8 @@ describe("the chat strip (chat/)", () => {
     `${CHAT_DIR}suggestion-chips.tsx`,
     `${CHAT_DIR}use-stick-to-bottom.ts`,
     `${CHAT_DIR}use-turn-announcer.ts`,
+    `${CHAT_DIR}chat-composer.tsx`,
+    `${CHAT_DIR}use-autosize.ts`,
   ];
 
   it("is what both chats draw, reached by a static import from each container", () => {
@@ -626,6 +628,94 @@ describe("the chat strip (chat/)", () => {
     );
     expect(visitorChat.files.has(STRIP_PARTS)).toBe(true);
     expect(closure([OWNER_CHAT]).files.has(STRIP_PARTS)).toBe(true);
+  });
+
+  it("draws one composer in both chats, and each container's form is gone", () => {
+    // The key rule is plain code with no imports, which both reach.
+    const keys = "src/lib/agent/composer-keys.ts";
+    expect(staticTargets(`${CHAT_DIR}chat-composer.tsx`)).toContain(keys);
+    expect(staticTargets(keys)).toEqual([]);
+    expect(visitorChat.files.has(keys)).toBe(true);
+    for (const container of [OWNER_CHAT, VISITOR_CHAT]) {
+      expect(staticTargets(container)).toContain(`${CHAT_DIR}chat-composer.tsx`);
+      const source = readFileSync(path.join(ROOT, container), "utf8");
+      expect(source, container).not.toMatch(/<form\b|<textarea\b/);
+    }
+  });
+
+  it("keeps the chat commands off every page: only the chat imports them, not the Konami module", () => {
+    const commands = "src/components/agent/mascot/engine/customization/chat-commands.ts";
+    expect(everyPage.files.has(commands), "chat-commands stays off every page").toBe(false);
+    expect(mascotChunk.files.has(commands)).toBe(false);
+    expect(visitorChat.files.has(commands)).toBe(true);
+    expect(closure([OWNER_CHAT]).files.has(commands)).toBe(true);
+  });
+
+  it("hands both chats the mic, and keeps it off every page", () => {
+    const ownerChat = closure([OWNER_CHAT]);
+    for (const file of [
+      `${CHAT_DIR}dictate-button.tsx`,
+      "src/lib/agent/mascot/use-voice-input.ts",
+    ]) {
+      expect(ownerChat.files.has(file), `the owner's chat reaches ${file}`).toBe(true);
+      expect(visitorChat.files.has(file), `the visitor's chat reaches ${file}`).toBe(true);
+      expect(everyPage.files.has(file), `${file} stays off every page`).toBe(false);
+      expect(staticShell.files.has(file), `${file} stays out of the static shell`).toBe(false);
+    }
+    expect(staticTargets(OWNER_CHAT)).toContain(`${CHAT_DIR}dictate-button.tsx`);
+    expect(staticTargets(VISITOR_CHAT)).toContain(`${CHAT_DIR}dictate-button.tsx`);
+  });
+
+  it("hands the owner's chat the reply's end, and loads it for a visitor only as the first message goes out", () => {
+    const end = `${CHAT_DIR}reply-end.tsx`;
+    // What rides with it: the follow-ups' rules and the clipboard helper.
+    const withIt = ["src/lib/agent/follow-ups.ts", "src/lib/utils/clipboard.ts"];
+    expect(staticTargets(end)).toEqual(expect.arrayContaining(withIt));
+    // The owner's chat imports it; the strip both chats share only draws what it is handed.
+    expect(staticTargets(OWNER_CHAT)).toContain(end);
+    for (const file of filesUnder(CHAT_DIR)) {
+      expect(staticTargets(file), `${file} imports no reply end`).not.toContain(end);
+    }
+    // Not in the visitor's chat chunk, which paints before any reply: a dynamic import.
+    for (const file of [end, ...withIt]) {
+      expect(visitorChat.files.has(file), `the visitor's chat chunk never carries ${file}`).toBe(
+        false
+      );
+      expect(everyPage.files.has(file), `${file} stays off every page`).toBe(false);
+    }
+    expect(lazyTargets(VISITOR_CHAT)).toContain(end);
+  });
+
+  it("loads a visitor's voice notice only on a press of the mic: a dynamic import, from the visitor's chat alone", () => {
+    const notice = "src/components/agent/mascot/voice-notice.tsx";
+    const consent = "src/lib/agent/mascot/voice-consent.ts";
+    expect(isFile(path.join(ROOT, notice)), `${notice} exists`).toBe(true);
+    // Not in the visitor's chat chunk: the mic's handler imports it.
+    expect(visitorChat.files.has(notice), "the visitor's chat chunk never carries it").toBe(false);
+    expect(lazyTargets(VISITOR_CHAT)).toContain(notice);
+    // Nowhere else, statically or lazily: the owner never downloads it.
+    const ownerChat = closure([OWNER_CHAT]);
+    const anyRoot = [everyPage, mascotChunk, staticShell, visitorPanel, ownerChat];
+    for (const c of anyRoot) expect(c.files.has(notice)).toBe(false);
+    const loaders = new Set([
+      ...Array.from(everyPage.files.keys()),
+      ...Array.from(visitorPanel.files.keys()),
+      ...Array.from(visitorChat.files.keys()),
+      ...Array.from(ownerChat.files.keys()),
+    ]);
+    const lazyFrom = Array.from(loaders).filter((file) => lazyTargets(file).includes(notice));
+    expect(lazyFrom).toEqual([VISITOR_CHAT]);
+    // Its words come from their own module, with no imports, not through
+    // disclosures.ts: that one rides in chunks the comics pages and the tool
+    // finder load, which would then carry the text too.
+    const words = "src/lib/site/voice-disclosure.ts";
+    expect(staticTargets(notice)).toContain(words);
+    expect(staticTargets(notice)).not.toContain("src/lib/site/disclosures.ts");
+    expect(staticTargets(words)).toEqual([]);
+    // The yes it asks for is the visitor's chat's to keep: the owner's never asks.
+    expect(staticTargets(VISITOR_CHAT)).toContain(consent);
+    expect(ownerChat.files.has(consent), "the owner's chat never reaches it").toBe(false);
+    expect(everyPage.files.has(consent), `${consent} stays off every page`).toBe(false);
   });
 
   it("keeps the owner's step Details out of the visitor's chat: only the owner's chat imports it", () => {

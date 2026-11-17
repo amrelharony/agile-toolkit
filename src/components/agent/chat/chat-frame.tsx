@@ -17,10 +17,12 @@
  *            pins it there again; reading further up, nothing moves it.
  *   Latest   while the reader is not at the end: a button in the flow just
  *            before the composer (never over the log or under docked Amr).
- *            It takes the log back to its newest line and hands focus to the
- *            composer, since it goes away as it does; not after a tap on a
- *            touch screen, where the box taking focus would raise the
- *            keyboard over the very lines the reader asked for.
+ *            It takes the log back to its newest line and, since it goes
+ *            away as it does, hands focus on first: to the composer; after a
+ *            tap on a touch screen, where the box taking focus would raise
+ *            the keyboard over the very lines the reader asked for, to the
+ *            newest item in the log instead (made focusable just for that),
+ *            so focus never falls to the page.
  *   footer   the composer's row (`footer`: the message form and the lines
  *            under it), shrink-0 so it never gives up its height; while Amr
  *            is docked in the phone's sheet it makes room for him on his side
@@ -41,10 +43,12 @@
  *
  * Focus. A control that takes itself away hands focus to the composer, caret
  * at the end, before it goes (the chat context's focusComposer): Latest does
- * here, except after a tap on a touch screen (a key press there still hands
- * focus over); Try again and Go on do the same in the notice (chat-notice),
- * except that a tap on a touch screen hands focus to the latest question's
- * caption; starters and follow-ups do where they are drawn, and a decided
+ * here, except that a tap on a touch screen hands it to the newest item (a
+ * key press there still hands it to the composer); Try again and Go on do the
+ * same in the notice (chat-notice), and Try again under the latest reply
+ * (chat/reply-end), except that a tap on a touch screen hands focus to
+ * the latest question's caption; starters and follow-ups do where they are
+ * drawn, and a decided
  * confirm card hands it to the composer, or on a touch screen to its step's
  * caption (confirm-card).
  * The safety net catches any other case: when what had focus inside the
@@ -68,12 +72,12 @@ import type { ChatItem } from "@/lib/agent/chat-view";
 import { cn } from "@/lib/utils";
 import { useChatVisible } from "../chat-visibility";
 import { DOCK_FOOTER_IN_PX3 } from "../mascot/panel-context";
-import { onTouchScreen, tapOnTouchScreen, useChat } from "./chat-context";
-import { ChatLog } from "./chat-log";
+import { focusFromCode, onTouchScreen, tapOnTouchScreen, useChat } from "./chat-context";
+import { ChatLog, type ReplyEndWiring } from "./chat-log";
 import { useStickToBottom } from "./use-stick-to-bottom";
 import { useTurnAnnouncer } from "./use-turn-announcer";
 
-export interface ChatFrameProps {
+export interface ChatFrameProps extends ReplyEndWiring {
   /** The strip's items, from lib/agent/chat-view. */
   items: readonly ChatItem[];
   /**
@@ -89,8 +93,23 @@ export interface ChatFrameProps {
   className?: string;
 }
 
+/**
+ * The log's items a tap on Latest may hand focus to: any with something to
+ * read, so not the wordless thinking balloon, nor a reply's balloon still
+ * scribbling before its first words (data-held).
+ */
+const NEWEST_ITEM = '[data-chat-item]:not([data-chat-item="thinking"]):not([data-held])';
+
 /** The log, the Latest button and the composer's footer, as one scrolling column. */
-export function ChatFrame({ items, busy = false, children, footer, className }: ChatFrameProps) {
+export function ChatFrame({
+  items,
+  busy = false,
+  replyEnd,
+  retry,
+  children,
+  footer,
+  className,
+}: ChatFrameProps) {
   const chat = useChat();
   const rootRef = useRef<HTMLDivElement>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -178,12 +197,18 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
   }, [focusComposer]);
 
   const latest = (e: MouseEvent<HTMLButtonElement>) => {
-    // Focus first: the button goes as the log reaches its end. Not after a
-    // tap on a touch screen: there a tap means "show me the newest", and the
-    // box taking focus would raise the keyboard (compact mode, the log at its
-    // floor) over it; as with the safety net, focus stays where the tap left
-    // it. A key press (detail 0) still hands focus over.
-    if (!tapOnTouchScreen(e)) focusComposer();
+    // Focus first: the button goes as the log reaches its end. After a tap on
+    // a touch screen a tap means "show me the newest", and the box taking
+    // focus would raise the keyboard (compact mode, the log at its floor)
+    // over it: the newest item takes focus instead (never a wordless
+    // balloon), without scrolling, so the glide to the end goes on.
+    // A key press (detail 0) still hands focus to the composer.
+    if (tapOnTouchScreen(e)) {
+      const shown = logRef.current?.querySelectorAll<HTMLElement>(NEWEST_ITEM);
+      focusFromCode(shown?.[shown.length - 1]);
+    } else {
+      focusComposer();
+    }
     scrollToLatest();
   };
 
@@ -194,7 +219,14 @@ export function ChatFrame({ items, busy = false, children, footer, className }: 
       data-chat-frame=""
       className={cn("flex h-full min-h-0 flex-col overflow-y-auto overscroll-contain", className)}
     >
-      <ChatLog ref={logRef} contentRef={contentRef} items={items}>
+      <ChatLog
+        ref={logRef}
+        contentRef={contentRef}
+        items={items}
+        busy={busy}
+        replyEnd={replyEnd}
+        retry={retry}
+      >
         {children}
       </ChatLog>
       {!atBottom && (

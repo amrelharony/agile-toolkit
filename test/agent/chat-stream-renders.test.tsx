@@ -170,6 +170,14 @@ describe("a streamed chunk", () => {
     // A build with Amr's AI on for visitors, the visitor already agreed.
     vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
     vi.stubGlobal("fetch", vi.fn());
+    // No media query matches. unstubAllGlobals below takes test/setup's
+    // matchMedia away too, and the composer reads one (its narrow width).
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     useMascotStore.setState({ ready: true });
     useAgentStore.setState({ open: true });

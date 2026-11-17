@@ -17,6 +17,12 @@
  *                  where a control that takes itself away hands focus (Try
  *                  again, Go on, Latest, a starter); false when there is no
  *                  box to take it (a read-only chat)
+ *   note           show a line in the composer's status note, its one live
+ *                  span (polite), where a control in the log says what it
+ *                  just did ("Reply copied"); false when no composer is there
+ *                  to show it
+ *   takeNotes      the composer's way to show those lines while it is there;
+ *                  hands back the call that lets go
  *   StepDetails    the owner's "Details" on a tool step (chat/step-details:
  *                  the raw arguments and result, owner only), handed in by
  *                  the owner's container, so a visitor's chat never loads
@@ -36,7 +42,9 @@ import {
   useContext,
   useId,
   useMemo,
+  useRef,
   type ComponentType,
+  type MouseEvent,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -55,6 +63,8 @@ export interface ChatContextValue {
   logId: string;
   composerId: string;
   focusComposer(): boolean;
+  note(text: string): boolean;
+  takeNotes(show: (text: string) => void): () => void;
   StepDetails: ComponentType<StepDetailsProps> | null;
 }
 
@@ -112,12 +122,33 @@ export const onTouchScreen = (doc: Document | null | undefined) =>
 export const tapOnTouchScreen = (e: { detail: number; currentTarget: Element }) =>
   e.detail > 0 && onTouchScreen(e.currentTarget.ownerDocument);
 
-/** No chat around the part: a visitor's, with nothing to focus. */
+/**
+ * Hand focus on before a button that starts a turn goes with it (Try again,
+ * Go on): after a key press to the message box, caret at the end; after a
+ * tap on a touch screen to the latest question's caption (focusable just for
+ * that, focusFromCode), since the box taking focus would raise the keyboard
+ * over the answer just asked for. The turn keeps that question.
+ */
+export function focusBeforeTurn(e: MouseEvent<HTMLElement>, focusComposer: () => boolean): void {
+  if (!tapOnTouchScreen(e)) {
+    focusComposer();
+    return;
+  }
+  const asked =
+    e.currentTarget
+      .closest('[role="log"]')
+      ?.querySelectorAll<HTMLElement>('[data-chat-item="you"]') ?? [];
+  focusFromCode(asked[asked.length - 1]);
+}
+
+/** No chat around the part: a visitor's, with nothing to focus and no composer for a note. */
 export const NO_CHAT: ChatContextValue = Object.freeze({
   profile: "visitor",
   logId: "amr-chat-log",
   composerId: "amr-chat-composer",
   focusComposer: () => false,
+  note: () => false,
+  takeNotes: () => () => {},
   StepDetails: null,
 });
 
@@ -139,6 +170,8 @@ export interface ChatProviderProps {
 /** The chat around the strip's parts: give it once, around the log and the composer. */
 export function ChatProvider({ profile, composerRef, stepDetails, children }: ChatProviderProps) {
   const base = useId();
+  // The composer showing its notes now (takeNotes), if one is.
+  const notes = useRef<((text: string) => void) | null>(null);
   const value = useMemo<ChatContextValue>(() => {
     const composerId = `${base}composer`;
     return {
@@ -147,6 +180,16 @@ export function ChatProvider({ profile, composerRef, stepDetails, children }: Ch
       composerId,
       focusComposer: () =>
         focusAtEnd(composerRef?.current ?? globalThis.document?.getElementById(composerId)),
+      note: (text) => {
+        notes.current?.(text);
+        return notes.current !== null;
+      },
+      takeNotes: (show) => {
+        notes.current = show;
+        return () => {
+          if (notes.current === show) notes.current = null;
+        };
+      },
       // A visitor never sees a step's arguments or result, whoever renders the chat.
       StepDetails: profile === "owner" ? (stepDetails ?? null) : null,
     };

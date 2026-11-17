@@ -23,6 +23,7 @@ import {
 import type { ConversationMeta } from "@/lib/agent/types";
 import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
+import { focusComposerAfterNewChat } from "./chat/chat-composer";
 import { DOCK_END } from "./mascot/panel-context";
 
 /** How long a deleted thread can still come back with Undo. */
@@ -185,10 +186,13 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
     onClose();
   };
 
-  // New chat: reset stops the answer under way before the chat empties.
+  // New chat: reset stops the answer under way before the chat empties, and
+  // the fresh chat's message box takes focus as it comes back, even on a
+  // touch screen (a tap on New chat means "let me type").
   const newChat = () => {
     useAgentStore.getState().reset();
     onClose();
+    focusComposerAfterNewChat();
   };
 
   // Delete hides the row at once and offers Undo; the thread is deleted in

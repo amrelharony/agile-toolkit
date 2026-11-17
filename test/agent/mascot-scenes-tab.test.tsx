@@ -66,6 +66,7 @@ import ScenesTab, { COMPANION_TITLES } from "@/components/agent/mascot/scenes-ta
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
 import { PANEL_SUBTITLE } from "@/components/agent/mascot/panel-chrome";
 import VisitorAgentPanel from "@/components/agent/mascot/visitor-agent-panel";
+import { focusComposerAfterNewChat } from "@/components/agent/chat/chat-composer";
 import { ChatVisibleContext } from "@/components/agent/chat-visibility";
 import { EXPANSION_SHEETS } from "@/components/agent/mascot/engine/expansion-table";
 import { EXPANSION_TITLES } from "@/components/agent/mascot/engine/expansion-titles";
@@ -528,12 +529,16 @@ describe("a chat hidden under the scenes", () => {
     Element.prototype.scrollIntoView = scrollIntoView;
     scrollTo.mockClear();
     scrollIntoView.mockClear();
+    // The composer reads a media query (its narrow width), and the describe
+    // above unstubs every global, test/setup's matchMedia among them.
+    stubDesktop();
     useAgentStore.getState().reset();
   });
 
   afterEach(() => {
     Element.prototype.scrollTo = original.scrollTo;
     Element.prototype.scrollIntoView = original.scrollIntoView;
+    vi.unstubAllGlobals();
     useAgentStore.getState().reset();
   });
 
@@ -576,5 +581,25 @@ describe("a chat hidden under the scenes", () => {
     // log's own scrollTo, never scrollIntoView.
     await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 800, behavior: "instant" }));
     expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("puts focus in the box after a New chat from under the scenes once it shows, on a touch screen too", () => {
+    // A touch screen: nothing but New chat puts focus in the box.
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(pointer: coarse)",
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const { rerender } = render(panel(true));
+    const box = screen.getByRole("textbox", { name: "Message" });
+    expect(box).not.toHaveFocus();
+
+    rerender(panel(false));
+    act(() => focusComposerAfterNewChat());
+    // Hidden, the box can't take it: the request waits for it to show.
+    expect(box).not.toHaveFocus();
+    rerender(panel(true));
+    expect(box).toHaveFocus();
   });
 });

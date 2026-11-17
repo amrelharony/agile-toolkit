@@ -38,7 +38,7 @@
  * account menu already loads on every page.
  */
 
-import { useId, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { Ellipsis, Maximize2, Minimize2, Plus, X } from "lucide-react";
 import {
   DropdownMenu,
@@ -211,6 +211,18 @@ function PanelMore({
   onNewChat?: () => void;
 }) {
   const moveLabelId = useId();
+  // New chat means "let me type", even on a touch screen: as the menu closes,
+  // the fresh chat's box (emptied by New chat) takes focus in place of More.
+  // Found by its DOM mark, so no chat code ships here. With no box, More.
+  const newChatPicked = useRef(false);
+  const toBox = (e: Event) => {
+    const box = newChatPicked.current && document.querySelector<HTMLElement>("[data-amr-composer]");
+    newChatPicked.current = false;
+    if (box) {
+      e.preventDefault();
+      box.focus();
+    }
+  };
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -218,10 +230,15 @@ function PanelMore({
           <Ellipsis aria-hidden="true" />
         </PanelIconButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent align="end" className="w-64" onCloseAutoFocus={toBox}>
         {onNewChat && (
           <>
-            <DropdownMenuItem onSelect={onNewChat}>
+            <DropdownMenuItem
+              onSelect={() => {
+                newChatPicked.current = true;
+                onNewChat();
+              }}
+            >
               <Plus aria-hidden="true" className="h-4 w-4" />
               New chat
             </DropdownMenuItem>

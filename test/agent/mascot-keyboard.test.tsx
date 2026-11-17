@@ -868,6 +868,35 @@ describe("under 360 px wide", () => {
     expect(subtitle).toHaveClass("truncate");
   });
 
+  it("New chat from More puts focus in the fresh chat's box, even on a touch screen, from the chat or from History", async () => {
+    screenAt(320, 568);
+    await openChat();
+    // A touch screen: opening the chat raised no keyboard.
+    expect(composer()).not.toHaveFocus();
+    act(() => useAgentStore.getState().setDraft("owner", "half"));
+    const newChatFromMore = async () => {
+      fireEvent.keyDown(within(dialog()).getByRole("button", { name: "More" }), { key: "Enter" });
+      fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "New chat" }));
+      // Radix hands focus on a tick after the menu goes.
+      await frames();
+    };
+    await newChatFromMore();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(composer()).toHaveFocus();
+    // A fresh chat, from an empty box.
+    expect(useAgentStore.getState().messages).toHaveLength(0);
+    expect(composer()).toHaveValue("");
+
+    // From History: the chat comes back, and its box takes focus.
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Conversation history" }));
+    expect(screen.queryByLabelText("Message")).toBeNull();
+    await newChatFromMore();
+    expect(composer()).toHaveFocus();
+    expect(
+      within(dialog()).getByRole("button", { name: "Conversation history" })
+    ).toBeInTheDocument();
+  });
+
   it("keeps New chat beside History from 360 px", async () => {
     screenAt(375, 667);
     await openChat();
