@@ -12,6 +12,8 @@
  *    and chat" when nothing was asked).
  *  - chat: Amr's AI (visitor-agent-panel), a separate chunk loaded only now;
  *    the agent runtime behind it loads on the first message.
+ * The panel header's subtitle names the step ("Find the right tool", "Before
+ * you chat", "Chat · not saved"; PANEL_SUBTITLE), filled from here.
  *
  * The search travels with the visitor: "Not now" on the card, and going back
  * from the chat, open the guide on the question they took there. The chat's
@@ -34,7 +36,8 @@
  * focus, or through the announcer when the guide was already showing and no
  * focus moves.
  *
- * This module stays light: it ships in every page with the mascot.
+ * This module stays light: every visitor fetches it, in the visitor body's
+ * chunk (visitor-body), which the mascot fetches ahead while the browser is idle.
  */
 
 import { Suspense, lazy, useEffect, useRef, useState, type LazyExoticComponent } from "react";
@@ -46,6 +49,7 @@ import type { VisitorErrorCode } from "@/lib/visitor-ai/contract";
 import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { VisitorGuide } from "./visitor-guide";
 import { VisitorAiConsent, hasVisitorAiConsent } from "./visitor-ai-consent";
+import { PANEL_SUBTITLE, PanelSubtitle } from "./panel-chrome";
 
 type ChatModule = typeof import("./visitor-agent-panel");
 type LoadChat = () => Promise<ChatModule>;
@@ -240,15 +244,21 @@ export function VisitorPanel({
     else setMode("consent");
   };
 
+  // The panel header says which step this is.
+  const subtitle = <PanelSubtitle>{PANEL_SUBTITLE[mode]}</PanelSubtitle>;
+
   if (mode === "consent") {
     return (
-      <VisitorAiConsent
-        question={question}
-        onAgree={() => openChat(question)}
-        // Back to the guide with the question still in its search.
-        onDecline={() => setMode("guide")}
-        onNavigate={onNavigate}
-      />
+      <>
+        {subtitle}
+        <VisitorAiConsent
+          question={question}
+          onAgree={() => openChat(question)}
+          // Back to the guide with the question still in its search.
+          onDecline={() => setMode("guide")}
+          onNavigate={onNavigate}
+        />
+      </>
     );
   }
   if (mode === "chat") {
@@ -258,27 +268,30 @@ export function VisitorPanel({
     // imports the chunk again.
     const Chat = chatFor(load);
     return (
-      // A failure stops here, not at the app shell's error boundary, which
-      // would replace the page the visitor is on.
-      <ErrorBoundary
-        name="Visitor chat"
-        fallback={() => (
-          <ChatFailed onFailed={() => chatFailed(failedChats.has(Chat) ? "load" : "error")} />
-        )}
-      >
-        <Suspense fallback={<div className="min-h-0 flex-1" aria-busy="true" />}>
-          <Chat
-            initialQuestion={question}
-            // Back to the guide, its search on the question the chat opened
-            // with (`sent`); the guide's "Back to chat" returns to this chat,
-            // which then has nothing to send.
-            onOfflineGuide={() => {
-              setQuestion("");
-              setMode("guide");
-            }}
-          />
-        </Suspense>
-      </ErrorBoundary>
+      <>
+        {subtitle}
+        {/* A failure stops here, not at the app shell's error boundary, which
+            would replace the page the visitor is on. */}
+        <ErrorBoundary
+          name="Visitor chat"
+          fallback={() => (
+            <ChatFailed onFailed={() => chatFailed(failedChats.has(Chat) ? "load" : "error")} />
+          )}
+        >
+          <Suspense fallback={<div className="min-h-0 flex-1" aria-busy="true" />}>
+            <Chat
+              initialQuestion={question}
+              // Back to the guide, its search on the question the chat opened
+              // with (`sent`); the guide's "Back to chat" returns to this chat,
+              // which then has nothing to send.
+              onOfflineGuide={() => {
+                setQuestion("");
+                setMode("guide");
+              }}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      </>
     );
   }
   const note =
@@ -290,26 +303,29 @@ export function VisitorPanel({
           ? visitorFallbackNote(fallback, quota)
           : null;
   return (
-    <VisitorGuide
-      onNavigate={onNavigate}
-      onAskAmr={askAmr}
-      guideRef={guideRef}
-      initialQuery={question || sent}
-      resumeChat={chatUnderWay}
-      resumeQuery={sent}
-      // The note sits inside the guide's scroll area. Above it, in a panel as
-      // short as 160 px, it left the guide a strip too low to use.
-      note={
-        note && (
-          // A narration caption, the narrator's line, in a box that takes
-          // focus from code only (tabIndex -1). Not a live region: it is read
-          // once, when it takes focus or is announced.
-          <div ref={noteRef} tabIndex={-1} className="shrink-0 focus:outline-none">
-            <Narration tone={failure ? "error" : "note"}>{note}</Narration>
-          </div>
-        )
-      }
-    />
+    <>
+      {subtitle}
+      <VisitorGuide
+        onNavigate={onNavigate}
+        onAskAmr={askAmr}
+        guideRef={guideRef}
+        initialQuery={question || sent}
+        resumeChat={chatUnderWay}
+        resumeQuery={sent}
+        // The note sits inside the guide's scroll area. Above it, in a panel as
+        // short as 160 px, it left the guide a strip too low to use.
+        note={
+          note && (
+            // A narration caption, the narrator's line, in a box that takes
+            // focus from code only (tabIndex -1). Not a live region: it is read
+            // once, when it takes focus or is announced.
+            <div ref={noteRef} tabIndex={-1} className="shrink-0 focus:outline-none">
+              <Narration tone={failure ? "error" : "note"}>{note}</Narration>
+            </div>
+          )
+        }
+      />
+    </>
   );
 }
 

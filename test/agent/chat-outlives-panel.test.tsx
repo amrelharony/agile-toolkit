@@ -138,7 +138,9 @@ afterEach(() => {
 
 describe("closing the panel mid-answer", () => {
   it("leaves the owner's turn running: the reply finishes in the store and is saved", async () => {
-    const view = render(<OwnerAgentPanel showHistory={false} onCloseHistory={() => {}} />);
+    const view = render(
+      <OwnerAgentPanel showHistory={false} onToggleHistory={() => {}} onCloseHistory={() => {}} />
+    );
     fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
       target: { value: "tell me about retros" },
     });
@@ -196,7 +198,9 @@ describe("closing the panel mid-answer", () => {
   });
 
   it("still lets New chat stop the turn after the panel has closed", async () => {
-    const view = render(<OwnerAgentPanel showHistory={false} onCloseHistory={() => {}} />);
+    const view = render(
+      <OwnerAgentPanel showHistory={false} onToggleHistory={() => {}} onCloseHistory={() => {}} />
+    );
     fireEvent.change(screen.getByRole("textbox", { name: "Message" }), {
       target: { value: "tell me about retros" },
     });

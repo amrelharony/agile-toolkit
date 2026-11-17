@@ -32,11 +32,31 @@
  * Amr's AI through /api/agent/visitor (its own chunks, loaded on demand). An
  * unverified owner session (owner check unanswered) keeps the plain guide, with
  * a narration note that Amr's chat comes back once owner access is confirmed.
+ *
+ * The panel is drawn as Amr's own balloon (DNA-SPEC §6 "Chat strip"): a comic
+ * panel with a tail on the edge that faces him, pointing at his figure
+ * (amr-geometry's panelTail), and a header with his lettered name plate, which
+ * names the dialog (panel-header). The views below it fill the header's
+ * subtitle, back and action slots (panel-chrome), so the owner chunk owns New
+ * chat and History. It grows in from the tail's tip, sizes itself from
+ * PANEL_SIZE, and Enlarge, on md and wider, gives it the larger size, which
+ * this browser remembers. Where he is drawn goes to the mascot store
+ * (setPlacement), for the things beside him to follow.
+ *
+ * Those visitor views (the guide, the visitor panel, the consent card and the
+ * guide's data) are a chunk of their own too, not part of this one, which
+ * every page loads: lazy-visitor-body imports them ahead of time, once the
+ * page has loaded and the browser is idle and when a pointer, a finger or
+ * focus first reaches Amr, so a tap almost never waits. Never for the owner,
+ * and never ahead of time with Data Saver on (they load when the panel opens).
+ * A panel opened before they arrive keeps its size and shows a plain
+ * placeholder until they do.
  */
 
 import {
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -45,7 +65,7 @@ import {
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
-import { X, Plus, History, Sparkles, Smartphone, Clapperboard } from "lucide-react";
+import { Sparkles, Smartphone, Clapperboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
@@ -88,10 +108,23 @@ import {
   PANEL_MARGIN,
   PANEL_MIN_H,
   PANEL_SIDE,
+  PANEL_SIZE,
+  amrEdge,
+  amrSide,
   otherSide,
+  panelOrigin,
+  panelTail,
+  type PanelSizeName,
 } from "./amr-geometry";
-import { VisitorGuide } from "./visitor-guide";
-import { VisitorPanel } from "./visitor-panel";
+import { LazyVisitorBody, prefetchVisitorBody } from "./lazy-visitor-body";
+import { AMR_PANEL_TITLE_ID, PanelHeader } from "./panel-header";
+import { PANEL_SUBTITLE, PanelChrome, PanelIconButton } from "./panel-chrome";
+import {
+  AmrPanelContext,
+  NO_AMR_PANEL,
+  type AmrPanelContextValue,
+  type AmrPanelLayout,
+} from "./panel-context";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import {
@@ -216,14 +249,13 @@ function hitBox(box: { w: number; h: number }): CSSProperties {
   };
 }
 
-/** The panel's height, as its class sets it (h-[min(68vh,560px)]). */
-const PANEL_HEIGHT_CSS = "min(68vh, 560px)";
-
 /**
  * Chat-panel style for a corner — hugs Amr's silhouette, not his box. `boxH` is
  * the rendered box height (the figure's rows scale with it); with the launcher
  * showing, the panel clears the launcher instead. `lift` is how far he has
- * stepped off his edge for a control, and the panel goes with him.
+ * stepped off his edge for a control, and the panel goes with him. `size` is
+ * which PANEL_SIZE the panel has (the panel's style sets it from the same
+ * entry), so the room it needs follows Enlarge.
  *
  * It always stays between the header and the screen's far edge, whatever the
  * lift: first it gets shorter (its body scrolls); only when even PANEL_MIN_H
@@ -237,8 +269,10 @@ export function panelPos(
   figure: boolean,
   boxH: number,
   phone: boolean,
-  lift = 0
+  lift = 0,
+  size: PanelSizeName = "normal"
 ): CSSProperties {
+  const panelHeight = PANEL_SIZE[size].height;
   const scale = boxH / SHEET.cellH;
   const top = figure ? FIGURE_TOP * scale : 0;
   const bottom = figure ? FIGURE_BOTTOM * scale : LAUNCHER_SIZE;
@@ -257,7 +291,7 @@ export function panelPos(
   const room = atTop
     ? `100% - ${PANEL_MARGIN}px - env(safe-area-inset-bottom, 0px)`
     : `100% - var(--header-h, 56px) - ${PANEL_MARGIN}px`;
-  const anchor = `min(${offset}, calc(${room} - min(${PANEL_HEIGHT_CSS}, ${PANEL_MIN_H}px)))`;
+  const anchor = `min(${offset}, calc(${room} - min(${panelHeight}, ${PANEL_MIN_H}px)))`;
   return {
     ...(atTop ? { top: anchor } : { bottom: anchor }),
     ...sideOffset(c, PANEL_SIDE),
@@ -282,6 +316,55 @@ function useMediaQuery(query: string): boolean {
 /** True at phone width (`PHONE_MAX_PX`, below Tailwind's `sm`). */
 function useIsPhone(): boolean {
   return useMediaQuery(PHONE_MEDIA_QUERY);
+}
+
+/** Tailwind's md: Enlarge is offered, and the larger size applies, only this wide. */
+const ENLARGE_MEDIA_QUERY = "(min-width: 768px)";
+
+/**
+ * Where this browser remembers that the panel was left enlarged. Under the
+ * app's prefix, so "Clear data on this browser" forgets it; a display
+ * preference, so a backup may carry it.
+ */
+export const PANEL_SIZE_KEY = "agile-toolkit:amr-panel-size";
+
+/** The size the panel was left at: large, or the usual one (also when storage can't be read). */
+function readPanelSize(): PanelSizeName {
+  try {
+    return localStorage.getItem(PANEL_SIZE_KEY) === "large" ? "large" : "normal";
+  } catch {
+    return "normal";
+  }
+}
+
+function savePanelSize(size: PanelSizeName): void {
+  try {
+    if (size === "large") localStorage.setItem(PANEL_SIZE_KEY, size);
+    else localStorage.removeItem(PANEL_SIZE_KEY);
+  } catch {
+    /* storage unavailable: the size lasts until the page closes */
+  }
+}
+
+/**
+ * Amr's panel's chosen size (Enlarge), remembered by this browser, and the size
+ * it has on this screen: the larger one only at md and wider, so a narrower
+ * window keeps the usual card while remembering the choice.
+ */
+function usePanelSize(): { enlarged: boolean; size: PanelSizeName; toggle: () => void } {
+  const [chosen, setChosen] = useState<PanelSizeName>("normal");
+  useEffect(() => setChosen(readPanelSize()), []);
+  const wide = useMediaQuery(ENLARGE_MEDIA_QUERY);
+  const enlarged = chosen === "large";
+  return {
+    enlarged,
+    size: enlarged && wide ? "large" : "normal",
+    toggle: () => {
+      const next = enlarged ? "normal" : "large";
+      setChosen(next);
+      savePanelSize(next);
+    },
+  };
 }
 
 /**
@@ -331,6 +414,44 @@ function savesData(): boolean {
   return Boolean(nav.connection?.saveData);
 }
 
+/** The idle callback, where the browser has one (Safari has none). */
+type IdleWindow = Window & {
+  requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+  cancelIdleCallback?: (id: number) => void;
+};
+
+/** The visitor body is fetched by this long after load, idle or not. */
+const BODY_IDLE_TIMEOUT_MS = 4000;
+/** Without an idle callback, the visitor body is fetched this long after load. */
+const BODY_PREFETCH_DELAY_MS = 1500;
+
+/**
+ * Fetch the open panel's visitor body (lazy-visitor-body) once the page has
+ * loaded and the browser is idle, so opening the panel almost never waits for
+ * it. Not when the visitor asked to save data: the body then loads when the
+ * panel opens.
+ */
+function usePrefetchVisitorBody(enabled: boolean) {
+  useEffect(() => {
+    if (!enabled || savesData()) return;
+    const w = window as IdleWindow;
+    let idleId: number | undefined;
+    let timer: number | undefined;
+    const schedule = () => {
+      if (w.requestIdleCallback)
+        idleId = w.requestIdleCallback(prefetchVisitorBody, { timeout: BODY_IDLE_TIMEOUT_MS });
+      else timer = window.setTimeout(prefetchVisitorBody, BODY_PREFETCH_DELAY_MS);
+    };
+    if (document.readyState === "complete") schedule();
+    else window.addEventListener("load", schedule, { once: true });
+    return () => {
+      window.removeEventListener("load", schedule);
+      window.clearTimeout(timer);
+      if (idleId !== undefined) w.cancelIdleCallback?.(idleId);
+    };
+  }, [enabled]);
+}
+
 /**
  * Defer the figure (its chunk and the sprite sheet) until the visitor first
  * interacts (pointer, key, scroll) or a moment after the page has loaded,
@@ -343,10 +464,7 @@ function useDeferredFigure(): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => {
     const interactionOnly = savesData();
-    const w = window as Window & {
-      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-      cancelIdleCallback?: (id: number) => void;
-    };
+    const w = window as IdleWindow;
     let idleId: number | undefined;
     let timer: number | undefined;
     let started = false;
@@ -633,6 +751,15 @@ export function MascotAssistant() {
   const { isOwner, settled, unverified, visitor } = useOwnerState();
   // Amr's AI for visitors: a confirmed visitor only, and only in a build that has it on.
   const visitorAi = visitor && visitorAiEnabled();
+  // Everyone but the owner opens the panel on the visitor body: fetch it ahead.
+  usePrefetchVisitorBody(settled && !isOwner);
+  // Reaching for Amr (a pointer over him, a finger on him, focus on him): fetch
+  // it now if it isn't here yet (Data Saver waits for the panel to open). Like
+  // the idle fetch, it waits for auth to settle (isOwner reads false until then)
+  // and never runs for the owner. Once fetched, this does nothing.
+  const reachForAmr = () => {
+    if (settled && !isOwner && !savesData()) prefetchVisitorBody();
+  };
   const isPhone = useIsPhone();
   // Touch screens of any width (a landscape phone, a tablet): his figure there is
   // where a finger lands, so he steps aside for the page's controls.
@@ -640,6 +767,11 @@ export function MascotAssistant() {
   const typingOnPhone = useTypingOnPhone(isPhone);
   const hideFigure = typingOnPhone;
   const box = isPhone ? MASCOT_BOX_PHONE : MASCOT_BOX;
+  const panelSize = usePanelSize();
+  // How the panel sits. The phone's full-height sheet and the short landscape
+  // panel down one side come with the phone layouts; until then it floats
+  // beside him everywhere.
+  const layout = "float" as AmrPanelLayout;
 
   // The figure loads after the page is idle; until it's ready (or if the sheet
   // can't load) a small launcher keeps the assistant one click away without an
@@ -794,6 +926,13 @@ export function MascotAssistant() {
     insetProbeRef,
   });
   const placed = nudge.flip ? otherSide(corner) : corner;
+  // Where he is drawn and how far he has stepped up, worked out with his panel's
+  // place: his bubble and the moment chip follow these, not his chosen corner.
+  useEffect(() => {
+    useMascotStore
+      .getState()
+      .setPlacement({ side: amrSide(placed), edge: amrEdge(placed) }, nudge.lift);
+  }, [placed, nudge.lift]);
   // Removes the active drag's document listeners (called on pointerup, on a new
   // drag, or on unmount) so they never leak past an in-progress drag.
   const dragCleanupRef = useRef<(() => void) | null>(null);
@@ -1079,6 +1218,42 @@ export function MascotAssistant() {
     return () => document.removeEventListener("keydown", onEsc);
   }, [open, closeSheet]);
 
+  // What the views inside the panel may ask of it. A link followed closes it,
+  // as a page change does; focus and Back aren't handled here yet, so those
+  // stay the safe no-ops.
+  const panelContext = useMemo<AmrPanelContextValue>(
+    () => ({ ...NO_AMR_PANEL, layout, onNavigate: closeSheet }),
+    [layout, closeSheet]
+  );
+
+  // The panel's tail points at his figure: none while the launcher stands in for
+  // him, while he's off the page for the keyboard (a page field has focus on a
+  // phone), while he's carried (the panel stays at his corner), or in the phone's
+  // sheet (it covers the screen; there is nothing beside it to point at). Its
+  // place and growth point stay on showFigure, so the card doesn't move while he
+  // steps aside and still matches where he comes back.
+  const tail =
+    layout === "sheet"
+      ? null
+      : panelTail(placed, {
+          phone: isPhone,
+          figure: showFigure && !hideFigure,
+          dragging: dragPos !== null,
+        });
+  const size = PANEL_SIZE[panelSize.size];
+  const panelStyle = {
+    ...panelPos(placed, showFigure, box.h, isPhone, nudge.lift, panelSize.size),
+    // Its size, read by its w-/h- classes: as variables, a layout rule in CSS
+    // can still replace them, which an inline width or height would beat.
+    "--amr-panel-width": size.width,
+    "--amr-panel-height": size.height,
+    // The entrance grows from where the tail meets the panel.
+    "--panel-origin": panelOrigin(placed, { phone: isPhone, figure: showFigure }),
+    // The tail's near side, so its tip lands on his centre line: half the
+    // tail's width short of it, counted inside the panel's line.
+    ...(tail && { "--tail-at": `calc(${tail.at}px - 0.4rem - var(--panel-w))` }),
+  } as CSSProperties;
+
   return (
     <>
       <MascotChatReactions />
@@ -1087,132 +1262,112 @@ export function MascotAssistant() {
           data-agent-sheet-root
           data-vt-hold="amr-panel"
           role="dialog"
-          aria-label="Amr assistant"
+          aria-labelledby={AMR_PANEL_TITLE_ID}
           aria-modal={false}
-          style={panelPos(placed, showFigure, box.h, isPhone, nudge.lift)}
-          className="fixed z-50 flex h-[min(68vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden panel bg-surface-deep shadow-xl"
+          data-tail={tail?.tail ?? "none"}
+          data-tail-from={tail?.from}
+          data-amr-side={amrSide(placed)}
+          data-amr-edge={amrEdge(placed)}
+          data-amr-layout={layout}
+          style={panelStyle}
+          className={cn(
+            "group/amr panel comic-tailed fixed z-50 flex h-[var(--amr-panel-height)] w-[var(--amr-panel-width)] flex-col bg-card shadow-xl",
+            styles.panelEnter
+          )}
         >
-          <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
-            {/* On a narrow phone the buttons keep their room and this stays one line. */}
-            <div className="min-w-0">
-              <p className="text-sm font-semibold text-text">✦ Amr</p>
-              <p className="truncate text-xs text-sub">
-                {isOwner
-                  ? "Drive every tool"
-                  : visitorAi
-                    ? "Find a tool or ask"
-                    : "Find the right tool"}
-                {/* A keyboard shortcut means nothing on a touch screen. */}
-                <span className="pointer-coarse:hidden"> · Cmd/Ctrl+J</span>
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-0.5">
-              {isOwner && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      useAgentStore.getState().reset();
-                      setShowHistory(false);
-                      setShowScenes(false);
-                    }}
-                    aria-label="New chat"
-                    title="New chat"
-                    className="min-touch-coarse inline-flex items-center justify-center rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
-                  >
-                    <Plus className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowHistory((v) => !v);
-                      setShowScenes(false);
-                    }}
-                    aria-label="Conversation history"
-                    title="History"
-                    aria-pressed={showHistory}
-                    className={`min-touch-coarse inline-flex items-center justify-center rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
-                      showHistory ? "text-accent" : "text-sub"
-                    }`}
-                  >
-                    <History className="h-4 w-4" aria-hidden="true" />
-                  </button>
-                </>
-              )}
-              {/* No figure, no one to act a scene out; a confirmation waiting comes first. */}
-              {!figureFailed && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowScenes(!scenesOpen);
-                    setShowHistory(false);
-                  }}
-                  disabled={confirmPending}
-                  aria-label="Amr's scenes"
-                  title={
-                    confirmPending ? "Scenes, once the action is confirmed or denied" : "Scenes"
+          {/* The frame clips its contents here, not on the dialog, so the tail
+              can stand outside it; the padding keeps every focus ring clear of
+              the clip. */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[inherit] p-1.5">
+            <PanelChrome>
+              <AmrPanelContext.Provider value={panelContext}>
+                <PanelHeader
+                  plateId={AMR_PANEL_TITLE_ID}
+                  // The step the shell knows; a view fills its own as it moves on.
+                  subtitle={
+                    settled ? (isOwner ? PANEL_SUBTITLE.owner : PANEL_SUBTITLE.guide) : undefined
                   }
-                  aria-pressed={scenesOpen}
-                  className={`min-touch-coarse inline-flex items-center justify-center rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text disabled:pointer-events-none disabled:opacity-50 ${
-                    scenesOpen ? "text-accent" : "text-sub"
-                  }`}
-                >
-                  <Clapperboard className="h-4 w-4" aria-hidden="true" />
-                </button>
-              )}
-              {motionAvailable && (
-                <button
-                  type="button"
-                  onClick={() => void toggleMotion()}
-                  aria-label="Let Amr feel your phone"
-                  title={
-                    feelsMotion
-                      ? "Amr feels your phone's tilt and shakes · tap to stop"
-                      : "Let Amr feel your phone's tilt and shakes"
+                  shortcut="Cmd/Ctrl+J"
+                  controls={
+                    <>
+                      {/* No figure, no one to act a scene out; a confirmation waiting comes first. */}
+                      {!figureFailed && (
+                        <PanelIconButton
+                          label="Amr's scenes"
+                          title={
+                            confirmPending
+                              ? "Scenes, once the action is confirmed or denied"
+                              : "Scenes"
+                          }
+                          aria-pressed={scenesOpen}
+                          disabled={confirmPending}
+                          onClick={() => {
+                            setShowScenes(!scenesOpen);
+                            setShowHistory(false);
+                          }}
+                        >
+                          <Clapperboard aria-hidden="true" />
+                        </PanelIconButton>
+                      )}
+                      {motionAvailable && (
+                        <PanelIconButton
+                          label="Let Amr feel your phone"
+                          title={
+                            feelsMotion
+                              ? "Amr feels your phone's tilt and shakes · tap to stop"
+                              : "Let Amr feel your phone's tilt and shakes"
+                          }
+                          aria-pressed={feelsMotion}
+                          onClick={() => void toggleMotion()}
+                        >
+                          <Smartphone aria-hidden="true" />
+                        </PanelIconButton>
+                      )}
+                    </>
                   }
-                  aria-pressed={feelsMotion}
-                  className={`min-touch-coarse inline-flex items-center justify-center rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text ${
-                    feelsMotion ? "text-accent" : "text-sub"
-                  }`}
-                >
-                  <Smartphone className="h-4 w-4" aria-hidden="true" />
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={closeSheet}
-                aria-label="Close assistant"
-                className="min-touch-coarse inline-flex items-center justify-center rounded-md p-1 text-sub transition-colors hover:bg-accent/10 hover:text-text"
-              >
-                <X className="h-4 w-4" aria-hidden="true" />
-              </button>
-            </div>
-          </div>
-          {scenesOpen && <ScenesTab onPlay={onScenePlayed} />}
-          {/* Under the scenes the chat or guide stays mounted (a turn in flight goes on),
-              hidden, and knows it; otherwise `contents` keeps its layout exactly as before. */}
-          <ChatVisibleContext.Provider value={!scenesOpen}>
-            <div hidden={scenesOpen} className={scenesOpen ? "hidden" : "contents"}>
-              {!isOwner ? (
-                <div className="min-h-0 flex-1" aria-busy={!settled}>
-                  {settled &&
-                    (visitorAi ? (
-                      <VisitorPanel onNavigate={closeSheet} />
-                    ) : (
-                      <VisitorGuide
-                        onNavigate={closeSheet}
-                        note={unverified ? <UnverifiedOwnerNote /> : undefined}
-                      />
-                    ))}
-                </div>
-              ) : (
-                <OwnerAgentPanel
-                  showHistory={showHistory}
-                  onCloseHistory={() => setShowHistory(false)}
+                  enlarged={panelSize.enlarged}
+                  onToggleEnlarge={panelSize.toggle}
+                  onClose={closeSheet}
                 />
-              )}
-            </div>
-          </ChatVisibleContext.Provider>
+                {/* The strip's ground: the page's paper, so card balloons stand out. */}
+                <div className="flex min-h-0 flex-1 flex-col bg-bg">
+                  {scenesOpen && <ScenesTab onPlay={onScenePlayed} />}
+                  {/* Under the scenes the chat or guide stays mounted (a turn in flight goes on),
+                      hidden, and knows it; otherwise `contents` keeps its layout exactly as before. */}
+                  <ChatVisibleContext.Provider value={!scenesOpen}>
+                    <div hidden={scenesOpen} className={scenesOpen ? "hidden" : "contents"}>
+                      {!isOwner ? (
+                        <div className="min-h-0 flex-1" aria-busy={!settled}>
+                          {settled && (
+                            <LazyVisitorBody
+                              ai={visitorAi}
+                              onNavigate={closeSheet}
+                              note={unverified ? <UnverifiedOwnerNote /> : undefined}
+                            />
+                          )}
+                        </div>
+                      ) : (
+                        <OwnerAgentPanel
+                          showHistory={showHistory}
+                          // History and the scenes take turns.
+                          onToggleHistory={() => {
+                            setShowHistory((v) => !v);
+                            setShowScenes(false);
+                          }}
+                          // New chat (or a thread picked in History) shows the chat,
+                          // out from under the scenes too.
+                          onCloseHistory={() => {
+                            setShowHistory(false);
+                            setShowScenes(false);
+                          }}
+                        />
+                      )}
+                    </div>
+                  </ChatVisibleContext.Provider>
+                </div>
+              </AmrPanelContext.Provider>
+            </PanelChrome>
+          </div>
         </div>
       )}
 
@@ -1240,6 +1395,9 @@ export function MascotAssistant() {
           type="button"
           onClick={onMascotClick}
           onPointerDown={onPointerDown}
+          onPointerEnter={reachForAmr}
+          onTouchStart={reachForAmr}
+          onFocus={reachForAmr}
           onContextMenu={(e) => showFigure && e.preventDefault()}
           aria-label={open ? "Close assistant" : "Open assistant"}
           title="Ask Amr · drag to reposition"

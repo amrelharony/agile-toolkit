@@ -134,6 +134,12 @@ interface AgentActions {
    * that message (New chat or a switch happened while it was being created).
    */
   attachConversation(meta: ConversationMeta, holding?: string): boolean;
+  /**
+   * A thread was renamed (by the owner in History, or with the model's short
+   * title after its first turn): the open thread's title follows, so the panel
+   * header names it as History does. Any other id changes nothing.
+   */
+  retitleConversation(id: string, title: string): void;
   appendMessage(msg: ChatMessage): void;
   /**
    * Replace one message's content, by id (no-op when it's gone). The live
@@ -242,6 +248,12 @@ export const useAgentStore = create<AgentState & AgentActions>()((set, get) => (
     if (holding !== undefined && !s.messages.some((m) => m.id === holding)) return false;
     set({ activeConversationId: meta.id, activeMeta: meta });
     return true;
+  },
+
+  retitleConversation: (id, title) => {
+    const meta = get().activeMeta;
+    if (!meta || meta.id !== id || meta.title === title) return;
+    set({ activeMeta: { ...meta, title } });
   },
 
   appendMessage: (msg) => set((s) => ({ messages: [...s.messages, msg] })),

@@ -537,3 +537,35 @@ describe("useAgentStore – attachConversation", () => {
     expect(useAgentStore.getState().activeConversationId).toBeNull();
   });
 });
+
+describe("useAgentStore – retitleConversation", () => {
+  beforeEach(fresh);
+
+  it("renames the open thread in place, keeping its messages and the live turn", () => {
+    const s = useAgentStore.getState();
+    s.setActiveConversation(meta("c1"), [msg("a1")]);
+    s.setStreaming(true);
+    const before = useAgentStore.getState();
+
+    s.retitleConversation("c1", "Flaky CI");
+
+    const after = useAgentStore.getState();
+    expect(after.activeMeta).toEqual({ ...meta("c1"), title: "Flaky CI" });
+    expect(after.activeConversationId).toBe("c1");
+    expect(after.messages).toBe(before.messages);
+    expect(after.streaming).toBe(true);
+  });
+
+  it("changes nothing for another thread, no thread, or the same title", () => {
+    const s = useAgentStore.getState();
+    s.retitleConversation("c1", "Flaky CI");
+    expect(useAgentStore.getState().activeMeta).toBeNull();
+
+    s.setActiveConversation(meta("c1"), []);
+    const open = useAgentStore.getState().activeMeta;
+    s.retitleConversation("c2", "Flaky CI");
+    expect(useAgentStore.getState().activeMeta).toBe(open);
+    s.retitleConversation("c1", open!.title);
+    expect(useAgentStore.getState().activeMeta).toBe(open);
+  });
+});

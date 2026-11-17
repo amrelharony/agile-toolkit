@@ -30,6 +30,8 @@ import {
   VISITOR_CHAT_LOAD_NOTE,
   VisitorPanel,
 } from "@/components/agent/mascot/visitor-panel";
+import { PANEL_SUBTITLE, PanelChrome } from "@/components/agent/mascot/panel-chrome";
+import { PanelHeader } from "@/components/agent/mascot/panel-header";
 import { ErrorBoundary } from "@/components/layout/error-boundary";
 import { useAgentStore } from "@/lib/agent/store";
 
@@ -174,5 +176,36 @@ describe("VisitorPanel: the chat's code can't load", () => {
     expect(await screen.findByText(VISITOR_CHAT_ERROR_NOTE)).toBeInTheDocument();
     expect(loadChat).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Something went wrong")).toBeNull();
+  });
+
+  it("names the step in the panel header: the chat while it loads, the tool finder after it fails", async () => {
+    let failLoad: (err: Error) => void = () => {};
+    const loadChat = vi.fn<() => Promise<ChatModule>>().mockImplementationOnce(
+      () =>
+        new Promise<ChatModule>((_resolve, reject) => {
+          failLoad = reject;
+        })
+    );
+    render(
+      <PanelChrome>
+        <PanelHeader subtitle={PANEL_SUBTITLE.guide} onClose={() => {}} />
+        <VisitorPanel loadChat={loadChat} />
+      </PanelChrome>
+    );
+    const subtitle = document.querySelector<HTMLElement>("[data-panel-slot='subtitle']")!;
+    expect(subtitle).toHaveTextContent(/^Find the right tool$/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await waitFor(() => expect(loadChat).toHaveBeenCalledTimes(1));
+    expect(subtitle).toHaveTextContent(/^Chat · not saved$/);
+
+    await act(async () => {
+      failLoad(new Error("Loading chunk 123 failed."));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await findNote(VISITOR_CHAT_LOAD_NOTE);
+    expect(subtitle).toHaveTextContent(/^Find the right tool$/);
+    // One line under the plate: the step's own, never the shell's beside it.
+    expect(subtitle.parentElement).toHaveTextContent(/^Find the right tool$/);
   });
 });

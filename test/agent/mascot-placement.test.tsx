@@ -9,6 +9,9 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
  * - He keeps clear of a landscape iPhone's notch and home indicator.
  * - On touch screens he steps aside when his figure sits on a control
  *   (the helper itself is covered in mascot-nudge.test.ts).
+ * - His panel is his balloon (the chat revamp): a tail on the edge facing his
+ *   figure, none while he's carried or the launcher stands in for him; its
+ *   size comes from PANEL_SIZE, and Enlarge (md and up) is remembered.
  */
 
 vi.mock("@/lib/auth/auth-provider", () => ({
@@ -21,7 +24,13 @@ vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
   default: () => <div data-testid="mascot-sprite" />,
 }));
 
-import { MascotAssistant, panelPos, type Corner } from "@/components/agent/mascot/mascot-assistant";
+import {
+  MascotAssistant,
+  PANEL_SIZE_KEY,
+  panelPos,
+  type Corner,
+} from "@/components/agent/mascot/mascot-assistant";
+import { PANEL_SIZE, type PanelSizeName } from "@/components/agent/mascot/amr-geometry";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
@@ -49,11 +58,18 @@ function cssPx(expr: string, screenH: number, insetBottom = 0): number {
   return Number(new Function(`return ${js};`)());
 }
 
-/** The panel's box on a screen `screenH` tall: its class height, capped by its max-height. */
-function panelBox(style: CSSProperties, screenH: number, insetBottom = 0) {
+/**
+ * The panel's box on a screen `screenH` tall: its PANEL_SIZE height (the one
+ * its style sets), capped by its max-height.
+ */
+function panelBox(
+  style: CSSProperties,
+  screenH: number,
+  insetBottom = 0,
+  size: PanelSizeName = "normal"
+) {
   const height = Math.min(
-    0.68 * screenH,
-    560,
+    cssPx(PANEL_SIZE[size].height, screenH, insetBottom),
     cssPx(String(style.maxHeight), screenH, insetBottom)
   );
   if (style.bottom !== undefined) {
@@ -64,9 +80,24 @@ function panelBox(style: CSSProperties, screenH: number, insetBottom = 0) {
   return { top, bottom: top + height, height };
 }
 
-function stubScreen({ phone, coarse = phone }: { phone: boolean; coarse?: boolean }) {
+function stubScreen({
+  phone,
+  coarse = phone,
+  wide = false,
+}: {
+  phone: boolean;
+  coarse?: boolean;
+  /** md and wider (Enlarge's min-width query). */
+  wide?: boolean;
+}) {
   vi.stubGlobal("matchMedia", (query: string) => ({
-    matches: query.includes("max-width") ? phone : query.includes("coarse") ? coarse : false,
+    matches: query.includes("max-width")
+      ? phone
+      : query.includes("min-width")
+        ? wide
+        : query.includes("coarse")
+          ? coarse
+          : false,
     media: query,
     onchange: null,
     addListener: () => {},
@@ -98,6 +129,7 @@ afterEach(() => {
   setSaveData(undefined);
   useMascotStore.setState({ ready: false });
   document.documentElement.style.removeProperty("--amr-band-bottom");
+  window.localStorage.removeItem(PANEL_SIZE_KEY);
 });
 
 describe("Data Saver", () => {
@@ -213,6 +245,34 @@ describe("his panel stays on screen when he has stepped aside", () => {
     );
     expect(panelBox(panelPos("bottomRight", true, 104, true, 0), 915).height).toBe(560);
   });
+
+  it("takes its usual size from PANEL_SIZE, the one source for its style and its room", () => {
+    // The usual card, as before the revamp (the numbers above rest on it).
+    expect(PANEL_SIZE.normal).toEqual({ width: "min(92vw, 380px)", height: "min(68vh, 560px)" });
+    // Enlarged on a 1440x900 desktop: still right above him, as tall as fits under the header.
+    const large = panelBox(panelPos("bottomRight", true, 143, false, 0, "large"), 900, 0, "large");
+    expect(900 - large.bottom).toBeCloseTo(131.6875);
+    expect(large.top).toBeCloseTo(HEADER_H + 8);
+    expect(large.height).toBeGreaterThan(560);
+  });
+
+  for (const s of [
+    { name: "768x1024 tablet", h: 1024 },
+    { name: "1280x720 laptop", h: 720 },
+    { name: "1440x900 desktop", h: 900 },
+  ]) {
+    it(`${s.name}: the enlarged panel stays below the header and on screen`, () => {
+      for (const lift of [0, 48, 144]) {
+        for (const corner of ["bottomRight", "bottomLeft", "topRight", "topLeft"] as Corner[]) {
+          const box = panelBox(panelPos(corner, true, 143, false, lift, "large"), s.h, 0, "large");
+          const where = `${corner} lift ${lift}`;
+          expect(box.top, where).toBeGreaterThanOrEqual(HEADER_H + 8 - 0.01);
+          expect(box.bottom, where).toBeLessThanOrEqual(s.h + 0.01);
+          expect(box.height, where).toBeGreaterThanOrEqual(160 - 0.01);
+        }
+      }
+    });
+  }
 });
 
 describe("stepping aside", () => {
@@ -379,11 +439,14 @@ describe("stepping aside", () => {
     );
 
     act(() => useAgentStore.setState({ open: true }));
-    const panel = screen.getByRole("dialog", { name: "Amr assistant" });
+    const panel = screen.getByRole("dialog", { name: "Amr" });
     const box = panelBox({ bottom: panel.style.bottom, maxHeight: panel.style.maxHeight }, VH);
     // Close, New chat and History clear the header; the panel is still above his head.
     expect(box.top).toBeGreaterThanOrEqual(HEADER_H);
     expect(VH - box.bottom).toBeCloseTo(98.5 + 144);
+    // His bubble and the moment chip learn where he is: stepped up 144 px, same side.
+    expect(useMascotStore.getState().placed).toEqual({ side: "right", edge: "bottom" });
+    expect(useMascotStore.getState().lift).toBe(144);
     useAgentStore.setState({ open: false });
   });
 
@@ -543,5 +606,253 @@ describe("choosing his corner (X108)", () => {
     render(<MascotAssistant />);
     drag(20, 1300);
     expect(queue()).not.toContain(corner);
+  });
+});
+
+describe("his panel is his balloon", () => {
+  /** Amr's own button, whatever it is called while his panel is open or shut. */
+  const amr = () => screen.getByTitle(/^Ask Amr/);
+
+  /** Brings his figure in (the first interaction, then an idle moment). */
+  async function withFigure() {
+    act(() => {
+      window.dispatchEvent(new Event("pointerdown"));
+    });
+    await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
+  }
+
+  /**
+   * Picks him up and carries him to (x, y) on jsdom's 1024x768 screen; `drop` lets go.
+   * jsdom has no layout, so his box sits at 0,0: the drag starts there.
+   */
+  function carry(x: number, y: number, drop = true) {
+    act(() => {
+      fireEvent.pointerDown(amr(), { button: 0, clientX: 0, clientY: 0 });
+    });
+    act(() => {
+      fireEvent.pointerMove(document, { clientX: x, clientY: y });
+    });
+    if (!drop) return;
+    act(() => {
+      fireEvent.pointerUp(document, { clientX: x, clientY: y });
+    });
+  }
+
+  function openPanel() {
+    act(() => useAgentStore.setState({ open: true }));
+    return screen.getByRole("dialog", { name: "Amr" });
+  }
+
+  afterEach(() => {
+    act(() => useAgentStore.setState({ open: false }));
+  });
+
+  // [drop point, corner, tail, counted from, entrance origin] for the 132x143 figure,
+  // whose centre is 58 px in from the panel's edge on his side.
+  const corners = [
+    {
+      at: null,
+      corner: "bottomRight",
+      tail: "down",
+      from: "right",
+      origin: "calc(100% - 58px) 100%",
+    },
+    { at: [40, 700], corner: "bottomLeft", tail: "down", from: "left", origin: "58px 100%" },
+    {
+      at: [980, 40],
+      corner: "topRight",
+      tail: "up",
+      from: "right",
+      origin: "calc(100% - 58px) 0%",
+    },
+    { at: [40, 40], corner: "topLeft", tail: "up", from: "left", origin: "58px 0%" },
+  ] as const;
+
+  for (const c of corners) {
+    it(`${c.corner}: points its tail ${c.tail} at his figure, from his side`, async () => {
+      stubScreen({ phone: false, coarse: false });
+      render(<MascotAssistant />);
+      await withFigure();
+      if (c.at) carry(c.at[0], c.at[1]);
+
+      const panel = openPanel();
+      expect(panel).toHaveAttribute("data-tail", c.tail);
+      expect(panel).toHaveAttribute("data-tail-from", c.from);
+      // The tail's near side: half its width short of his centre line, inside the line.
+      expect(panel.style.getPropertyValue("--tail-at")).toBe(
+        "calc(58px - 0.4rem - var(--panel-w))"
+      );
+      expect(panel.style.getPropertyValue("--panel-origin")).toBe(c.origin);
+      // Balloons inside resolve their tail from these, so nothing re-renders when he moves.
+      expect(panel).toHaveAttribute("data-amr-side", c.from);
+      expect(panel).toHaveAttribute("data-amr-edge", c.tail === "up" ? "top" : "bottom");
+      expect(panel).toHaveAttribute("data-amr-layout", "float");
+      expect(panel).toHaveClass("group/amr", "panel", "comic-tailed", "bg-card", "shadow-xl");
+      // And the things beside him follow where he is drawn.
+      expect(useMascotStore.getState().placed).toEqual({
+        side: c.from,
+        edge: c.tail === "up" ? "top" : "bottom",
+      });
+    });
+  }
+
+  it("keeps the three marks the held layers need, and is named by his name plate", () => {
+    stubScreen({ phone: false, coarse: false });
+    render(<MascotAssistant />);
+    const panel = openPanel();
+    expect(panel).toHaveAttribute("data-agent-sheet-root");
+    expect(panel).toHaveAttribute("data-vt-hold", "amr-panel");
+    expect(panel).not.toHaveAttribute("aria-label");
+    const plate = screen.getByRole("heading", { level: 2, name: "Amr" });
+    expect(panel).toHaveAttribute("aria-labelledby", plate.id);
+    expect(plate).toHaveClass("comic-name-plate");
+    // It grows in from its tail (the module's .panelEnter).
+    expect(panel.className).toMatch(/panelEnter/);
+    // The frame clips inside a padded wrapper, so the tail and focus rings stay whole.
+    expect(panel).not.toHaveClass("overflow-hidden");
+    const frame = panel.firstElementChild as HTMLElement;
+    expect(frame).toHaveClass("overflow-hidden", "rounded-[inherit]", "p-1.5");
+    // The strip's ground under the header is the page's paper.
+    expect(frame.querySelector(".bg-bg")).not.toBeNull();
+  });
+
+  it("on a phone, points at the smaller figure's centre", async () => {
+    stubScreen({ phone: true });
+    render(<MascotAssistant />);
+    await withFigure();
+    const panel = openPanel();
+    expect(panel).toHaveAttribute("data-tail", "down");
+    expect(panel.style.getPropertyValue("--tail-at")).toBe("calc(40px - 0.4rem - var(--panel-w))");
+  });
+
+  it("on a phone, drops the tail while a page field outside the panel has the keyboard", async () => {
+    stubScreen({ phone: true });
+    render(
+      <>
+        <input aria-label="Page field" />
+        <MascotAssistant />
+      </>
+    );
+    await withFigure();
+    expect(openPanel()).toHaveAttribute("data-tail", "down");
+
+    const field = screen.getByLabelText("Page field");
+    act(() => {
+      field.focus();
+    });
+    // He steps off the page for the keyboard: nothing beside the panel to point at.
+    expect(screen.queryByTitle(/^Ask Amr/)).toBeNull();
+    const typing = screen.getByRole("dialog", { name: "Amr" });
+    expect(typing).toHaveAttribute("data-tail", "none");
+    expect(typing).not.toHaveAttribute("data-tail-from");
+    expect(typing.style.getPropertyValue("--tail-at")).toBe("");
+
+    act(() => {
+      field.blur();
+    });
+    expect(amr()).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute("data-tail", "down");
+  });
+
+  it("has no tail while the launcher stands in for him", () => {
+    stubScreen({ phone: false, coarse: false });
+    useMascotStore.setState({ ready: false });
+    render(<MascotAssistant />);
+    const panel = openPanel();
+    expect(panel).toHaveAttribute("data-tail", "none");
+    expect(panel).not.toHaveAttribute("data-tail-from");
+    expect(panel.style.getPropertyValue("--tail-at")).toBe("");
+    // It still grows from in line with the launcher.
+    expect(panel.style.getPropertyValue("--panel-origin")).toBe("calc(100% - 16px) 100%");
+  });
+
+  it("drops the tail while he's carried, and points again where he lands", async () => {
+    stubScreen({ phone: false, coarse: false });
+    render(<MascotAssistant />);
+    await withFigure();
+    const panel = openPanel();
+    expect(panel).toHaveAttribute("data-tail", "down");
+
+    carry(40, 40, false);
+    expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute("data-tail", "none");
+
+    act(() => {
+      fireEvent.pointerUp(document, { clientX: 40, clientY: 40 });
+    });
+    const landed = screen.getByRole("dialog", { name: "Amr" });
+    expect(landed).toHaveAttribute("data-tail", "up");
+    expect(landed).toHaveAttribute("data-tail-from", "left");
+  });
+});
+
+describe("Enlarge", () => {
+  const enlarge = () => screen.getByRole("button", { name: "Enlarge chat" });
+  const dialog = () => screen.getByRole("dialog", { name: "Amr" });
+  /** The size the panel's style gives it (its w-/h- classes read these). */
+  const size = (side: "width" | "height") => dialog().style.getPropertyValue(`--amr-panel-${side}`);
+
+  beforeEach(() => {
+    useAgentStore.setState({ open: true });
+  });
+
+  afterEach(() => {
+    act(() => useAgentStore.setState({ open: false }));
+  });
+
+  it("is offered at md and up, as a toggle, sized from PANEL_SIZE", () => {
+    stubScreen({ phone: false, coarse: false, wide: true });
+    render(<MascotAssistant />);
+    // The usual card, its size set by the style from PANEL_SIZE, not written in a class.
+    expect(dialog()).toHaveClass("w-[var(--amr-panel-width)]", "h-[var(--amr-panel-height)]");
+    expect(size("width")).toBe(PANEL_SIZE.normal.width);
+    expect(size("height")).toBe(PANEL_SIZE.normal.height);
+    expect(enlarge()).toHaveAttribute("aria-pressed", "false");
+    expect(enlarge()).toHaveClass("hidden", "md:inline-flex");
+
+    fireEvent.click(enlarge());
+    expect(enlarge()).toHaveAttribute("aria-pressed", "true");
+    expect(size("width")).toBe(PANEL_SIZE.large.width);
+    expect(size("height")).toBe(PANEL_SIZE.large.height);
+    // Its room is worked out for the larger height.
+    expect(dialog().style.bottom).toContain(PANEL_SIZE.large.height);
+  });
+
+  it("is remembered by this browser, and forgotten when made smaller", () => {
+    stubScreen({ phone: false, coarse: false, wide: true });
+    const first = render(<MascotAssistant />);
+    fireEvent.click(enlarge());
+    expect(window.localStorage.getItem(PANEL_SIZE_KEY)).toBe("large");
+    first.unmount();
+
+    render(<MascotAssistant />);
+    expect(enlarge()).toHaveAttribute("aria-pressed", "true");
+    expect(size("height")).toBe(PANEL_SIZE.large.height);
+
+    fireEvent.click(enlarge());
+    expect(enlarge()).toHaveAttribute("aria-pressed", "false");
+    expect(window.localStorage.getItem(PANEL_SIZE_KEY)).toBeNull();
+    expect(size("height")).toBe(PANEL_SIZE.normal.height);
+  });
+
+  it("keeps the usual card below md, remembering the choice for a wider window", () => {
+    window.localStorage.setItem(PANEL_SIZE_KEY, "large");
+    stubScreen({ phone: false, coarse: true, wide: false });
+    render(<MascotAssistant />);
+    expect(size("height")).toBe(PANEL_SIZE.normal.height);
+    expect(enlarge()).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("works with storage blocked: the usual size, and a choice that lasts the visit", () => {
+    vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    stubScreen({ phone: false, coarse: false, wide: true });
+    render(<MascotAssistant />);
+    expect(size("height")).toBe(PANEL_SIZE.normal.height);
+    fireEvent.click(enlarge());
+    expect(size("height")).toBe(PANEL_SIZE.large.height);
   });
 });

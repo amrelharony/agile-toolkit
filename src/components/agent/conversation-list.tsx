@@ -17,6 +17,7 @@ import {
   deleteConversation,
   renameConversation,
   conversationToMarkdown,
+  conversationTitle,
   titleSlug,
 } from "@/lib/agent/persist";
 import type { ConversationMeta } from "@/lib/agent/types";
@@ -242,6 +243,8 @@ export function ConversationList({ onClose }: { onClose: () => void }) {
     setEditing(null);
     if (title) {
       await renameConversation(id, title);
+      // The open thread's name in the panel header follows, as saved.
+      useAgentStore.getState().retitleConversation(id, conversationTitle(title));
       refresh();
     }
   };

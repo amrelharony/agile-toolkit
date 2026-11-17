@@ -64,6 +64,7 @@ vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
 
 import ScenesTab, { COMPANION_TITLES } from "@/components/agent/mascot/scenes-tab";
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
+import { PANEL_SUBTITLE } from "@/components/agent/mascot/panel-chrome";
 import VisitorAgentPanel from "@/components/agent/mascot/visitor-agent-panel";
 import { ChatVisibleContext } from "@/components/agent/chat-visibility";
 import { EXPANSION_SHEETS } from "@/components/agent/mascot/engine/expansion-table";
@@ -396,9 +397,10 @@ describe("the Scenes button in Amr's panel", () => {
     h.auth = { status: "authenticated", user: { id: "u1" } };
     render(<MascotAssistant />);
     await screen.findByTestId("agent-conversation");
-    const subtitle = screen.getByText("Drive every tool");
+    // The owner's step fills the header's one subtitle line, which truncates.
+    const subtitle = screen.getByText(PANEL_SUBTITLE.owner).closest("p");
     expect(subtitle).toHaveClass("truncate");
-    expect(subtitle.parentElement).toHaveClass("min-w-0");
+    expect(subtitle!.parentElement).toHaveClass("min-w-0");
     expect(scenesButton().parentElement).toHaveClass("shrink-0");
   });
 
@@ -408,7 +410,8 @@ describe("the Scenes button in Amr's panel", () => {
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
     expect(scenesButton()).toHaveAttribute("title", "Scenes");
     expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
-    expect(scenesButton()).toHaveClass("min-touch-coarse");
+    // A header icon: 44 px on a touch screen.
+    expect(scenesButton()).toHaveClass("pointer-coarse:min-h-11", "pointer-coarse:min-w-11");
 
     fireEvent.click(scenesButton());
     expect(await screen.findByTestId("mascot-scenes")).toBeInTheDocument();
@@ -420,12 +423,26 @@ describe("the Scenes button in Amr's panel", () => {
     fireEvent.click(history);
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
     expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
-    expect(history).toHaveAttribute("aria-pressed", "true");
+    // In History its one button leads back to the chat.
+    expect(history).toHaveAccessibleName("Back to chat");
     expect(screen.getByTestId("conversation-list")).toBeVisible();
 
     fireEvent.click(scenesButton());
     expect(await screen.findByTestId("mascot-scenes")).toBeInTheDocument();
-    expect(history).toHaveAttribute("aria-pressed", "false");
+    expect(history).toHaveAccessibleName("Conversation history");
+  });
+
+  it("gives way to New chat, in the header's actions from the owner's chunk", async () => {
+    h.auth = { status: "authenticated", user: { id: "u1" } };
+    render(<MascotAssistant />);
+    await screen.findByTestId("agent-conversation");
+    fireEvent.click(scenesButton());
+    expect(await screen.findByTestId("mascot-scenes")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New chat" }));
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("agent-conversation")).toBeVisible();
   });
 
   it("opens them for a visitor too, and toggles back to the guide", async () => {

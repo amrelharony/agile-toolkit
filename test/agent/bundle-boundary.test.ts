@@ -13,12 +13,14 @@ import ts from "typescript";
  * dynamic import.
  *
  * Visitor AI keeps the same line. The panel (visitor-panel), the tool
- * finder (visitor-guide) and the consent card ship with the page; the
- * visitor's chat (visitor-agent-panel) is its own chunk, reached only by a
- * dynamic import; and the runtime behind it (lib/agent/visitor-runtime: the
- * registry and the client) loads only on the visitor's first message, by
- * another dynamic import. No visitor file reaches the owner's Supabase
- * persistence.
+ * finder (visitor-guide) and the consent card are one chunk of their own
+ * (visitor-body), which Amr's chunk reaches only by a dynamic import
+ * (lazy-visitor-body) and fetches ahead on every visitor's page, so the walk
+ * keeps it to the every-page rules; the visitor's chat (visitor-agent-panel)
+ * is a further chunk, reached only by a dynamic import; and the runtime
+ * behind it (lib/agent/visitor-runtime: the registry and the client) loads
+ * only on the visitor's first message, by another dynamic import. No visitor
+ * file reaches the owner's Supabase persistence.
  *
  * The chat revamp adds two folders. src/components/agent/comic/ holds the
  * runtime-free comic parts (balloons, captions), which every page may use;
@@ -42,6 +44,8 @@ const APP_SHELL = "src/components/layout/app-shell.tsx";
 const HEADER = "src/components/layout/header.tsx";
 const MASCOT = "src/components/agent/mascot/mascot-assistant.tsx";
 const MOMENT_CHIP = "src/components/notify/moment-chip.tsx";
+const VISITOR_BODY = "src/components/agent/mascot/visitor-body.tsx";
+const VISITOR_BODY_LOADER = "src/components/agent/mascot/lazy-visitor-body.tsx";
 const VISITOR_PANEL = "src/components/agent/mascot/visitor-panel.tsx";
 const VISITOR_GUIDE = "src/components/agent/mascot/visitor-guide.tsx";
 const VISITOR_CONSENT = "src/components/agent/mascot/visitor-ai-consent.tsx";
@@ -61,9 +65,24 @@ const INK_DIRS = ["src/components/ink/", "src/lib/ink/"];
 /**
  * The modules on every page. The app shell loads mascot-assistant with
  * next/dynamic, so the walk would stop there, but Amr mounts on every page:
- * it is a root of its own.
+ * it is a root of its own. So is the visitor body: Amr's chunk loads it with
+ * a dynamic import, but fetches it ahead on every visitor's page.
  */
-const EVERY_PAGE = [APP_SHELL, HEADER, MASCOT];
+const EVERY_PAGE = [APP_SHELL, HEADER, MASCOT, VISITOR_BODY];
+
+/**
+ * What the visitor body takes out of Amr's own chunk (every page loads that
+ * one, and its budget is tight): the visitor views and the guide's data.
+ */
+const VISITOR_BODY_MODULES = [
+  VISITOR_BODY,
+  VISITOR_PANEL,
+  VISITOR_GUIDE,
+  VISITOR_CONSENT,
+  "src/lib/constants/jobs.ts",
+  "src/lib/search/tool-search.ts",
+  "src/lib/tools/guides/index.ts",
+];
 
 /** The first-load shell, without what it loads through next/dynamic. */
 const STATIC_SHELL = [APP_SHELL, HEADER, MOMENT_CHIP];
@@ -333,6 +352,7 @@ const SUPABASE: Ban = {
 };
 
 let everyPage: Closure;
+let mascotChunk: Closure;
 let staticShell: Closure;
 let visitorPanel: Closure;
 let visitorChat: Closure;
@@ -342,6 +362,7 @@ let utilsPackages: string[];
 
 beforeAll(() => {
   everyPage = closure(EVERY_PAGE);
+  mascotChunk = closure([MASCOT]);
   staticShell = closure(STATIC_SHELL);
   visitorPanel = closure([VISITOR_PANEL]);
   visitorChat = closure([VISITOR_CHAT]);
@@ -405,8 +426,7 @@ describe("import graph walk (self-tests)", () => {
       expect.arrayContaining([
         "next/dynamic",
         "./mascot-bubble",
-        "./visitor-guide",
-        "./visitor-panel",
+        "./lazy-visitor-body",
         "./engine/figure-metrics",
         "./mascot-assistant.module.css",
       ])
@@ -414,6 +434,12 @@ describe("import graph walk (self-tests)", () => {
     expect(mascot.lazy).toEqual(expect.arrayContaining(["./mascot-sprite", "./owner-agent-panel"]));
     expect(mascot.static).not.toContain("./owner-agent-panel");
     expect(mascot.static).not.toContain("./mascot-sprite");
+    for (const spec of ["./visitor-body", "./visitor-guide", "./visitor-panel"]) {
+      expect(mascot.static, spec).not.toContain(spec);
+    }
+    // A loader function's import(): the visitor body.
+    expect(importsOf(VISITOR_BODY_LOADER).lazy).toEqual(["./visitor-body"]);
+    expect(importsOf(VISITOR_BODY_LOADER).static).not.toContain("./visitor-body");
 
     // Multi-line named imports.
     expect(importsOf(HEADER).static).toEqual(
@@ -454,16 +480,19 @@ describe("import graph walk (self-tests)", () => {
 
   it("resolves every repo import the walks meet, static and dynamic", () => {
     // A specifier that resolves nowhere would drop its whole subtree unseen.
-    for (const c of [everyPage, staticShell, visitorPanel, visitorChat, comic]) {
+    for (const c of [everyPage, mascotChunk, staticShell, visitorPanel, visitorChat, comic]) {
       for (const file of Array.from(c.files.keys())) lazyTargets(file);
     }
     expect(Array.from(unresolved)).toEqual([]);
   });
 
-  it("walks into mascot-assistant on every page, though the shell loads it lazily", () => {
+  it("walks into mascot-assistant and the visitor body on every page, though both load lazily", () => {
     expect(lazyTargets(APP_SHELL)).toContain(MASCOT);
     expect(staticTargets(APP_SHELL)).not.toContain(MASCOT);
     expect(everyPage.files.has(MASCOT)).toBe(true);
+    expect(staticTargets(MASCOT)).toContain(VISITOR_BODY_LOADER);
+    expect(lazyTargets(VISITOR_BODY_LOADER)).toContain(VISITOR_BODY);
+    expect(everyPage.files.has(VISITOR_BODY)).toBe(true);
     for (const file of [
       "src/components/agent/mascot/mascot-bubble.tsx",
       VISITOR_PANEL,
@@ -488,7 +517,13 @@ describe("import graph walk (self-tests)", () => {
   });
 
   it("names real files in every ban, and walks the modules the bans are about", () => {
-    for (const file of [...OWNER_RUNTIME, ...HEAVY_ENGINE, MARKDOWN_VIEW, MARKDOWN_PARSER]) {
+    for (const file of [
+      ...OWNER_RUNTIME,
+      ...HEAVY_ENGINE,
+      ...VISITOR_BODY_MODULES,
+      MARKDOWN_VIEW,
+      MARKDOWN_PARSER,
+    ]) {
       expect(isFile(path.join(ROOT, file)), `${file} exists`).toBe(true);
     }
     // The owner chunk is where the runtime lives, so banning it means something:
@@ -525,6 +560,12 @@ describe("every-page bundle", () => {
       exactly(MARKDOWN_PARSER),
     ];
     expect(violations(everyPage, bans)).toEqual([]);
+  });
+
+  it("keeps the visitor body out of Amr's own chunk: only a dynamic import reaches it", () => {
+    expect(violations(mascotChunk, VISITOR_BODY_MODULES.map(exactly))).toEqual([]);
+    // The walk sees the views once it follows that import, so the ban above bites.
+    expect(closure([VISITOR_BODY]).files.has(VISITOR_GUIDE)).toBe(true);
   });
 
   it("keeps Amr's sprite engine out of the static shell", () => {

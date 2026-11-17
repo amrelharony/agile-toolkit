@@ -59,6 +59,22 @@ export const PANEL_MIN_H = 160;
 /** Room kept between the panel and the header, or the screen's far edge. */
 export const PANEL_MARGIN = 8;
 
+/** The panel's two sizes: its usual card, and the larger one Enlarge gives on md and up. */
+export type PanelSizeName = "normal" | "large";
+
+/**
+ * The chat panel's width and height, as CSS lengths. The one place they live:
+ * the panel's style sets them, and panelPos fits that height between Amr and
+ * the header (it gets shorter, down to PANEL_MIN_H, when there isn't room).
+ * Enlarge switches to `large`, only on screens md and wider.
+ */
+export const PANEL_SIZE: Readonly<
+  Record<PanelSizeName, Readonly<{ width: string; height: string }>>
+> = {
+  normal: { width: "min(92vw, 380px)", height: "min(68vh, 560px)" },
+  large: { width: "min(92vw, 640px)", height: "min(85vh, 760px)" },
+};
+
 /** The side of the screen he stands on in this corner. */
 export function amrSide(c: AmrCorner): AmrSide {
   return c.endsWith("Left") ? "left" : "right";
