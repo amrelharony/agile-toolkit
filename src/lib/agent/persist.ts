@@ -213,6 +213,32 @@ export async function recordChatUsage(tokens: number, model: string): Promise<vo
   }
 }
 
+/**
+ * Delete a conversation's messages saved after `afterIso` and up to
+ * `throughIso` (both ISO 8601, by created_at). "Try again" drops the reply
+ * of the turn it runs again this way, so a reload shows only the new one.
+ * Best-effort, like every write here: a failure only leaves the old reply.
+ */
+export async function deleteMessagesBetween(
+  conversationId: string,
+  afterIso: string,
+  throughIso: string
+): Promise<void> {
+  const supabase = getAuthBrowserClient();
+  if (!supabase) return;
+  try {
+    const { error } = await supabase
+      .from("agent_messages")
+      .delete()
+      .eq("conversation_id", conversationId)
+      .gt("created_at", afterIso)
+      .lte("created_at", throughIso);
+    if (error) console.warn("[agent] deleteMessagesBetween failed", error.message);
+  } catch (err) {
+    console.warn("[agent] deleteMessagesBetween failed", err);
+  }
+}
+
 export async function deleteConversation(conversationId: string): Promise<void> {
   const supabase = getAuthBrowserClient();
   if (!supabase) return;

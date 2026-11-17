@@ -93,21 +93,25 @@ describe("the chat and the companion scenes", () => {
     expect(holding()).toBe(false);
   });
 
+  // He answers only a result the live turn adds (a loaded thread's are history),
+  // so each of these starts a turn first, which he meets with a thinking look.
   it("nods at a no from the visitor: a choice, not a failure", () => {
     renderHook(() => useMascotChatReactions());
+    act(() => useAgentStore.getState().setStreaming(true));
     act(() =>
       useAgentStore
         .getState()
         .appendMessage(toolResult("User denied execution of workspace.card.add.", true))
     );
-    expect(queue()).toEqual(["nod"]);
+    expect(queue()).toEqual(["thinking", "nod"]);
     expect(troubleRecent()).toBe(false);
   });
 
   it("still shakes his head at a real failure, and keeps the light-hearted scenes away", () => {
     renderHook(() => useMascotChatReactions());
+    act(() => useAgentStore.getState().setStreaming(true));
     act(() => useAgentStore.getState().appendMessage(toolResult("Invalid input: title", true)));
-    expect(queue()).toEqual(["headShake"]);
+    expect(queue()).toEqual(["thinking", "headShake"]);
     expect(troubleRecent()).toBe(true);
   });
 });

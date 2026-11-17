@@ -53,7 +53,6 @@ import { ChatVisibleContext } from "../chat-visibility";
 import { visitorAiEnabled } from "@/lib/visitor-ai/contract";
 import { did, feel, getMind, recentlyDid } from "@/lib/agent/mascot/mind";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
-import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
 import { useMascotCelebrationReactions } from "@/lib/agent/mascot/use-celebration-reactions";
 import { useQuietCompanion } from "@/lib/agent/mascot/use-quiet-companion";
@@ -71,6 +70,7 @@ import { installKonami } from "./engine/customization/commands";
 import { followUp, sceneOfShot } from "./engine/scene-taps";
 import { EVENT_SCENES, sceneReaction } from "./engine/scenes";
 import { MascotBubble } from "./mascot-bubble";
+import { MascotChatReactions } from "./mascot-chat-reactions";
 import { inviteMotion } from "./motion-invite";
 import { playMascotSound } from "./engine/audio/mascot-audio";
 import { pointToward, shippedScene } from "./engine/sprite-poses";
@@ -661,19 +661,20 @@ export function MascotAssistant() {
     if (!open || confirmPending || figureFailed) setShowScenes(false);
   }, [open, confirmPending, figureFailed]);
   // A tapped scene plays with the panel closed, so he's in view. While a turn is
-  // still running, closing the panel would stop it: back to the chat instead, with
-  // him beside the panel.
+  // still running or a card waits, the answer is what to watch (closing the panel
+  // wouldn't stop it, but would hide it): back to the chat instead, with him beside
+  // the panel.
   const onScenePlayed = () => {
     const { streaming, pendingToolUse } = useAgentStore.getState();
     if (streaming || pendingToolUse) setShowScenes(false);
     else closeSheet();
   };
 
-  // Owner signed out mid-session: drop the conversation from memory. (The
-  // chat panel unmounts at the same moment, which aborts any in-flight turn.)
+  // Owner signed out mid-session: drop the conversation from memory (reset
+  // stops any in-flight turn; the chat panel unmounting stops nothing).
   // The other way round, a visitor's chat (memory only) never carries over
   // into the owner's: it goes, with the visitor's allowance, when they turn
-  // out to be the owner (the visitor panel unmounting stops its turn).
+  // out to be the owner (reset stops its turn here too).
   const wasOwnerRef = useRef(false);
   useEffect(() => {
     if (isOwner) {
@@ -1021,9 +1022,8 @@ export function MascotAssistant() {
     return () => clearTimeout(id);
   }, [open]);
 
-  // Drive the mascot from the conversation: talk while streaming, think on send,
-  // react to tool results, shift mood to the reply's sentiment.
-  useMascotChatReactions();
+  // The conversation drives the mascot through <MascotChatReactions /> (rendered
+  // below), so the chat's updates re-render that null child, not this shell.
   // React to finished tool actions, for visitors and the owner alike.
   useMascotToolReactions(sceneShipped);
   // Cheer once when a rare moment plays (lib/notify/moment-scheduler.ts).
@@ -1081,6 +1081,7 @@ export function MascotAssistant() {
 
   return (
     <>
+      <MascotChatReactions />
       {open && (
         <div
           data-agent-sheet-root

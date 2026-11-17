@@ -8,15 +8,27 @@
  * (lib/agent/visitor-runtime: the action registry and the streaming client)
  * only on the first message, with a dynamic import.
  *
- * The chat lives in memory (useAgentStore) and is never saved. Closing the
- * panel, or going back to the tool finder, stops any answer in progress.
+ * The chat lives in memory (useAgentStore) and is never saved. Leaving it, by
+ * closing the panel or going back to the tool finder, stops nothing: an
+ * answer under way goes on in the store, and the chat shows it when it opens
+ * again. A question still starting (the runtime loading) goes out all the
+ * same, and a chat opened meanwhile waits for it, sending nothing over it.
+ * Stop and Clear chat stop it. What the visitor has typed but not sent
+ * stays in the store too (drafts.visitor), so it survives the same trips, and
+ * a question asked from the guide while that answer is under way waits there.
+ *
+ * Notes and errors show as a narration caption, the narrator's line and never
+ * Amr's own words, with "Try again" or "Go on" when the notice calls for one
+ * (lib/agent/notice-actions).
  */
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
-import { AlertTriangle, BookOpen, Eraser, Send, Square } from "lucide-react";
+import { BookOpen, Eraser, Send, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Narration } from "@/components/agent/comic/comic-parts";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
+import { noticeAction } from "@/lib/agent/notice-actions";
 import { toolIdForPath } from "@/lib/agent/page-tool";
 import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
@@ -31,6 +43,9 @@ import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
 const PEAK_MESSAGES = 25;
 /** How often the busy-hours note re-checks the clock. */
 const CLOCK_TICK_MS = 60_000;
+/** Said when the runtime can't load: nothing was sent. */
+export const VISITOR_RUNTIME_LOAD_ERROR =
+  "Amr's chat couldn't load. Check your connection and try again.";
 
 type Runtime = typeof import("@/lib/agent/visitor-runtime");
 
@@ -54,6 +69,30 @@ function loadRuntime(): Promise<Runtime> {
   }
   return runtimePromise;
 }
+
+/**
+ * A turn still starting: the runtime is loading, and the turn goes out once it
+ * has (its question reaches the store only then). It lives here, beside the
+ * runtime, not in the chat: the turn outlives the chat, so a chat opened again
+ * while it loads sees it as busy and starts nothing over it. `question` is the
+ * message it will send, or null for Try again and Go on.
+ */
+let startingTurn: { question: string | null } | null = null;
+const startingListeners = new Set<() => void>();
+
+function setStartingTurn(next: { question: string | null } | null) {
+  startingTurn = next;
+  startingListeners.forEach((listener) => listener());
+}
+
+function subscribeStartingTurn(listener: () => void): () => void {
+  startingListeners.add(listener);
+  return () => {
+    startingListeners.delete(listener);
+  };
+}
+
+const turnStarting = () => startingTurn !== null;
 
 /** The current time, refreshed every `ms`. */
 function useNow(ms: number): Date {
@@ -103,16 +142,20 @@ interface VisitorAgentPanelProps {
   onOfflineGuide: () => void;
 }
 
+/** Keep what the visitor typed but hasn't sent (drafts.visitor). */
+const setDraft = (text: string) => useAgentStore.getState().setDraft("visitor", text);
+
 export default function VisitorAgentPanel({
   initialQuestion,
   onOfflineGuide,
 }: VisitorAgentPanelProps) {
   const messages = useAgentStore((s) => s.messages);
   const streaming = useAgentStore((s) => s.streaming);
-  const error = useAgentStore((s) => s.error);
+  const notice = useAgentStore((s) => s.notice);
   const quota = useAgentStore((s) => s.visitorQuota);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const input = useAgentStore((s) => s.drafts.visitor);
+  // A turn this chat or an earlier one started, its runtime still loading.
+  const loading = useSyncExternalStore(subscribeStartingTurn, turnStarting, () => false);
   const pathname = usePathname();
   const now = useNow(CLOCK_TICK_MS);
   // In a visitor live room Amr gets no tools; the footer says so.
@@ -121,50 +164,76 @@ export default function VisitorAgentPanel({
   const visible = useChatVisible();
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const mountedRef = useRef(false);
   const sentInitialRef = useRef(false);
-  const sendingRef = useRef(false);
 
-  const send = async (raw: string) => {
-    const text = raw.trim().slice(0, VISITOR_LIMITS.userChars);
-    if (!text || sendingRef.current || useAgentStore.getState().streaming) return;
-    // Mascot commands (/dance, /mascot-aura, /play) run locally, never through the AI.
-    if (handleMascotCommand(text)) {
-      setInput("");
-      return;
-    }
-    setInput("");
-    sendingRef.current = true;
-    setLoading(true);
+  /**
+   * Load the runtime (once) and start a turn with it. `typed` is the text the
+   * visitor typed for it, put back in the box if the runtime can't load and
+   * the box is still empty: nothing was sent. `question` is the message the
+   * turn sends (null for Try again and Go on).
+   */
+  const startTurn = async (
+    start: (runtime: Runtime) => unknown,
+    typed: string | null,
+    question: string | null
+  ) => {
+    // One turn at a time, across chats: a turn still starting counts as busy.
+    if (startingTurn || useAgentStore.getState().streaming) return;
+    setStartingTurn({ question });
     try {
       const runtime = await loadRuntime();
-      if (!mountedRef.current) return;
-      void runtime.sendVisitorMessage(text, { toolId: toolIdForPath(pathname) });
+      // A turn outlives the chat: one asked as the panel closed still goes
+      // out. It marks the store streaming before this returns, so the chat is
+      // never idle between the two.
+      void start(runtime);
     } catch {
-      useAgentStore
-        .getState()
-        .setError("Amr's chat couldn't load. Check your connection and try again.");
+      if (typed && !useAgentStore.getState().drafts.visitor) setDraft(typed);
+      useAgentStore.getState().setError(VISITOR_RUNTIME_LOAD_ERROR);
     } finally {
-      sendingRef.current = false;
-      setLoading(false);
+      setStartingTurn(null);
     }
   };
 
-  // Mounted; on unmount, stop any answer in progress. The stop waits a tick:
-  // React's development double-mount runs this cleanup and the effect again
-  // straight away, and that must not cancel the question sent on mount.
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      queueMicrotask(() => {
-        if (!mountedRef.current) loadedRuntime?.abortInFlight();
-      });
-    };
-  }, []);
+  /**
+   * Send a message: the box's draft (`fromBox`), which then empties, or the
+   * question the chat opened with, which leaves a draft alone.
+   */
+  const send = async (raw: string, fromBox: boolean) => {
+    const text = raw.trim().slice(0, VISITOR_LIMITS.userChars);
+    // Busy first, so a draft is never wiped while another turn starts.
+    if (!text || startingTurn || useAgentStore.getState().streaming) return;
+    if (fromBox) setDraft("");
+    // Mascot commands (/dance, /mascot-aura, /play) run locally, never through the AI.
+    if (handleMascotCommand(text)) return;
+    await startTurn(
+      (runtime) => runtime.sendVisitorMessage(text, { toolId: toolIdForPath(pathname) }),
+      fromBox ? raw : null,
+      text
+    );
+  };
+
+  // The notice's buttons go with it once the turn starts, so focus moves to
+  // the message box first (read-only, never disabled, while Amr answers).
+  const tryAgain = () => {
+    composerRef.current?.focus();
+    void startTurn(
+      (runtime) => runtime.retryVisitorTurn({ toolId: toolIdForPath(pathname) }),
+      null,
+      null
+    );
+  };
+  const goOn = () => {
+    composerRef.current?.focus();
+    void startTurn(
+      (runtime) => runtime.visitorGoOn({ toolId: toolIdForPath(pathname) }),
+      null,
+      null
+    );
+  };
 
   // The message box takes focus on mount, and again when the chat comes back
-  // from under the Scenes view.
+  // from under the Scenes view. Leaving the chat stops nothing, so there is
+  // nothing to tidy up when it unmounts.
   useEffect(() => {
     if (visible) composerRef.current?.focus();
   }, [visible]);
@@ -173,7 +242,23 @@ export default function VisitorAgentPanel({
   useEffect(() => {
     if (sentInitialRef.current || !initialQuestion) return;
     sentInitialRef.current = true;
-    void send(initialQuestion);
+    // A turn that outlived the chat is still under way, or still starting (its
+    // runtime loading): the new question waits in the box (nothing was sent,
+    // nothing spent) instead of being dropped, after anything already typed
+    // there. Send it once Amr is done. The very question still starting goes
+    // out with that turn, so it doesn't wait in the box as well.
+    const pending = startingTurn;
+    if (useAgentStore.getState().streaming || pending) {
+      const q = initialQuestion.trim().slice(0, VISITOR_LIMITS.userChars);
+      const draft = useAgentStore.getState().drafts.visitor;
+      if (q && q !== pending?.question && !draft.includes(q)) {
+        setDraft(
+          draft.trim() ? `${draft.trimEnd()}\n\n${q}`.slice(0, VISITOR_LIMITS.userChars) : q
+        );
+      }
+      return;
+    }
+    void send(initialQuestion, false);
     // send reads the latest state itself; this runs once per panel.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialQuestion]);
@@ -195,6 +280,10 @@ export default function VisitorAgentPanel({
   const last = messages[messages.length - 1];
   const awaiting = busy && (!last || last.role !== "assistant" || last.content.length === 0);
   const peak = peakNote(quota, now);
+  // Try again only when the last turn ran no change; the runtime that ran it
+  // knows (it holds the registry). Nothing to press while Amr answers.
+  const action = busy ? null : noticeAction(notice, "visitor");
+  const canRetry = action === "retry" && (loadedRuntime?.canRetryLastTurn(messages) ?? false);
 
   return (
     // The panel can be as short as 160 px (a landscape phone). The log keeps a
@@ -238,11 +327,24 @@ export default function VisitorAgentPanel({
           </div>
         )}
         <ConfirmAction allowApproveAll={false} />
-        {error && (
-          <div className="flex items-start gap-2 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            <span>{error}</span>
-          </div>
+        {notice && (
+          <Narration
+            tone={notice.tone}
+            data-notice-kind={notice.kind}
+            actions={
+              canRetry ? (
+                <Button type="button" variant="outline" size="sm" onClick={tryAgain}>
+                  Try again
+                </Button>
+              ) : action === "go_on" ? (
+                <Button type="button" variant="outline" size="sm" onClick={goOn}>
+                  Go on
+                </Button>
+              ) : null
+            }
+          >
+            {notice.text}
+          </Narration>
         )}
       </div>
 
@@ -250,18 +352,18 @@ export default function VisitorAgentPanel({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            void send(input);
+            void send(input, true);
           }}
           className="flex items-end gap-2"
         >
           <textarea
             ref={composerRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                void send(input);
+                void send(input, true);
               }
             }}
             maxLength={VISITOR_LIMITS.userChars}
@@ -313,10 +415,9 @@ export default function VisitorAgentPanel({
             type="button"
             variant="outline"
             size="sm"
-            onClick={() => {
-              loadedRuntime?.abortInFlight();
-              useAgentStore.getState().reset();
-            }}
+            // Through the store: reset stops the answer under way before the
+            // chat empties, so none of it lands in the fresh one.
+            onClick={() => useAgentStore.getState().reset()}
           >
             <Eraser aria-hidden="true" />
             Clear chat

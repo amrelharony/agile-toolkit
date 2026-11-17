@@ -14,6 +14,9 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/agent/visitor-runtime", () => ({
   sendVisitorMessage: h.sendVisitorMessage,
   abortInFlight: vi.fn(),
+  retryVisitorTurn: vi.fn(async () => true),
+  visitorGoOn: vi.fn(async () => true),
+  canRetryLastTurn: vi.fn(() => true),
 }));
 vi.mock("@/components/a11y/live-announcer", () => ({
   useAnnounce: () => h.announce,
