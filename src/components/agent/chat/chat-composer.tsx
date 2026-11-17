@@ -171,7 +171,7 @@ export interface ChatComposerProps {
 
 /** New chat's request for the box, if it came while no box was there to take it. */
 let focusAskedAt = 0;
-/** How long a request waits for a box to mount (New chat from History mounts one at once). */
+/** How long a request waits for a box to show (New chat from History mounts one at once). */
 const FOCUS_ASK_MS = 1000;
 /** Focus the box that is showing now, if one is. */
 let focusShownBox: (() => boolean) | null = null;
@@ -179,7 +179,8 @@ let focusShownBox: (() => boolean) | null = null;
 /**
  * New chat: the box takes focus, caret at the end, even on a touch screen,
  * where a tap on New chat means "type now". The box showing takes it at once;
- * from History, the box that mounts as the chat comes back takes it.
+ * from History, the box that mounts as the chat comes back takes it; from
+ * under Amr's Scenes view, the hidden box takes it as it shows again.
  */
 export function focusComposerAfterNewChat(): void {
   if (focusShownBox?.()) return;
@@ -247,20 +248,30 @@ export function ChatComposer({
     [profile]
   );
 
-  // The box asked for as the chat opens (takeFocus), or by New chat; and New
-  // chat's way to the box while it shows. Before paint, so no frame shows
-  // focus anywhere else.
-  const takeOnMount = useRef(takeFocus);
+  // New chat's way to the box while it shows: none while Amr's Scenes view
+  // covers the chat, so the request waits for the box to show again.
+  const shown = useRef(visible);
   useLayoutEffect(() => {
-    const take = () => focusAtEnd(boxRef.current);
-    const asked = Date.now() - focusAskedAt < FOCUS_ASK_MS;
-    focusAskedAt = 0;
-    if (takeOnMount.current || asked) take();
+    const take = () => shown.current && focusAtEnd(boxRef.current);
     focusShownBox = take;
     return () => {
       if (focusShownBox === take) focusShownBox = null;
     };
   }, []);
+
+  // The box asked for as the chat opens (takeFocus), or by New chat (a box
+  // mounts as the chat comes back from History; a hidden one shows again as
+  // it comes back from under the scenes), taken once the box is in view.
+  // Before paint, so no frame shows focus anywhere else.
+  const takeOnMount = useRef(takeFocus);
+  useLayoutEffect(() => {
+    shown.current = visible;
+    if (!visible) return;
+    const asked = Date.now() - focusAskedAt < FOCUS_ASK_MS;
+    focusAskedAt = 0;
+    if (takeOnMount.current || asked) focusAtEnd(boxRef.current);
+    takeOnMount.current = false;
+  }, [visible]);
 
   // When the button last swapped between Send and Stop (never on mount).
   const swappedAt = useRef(0);
