@@ -11,7 +11,21 @@ import { EXPANSION_SHEETS } from "../expansion-table";
 import { COMPANION_SCENES, galleryScene, sceneReaction } from "../scenes";
 import { shippedScene } from "../sprite-poses";
 
-const RAINBOW = ["#ff0000", "#ff8800", "#ffff00", "#00ff00", "#0088ff", "#8800ff"];
+/**
+ * The Konami sweep's colours, red to violet, as theme tokens rather than pure
+ * neon hexes, so each step reads on the comic's paper, at night and in high
+ * contrast. A colour typed with /mascot-aura stays a hex; the sprite maps a
+ * brand hex onto its token through themed() when it paints the aura.
+ * Exported for tests.
+ */
+export const RAINBOW = [
+  "var(--danger)",
+  "var(--neon-amber)",
+  "var(--warning)",
+  "var(--success)",
+  "var(--info)",
+  "var(--accent3)",
+] as const;
 
 /** Names a visitor may give /play, besides the scenes' own (engine/scenes.ts COMPANION_SCENES.play). */
 const STORY_NAMES: Readonly<Record<string, string>> = {

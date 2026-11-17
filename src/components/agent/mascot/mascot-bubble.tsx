@@ -1,118 +1,226 @@
 "use client";
 
 /**
- * What Amr says beside himself (lib/agent/mascot/bubble.ts): one short line,
- * sometimes with one or two answers. It stands where the moment chip stands,
- * beside him wherever he's parked, and waits its turn: a moment chip or his open
- * panel comes first. It fades on its own (a line after about 4 s, a question
- * after about 10), stays while the pointer or focus is on it, and has no
- * animation under reduced motion. Mounted once, by the mascot assistant.
+ * What Amr says beside himself (lib/agent/mascot/bubble.ts), and what the
+ * narrator says there while his chat panel is shut and a turn still runs in it
+ * (lib/agent/mascot/outside-narration.ts).
+ *
+ * - His line or question: a speech balloon with the chat's capped corners
+ *   (`.balloon[data-tail]`, DNA-SPEC §6 "Chat strip") whose tail points at him
+ *   (amr-geometry's bubbleTail). While he is carried the tail hides, as his
+ *   panel's does: it would point at the spot he left. A line fades on its own after about 4 s, and
+ *   stays while the pointer or focus is on it. A question waits for its
+ *   answer: it goes when it is answered, when his panel opens (the panel holds
+ *   the same choice) or when a new line replaces it.
+ * - Narration: a caption box with no tail, in the third person ("Amr is working
+ *   in Retro Board…"). "Amr is waiting for your OK" has Open, which brings the
+ *   panel back to the card. It comes first: his own line waits behind it.
+ *
+ * Both stand where the moment chip does (momentChipPosition), beside where he
+ * is drawn (the mascot store's `placed`, the other side when he has stepped
+ * aside) and as far off his edge as he has stepped (`lift`). A moment chip or
+ * his open panel has the spot first: the bubble waits, a line's clock too.
+ *
+ * For screen readers the outer region is not live (it is held still during a
+ * page change). Inside it a status line holding only the words is always
+ * mounted, empty between bubbles, so words are read when they appear; the
+ * answers, the tap and Open sit beside it, out of the live line. It appears as
+ * drawn, with no entrance animation. Mounted once, by the mascot assistant.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState, type MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { momentChipPosition } from "@/components/notify/moment-chip";
 import { useMediaQuery } from "@/hooks/use-media-query";
-import { bubbleMs, useBubbleStore, type MascotBubble as Bubble } from "@/lib/agent/mascot/bubble";
+import { bubbleMs, useBubbleStore } from "@/lib/agent/mascot/bubble";
+import {
+  outsideNarration,
+  outsidePhase,
+  turnRuns,
+  AMR_WAITING_FOR_OK,
+} from "@/lib/agent/mascot/outside-narration";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { useAgentStore } from "@/lib/agent/store";
+import type { ToolLabel } from "@/lib/agent/tool-label";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 import { useMomentStore } from "@/lib/notify/moment-scheduler";
 import { cn } from "@/lib/utils";
+import { bubbleTail, cornerAt } from "./amr-geometry";
+
+type LabelOf = (wireName: string) => ToolLabel;
+
+/** tool-label once it has loaded in this page, so a later bubble has it at once. */
+let loadedLabelOf: LabelOf | null = null;
+/** If tool-label can't load (offline), a call goes unnamed: "Amr is working…". */
+const UNNAMED: LabelOf = () => ({ tool: "Tool", verb: "" });
+
+/**
+ * tool-label, which names the tool in "Amr is working in Retro Board…". It is
+ * fetched only once a turn runs (`need`), never on a page where nobody chats.
+ * Both chats' chunks already hold it (the owner's, and the visitor's through
+ * message-bubble), so by then it is there at once and adds nothing.
+ */
+function useToolLabel(need: boolean): LabelOf | null {
+  const [labelOf, setLabelOf] = useState<LabelOf | null>(() => loadedLabelOf);
+  useEffect(() => {
+    if (!need || labelOf) return;
+    let live = true;
+    import("@/lib/agent/tool-label").then(
+      (m) => {
+        loadedLabelOf = m.toolLabel;
+        if (live) setLabelOf(() => m.toolLabel);
+      },
+      () => {
+        if (live) setLabelOf(() => UNNAMED);
+      }
+    );
+    return () => {
+      live = false;
+    };
+  }, [need, labelOf]);
+  return labelOf;
+}
 
 export function MascotBubble() {
   const bubble = useBubbleStore((s) => s.current);
   const dismiss = useBubbleStore((s) => s.dismiss);
-  const corner = useMascotStore((s) => s.corner);
+  const placed = useMascotStore((s) => s.placed);
+  const lift = useMascotStore((s) => s.lift);
+  const carried = useMascotStore((s) => s.drag !== null);
   const momentUp = useMomentStore((s) => s.current !== null);
   const panelOpen = useAgentStore((s) => s.open);
+  const phase = useAgentStore(outsidePhase);
+  const labelOf = useToolLabel(useAgentStore(turnRuns));
   const phone = useMediaQuery(PHONE_MEDIA_QUERY);
   const [held, setHeld] = useState(false);
-  // A moment chip or the open panel has the spot: the bubble waits, its clock too.
-  const showing = bubble && !momentUp && !panelOpen ? bubble : null;
+  const statusId = useId();
 
+  // The narrator first (behind a moment chip, which has the spot). His own
+  // line waits behind both, and behind his open panel: while a turn runs with
+  // the panel shut it waits even before the narration has its words.
+  const narration = momentUp ? null : outsideNarration(phase, labelOf);
+  const line = bubble && !momentUp && !panelOpen && phase === null ? bubble : null;
+
+  // A line fades on its own unless held; a question has no clock.
   useEffect(() => {
-    if (!showing || held) return;
-    const id = setTimeout(() => dismiss(showing.id), bubbleMs(showing));
+    if (!line || held) return;
+    const ms = bubbleMs(line);
+    if (ms === null) return;
+    const id = setTimeout(() => dismiss(line.id), ms);
     return () => clearTimeout(id);
-  }, [showing, held, dismiss]);
+  }, [line, held, dismiss]);
 
-  // A new bubble starts un-held.
+  // His panel opening ends a question unanswered: the panel holds the same choice.
+  useEffect(() => {
+    if (panelOpen && bubble?.actions?.length) dismiss(bubble.id);
+  }, [panelOpen, bubble, dismiss]);
+
+  // A new line starts un-held.
   useEffect(() => {
     setHeld(false);
-  }, [showing?.id]);
+  }, [line?.id]);
 
-  // The live region is always mounted (empty between bubbles), so a screen
-  // reader announces a line when it appears.
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      aria-atomic="true"
-      data-amr-bubble-region
-      data-vt-hold="amr-bubble"
-      style={{ position: "fixed", ...momentChipPosition(corner, phone) }}
-      className="pointer-events-none z-[55] max-w-[min(18rem,calc(100vw-32px))]"
-    >
-      {showing ? <BubbleBody bubble={showing} setHeld={setHeld} /> : null}
-    </div>
-  );
-}
-
-function BubbleBody({ bubble, setHeld }: { bubble: Bubble; setHeld: (held: boolean) => void }) {
-  const dismiss = useBubbleStore((s) => s.dismiss);
+  const corner = cornerAt(placed);
+  const tail = bubbleTail(corner, phone);
+  const shown = narration !== null || line !== null;
+  const actions = line?.actions?.slice(0, 2) ?? [];
+  const tap = line?.onTap && actions.length === 0 ? line : null;
   const hold = {
     onPointerEnter: () => setHeld(true),
     onPointerLeave: () => setHeld(false),
     onFocus: () => setHeld(true),
     onBlur: () => setHeld(false),
   };
-  const actions = bubble.actions ?? [];
-  const text = <span className="leading-snug">{bubble.text}</span>;
+
+  const openPanel = (e: MouseEvent<HTMLButtonElement>) => {
+    // A key press clicks with no detail: the panel's focus owner takes it in.
+    useAgentStore.getState().openSheet({ via: e.detail === 0 ? "keyboard" : "pointer" });
+  };
 
   return (
     <div
-      data-amr-bubble={bubble.id}
-      className={cn(
-        "pointer-events-auto flex max-w-full flex-col gap-2 rounded-2xl border border-border bg-surface px-3 py-2 text-sm text-text shadow-lg",
-        "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-reduce:animate-none"
-      )}
-      {...hold}
+      data-amr-bubble-region
+      data-vt-hold="amr-bubble"
+      style={{ position: "fixed", ...momentChipPosition(corner, phone, lift) }}
+      className="pointer-events-none z-[55] max-w-[min(18rem,calc(100vw-32px))]"
     >
-      {bubble.onTap && actions.length === 0 ? (
-        <button
-          type="button"
-          onClick={() => {
-            dismiss(bubble.id, true);
-            bubble.onTap?.();
-          }}
-          className="flex min-h-[44px] items-center rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      {/* One element for every state, so the status line inside it is never
+          remounted: a live region that arrives with its words isn't read. */}
+      <div
+        data-amr-bubble={narration !== null ? "narration" : line?.id}
+        data-voice={narration !== null ? "narration" : undefined}
+        data-tail={line ? (carried ? "none" : tail.tail) : undefined}
+        data-tail-from={line && !carried ? tail.from : undefined}
+        className={
+          shown
+            ? cn(
+                "pointer-events-auto flex max-w-full px-3 py-2 font-sans text-sm text-text",
+                line
+                  ? "balloon flex-col justify-center gap-2"
+                  : "comic-caption flex-wrap items-center gap-x-3 gap-y-2",
+                tap && "min-h-11"
+              )
+            : undefined
+        }
+        {...(line ? hold : {})}
+      >
+        <p
+          id={statusId}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className={
+            shown ? cn("min-w-0 leading-snug", narration !== null && "flex-1 basis-40") : undefined
+          }
         >
-          {text}
-        </button>
-      ) : (
-        <p className="py-1">{text}</p>
-      )}
-      {actions.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {actions.slice(0, 2).map((action, i) => (
+          {narration ?? line?.text ?? ""}
+        </p>
+        {tap && (
+          // The whole balloon is the tap; its name is the line.
+          <button
+            type="button"
+            aria-labelledby={statusId}
+            onClick={() => {
+              dismiss(tap.id, true);
+              tap.onTap?.();
+            }}
+            className="absolute inset-0 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        )}
+        {line && actions.length > 0 && (
+          <div className="flex flex-wrap gap-2" data-bubble-actions="">
+            {actions.map((action, i) => (
+              <Button
+                key={action.label}
+                type="button"
+                size="sm"
+                variant={i === 0 ? "toolkit" : "ghost"}
+                onClick={() => {
+                  // The answer first, from the tap itself: it may ask the browser
+                  // for a permission, which only a tap may do.
+                  action.run();
+                  dismiss(line.id, true);
+                }}
+              >
+                {action.label}
+              </Button>
+            ))}
+          </div>
+        )}
+        {narration === AMR_WAITING_FOR_OK && (
+          <div className="flex flex-wrap gap-2" data-bubble-actions="">
             <Button
-              key={action.label}
               type="button"
               size="sm"
-              variant={i === 0 ? "toolkit" : "ghost"}
-              onClick={() => {
-                // The answer first, from the tap itself: it may ask the browser
-                // for a permission, which only a tap may do.
-                action.run();
-                dismiss(bubble.id, true);
-              }}
+              variant="outline"
+              aria-describedby={statusId}
+              onClick={openPanel}
             >
-              {action.label}
+              Open
             </Button>
-          ))}
-        </div>
-      )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

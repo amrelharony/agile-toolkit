@@ -27,6 +27,7 @@
 // Populate the tool action registry before any agent code reads it.
 import "@/lib/actions/register-all";
 import { ArrowLeft, History, Plus } from "lucide-react";
+import { AMR_WAITING_FOR_OK } from "@/lib/agent/mascot/outside-narration";
 import { useAgentStore } from "@/lib/agent/store";
 import { RateLimitBar } from "./rate-limit-bar";
 import { PANEL_SUBTITLE, PanelActions, PanelIconButton, PanelSubtitle } from "./panel-chrome";
@@ -35,9 +36,10 @@ import { ConversationList } from "../conversation-list";
 
 /**
  * Said on "Back to chat" while a confirm card waits in the chat (its tooltip
- * and, after its name, its description): narration, not an Amr line.
+ * and, after its name, its description): narration, not an Amr line. The
+ * bubble beside Amr says the same while the panel is shut.
  */
-export const CARD_WAITING_NOTE = "Amr is waiting for your OK";
+export const CARD_WAITING_NOTE = AMR_WAITING_FOR_OK;
 
 interface OwnerAgentPanelProps {
   showHistory: boolean;

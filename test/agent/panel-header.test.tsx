@@ -18,8 +18,10 @@ import {
   PanelHeader,
   shortcutLabel,
   type PanelHeaderProps,
+  type PanelMove,
   type PanelTilt,
 } from "@/components/agent/mascot/panel-header";
+import type { AmrCorner } from "@/components/agent/mascot/amr-geometry";
 import { platformShortcut } from "@/components/agent/mascot/panel-ids";
 import {
   PANEL_ICON,
@@ -53,6 +55,8 @@ const subtitleLine = () => slot("subtitle").parentElement as HTMLElement;
 
 /** A tilt switch the test can watch: off unless `on`. */
 const tiltOf = (on = false): PanelTilt => ({ on, onToggle: vi.fn() });
+/** Move Amr the test can watch, with him in `corner`. */
+const moveOf = (corner: AmrCorner = "bottomRight"): PanelMove => ({ corner, onMove: vi.fn() });
 const moreButton = () => within(header()).getByRole("button", { name: "More" });
 /** Opens the More menu from the keyboard, as Enter on its button does. */
 function openMore(key = "Enter"): HTMLElement {
@@ -308,6 +312,53 @@ describe("the More menu", () => {
 
     rerender(<Panel shortcut="Ctrl J" tilt={tiltOf()} />);
     expect(moreButton()).toBeInTheDocument();
+
+    // Move Amr is a choice too: with it, everyone has the menu.
+    rerender(<Panel shortcut="Ctrl J" move={moveOf()} />);
+    expect(moreButton()).toBeInTheDocument();
+    expect(within(header()).queryByText(/Ctrl J/)).toBeNull();
+  });
+
+  it("holds Move Amr first: his four corners in words, a labelled radio group, his own checked", () => {
+    render(<Panel move={moveOf("bottomRight")} tilt={tiltOf()} shortcut="Ctrl J" />);
+    const menu = openMore();
+    const group = within(menu).getByRole("group", { name: "Move Amr" });
+    const corners = within(group).getAllByRole("menuitemradio");
+    expect(corners.map((c) => c.textContent)).toEqual([
+      "Top left",
+      "Top right",
+      "Bottom left",
+      "Bottom right",
+    ]);
+    expect(corners.map((c) => c.getAttribute("aria-checked"))).toEqual([
+      "false",
+      "false",
+      "false",
+      "true",
+    ]);
+    // First in the menu, ruled off from the tilt switch.
+    expect(menu.querySelector("[role^='menuitem']")).toBe(corners[0]);
+    expect(within(menu).getAllByRole("separator")).toHaveLength(2);
+  });
+
+  it("moves him from a pointer or the keyboard, and closes as a radio choice does", async () => {
+    const move = moveOf("bottomRight");
+    render(<Panel move={move} />);
+    let menu = openMore();
+    // The keyboard lands on the first corner.
+    const topLeft = within(menu).getByRole("menuitemradio", { name: "Top left" });
+    await waitFor(() => expect(topLeft).toHaveFocus());
+    fireEvent.click(topLeft);
+    expect(move.onMove).toHaveBeenCalledWith("topLeft");
+    expect(screen.queryByRole("menu")).toBeNull();
+    await waitFor(() => expect(moreButton()).toHaveFocus());
+
+    menu = openMore();
+    fireEvent.keyDown(within(menu).getByRole("menuitemradio", { name: "Top right" }), {
+      key: "Enter",
+    });
+    expect(move.onMove).toHaveBeenLastCalledWith("topRight");
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 
   it("is a ghost icon menu button, closed until asked", () => {
@@ -428,7 +479,7 @@ describe("the More menu", () => {
   });
 
   it("sets nothing in its menu in capitals", () => {
-    render(<Panel tilt={tiltOf(true)} shortcut="Ctrl J" />);
+    render(<Panel move={moveOf()} tilt={tiltOf(true)} shortcut="Ctrl J" />);
     const menu = openMore();
     for (const el of [menu, ...Array.from(menu.querySelectorAll("*"))]) {
       expect(classes(el)).not.toContain("uppercase");
@@ -525,7 +576,7 @@ describe("the brand", () => {
   });
 
   it("uses no glow, gradient, pill or hex colour in the header's classes", () => {
-    render(<Panel onToggleEnlarge={() => {}} tilt={tiltOf()} />);
+    render(<Panel onToggleEnlarge={() => {}} tilt={tiltOf()} move={moveOf()} />);
     for (const el of [header(), ...Array.from(header().querySelectorAll("*"))]) {
       for (const c of classes(el)) {
         expect(c).not.toMatch(/^(?:.*:)?(?:rounded-full|bg-gradient|from-|glow|drop-shadow|blur)/);

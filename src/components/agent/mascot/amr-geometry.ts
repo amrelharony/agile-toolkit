@@ -5,7 +5,8 @@
  * reads them back), plus small pure helpers for the comic tails: which side of
  * the screen he's on, which edge of the panel faces him and how far along it his
  * centre line runs, which way his outside bubble's tail points, and where the
- * panel's entrance grows from.
+ * panel's entrance grows from. And his corners as Move Amr offers them: in
+ * words, and where an arrow key sends him.
  *
  * Pure numbers and strings, no React and no DOM. It imports only
  * engine/figure-metrics.ts (which has no imports), so code in the static shell
@@ -36,8 +37,14 @@ export const BUTTON_SIDE = 8;
 export const MASCOT_BOX: Readonly<{ w: number; h: number }> = { w: 132, h: 143 };
 /** Phones get a smaller figure, with space kept for him (phoneBandHeight). */
 export const MASCOT_BOX_PHONE: Readonly<{ w: number; h: number }> = { w: 96, h: 104 };
-/** The round launcher shown until the figure is ready (or if the sheet can't load). */
-export const LAUNCHER_SIZE = 48;
+/**
+ * The "Ask Amr" launcher plate (globals.css `.comic-name-plate[data-launcher]`),
+ * which stands in his spot until his figure is in, and while it can't load: its
+ * box in px, which his button sets as its minimum size. 44 px is the plate's
+ * floor (2.75rem); the width holds the lettered "Ask Amr" with the plate's
+ * padding and line. Larger text grows the plate past these, never clips it.
+ */
+export const LAUNCHER_PLATE: Readonly<{ w: number; h: number }> = { w: 108, h: 44 };
 /**
  * How much of the empty box (in sheet px) may sit past the screen edge: all the
  * space below his feet when parked at the bottom, most of the headroom when
@@ -85,19 +92,62 @@ export function amrEdge(c: AmrCorner): AmrEdge {
   return c.startsWith("top") ? "top" : "bottom";
 }
 
+/**
+ * The corner a side and an edge name: where the mascot store's `placed` says
+ * he is drawn, as the helpers here take it.
+ */
+export function cornerAt(p: Readonly<{ side: AmrSide; edge: AmrEdge }>): AmrCorner {
+  return `${p.edge}${p.side === "left" ? "Left" : "Right"}`;
+}
+
 /** The same edge, the other side of the screen (where he steps aside to). */
 export function otherSide(c: AmrCorner): AmrCorner {
   return `${amrEdge(c)}${amrSide(c) === "left" ? "Right" : "Left"}` as AmrCorner;
+}
+
+/** His four corners in reading order, as Move Amr lists them. */
+export const AMR_CORNERS: readonly AmrCorner[] = [
+  "topLeft",
+  "topRight",
+  "bottomLeft",
+  "bottomRight",
+];
+
+/** A corner in words, as Move Amr names it and the announcement says it: "Top left". */
+export function cornerName(c: AmrCorner): string {
+  return `${amrEdge(c) === "top" ? "Top" : "Bottom"} ${amrSide(c)}`;
+}
+
+/**
+ * Where an arrow key sends him from `c` (his button has focus): up or down
+ * picks the edge and keeps his side, left or right picks the side and keeps
+ * his edge. `c` itself when he is already there; null for any other key.
+ */
+export function cornerAfterKey(c: AmrCorner, key: string): AmrCorner | null {
+  const side = amrSide(c) === "left" ? "Left" : "Right";
+  const edge = amrEdge(c);
+  switch (key) {
+    case "ArrowUp":
+      return `top${side}`;
+    case "ArrowDown":
+      return `bottom${side}`;
+    case "ArrowLeft":
+      return `${edge}Left`;
+    case "ArrowRight":
+      return `${edge}Right`;
+    default:
+      return null;
+  }
 }
 
 /**
  * How far his centre line runs in from the panel's edge on his side, in px.
  * Both are offset from the same side of the screen (BUTTON_SIDE, PANEL_SIDE, and
  * the same safe area), so this holds on any screen: 58 for the desktop figure,
- * 40 for a phone's, 16 for the launcher.
+ * 40 for a phone's, 46 for the launcher plate.
  */
 export function amrCentreInPanel(phone: boolean, figure: boolean): number {
-  const width = figure ? (phone ? MASCOT_BOX_PHONE : MASCOT_BOX).w : LAUNCHER_SIZE;
+  const width = figure ? (phone ? MASCOT_BOX_PHONE : MASCOT_BOX).w : LAUNCHER_PLATE.w;
   return BUTTON_SIDE + width / 2 - PANEL_SIDE;
 }
 

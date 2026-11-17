@@ -159,7 +159,10 @@ interface MascotState {
   feelPhone: boolean | null;
   /** He has offered to feel the phone once (the bubble beside him); he doesn't ask twice. */
   motionAsked: boolean;
-  /** Where he's parked, so things shown beside him (the moment chip) can follow. */
+  /**
+   * The corner he was put in (by a drop, Move Amr or an arrow key). Things
+   * shown beside him follow `placed` and `lift` instead, where he is drawn.
+   */
   corner: MascotCorner;
   /**
    * Where he is actually drawn (see MascotPlacement). `corner` stays the corner

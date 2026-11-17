@@ -20,18 +20,35 @@ vi.mock("@/lib/auth/auth-provider", () => ({
 vi.mock("next/navigation", () => ({ usePathname: () => "/retro" }));
 vi.mock("@/lib/agent/client", () => ({ abortInFlight: vi.fn() }));
 vi.mock("@/lib/actions/register-all", () => ({}));
-vi.mock("@/components/agent/mascot/mascot-sprite", () => ({
-  default: () => <div data-testid="mascot-sprite" />,
-}));
+// The sprite stand-in; with `sprite.fail` set its sheet can't load (the launcher stays).
+const sprite = vi.hoisted(() => ({ fail: false }));
+vi.mock("@/components/agent/mascot/mascot-sprite", async () => {
+  const { useEffect } = await import("react");
+  return {
+    default: function SpriteStandIn({ onLoadError }: { onLoadError?: () => void }) {
+      useEffect(() => {
+        if (sprite.fail) onLoadError?.();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, []);
+      return <div data-testid="mascot-sprite" />;
+    },
+  };
+});
 
 import {
+  FIGURE_RETRY_MS,
   MascotAssistant,
   PANEL_SIZE_KEY,
   panelPos,
   type Corner,
 } from "@/components/agent/mascot/mascot-assistant";
-import { PANEL_SIZE, type PanelSizeName } from "@/components/agent/mascot/amr-geometry";
+import {
+  LAUNCHER_PLATE,
+  PANEL_SIZE,
+  type PanelSizeName,
+} from "@/components/agent/mascot/amr-geometry";
 import { useAgentStore } from "@/lib/agent/store";
+import { useBubbleStore } from "@/lib/agent/mascot/bubble";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
 
@@ -503,6 +520,73 @@ describe("stepping aside", () => {
     expect(amrButton().style.left).toContain("safe-area-inset-left");
   });
 
+  it("doesn't step aside for his own bubble's answers or the moment chip beside him", async () => {
+    stubScreen({ phone: true });
+    // A moment chip's button, in the chip's region, where his figure stands.
+    const chip = document.createElement("div");
+    chip.setAttribute("data-moment-region", "");
+    chip.setAttribute("data-test-control", "");
+    const chipButton = document.createElement("button");
+    chip.appendChild(chipButton);
+    document.body.appendChild(chip);
+    const box = { left: 278, top: 547, width: 45, height: 44 };
+    // Laid out where his figure stands, as the timer's Start is above.
+    const laidOut = (el: Element) =>
+      vi.spyOn(el, "getBoundingClientRect").mockReturnValue({
+        ...box,
+        x: box.left,
+        y: box.top,
+        right: box.left + box.width,
+        bottom: box.top + box.height,
+        toJSON: () => ({}),
+      } as DOMRect);
+    laidOut(chipButton);
+    let under: Element[] = [chipButton];
+    const looked = vi.fn();
+    Object.defineProperty(document, "elementsFromPoint", {
+      configurable: true,
+      value: (x: number, y: number) => {
+        looked();
+        return x >= box.left &&
+          x <= box.left + box.width &&
+          y >= box.top &&
+          y <= box.top + box.height
+          ? [...under, document.body]
+          : [document.body];
+      },
+    });
+
+    render(<MascotAssistant />);
+    act(() => {
+      window.dispatchEvent(new Event("pointerdown"));
+    });
+    await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
+    await waitFor(() => expect(looked).toHaveBeenCalled(), { timeout: 2000 });
+    expect(amrButton().style.right).toContain("safe-area-inset-right");
+
+    // His bubble asks beside him: its answer is his own too, not a page control.
+    act(() =>
+      useBubbleStore.getState().show({
+        id: "q",
+        text: "Need a hand?",
+        actions: [{ label: "Yes", run: () => {} }],
+      })
+    );
+    const yes = screen.getByRole("button", { name: "Yes" });
+    laidOut(yes);
+    under = [yes, chipButton];
+    looked.mockClear();
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    await waitFor(() => expect(looked).toHaveBeenCalled(), { timeout: 2000 });
+    expect(amrButton().style.right).toContain("safe-area-inset-right");
+    expect(amrButton().style.left).toBe("");
+    expect(useMascotStore.getState().placed).toEqual({ side: "right", edge: "bottom" });
+    expect(useMascotStore.getState().lift).toBe(0);
+    act(() => useBubbleStore.setState({ current: null }));
+  });
+
   it("leaves a desktop with a mouse alone", async () => {
     stubScreen({ phone: false, coarse: false });
     const elementsFromPoint = vi.fn(() => [document.body]);
@@ -762,8 +846,8 @@ describe("his panel is his balloon", () => {
     expect(panel).toHaveAttribute("data-tail", "none");
     expect(panel).not.toHaveAttribute("data-tail-from");
     expect(panel.style.getPropertyValue("--tail-at")).toBe("");
-    // It still grows from in line with the launcher.
-    expect(panel.style.getPropertyValue("--panel-origin")).toBe("calc(100% - 16px) 100%");
+    // It still grows from in line with the launcher plate (8 + 108 / 2 - 16).
+    expect(panel.style.getPropertyValue("--panel-origin")).toBe("calc(100% - 46px) 100%");
   });
 
   it("drops the tail while he's carried, and points again where he lands", async () => {
@@ -782,6 +866,82 @@ describe("his panel is his balloon", () => {
     const landed = screen.getByRole("dialog", { name: "Amr" });
     expect(landed).toHaveAttribute("data-tail", "up");
     expect(landed).toHaveAttribute("data-tail-from", "left");
+  });
+});
+
+describe("his panel doesn't jump when his figure arrives (audit critic2-5)", () => {
+  afterEach(() => {
+    act(() => useAgentStore.setState({ open: false }));
+  });
+
+  // [screen, phone?, the figure's box height, screen height for the numbers].
+  for (const s of [
+    { name: "1440x900 desktop", phone: false, boxH: 143, h: 900 },
+    { name: "375x812 phone", phone: true, boxH: 104, h: 812 },
+  ]) {
+    it(`${s.name}: opened over the launcher, it stays put as he takes its place`, async () => {
+      stubScreen({ phone: s.phone });
+      render(<MascotAssistant />);
+      // Opened in the first moments (or as Data Saver's first touch): the launcher shows.
+      act(() => useAgentStore.setState({ open: true }));
+      expect(screen.queryByTestId("mascot-sprite")).toBeNull();
+      const before = screen.getByRole("dialog", { name: "Amr" });
+      expect(before).toHaveAttribute("data-tail", "none");
+      const at = { bottom: before.style.bottom, maxHeight: before.style.maxHeight };
+      // It already stands where he will: right above his figure's head.
+      expect(panelBox(at, s.h).bottom).toBeCloseTo(
+        panelBox(panelPos("bottomRight", true, s.boxH, s.phone), s.h).bottom
+      );
+
+      act(() => {
+        window.dispatchEvent(new Event("pointerdown"));
+      });
+      await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
+      const after = screen.getByRole("dialog", { name: "Amr" });
+      // He's in, and the tail points at him; the panel hasn't moved.
+      expect(after).toHaveAttribute("data-tail", "down");
+      expect({ bottom: after.style.bottom, maxHeight: after.style.maxHeight }).toEqual(at);
+    });
+  }
+
+  it("goes back by the launcher plate only when his figure can't load and no try is left", async () => {
+    sprite.fail = true;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      stubScreen({ phone: false, coarse: false });
+      render(<MascotAssistant />);
+      act(() => useAgentStore.setState({ open: true }));
+      const bottom = () =>
+        900 -
+        panelBox(
+          {
+            bottom: screen.getByRole("dialog", { name: "Amr" }).style.bottom,
+            maxHeight: screen.getByRole("dialog", { name: "Amr" }).style.maxHeight,
+          },
+          900
+        ).bottom;
+      const figureAt = 131.6875;
+      // Where his figure will stand...
+      expect(bottom()).toBeCloseTo(figureAt);
+      act(() => {
+        window.dispatchEvent(new Event("pointerdown"));
+      });
+      // (the idle moment, then the sheet fails)
+      await act(() => vi.advanceTimersByTimeAsync(300));
+      // ...and still there while his figure is tried again, 2, 4 and 8 s later,
+      // so the panel doesn't jump each time...
+      for (const wait of FIGURE_RETRY_MS) {
+        expect(bottom()).toBeCloseTo(figureAt);
+        await act(() => vi.advanceTimersByTimeAsync(wait));
+      }
+      // ...until the last try fails: then by the plate (its inset, height and the gap), once.
+      expect(bottom()).toBe(4 + LAUNCHER_PLATE.h + 6);
+      expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute("data-tail", "none");
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      expect(bottom()).toBe(4 + LAUNCHER_PLATE.h + 6);
+    } finally {
+      sprite.fail = false;
+    }
   });
 });
 

@@ -43,6 +43,13 @@
  * this browser remembers. Where he is drawn goes to the mascot store
  * (setPlacement), for the things beside him to follow.
  *
+ * He moves without dragging too (WCAG 2.5.7): Move Amr in the header's More
+ * menu names his four corners, and the arrow keys move him while his button
+ * has focus (its description says so), each move announced. A drop and a move
+ * go the same way, and the panel glides after him to the new corner (it snaps
+ * for readers who ask for less motion). While he's carried the panel stays put
+ * and drops its tail.
+ *
  * Every close goes through closePanel(reason): Amr's button, Ctrl/Cmd+J,
  * Escape, the Close button, a link followed and a scene picked alike, and a
  * second call does nothing. Focus has one owner (lib/agent/mascot/use-panel-focus): a keyboard
@@ -65,9 +72,29 @@
  * and never ahead of time with Data Saver on (they load when the panel opens).
  * A panel opened before they arrive keeps its size and shows a plain
  * placeholder until they do.
+ *
+ * When a part of him isn't there (panel-parts):
+ *  - Until his figure is in, and while it can't load, his button is the
+ *    lettered "Ask Amr" launcher plate, never a likeness of him. It is still
+ *    dragged, moved by Move Amr and the arrow keys, and tapped open.
+ *  - A figure that fails (its sheet, its code, or a crash while drawn, which
+ *    its own boundary catches) is tried again 2, 4 and 8 s later, at most
+ *    three times, each while the page is online and showing (a try that falls
+ *    due offline or in a hidden tab waits for it), and at once when the plate
+ *    is tapped. The phone band and an open panel keep his figure's place
+ *    while a try is to come, and go by the plate only once none is left.
+ *  - The panel's body has a boundary of its own: a crash there leaves a
+ *    narration caption in the panel (PanelFailed), not the app's error page.
+ *  - The owner's chat is a lazy chunk, tried once more before it gives up,
+ *    fetched ahead only for a settled owner and never with Data Saver on. A
+ *    visitor's page never asks for it. While it, or the sign-in check, is on
+ *    its way, a pen scribbles in the body's place (PanelLoading).
+ * The app shell keeps a last resort around all of him (layout/amr-boundary).
  */
 
 import {
+  Suspense,
+  lazy,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -75,13 +102,19 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ComponentProps,
+  type ComponentType,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type LazyExoticComponent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
-import { Sparkles, Clapperboard } from "lucide-react";
+import { Clapperboard } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { ErrorBoundary } from "@/components/layout/error-boundary";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { useAgentStore, type PanelOpenVia } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import { ChatVisibleContext } from "../chat-visibility";
@@ -117,7 +150,7 @@ import {
   FEET_TRIM,
   HEAD_TRIM,
   HIT_SIDE,
-  LAUNCHER_SIZE,
+  LAUNCHER_PLATE,
   MASCOT_BOX,
   MASCOT_BOX_PHONE,
   PANEL_GAP,
@@ -127,6 +160,8 @@ import {
   PANEL_SIZE,
   amrEdge,
   amrSide,
+  cornerAfterKey,
+  cornerName,
   otherSide,
   panelOrigin,
   panelTail,
@@ -134,6 +169,7 @@ import {
 } from "./amr-geometry";
 import { LazyVisitorBody, prefetchVisitorBody } from "./lazy-visitor-body";
 import { AMR_PANEL_TITLE_ID, PanelHeader, shortcutLabel } from "./panel-header";
+import { FigureFailed, LAUNCHER_LABEL, PanelFailed, PanelLoading } from "./panel-parts";
 import { AMR_PANEL_ID } from "./panel-ids";
 import { PANEL_SUBTITLE, PanelChrome, PanelIconButton } from "./panel-chrome";
 import {
@@ -202,6 +238,42 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
 }
 
+/**
+ * How the panel (and, after a move, Amr) glides to a new corner: DNA-SPEC §8's
+ * travel duration and calm easing (lib/motion/tokens.ts DUR.travel, EASE.calm;
+ * --dur-travel, --ease-calm), written out so this chunk doesn't load the
+ * tokens' spring maths. test/agent/mascot-move.test.tsx holds them equal.
+ */
+export const GLIDE: Readonly<{ duration: number; easing: string }> = {
+  duration: 360,
+  easing: "cubic-bezier(0.16, 1, 0.3, 1)",
+};
+
+/**
+ * FLIP: `el` has just been placed somewhere else, and `from` is where it was
+ * (its box before the move). It slides from there on the translate property,
+ * which nothing else sets on the panel and which composes with the entrance's
+ * scale. Never under reduced motion: it snaps, and animate() is never called.
+ */
+function glideFrom(el: HTMLElement | null, from: DOMRect | null): void {
+  if (!el || !from || prefersReducedMotion() || typeof el.animate !== "function") return;
+  const to = el.getBoundingClientRect();
+  const dx = from.left - to.left;
+  const dy = from.top - to.top;
+  if (Math.hypot(dx, dy) < 2) return;
+  el.animate(
+    [{ translate: `${dx.toFixed(1)}px ${dy.toFixed(1)}px` }, { translate: "0px 0px" }],
+    GLIDE
+  );
+}
+
+/**
+ * What Amr's button says about moving him, as its description (its title
+ * says it to a mouse): the keys that move him without dragging.
+ */
+export const MOVE_HINT = "Arrow keys move him";
+const MOVE_HINT_ID = "amr-move-hint";
+
 /** A pointer event as a point on his figure (the hit box), for the touch tracker. */
 function touchPoint(
   e: { clientX: number; clientY: number; pointerType?: string },
@@ -233,7 +305,7 @@ function edgeInset(c: Corner, figure: boolean, boxH: number): number {
  * safe area.
  */
 function phoneBandHeight(c: Corner, figure: boolean, boxH: number): number {
-  if (!figure) return LAUNCHER_SIZE + 2 * BUTTON_INSET;
+  if (!figure) return LAUNCHER_PLATE.h + 2 * BUTTON_INSET;
   const scale = boxH / SHEET.cellH;
   const inset = edgeInset(c, true, boxH);
   const reach = c.startsWith("top") ? FIGURE_BOTTOM * scale : boxH - FIGURE_TOP * scale;
@@ -294,8 +366,8 @@ function hitBox(box: { w: number; h: number }): CSSProperties {
 
 /**
  * Chat-panel style for a corner — hugs Amr's silhouette, not his box. `boxH` is
- * the rendered box height (the figure's rows scale with it); with the launcher
- * showing, the panel clears the launcher instead. `lift` is how far he has
+ * the rendered box height (the figure's rows scale with it); for the launcher
+ * plate (`figure` false), the panel clears the plate instead. `lift` is how far he has
  * stepped off his edge for a control, and the panel goes with him. `size` is
  * which PANEL_SIZE the panel has (the panel's style sets it from the same
  * entry), so the room it needs follows Enlarge.
@@ -318,8 +390,8 @@ export function panelPos(
   const panelHeight = PANEL_SIZE[size].height;
   const scale = boxH / SHEET.cellH;
   const top = figure ? FIGURE_TOP * scale : 0;
-  const bottom = figure ? FIGURE_BOTTOM * scale : LAUNCHER_SIZE;
-  const height = figure ? boxH : LAUNCHER_SIZE;
+  const bottom = figure ? FIGURE_BOTTOM * scale : LAUNCHER_PLATE.h;
+  const height = figure ? boxH : LAUNCHER_PLATE.h;
   const inset = edgeInset(c, figure, boxH) + lift;
   const atTop = c.startsWith("top");
   const px = atTop
@@ -463,18 +535,18 @@ type IdleWindow = Window & {
   cancelIdleCallback?: (id: number) => void;
 };
 
-/** The visitor body is fetched by this long after load, idle or not. */
+/** The panel's body is fetched by this long after load, idle or not. */
 const BODY_IDLE_TIMEOUT_MS = 4000;
-/** Without an idle callback, the visitor body is fetched this long after load. */
+/** Without an idle callback, the panel's body is fetched this long after load. */
 const BODY_PREFETCH_DELAY_MS = 1500;
 
 /**
- * Fetch the open panel's visitor body (lazy-visitor-body) once the page has
- * loaded and the browser is idle, so opening the panel almost never waits for
- * it. Not when the visitor asked to save data: the body then loads when the
- * panel opens.
+ * Fetch the open panel's body ahead (the visitor body, or the owner's chat)
+ * once the page has loaded and the browser is idle, so opening the panel
+ * almost never waits for it. Not when the visitor asked to save data: the body
+ * then loads when the panel opens. `prefetch` must be stable.
  */
-function usePrefetchVisitorBody(enabled: boolean) {
+function usePrefetchWhenIdle(enabled: boolean, prefetch: () => void) {
   useEffect(() => {
     if (!enabled || savesData()) return;
     const w = window as IdleWindow;
@@ -482,8 +554,8 @@ function usePrefetchVisitorBody(enabled: boolean) {
     let timer: number | undefined;
     const schedule = () => {
       if (w.requestIdleCallback)
-        idleId = w.requestIdleCallback(prefetchVisitorBody, { timeout: BODY_IDLE_TIMEOUT_MS });
-      else timer = window.setTimeout(prefetchVisitorBody, BODY_PREFETCH_DELAY_MS);
+        idleId = w.requestIdleCallback(prefetch, { timeout: BODY_IDLE_TIMEOUT_MS });
+      else timer = window.setTimeout(prefetch, BODY_PREFETCH_DELAY_MS);
     };
     if (document.readyState === "complete") schedule();
     else window.addEventListener("load", schedule, { once: true });
@@ -492,14 +564,14 @@ function usePrefetchVisitorBody(enabled: boolean) {
       window.clearTimeout(timer);
       if (idleId !== undefined) w.cancelIdleCallback?.(idleId);
     };
-  }, [enabled]);
+  }, [enabled, prefetch]);
 }
 
 /**
  * Defer the figure (its chunk and the sprite sheet) until the visitor first
  * interacts (pointer, key, scroll) or a moment after the page has loaded,
  * whichever comes first, then wait for an idle moment, so it never competes with
- * the page's own content. The launcher shows until then. When the visitor asked
+ * the page's own content. The launcher plate shows until then. When the visitor asked
  * to save data, only an interaction starts him: the sheet is fetched for someone
  * using the page, and he still shows for everyone.
  */
@@ -538,6 +610,99 @@ function useDeferredFigure(): boolean {
     };
   }, []);
   return ready;
+}
+
+/**
+ * After his figure fails, how long each try of its own waits: 2 s, then 4 s,
+ * then 8 s. Its length is how many such tries there are (a tap on the plate
+ * is never counted).
+ */
+export const FIGURE_RETRY_MS: readonly number[] = [2000, 4000, 8000];
+
+/** A fetch could work now: the browser thinks it's online, and the tab is showing. */
+function canFetchNow(): boolean {
+  return navigator.onLine !== false && document.visibilityState !== "hidden";
+}
+
+interface FigureRecovery {
+  /** His figure failed and isn't mounted: the launcher plate stands in his spot. */
+  down: boolean;
+  /** It failed with no try of its own left: only a tap on the plate tries it again. */
+  gaveUp: boolean;
+  /** It has failed at least once in the page's life (a try may have brought it back since). */
+  failedOnce: boolean;
+  /** His figure couldn't load (its sheet or its code) or crashed. Once per try. */
+  fail: () => void;
+  /** Try it again now: the plate was tapped. */
+  retry: () => void;
+}
+
+/**
+ * Gets his figure back after it fails. Each try of its own waits its
+ * FIGURE_RETRY_MS, and then for the page to be online and showing: a try that
+ * falls due offline or in a hidden tab goes when the browser is back online
+ * or the tab shows again, so none is spent where it can't work. A tap on the
+ * plate tries at once, whenever it is down. At most FIGURE_RETRY_MS.length
+ * tries of its own in the page's life, so a figure that keeps failing doesn't
+ * keep fetching.
+ */
+function useFigureRecovery(): FigureRecovery {
+  const [state, setState] = useState({
+    down: false,
+    tries: 0,
+    due: false,
+    gaveUp: false,
+    failedOnce: false,
+  });
+  const fail = useCallback(
+    () =>
+      setState((s) =>
+        s.down
+          ? s
+          : {
+              ...s,
+              down: true,
+              due: false,
+              gaveUp: s.tries >= FIGURE_RETRY_MS.length,
+              failedOnce: true,
+            }
+      ),
+    []
+  );
+  const retry = useCallback(
+    () => setState((s) => (s.down ? { ...s, down: false, due: false } : s)),
+    []
+  );
+  const { down, tries, due, gaveUp, failedOnce } = state;
+  // A try of its own is to come.
+  const waiting = down && !gaveUp;
+  // Its wait.
+  useEffect(() => {
+    if (!waiting || due) return;
+    const id = window.setTimeout(
+      () => setState((s) => (s.down ? { ...s, due: true } : s)),
+      FIGURE_RETRY_MS[tries]
+    );
+    return () => window.clearTimeout(id);
+  }, [waiting, due, tries]);
+  // Then the try: now, or once the page is online and showing.
+  useEffect(() => {
+    if (!waiting || !due) return;
+    const go = () => {
+      if (!canFetchNow()) return;
+      setState((s) =>
+        s.down && s.due ? { ...s, down: false, due: false, tries: s.tries + 1 } : s
+      );
+    };
+    go();
+    window.addEventListener("online", go);
+    document.addEventListener("visibilitychange", go);
+    return () => {
+      window.removeEventListener("online", go);
+      document.removeEventListener("visibilitychange", go);
+    };
+  }, [waiting, due]);
+  return { down, gaveUp, failedOnce, fail, retry };
 }
 
 /** On phones, step aside while the visitor is typing (the keyboard is up). */
@@ -627,6 +792,13 @@ function homeHitRect(
 }
 
 /**
+ * His own things, which never count as a page control under him and whose
+ * changes never make him look again: his panel, his bubble and the moment chip
+ * beside him. Otherwise his bubble's own buttons would push him away from it.
+ */
+const BESIDE_HIM = "[data-agent-sheet-root], [data-amr-bubble-region], [data-moment-region]";
+
+/**
  * On touch screens he steps aside when his figure sits on one of the page's
  * controls (mascot-nudge.ts): up from his edge, or to the other side. He looks
  * once he's placed and whenever the page settles after a scroll, resize, tap or
@@ -669,7 +841,7 @@ function useStepAside({
     let pressed = false;
     const own = (node: Node) =>
       !!buttonRef.current?.contains(node) ||
-      (node instanceof Element && !!node.closest("[data-agent-sheet-root]"));
+      (node instanceof Element && !!node.closest(BESIDE_HIM));
     const check = () => {
       timer = undefined;
       if (pressed) return; // looked at again when the finger lifts
@@ -758,16 +930,104 @@ function useStepAside({
   return { nudge, reset: () => setState({ key: "", nudge: HOME }) };
 }
 
-const MascotSprite = dynamic(() => import("./mascot-sprite"), { ssr: false });
-const OwnerAgentPanel = dynamic(() => import("./owner-agent-panel"), {
-  ssr: false,
-  loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
-});
+type SpriteModule = typeof import("./mascot-sprite");
+type OwnerModule = typeof import("./owner-agent-panel");
+/** Imports his figure (the sprite engine): its own chunk. */
+export type LoadSprite = () => Promise<SpriteModule>;
+/** Imports the owner's chat (the agent runtime): its own chunk, only ever for the owner. */
+export type LoadOwnerPanel = () => Promise<OwnerModule>;
+
+const importSprite: LoadSprite = () => import("./mascot-sprite");
+const importOwnerPanel: LoadOwnerPanel = () => import("./owner-agent-panel");
+
+/**
+ * One lazy component per loader, shared by every mount, so once its code is in
+ * it draws at once (this chunk never renders on the server: app-shell loads it
+ * with ssr: false). React.lazy keeps a rejection for good, so one whose import
+ * failed is never drawn again: the next call makes a new one, which imports
+ * the chunk again (webpack forgets a chunk that failed to load). The failure
+ * is noted on the import itself, so a figure or panel gone by the time it
+ * fails still leaves the next try a fresh one. `importWith` calls the loader.
+ */
+function retryableLazy<L extends object, P>(
+  importWith: (load: L) => Promise<{ default: ComponentType<P> }>
+): (load: L) => LazyExoticComponent<ComponentType<P>> {
+  type Lazy = LazyExoticComponent<ComponentType<P>>;
+  const known = new WeakMap<L, Lazy>();
+  const failed = new WeakSet<Lazy>();
+  return (load) => {
+    const was = known.get(load);
+    if (was && !failed.has(was)) return was;
+    const next: Lazy = lazy(async () => {
+      try {
+        return await importWith(load);
+      } catch (err) {
+        failed.add(next);
+        throw err;
+      }
+    });
+    known.set(load, next);
+    return next;
+  };
+}
+
+const spriteFor = retryableLazy((load: LoadSprite) => load());
+
 // Amr's scenes: its titles and thumbnail atlas load only when the view first opens.
 const ScenesTab = dynamic(() => import("./scenes-tab"), {
   ssr: false,
   loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
 });
+
+/** After the owner's chat fails to import, it is tried once more, this long after. */
+export const OWNER_RETRY_MS = 1000;
+
+/** Each loader's import of the owner's chat, under way or done. A failed one is forgotten. */
+const ownerImports = new WeakMap<LoadOwnerPanel, Promise<OwnerModule>>();
+
+/**
+ * Imports the owner's chat, once per loader: the prefetch and the panel share
+ * it. A failed import is tried once more after OWNER_RETRY_MS (a blip in the
+ * connection); when that fails too, the panel's boundary says so, and the
+ * import is forgotten, so the next open, prefetch or Start a new chat imports
+ * again.
+ */
+function loadOwner(load: LoadOwnerPanel): Promise<OwnerModule> {
+  const known = ownerImports.get(load);
+  if (known) return known;
+  const next = load()
+    .catch(() => new Promise<void>((done) => window.setTimeout(done, OWNER_RETRY_MS)).then(load))
+    .catch((err: unknown) => {
+      ownerImports.delete(load);
+      throw err;
+    });
+  ownerImports.set(load, next);
+  return next;
+}
+
+const ownerPanelFor = retryableLazy(loadOwner);
+
+/** Fetches the owner's chat ahead of the panel. A failure waits for the panel to try again. */
+function prefetchOwnerPanel(load: LoadOwnerPanel): void {
+  loadOwner(load).catch(() => {});
+}
+
+type OwnerPanelProps = ComponentProps<OwnerModule["default"]>;
+
+/**
+ * The owner's chat in the panel's body: a pen scribbles in its place until its
+ * chunk is in (the panel keeps its size). Asked for on each render, so after a
+ * failed import the next one (Start a new chat, the panel opening again) is a
+ * fresh try.
+ */
+function OwnerBody({ load, ...props }: OwnerPanelProps & { load: LoadOwnerPanel }) {
+  const OwnerPanel = ownerPanelFor(load);
+  return (
+    <Suspense fallback={<PanelLoading />}>
+      <OwnerPanel {...props} />
+    </Suspense>
+  );
+}
 
 /**
  * Over the tool finder while a signed-in session waits on the owner check
@@ -781,7 +1041,15 @@ function UnverifiedOwnerNote() {
   return <Narration>{UNVERIFIED_OWNER_NOTE}</Narration>;
 }
 
-export function MascotAssistant() {
+export function MascotAssistant({
+  loadSprite = importSprite,
+  loadOwnerPanel = importOwnerPanel,
+}: {
+  /** Imports his figure. Tests pass their own. */
+  loadSprite?: LoadSprite;
+  /** Imports the owner's chat, for the owner only. Tests pass their own. */
+  loadOwnerPanel?: LoadOwnerPanel;
+} = {}) {
   const open = useAgentStore((s) => s.open);
   const openedVia = useAgentStore((s) => s.openedVia);
   // Bumped by a key press on the header's opener while the panel is open.
@@ -795,14 +1063,19 @@ export function MascotAssistant() {
   const { isOwner, settled, unverified, visitor } = useOwnerState();
   // Amr's AI for visitors: a confirmed visitor only, and only in a build that has it on.
   const visitorAi = visitor && visitorAiEnabled();
-  // Everyone but the owner opens the panel on the visitor body: fetch it ahead.
-  usePrefetchVisitorBody(settled && !isOwner);
+  // Everyone but the owner opens the panel on the visitor body, and the owner
+  // on the chat: each fetches its own ahead, and only once auth has settled
+  // (isOwner reads false until then), so a visitor never asks for the owner's.
+  usePrefetchWhenIdle(settled && !isOwner, prefetchVisitorBody);
+  const prefetchOwner = useCallback(() => prefetchOwnerPanel(loadOwnerPanel), [loadOwnerPanel]);
+  usePrefetchWhenIdle(settled && isOwner, prefetchOwner);
   // Reaching for Amr (a pointer over him, a finger on him, focus on him): fetch
   // it now if it isn't here yet (Data Saver waits for the panel to open). Like
-  // the idle fetch, it waits for auth to settle (isOwner reads false until then)
-  // and never runs for the owner. Once fetched, this does nothing.
+  // the idle fetch, it waits for auth to settle. Once fetched, this does nothing.
   const reachForAmr = () => {
-    if (settled && !isOwner && !savesData()) prefetchVisitorBody();
+    if (!settled || savesData()) return;
+    if (isOwner) prefetchOwner();
+    else prefetchVisitorBody();
   };
   const isPhone = useIsPhone();
   // Touch screens of any width (a landscape phone, a tablet): his figure there is
@@ -817,25 +1090,35 @@ export function MascotAssistant() {
   // beside him everywhere.
   const layout = "float" as AmrPanelLayout;
 
-  // The figure loads after the page is idle; until it's ready (or if the sheet
-  // can't load) a small launcher keeps the assistant one click away without an
-  // invisible hit box over the page.
+  // The figure loads after the page is idle; until it's ready (or while it
+  // can't load) the "Ask Amr" plate keeps him one click away without an
+  // invisible hit box over the page, and his failed figure is tried again.
   const loadFigure = useDeferredFigure();
   const figureReady = useMascotStore((s) => s.ready);
-  const [figureFailed, setFigureFailed] = useState(false);
-  const mountFigure = loadFigure && !figureFailed;
+  const figure = useFigureRecovery();
+  const mountFigure = loadFigure && !figure.down;
   const showFigure = mountFigure && figureReady;
+  // His figure can't load and no try of its own is to come: the plate stays,
+  // and the phone band and the panel go by it. While a try is to come they
+  // keep his figure's place, so nothing jumps each time it is tried.
+  const figureFailed = figure.gaveUp && !showFigure;
+  // No figure to act a scene out: it has failed and isn't back yet, whether or
+  // not a try of its own is still to come. Not while it first loads (the
+  // scenes wait for him then), and not between tries either, so the Scenes
+  // button doesn't come and go each time his figure is tried again.
+  const noFigure = figure.failedOnce && !showFigure;
+  const Sprite = spriteFor(loadSprite);
 
   // Amr's scenes cover the chat or the guide, which stays mounted under them so a
   // turn in flight goes on. They give way to a confirmation card the moment one
   // arrives (hidden, the card would still take Escape as a deny, and the turn would
   // wait on a card nobody sees), and with no figure there is no one to act them out.
-  const scenesOpen = showScenes && !confirmPending && !figureFailed;
+  const scenesOpen = showScenes && !confirmPending && !noFigure;
   // The panel opens on the chat or the guide again, not on the scenes it closed on,
   // and the scenes don't come back once the confirmation that pushed them aside is answered.
   useEffect(() => {
-    if (!open || confirmPending || figureFailed) setShowScenes(false);
-  }, [open, confirmPending, figureFailed]);
+    if (!open || confirmPending || noFigure) setShowScenes(false);
+  }, [open, confirmPending, noFigure]);
   // A tapped scene plays with the panel closed, so he's in view. While a turn is
   // still running or a card waits, the answer is what to watch (closing the panel
   // wouldn't stop it, but would hide it): back to the chat instead, with him beside
@@ -938,6 +1221,9 @@ export function MascotAssistant() {
   const draggedRef = useRef(false);
   const onMascotClick = (e: ReactMouseEvent<HTMLButtonElement>) => {
     if (draggedRef.current) return; // a drag-release or a high five, not a click
+    // The plate tapped while his figure is down: try it again now (the tap
+    // still opens or closes the panel below).
+    if (figure.down) figure.retry();
     // Where it landed: his head gets a pat, his tummy a poke. (A keyboard press is a poke.)
     const p = e.detail > 0 ? touchPoint(e, hitRef.current) : null;
     const side = p && p.x < p.box.left + p.box.width / 2 ? "left" : "right";
@@ -977,9 +1263,10 @@ export function MascotAssistant() {
   useEffect(() => {
     useMascotStore.getState().setCorner(corner);
   }, [corner]);
-  // Always the figure's height unless it can't load, so the strip doesn't jump
-  // when the launcher gives way to him a moment after the page settles. That
-  // includes Data Saver: he arrives there too, on the first interaction.
+  // Always the figure's height unless it can't load (no try of its own is to
+  // come), so the strip doesn't jump when the plate gives way to him a moment
+  // after the page settles, or while his figure is tried again. That includes
+  // Data Saver: he arrives there too, on the first interaction.
   const bandSide = corner.startsWith("top") ? ("top" as const) : ("bottom" as const);
   const band =
     isPhone && !hideFigure
@@ -1016,6 +1303,59 @@ export function MascotAssistant() {
     useMascotStore
       .getState()
       .setPlacement({ side: amrSide(placed), edge: amrEdge(placed) }, nudge.lift);
+  }, [placed, nudge.lift]);
+
+  // Moving him, by a drop, Move Amr or an arrow key: all one way. The corner
+  // becomes his chosen one (not where he'd stepped aside to), and he keeps to
+  // that side from now on. Where the panel (and, after a move, he) stood is
+  // kept for the glide below; a drop has its own flight for him.
+  const announce = useAnnounce();
+  const glideRef = useRef<{ panel: DOMRect | null; amr: DOMRect | null } | null>(null);
+  const moveAmr = (next: Corner, how: "drop" | "menu" | "key") => {
+    const moves = next !== placed || nudge.lift !== 0;
+    if (moves) {
+      glideRef.current = {
+        panel: panelRef.current?.getBoundingClientRect() ?? null,
+        amr: how === "drop" ? null : (buttonRef.current?.getBoundingClientRect() ?? null),
+      };
+    }
+    setCorner(next);
+    // A real change, and the one X108 draws: from the bottom right where he
+    // stood (where a step aside had put him counts) to the bottom left. A drop
+    // waits for his landing (with reduced motion there's none to wait for);
+    // Move Amr and a key have no landing, so it plays at once.
+    if (placed === "bottomRight" && next === "bottomLeft") {
+      if (how === "drop" && flightRef.current) cornerScene.current.pending = true;
+      else playCornerScene();
+    }
+    resetNudge();
+    setSideChosen(true);
+    // Narration, not an Amr line (decision 6). A drop is seen where it lands.
+    if (how !== "drop") {
+      const where = cornerName(next).toLowerCase();
+      announce(moves ? `Amr moved to the ${where}` : `Amr is already in the ${where}`);
+    }
+  };
+  // The arrow keys on his focused button: up or down picks the edge, left or
+  // right the side. Only bare arrows; held down, one move.
+  const onMascotKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>) => {
+    if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    const next = cornerAfterKey(placed, e.key);
+    if (!next) return;
+    // An arrow on a button would only scroll the page under him.
+    e.preventDefault();
+    if (e.repeat) return;
+    moveAmr(next, "key");
+  };
+  // The glide (FLIP): once the panel and he are drawn at the new corner, each
+  // slides there from where it stood. It snaps under reduced motion (glideFrom
+  // never calls animate() then).
+  useIsomorphicLayoutEffect(() => {
+    const from = glideRef.current;
+    glideRef.current = null;
+    if (!from) return;
+    glideFrom(panelRef.current, from.panel);
+    glideFrom(buttonRef.current, from.amr);
   }, [placed, nudge.lift]);
   // Removes the active drag's document listeners (called on pointerup, on a new
   // drag, or on unmount) so they never leak past an in-progress drag.
@@ -1157,18 +1497,8 @@ export function MascotAssistant() {
         const next = `${cy < window.innerHeight / 2 ? "top" : "bottom"}${
           cx < window.innerWidth / 2 ? "Left" : "Right"
         }` as Corner;
-        setCorner(next);
-        // A real change, and the one X108 draws: from the bottom right where he
-        // stood (where a step aside had put him counts) to the bottom left. With
-        // reduced motion there's no landing to wait for.
-        if (placed === "bottomRight" && next === "bottomLeft") {
-          if (flightRef.current) cornerScene.current.pending = true;
-          else playCornerScene();
-        }
-        // Dropped where the visitor wants him: that corner, not where he'd
-        // stepped aside to, and he keeps to that side from now on.
-        resetNudge();
-        setSideChosen(true);
+        // Dropped where the visitor wants him: the same path as Move Amr.
+        moveAmr(next, "drop");
         // Suppress the click that fires right after a drag-release.
         draggedRef.current = true;
         setTimeout(() => (draggedRef.current = false), 60);
@@ -1342,10 +1672,10 @@ export function MascotAssistant() {
 
   // The panel's tail points at his figure: none while the launcher stands in for
   // him, while he's off the page for the keyboard (a page field has focus on a
-  // phone), while he's carried (the panel stays at his corner), or in the phone's
-  // sheet (it covers the screen; there is nothing beside it to point at). Its
-  // place and growth point stay on showFigure, so the card doesn't move while he
-  // steps aside and still matches where he comes back.
+  // phone), while he's carried (the panel stays at his corner until the drop,
+  // then glides), or in the phone's sheet (it covers the screen; there is
+  // nothing beside it to point at). Its growth point stays on showFigure, so the
+  // card doesn't move while he steps aside and still matches where he comes back.
   const tail =
     layout === "sheet"
       ? null
@@ -1356,7 +1686,11 @@ export function MascotAssistant() {
         });
   const size = PANEL_SIZE[panelSize.size];
   const panelStyle = {
-    ...panelPos(placed, showFigure, box.h, isPhone, nudge.lift, panelSize.size),
+    // Its place is the figure's whenever one is coming, as the phone band's is,
+    // so an open panel doesn't jump when the plate gives way to him, or as his
+    // figure is tried again (until then it stands where he will). Only a
+    // figure that can't load, with no try left, puts it back by the plate.
+    ...panelPos(placed, !figureFailed, box.h, isPhone, nudge.lift, panelSize.size),
     // Its size, read by its w-/h- classes: as variables, a layout rule in CSS
     // can still replace them, which an inline width or height would beat.
     "--amr-panel-width": size.width,
@@ -1411,7 +1745,7 @@ export function MascotAssistant() {
                   shortcut={shortcutLabel("J")}
                   controls={
                     // No figure, no one to act a scene out; a confirmation waiting comes first.
-                    !figureFailed && (
+                    !noFigure && (
                       <PanelIconButton
                         label="Amr's scenes"
                         title={
@@ -1430,6 +1764,8 @@ export function MascotAssistant() {
                       </PanelIconButton>
                     )
                   }
+                  // Move Amr, first in the More menu: the corner he's drawn in is checked.
+                  move={{ corner: placed, onMove: (c) => moveAmr(c, "menu") }}
                   // The tilt switch, labelled, in the header's More menu.
                   tilt={
                     motionAvailable
@@ -1442,39 +1778,68 @@ export function MascotAssistant() {
                 />
                 {/* The strip's ground: the page's paper, so card balloons stand out. */}
                 <div className="flex min-h-0 flex-1 flex-col bg-bg">
-                  {scenesOpen && <ScenesTab onPlay={onScenePlayed} />}
-                  {/* Under the scenes the chat or guide stays mounted (a turn in flight goes on),
-                      hidden, and knows it; otherwise `contents` keeps its layout exactly as before. */}
-                  <ChatVisibleContext.Provider value={!scenesOpen}>
-                    <div hidden={scenesOpen} className={scenesOpen ? "hidden" : "contents"}>
-                      {!isOwner ? (
-                        <div className="min-h-0 flex-1" aria-busy={!settled}>
-                          {settled && (
+                  {/* A crash in the body (or its code not loading) stops here,
+                      not at the app shell's boundary, which would replace the
+                      page: a narration caption takes the body's place, under
+                      the header, so Close and Move Amr still work. A new
+                      person (auth settling, signing in or out) starts afresh.
+                      Amr's scenes are in the body too, so a crash there stops
+                      here as well. */}
+                  <ErrorBoundary
+                    key={!settled ? "settling" : isOwner ? "owner" : "visitor"}
+                    name="Amr's panel"
+                    fallback={(_error, tryAgain) => (
+                      <PanelFailed
+                        onNewChat={
+                          isOwner
+                            ? () => {
+                                // A saved reply that crashes when drawn goes with the old chat.
+                                // The new chat shows, out from under History and the scenes.
+                                useAgentStore.getState().reset();
+                                setShowHistory(false);
+                                setShowScenes(false);
+                                tryAgain();
+                              }
+                            : undefined
+                        }
+                      />
+                    )}
+                  >
+                    {scenesOpen && <ScenesTab onPlay={onScenePlayed} />}
+                    {/* Under the scenes the chat or guide stays mounted (a turn in flight goes on),
+                        hidden, and knows it; otherwise `contents` keeps its layout exactly as before. */}
+                    <ChatVisibleContext.Provider value={!scenesOpen}>
+                      <div hidden={scenesOpen} className={scenesOpen ? "hidden" : "contents"}>
+                        {!settled ? (
+                          <PanelLoading />
+                        ) : isOwner ? (
+                          <OwnerBody
+                            load={loadOwnerPanel}
+                            showHistory={showHistory}
+                            // History and the scenes take turns.
+                            onToggleHistory={() => {
+                              setShowHistory((v) => !v);
+                              setShowScenes(false);
+                            }}
+                            // New chat (or a thread picked in History) shows the chat,
+                            // out from under the scenes too.
+                            onCloseHistory={() => {
+                              setShowHistory(false);
+                              setShowScenes(false);
+                            }}
+                          />
+                        ) : (
+                          <div className="min-h-0 flex-1">
                             <LazyVisitorBody
                               ai={visitorAi}
                               onNavigate={navigateAway}
                               note={unverified ? <UnverifiedOwnerNote /> : undefined}
                             />
-                          )}
-                        </div>
-                      ) : (
-                        <OwnerAgentPanel
-                          showHistory={showHistory}
-                          // History and the scenes take turns.
-                          onToggleHistory={() => {
-                            setShowHistory((v) => !v);
-                            setShowScenes(false);
-                          }}
-                          // New chat (or a thread picked in History) shows the chat,
-                          // out from under the scenes too.
-                          onCloseHistory={() => {
-                            setShowHistory(false);
-                            setShowScenes(false);
-                          }}
-                        />
-                      )}
-                    </div>
-                  </ChatVisibleContext.Provider>
+                          </div>
+                        )}
+                      </div>
+                    </ChatVisibleContext.Provider>
+                  </ErrorBoundary>
                 </div>
               </AmrPanelContext.Provider>
             </PanelChrome>
@@ -1497,6 +1862,15 @@ export function MascotAssistant() {
         }}
       />
 
+      {/* How to move him without dragging, as his button's description.
+          hidden, not sr-only: a description is still read from a hidden
+          element, and browse mode doesn't read it a second time as loose text. */}
+      {!hideFigure && (
+        <span id={MOVE_HINT_ID} hidden>
+          {MOVE_HINT}
+        </span>
+      )}
+
       {/* Floating mascot — click to toggle the chat. */}
       {!hideFigure && (
         <button
@@ -1505,6 +1879,7 @@ export function MascotAssistant() {
           data-amr-button
           type="button"
           onClick={onMascotClick}
+          onKeyDown={onMascotKeyDown}
           onPointerDown={onPointerDown}
           onPointerEnter={reachForAmr}
           onTouchStart={reachForAmr}
@@ -1513,33 +1888,41 @@ export function MascotAssistant() {
           // One name in every state (the panel has its own Close button);
           // aria-expanded carries the state, and aria-controls names the panel
           // only while it is in the page.
-          aria-label="Ask Amr"
+          aria-label={LAUNCHER_LABEL}
           aria-expanded={open}
           aria-controls={open ? AMR_PANEL_ID : undefined}
           aria-keyshortcuts="Control+J Meta+J"
-          title="Ask Amr · drag to reposition"
-          style={
-            dragPos
+          aria-describedby={MOVE_HINT_ID}
+          title="Ask Amr · drag him, or use the arrow keys, to move him"
+          // Until his figure is in, and while it can't load: the launcher plate.
+          data-launcher={showFigure ? undefined : ""}
+          style={{
+            ...(dragPos
               ? { position: "fixed", left: dragPos.left, top: dragPos.top }
-              : buttonPos(placed, showFigure, box.h, isPhone, nudge.lift)
-          }
+              : buttonPos(placed, showFigure, box.h, isPhone, nudge.lift)),
+            // The plate's box, as amr-geometry has it (larger text grows it).
+            ...(!showFigure && { minWidth: LAUNCHER_PLATE.w, minHeight: LAUNCHER_PLATE.h }),
+          }}
           className={cn(
-            "z-50 cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-            !dragPos && styles.float,
+            "z-50 cursor-pointer",
+            !dragPos && styles.bob,
             // The figure's box is mostly transparent: let clicks there
-            // reach the page, and take them only on the figure (below).
-            showFigure && "pointer-events-none",
-            !showFigure &&
-              "flex h-12 w-12 items-center justify-center border border-border bg-card shadow-lg"
+            // reach the page, and take them only on the figure (below). Focus
+            // is drawn on the figure too (styles.figure), not around the box.
+            showFigure && [styles.figure, "pointer-events-none"],
+            // His name, lettered on a plate in the comic's ink (globals.css):
+            // never a likeness of him, and never round. A finger on it carries
+            // it, as one on his figure does, rather than scrolling the page.
+            !showFigure && "comic-name-plate touch-none select-none"
           )}
         >
-          {!showFigure && <Sparkles className="h-5 w-5 text-accent" aria-hidden="true" />}
+          {!showFigure && LAUNCHER_LABEL}
           {showFigure && (
             <span
               ref={hitRef}
               aria-hidden="true"
               data-mascot-hit
-              className="pointer-events-auto absolute z-10 select-none rounded-full"
+              className="pointer-events-auto absolute z-10 select-none"
               style={{
                 ...hitBox(box),
                 // His figure is his own: a finger on him pets or carries him, never scrolls.
@@ -1561,12 +1944,22 @@ export function MascotAssistant() {
                 showFigure ? undefined : "pointer-events-none absolute bottom-0 right-0 opacity-0"
               }
             >
-              <MascotSprite
-                width={box.w}
-                height={box.h}
-                moveRef={buttonRef}
-                onLoadError={() => setFigureFailed(true)}
-              />
+              {/* A figure that crashes, or whose code can't load, stops here:
+                  the plate takes his place (FigureFailed), and he is tried
+                  again from there. The page and his panel carry on. */}
+              <ErrorBoundary
+                name="Amr's figure"
+                fallback={() => <FigureFailed onFailed={figure.fail} />}
+              >
+                <Suspense fallback={null}>
+                  <Sprite
+                    width={box.w}
+                    height={box.h}
+                    moveRef={buttonRef}
+                    onLoadError={figure.fail}
+                  />
+                </Suspense>
+              </ErrorBoundary>
             </div>
           )}
         </button>

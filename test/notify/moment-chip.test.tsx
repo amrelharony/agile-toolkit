@@ -9,12 +9,14 @@ import {
 } from "@/lib/notify/moment-scheduler";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { useMascotStore } from "@/lib/agent/mascot/store";
+import { useAgentStore } from "@/lib/agent/store";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
 
 /**
  * The moment chip beside Amr: its copy, the ~4 s fade (held while hovered),
- * tap → Activity, X and swipe to dismiss, its place by Amr's corner on
- * phones and desktop, and no animation under reduced motion.
+ * tap → Activity, X and swipe to dismiss, its place beside where Amr is drawn
+ * (and as far up as he has stepped) on phones and desktop, and that it
+ * appears with no animation.
  */
 
 const h = vi.hoisted(() => ({ phone: false }));
@@ -37,6 +39,7 @@ beforeEach(() => {
   __resetMomentsForTests();
   useActivityUiStore.setState({ activityOpen: false, trophyOpen: false });
   useMascotStore.getState().reset();
+  useAgentStore.setState({ open: false, openedVia: null });
 });
 
 afterEach(() => {
@@ -127,27 +130,100 @@ describe("MomentChip", () => {
     expect(useMomentStore.getState().current).toBeNull();
   });
 
-  it("has no animation under reduced motion and never exceeds the screen", () => {
+  it("appears as drawn, with no entrance animation, and never exceeds the screen", () => {
     render(<MomentChip />);
     show();
-    const cls = document.querySelector("[data-moment-chip]")!.className;
-    expect(cls).toContain("motion-reduce:animate-none");
-    expect(cls).toMatch(/motion-safe:animate-in/);
-    expect(cls).not.toMatch(/(?<!motion-safe:)animate-in/);
+    const chip = document.querySelector<HTMLElement>("[data-moment-chip]")!;
+    // DNA-SPEC §8: what enters on its own never fades in, and his bubble in the
+    // same spot appears as drawn too.
+    for (const el of [chip, ...Array.from(chip.querySelectorAll<HTMLElement>("*"))]) {
+      expect(el.getAttribute("class") ?? "").not.toMatch(
+        /(^|[\s:])(animate-in|fade-in|zoom-in|slide-in-from-\S+|animate-pulse)(\s|$)/
+      );
+    }
     const region = screen.getByRole("status").className;
     expect(region).toContain("max-w-[min(18rem,calc(100vw-32px))]");
     expect(region).toContain("z-[55]");
   });
 
+  it("is a small panel with pen corners, never a pill", () => {
+    render(<MomentChip />);
+    show();
+    const chip = document.querySelector<HTMLElement>("[data-moment-chip]")!;
+    // DNA-SPEC §4: rounded-full is for avatars, dots and bars only.
+    expect(chip.className).toContain("rounded-[var(--panel-radius)]");
+    for (const el of [chip, ...Array.from(chip.querySelectorAll<HTMLElement>("*"))]) {
+      expect(el.getAttribute("class") ?? "").not.toMatch(/(^|\s)rounded-full(\s|$)/);
+    }
+    for (const button of screen.getAllByRole("button")) {
+      expect(button.className).toContain("rounded-md");
+    }
+  });
+
   it("phones: just above Amr's band on his side", () => {
     h.phone = true;
-    useMascotStore.getState().setCorner("bottomLeft");
+    useMascotStore.getState().setPlacement({ side: "left", edge: "bottom" }, 0);
     render(<MomentChip />);
     show();
     const style = screen.getByRole("status").style;
     expect(style.position).toBe("fixed");
     expect(style.bottom).toContain("--amr-band-bottom");
     expect(style.left).toBe("16px");
+  });
+
+  it("stands beside where Amr is drawn, not the corner he was put in", () => {
+    // Put in the bottom right, but stepped aside to the left for a control.
+    useMascotStore.getState().setCorner("bottomRight");
+    useMascotStore.getState().setPlacement({ side: "left", edge: "bottom" }, 0);
+    render(<MomentChip />);
+    show();
+    const style = screen.getByRole("status").style;
+    expect(style.left).toBe("156px");
+    expect(style.right).toBe("");
+    expect(style.bottom).toBe("24px");
+  });
+
+  it("follows his lift, and moves with him while it is up", () => {
+    render(<MomentChip />);
+    show();
+    const region = screen.getByRole("status");
+    expect(region.style.bottom).toBe("24px");
+    expect(region.style.right).toBe("156px");
+    // He steps 48 px up off his edge: the chip rises with him, past him.
+    act(() => useMascotStore.getState().setPlacement({ side: "right", edge: "bottom" }, 48));
+    expect(region.style.bottom).toBe("72px");
+    expect(region).toHaveTextContent("Level 8 · tap to see");
+    // Back down, and to a top corner: level with him under the header.
+    act(() => useMascotStore.getState().setPlacement({ side: "left", edge: "top" }, 0));
+    expect(region.style.bottom).toBe("");
+    expect(region.style.top).toContain("--header-h");
+    expect(region.style.left).toBe("156px");
+  });
+
+  it("phones: follows his lift past his band", () => {
+    h.phone = true;
+    useMascotStore.getState().setPlacement({ side: "right", edge: "bottom" }, 96);
+    render(<MomentChip />);
+    show();
+    const style = screen.getByRole("status").style;
+    expect(style.bottom).toContain("--amr-band-bottom");
+    expect(style.bottom).toContain("104px");
+    expect(style.right).toBe("16px");
+  });
+
+  it("goes when his chat panel opens, so it never sits on the panel", () => {
+    render(<MomentChip />);
+    show();
+    const region = screen.getByRole("status");
+    expect(region).toHaveTextContent("Level 8 · tap to see");
+    act(() => useAgentStore.getState().openSheet({ via: "pointer" }));
+    expect(useMomentStore.getState().current).toBeNull();
+    expect(region).toBeEmptyDOMElement();
+    // Nothing opened Activity: the row is waiting there.
+    expect(useActivityUiStore.getState().activityOpen).toBe(false);
+    // A preview asked for while it is open (Settings) still shows.
+    act(() => previewMoment());
+    expect(region).toHaveTextContent("Level 8 · tap to see");
   });
 
   it("previewMoment() shows it", () => {
@@ -169,5 +245,19 @@ describe("momentChipPosition", () => {
     expect(pos[edge]).toBeDefined();
     expect(pos[edge === "top" ? "bottom" : "top"]).toBeUndefined();
     if (variable) expect(String(pos[edge])).toContain(variable);
+  });
+
+  it("moves off his edge as far as he has stepped up", () => {
+    expect(momentChipPosition("bottomRight", false, 48)).toMatchObject({ bottom: 72, right: 156 });
+    expect(String(momentChipPosition("topLeft", false, 48).top)).toContain("72px");
+    expect(String(momentChipPosition("bottomLeft", true, 144).bottom)).toContain("152px");
+    expect(String(momentChipPosition("topRight", true, 96).top)).toContain("104px");
+    // Not stepped up (or a lift that isn't a positive number): his usual spot.
+    expect(momentChipPosition("bottomRight", true, -5)).toEqual(
+      momentChipPosition("bottomRight", true)
+    );
+    expect(momentChipPosition("topLeft", false, Number.NaN)).toEqual(
+      momentChipPosition("topLeft", false)
+    );
   });
 });

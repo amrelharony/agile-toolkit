@@ -11,11 +11,12 @@
  *               until the view fills it (<PanelSubtitle>)
  *   actions     the view's own icons (<PanelActions>), then the shell's controls
  *               (Amr's scenes)
- *   More        a menu of Amr's own settings, when it has one to offer: the
- *               tilt switch (a phone that can send its tilt) and, at its foot
- *               on fine pointers only, the open/close shortcut. Without a menu
- *               the shortcut follows the subtitle instead, also hidden on
- *               touch screens.
+ *   More        a menu of Amr's own settings, when it has one to offer: Move
+ *               Amr (a radio group of his four corners, named in words, so he
+ *               moves without dragging), the tilt switch (a phone that can send
+ *               its tilt) and, at its foot on fine pointers only, the
+ *               open/close shortcut. Without a menu the shortcut follows the
+ *               subtitle instead, also hidden on touch screens.
  *   Enlarge     md and up only, when the shell offers it; a toggle (aria-pressed)
  *               whose name stays "Enlarge chat" whatever its state, as a toggle's
  *               name should; the mouse tooltip says what a press does
@@ -28,16 +29,19 @@
  * account menu already loads on every page.
  */
 
-import type { ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { Ellipsis, Maximize2, Minimize2, X } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { AMR_CORNERS, cornerName, type AmrCorner } from "./amr-geometry";
 import { PanelIconButton, usePanelHosts } from "./panel-chrome";
 import { platformShortcut } from "./panel-ids";
 
@@ -67,6 +71,13 @@ export interface PanelTilt {
   onToggle: () => void;
 }
 
+/** Moving Amr without dragging him: the corner he stands in, and the move to another. */
+export interface PanelMove {
+  /** Where he is drawn now: the checked corner. */
+  corner: AmrCorner;
+  onMove: (corner: AmrCorner) => void;
+}
+
 export interface PanelHeaderProps {
   /** The name plate's id, for the dialog's aria-labelledby. */
   plateId?: string;
@@ -78,6 +89,8 @@ export interface PanelHeaderProps {
   controls?: ReactNode;
   /** The tilt switch, on a phone that can send its tilt. Without it there is none. */
   tilt?: PanelTilt;
+  /** Move Amr, the More menu's first group. Without it there is none. */
+  move?: PanelMove;
   /** Whether the panel is enlarged (Enlarge's pressed state). */
   enlarged?: boolean;
   /** Toggles the enlarged size. Without it there is no Enlarge button. */
@@ -91,6 +104,7 @@ export function PanelHeader({
   shortcut,
   controls,
   tilt,
+  move,
   enlarged = false,
   onToggleEnlarge,
   onClose,
@@ -99,9 +113,8 @@ export function PanelHeader({
   const filled = slots.filled("subtitle");
   const hasSubtitle = filled || (subtitle != null && subtitle !== false && subtitle !== "");
   // A menu needs a choice in it: a role=menu with only a line of text has no
-  // item to land on. The tilt switch is the only choice so far; "Move Amr"
-  // joins it next and will keep the menu there for everyone.
-  const hasMenu = tilt != null;
+  // item to land on. Amr's panel always offers Move Amr, so everyone has one.
+  const hasMenu = tilt != null || move != null;
   return (
     <div
       data-panel-header=""
@@ -135,7 +148,7 @@ export function PanelHeader({
           className="flex items-center gap-0.5 empty:hidden"
         />
         {controls}
-        {hasMenu && <PanelMore shortcut={shortcut} tilt={tilt} />}
+        {hasMenu && <PanelMore shortcut={shortcut} tilt={tilt} move={move} />}
         {onToggleEnlarge && (
           <PanelIconButton
             label="Enlarge chat"
@@ -162,8 +175,22 @@ export function PanelHeader({
  * Space or the down arrow, moves through it with the arrows, and closes it on
  * Escape with preventDefault, so the panel's Escape (which skips a prevented
  * one) leaves the panel open and focus returns to the button.
+ *
+ * Move Amr comes first: his four corners as radio items (aria-checked on the
+ * one he stands in), a group named by its label. A choice closes the menu,
+ * as a radio choice in a menu does, and focus goes back to More while the
+ * panel goes with him to the new corner.
  */
-function PanelMore({ shortcut, tilt }: { shortcut?: string; tilt?: PanelTilt }) {
+function PanelMore({
+  shortcut,
+  tilt,
+  move,
+}: {
+  shortcut?: string;
+  tilt?: PanelTilt;
+  move?: PanelMove;
+}) {
+  const moveLabelId = useId();
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -172,8 +199,25 @@ function PanelMore({ shortcut, tilt }: { shortcut?: string; tilt?: PanelTilt }) 
         </PanelIconButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
-        {/* ── Move Amr goes here, first: a labelled radio group of his four
-               corners (DropdownMenuLabel + DropdownMenuRadioGroup). ── */}
+        {move && (
+          <>
+            <DropdownMenuLabel id={moveLabelId} className="text-xs text-sub">
+              Move Amr
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              aria-labelledby={moveLabelId}
+              value={move.corner}
+              onValueChange={(c) => move.onMove(c as AmrCorner)}
+            >
+              {AMR_CORNERS.map((c) => (
+                <DropdownMenuRadioItem key={c} value={c}>
+                  {cornerName(c)}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            {tilt && <DropdownMenuSeparator />}
+          </>
+        )}
         {tilt && (
           // A switch in a menu is a checkbox item: aria-checked is its state.
           // It stays open after a press, so the new state shows.

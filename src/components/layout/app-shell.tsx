@@ -52,6 +52,7 @@ import { CloudSyncProvider } from "@/lib/sync/sync-provider";
 import { HistorySyncProvider } from "@/lib/history/sync-provider";
 import { TimeTravelShortcuts } from "@/components/history/time-travel-shortcuts";
 import { ErrorBoundary } from "./error-boundary";
+import { AmrBoundary } from "./amr-boundary";
 import { Suspense } from "react";
 
 // Phase 4 — global flying-card portal. Dynamic-imported so the
@@ -218,7 +219,11 @@ function FullAppShell({ children }: { children: React.ReactNode }) {
                                 <HolidayEngine />
                               </Suspense>
                             </ErrorBoundary>
-                            <MascotAssistant />
+                            {/* A last resort: a crash in Amr leaves his "Ask Amr" plate
+                                in his corner, never the app's error screen. */}
+                            <AmrBoundary>
+                              <MascotAssistant />
+                            </AmrBoundary>
                           </HistorySyncProvider>
                         </CloudSyncProvider>
                       </OwnerPresenceProvider>

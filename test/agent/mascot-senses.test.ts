@@ -38,6 +38,8 @@ import {
   skidFor,
 } from "@/components/agent/mascot/engine/interactions/sensors";
 import { tiltLook } from "@/components/agent/mascot/engine/sprite-poses";
+import { canStroll } from "@/components/agent/mascot/engine/senses";
+import { useAgentStore } from "@/lib/agent/store";
 
 describe("the director", () => {
   it("allows one unprompted reaction every 20 s, each with its own cooldown", () => {
@@ -188,6 +190,52 @@ describe("the idle ladder", () => {
     const from = h.at();
     h.run(from + YAWN_MS * HURRY_FACTOR + 1000);
     expect(h.acts).toEqual(["yawn", "standUp"]);
+  });
+});
+
+describe("when he may stroll", () => {
+  /** A screen: a mouse (fine pointer) or not, phone width or not. */
+  function stubScreen({ fine = true, phone = false } = {}) {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(pointer: fine)" ? fine : query.includes("max-width") ? phone : false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+  }
+  const atBottom = { reducedMotion: false, parkedTop: () => false };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useAgentStore.setState({ open: false });
+  });
+
+  it("on a desktop with a mouse, parked at the bottom, with his panel shut", () => {
+    stubScreen();
+    useAgentStore.setState({ open: false });
+    expect(canStroll(atBottom)).toBe(true);
+  });
+
+  it("never while his panel is open, so he doesn't wander off from it", () => {
+    stubScreen();
+    useAgentStore.setState({ open: true });
+    expect(canStroll(atBottom)).toBe(false);
+    useAgentStore.setState({ open: false });
+    expect(canStroll(atBottom)).toBe(true);
+  });
+
+  it("not with less motion asked for, parked up top, on a phone, or without a mouse", () => {
+    stubScreen();
+    expect(canStroll({ ...atBottom, reducedMotion: true })).toBe(false);
+    expect(canStroll({ ...atBottom, parkedTop: () => true })).toBe(false);
+    stubScreen({ phone: true });
+    expect(canStroll(atBottom)).toBe(false);
+    stubScreen({ fine: false });
+    expect(canStroll(atBottom)).toBe(false);
   });
 });
 
