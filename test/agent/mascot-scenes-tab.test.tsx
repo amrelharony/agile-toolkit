@@ -62,7 +62,12 @@ vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
   RateLimitBar: () => <div data-testid="rate-limit-bar" />,
 }));
 
-import ScenesTab, { COMPANION_TITLES } from "@/components/agent/mascot/scenes-tab";
+import ScenesTab, {
+  COMPANION_TITLES,
+  SCENES_ANNOUNCE_MS,
+} from "@/components/agent/mascot/scenes-tab";
+import { SEARCH_ANNOUNCE_MS } from "@/components/agent/mascot/visitor-guide";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
 import { PANEL_SUBTITLE } from "@/components/agent/mascot/panel-chrome";
 import VisitorAgentPanel from "@/components/agent/mascot/visitor-agent-panel";
@@ -92,6 +97,9 @@ const labelsIn = (list: HTMLElement) =>
     .map((b) => b.getAttribute("aria-label"));
 
 const play = (title: string) => screen.getByRole("button", { name: `Play: ${title}` });
+
+/** The count under the filter, by its words (it is not a live region). */
+const countLine = (text: string) => screen.getByText(text, { selector: "p" });
 
 beforeEach(() => {
   h.unshipped = new Set();
@@ -138,9 +146,25 @@ describe("the Scenes tab", () => {
         )
       );
     }
-    expect(screen.getByRole("status")).toHaveTextContent(
-      `${COMPANION_SCENES.play.length + EXPANSION_SHEETS.length} scenes.`
-    );
+    expect(
+      countLine(
+        `${COMPANION_SCENES.play.length + EXPANSION_SHEETS.length} scenes. Tap one and Amr acts it out, just for fun.`
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("heads each family in sentence case, under the name plate, on the strip's paper", () => {
+    render(<ScenesTab onPlay={() => {}} />);
+    const root = screen.getByTestId("mascot-scenes");
+    for (const heading of screen.getAllByRole("heading")) {
+      // The plate is the panel's h2; History's groups are h3s too.
+      expect(heading.tagName, heading.textContent ?? "").toBe("H3");
+      expect(heading).toHaveClass("sticky", "bg-bg", "text-xs", "font-semibold", "text-sub");
+      expect(heading).not.toHaveClass("bg-surface-deep");
+    }
+    // No capitals for show anywhere in the tab (the panel's comic rule).
+    expect(root.querySelectorAll(".uppercase")).toHaveLength(0);
+    expect(root.innerHTML).not.toMatch(/uppercase/);
   });
 
   it("leaves out a scene whose pack doesn't ship, and a family with none", () => {
@@ -171,7 +195,7 @@ describe("the Scenes tab", () => {
     expect(screen.getAllByRole("button", { name: /^Play: / })).toHaveLength(1);
     expect(play(EXPANSION_TITLES.x120)).toBeInTheDocument();
     expect(screen.getAllByRole("heading").map((el) => el.textContent)).toEqual(["Play"]);
-    expect(screen.getByRole("status")).toHaveTextContent("1 scene matches “KEYSTONE”.");
+    expect(countLine("1 scene matches “KEYSTONE”.")).toBeInTheDocument();
 
     // A straight apostrophe finds a curly one.
     fireEvent.change(filter, { target: { value: "model's limits" } });
@@ -184,14 +208,45 @@ describe("the Scenes tab", () => {
     ].filter((t) => t.toLowerCase().includes("story"));
     expect(matching.length).toBeGreaterThan(1);
     expect(screen.getAllByRole("button", { name: /^Play: / })).toHaveLength(matching.length);
-    expect(screen.getByRole("status")).toHaveTextContent(
-      `${matching.length} scenes match “story”.`
-    );
+    expect(countLine(`${matching.length} scenes match “story”.`)).toBeInTheDocument();
 
     fireEvent.change(filter, { target: { value: "zzqx" } });
     expect(screen.queryAllByRole("button", { name: /^Play: / })).toEqual([]);
     expect(screen.queryAllByRole("list")).toEqual([]);
-    expect(screen.getByRole("status")).toHaveTextContent("No scenes match “zzqx”.");
+    expect(countLine("No scenes match “zzqx”.")).toBeInTheDocument();
+  });
+
+  it("reads the count out once typing has stopped, through the app's one announcer", () => {
+    expect(SCENES_ANNOUNCE_MS).toBe(SEARCH_ANNOUNCE_MS);
+    vi.useFakeTimers();
+    try {
+      render(
+        <LiveAnnouncerProvider>
+          <ScenesTab onPlay={() => {}} />
+        </LiveAnnouncerProvider>
+      );
+      const root = screen.getByTestId("mascot-scenes");
+      const live = '[role="status"], [role="alert"], [role="log"], [aria-live]';
+      expect(root.querySelectorAll(live)).toHaveLength(0);
+      const said = screen.getByTestId("live-polite");
+      // The list as it opens is not read out.
+      act(() => vi.advanceTimersByTime(SCENES_ANNOUNCE_MS + 50));
+      expect(said).toHaveTextContent("");
+
+      const filter = screen.getByLabelText("Find a scene");
+      fireEvent.change(filter, { target: { value: "stor" } });
+      act(() => vi.advanceTimersByTime(SCENES_ANNOUNCE_MS - 100));
+      // Still typing: the wait starts again.
+      fireEvent.change(filter, { target: { value: "zzqx" } });
+      act(() => vi.advanceTimersByTime(SCENES_ANNOUNCE_MS - 1));
+      expect(said).toHaveTextContent("");
+      // The announcer's own 50 ms clear-then-say comes after the wait.
+      act(() => vi.advanceTimersByTime(1 + 50));
+      expect(said).toHaveTextContent("No scenes match “zzqx”.");
+      expect(root.querySelectorAll(live)).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("plays the scene tapped, then closes the panel so he's in view", () => {
