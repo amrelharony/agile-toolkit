@@ -641,6 +641,7 @@ registry.register({
   name: "delete",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Delete this risk",
   description:
     "Delete a risk, as the page's delete does (canvas cards pinned to it are unpinned). Final for an agent (the page offers Undo): confirm with the user first. Params: id. Returns {deleted: true, id, title} or {deleted: false, reason: 'not_found' | 'pending_move', message?} or {deleted: false, confirmed: false}. 'pending_move': a row of the old Risk Register page not moved in yet; open the Risk Register once, then delete it.",
   paramsSchema: z.object({ id: z.string().min(1) }),

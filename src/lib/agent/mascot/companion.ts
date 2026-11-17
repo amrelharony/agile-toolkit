@@ -4,7 +4,7 @@
  * COMPANION_SCENES names the same scenes):
  *
  *   • a decision: while a two-choice card waits for the visitor (the visitor's
- *     Approve or Deny card, the consent card before their first AI message), he
+ *     confirm card, its verb or Not now, the consent card before their first AI message), he
  *     offers the two options once, then waits. No timer ends it and no default
  *     is chosen: it lasts exactly as long as a card does.
  *   • trouble: something went wrong a moment ago (a failed answer, a spent
@@ -68,7 +68,7 @@ export function troubleRecent(now: number = Date.now()): boolean {
 }
 
 /**
- * Whether a tool result is the visitor's own decision not to go ahead (Deny, a
+ * Whether a tool result is the visitor's own decision not to go ahead (Not now, a
  * closed card, a stopped turn): a normal answer, not a failure.
  */
 export function isDeclined(result: { content: unknown; is_error?: boolean }): boolean {

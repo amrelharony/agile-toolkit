@@ -34,8 +34,8 @@ import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import { formatPeakTime, peakWindow } from "@/lib/visitor-ai/peak";
 import { useChatVisible } from "../chat-visibility";
-import { ConfirmAction } from "../confirm-action";
-import { MessageBubble } from "../message-bubble";
+import { ConfirmCard } from "../chat/confirm-card";
+import { MessageBubble, useToolSteps } from "../message-bubble";
 import { handleMascotCommand } from "./engine/customization/commands";
 import { VISITOR_AI_DAILY_MESSAGES } from "./visitor-ai-consent";
 
@@ -284,6 +284,7 @@ export default function VisitorAgentPanel({
   // knows (it holds the registry). Nothing to press while Amr answers.
   const action = busy ? null : noticeAction(notice, "visitor");
   const canRetry = action === "retry" && (loadedRuntime?.canRetryLastTurn(messages) ?? false);
+  const steps = useToolSteps(messages, busy);
 
   return (
     // The panel can be as short as 160 px (a landscape phone). The log keeps a
@@ -314,7 +315,7 @@ export default function VisitorAgentPanel({
           </div>
         )}
         {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
+          <MessageBubble key={m.id} message={m} steps={steps} />
         ))}
         {awaiting && (
           <div className="flex items-center gap-2 px-1 text-xs text-sub" role="status">
@@ -326,7 +327,8 @@ export default function VisitorAgentPanel({
             Amr is thinking…
           </div>
         )}
-        <ConfirmAction allowApproveAll={false} />
+        {/* A visitor approves every change: no Approve all. */}
+        <ConfirmCard />
         {notice && (
           <Narration
             tone={notice.tone}

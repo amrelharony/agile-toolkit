@@ -303,6 +303,7 @@ registry.register({
   name: "set_open",
   category: "write",
   visitor: false,
+  confirmLabel: "Open or close the wall",
   description:
     "Audience Wall: stop (open false) or start again (open true) taking posts and votes on the live wall.",
   paramsSchema: z.object({ open: z.boolean() }),

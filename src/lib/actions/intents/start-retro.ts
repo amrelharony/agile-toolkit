@@ -22,6 +22,7 @@ registry.register({
   toolId: "intent",
   name: "start_retro_for_sprint",
   category: "intent",
+  confirmLabel: "Make a retro whiteboard",
   description:
     "Make a Canvas whiteboard for a sprint's retro: a new whiteboard with Start/Stop/Continue frames; returns the boardId. This is not the Retro tool's board: to start that (looking back on the sprint, with its facts and actions), use tool.retro.start.",
   longDescription:

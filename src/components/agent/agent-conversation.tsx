@@ -25,9 +25,9 @@ import {
 } from "@/lib/agent/persist";
 import { Button } from "@/components/ui/button";
 import { Narration } from "./comic/comic-parts";
-import { ConfirmAction } from "./confirm-action";
 import { useChatVisible } from "./chat-visibility";
-import { MessageBubble } from "./message-bubble";
+import { ConfirmCard } from "./chat/confirm-card";
+import { MessageBubble, useToolSteps } from "./message-bubble";
 import { useVoiceInput } from "@/lib/agent/mascot/use-voice-input";
 import { handleMascotCommand } from "./mascot/engine/customization/commands";
 import { Send, Mic, Square } from "lucide-react";
@@ -208,6 +208,7 @@ export function AgentConversation() {
   // Try again only when the last turn ran no change; nothing to press while Amr answers.
   const action = streaming || !user ? null : noticeAction(notice, "owner");
   const canRetry = action === "retry" && canRetryLastTurn(messages);
+  const steps = useToolSteps(messages, streaming);
 
   return (
     <div className="flex flex-col h-full">
@@ -230,7 +231,7 @@ export function AgentConversation() {
           </div>
         )}
         {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
+          <MessageBubble key={m.id} message={m} steps={steps} details />
         ))}
         {awaiting && (
           <div className="flex items-center gap-2 px-1 text-xs text-sub">
@@ -242,7 +243,7 @@ export function AgentConversation() {
             Amr is thinking…
           </div>
         )}
-        <ConfirmAction />
+        <ConfirmCard allowApproveAll />
         {notice && (
           <Narration
             tone={notice.tone}
@@ -324,9 +325,11 @@ export function AgentConversation() {
         </form>
         {voice.error && <p className="mt-1.5 text-xs text-destructive">{voice.error}</p>}
         <p className="text-xs text-sub mt-1.5">
-          {/* Key hints mean nothing on a touch screen; the safety note stays. */}
+          {/* Key hints mean nothing on a touch screen; the safety note stays. It
+              is true: every delete, remove, reset, clear or archive asks
+              (lib/agent/execute-tool isDestructiveAction), even after Approve all. */}
           <span className="pointer-coarse:hidden">Enter to send · Shift+Enter for newline · </span>
-          Write actions ask for confirmation
+          Amr asks before deleting or resetting anything
         </p>
       </div>
     </div>

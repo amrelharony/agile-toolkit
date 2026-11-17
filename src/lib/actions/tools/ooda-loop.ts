@@ -242,6 +242,7 @@ registry.register({
   name: "complete_cycle",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Mark this cycle complete",
   description:
     "Manually mark an OODA cycle complete by stamping completedAt (defaults to now). Useful when a cycle is abandoned without running through the 'act' phase. After completion the cycle becomes immutable to advance_phase. Returns {updated: false} when the id is unknown. Reversible via a workspace.ooda_cycle.update patch that clears completedAt.",
   paramsSchema: z.object({

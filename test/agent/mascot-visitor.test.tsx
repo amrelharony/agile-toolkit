@@ -766,7 +766,7 @@ describe("MascotAssistant — visitor AI", () => {
       return view;
     }
 
-    it("asks before a change with Approve and Deny, never Approve all", async () => {
+    it("asks before a change with its verb and Not now, never Approve all", async () => {
       await openChatWithQuestion();
       act(() => {
         useAgentStore.getState().setPendingToolUse({
@@ -774,14 +774,23 @@ describe("MascotAssistant — visitor AI", () => {
           actionId: "tool_retro_add_card",
           resolvedActionId: "tool.retro.add_card",
           input: { text: "flaky CI" },
-          summary: "Add a card 'flaky CI' to the retro",
+          prompt: {
+            verb: "Add card",
+            title: "Retro Board",
+            question: "Add a card to Retro Board?",
+            detail: "Text: “flaky CI”",
+            destructive: false,
+          },
           resolve: () => {},
         });
       });
-      expect(screen.getByText("Add a card 'flaky CI' to the retro")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Approve" })).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Deny" })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: /Approve all/ })).toBeNull();
+      expect(
+        screen.getByRole("heading", { level: 3, name: "Add a card to Retro Board?" })
+      ).toBeInTheDocument();
+      expect(screen.getByText("Text: “flaky CI”")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add card" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Not now" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /don't ask again/ })).toBeNull();
     });
 
     it("shows Amr thinking until his reply's first words arrive", async () => {

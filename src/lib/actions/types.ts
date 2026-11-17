@@ -30,8 +30,18 @@ export interface ToolAction<P = unknown, R = unknown> {
   paramsSchema: z.ZodType<P>;
   resultSchema?: z.ZodType<R>;
   /** When true, the in-app agent UI prompts for confirmation before
-   *  executing. `write` and `intent` default to true; `read` to false. */
+   *  executing. `write` and `intent` default to true; `read` to false.
+   *  A delete, remove, reset, clear or archive (by `name`) always asks in the
+   *  agent chat, whatever this says (lib/agent/execute-tool.ts). */
   requiresConfirmation?: boolean;
+  /**
+   * What the confirm card's button says, as a short verb phrase in sentence
+   * case ("Delete this risk", "Clear the skills matrix"); the card asks it as
+   * its question too. Set it on actions that ask (`requiresConfirmation: true`
+   * and the intents), where the words worked out from the name would read
+   * badly. Without it the card uses the tool's name and the verb from the name.
+   */
+  confirmLabel?: string;
   /**
    * Whether Amr may offer this action to a signed-out visitor's chat
    * (visitor AI). Defaults to true: an action runs in the visitor's own tab on

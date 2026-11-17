@@ -31,7 +31,13 @@ import { executeToolUse } from "./execute-tool";
 import { buildVisitorTurnTools } from "./visitor-tools";
 import { inLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { appendMessages, deleteMessagesBetween, recordChatUsage } from "./persist";
-import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "./types";
+import type {
+  ChatMessage,
+  ConfirmPrompt,
+  ContentBlock,
+  ToolResultBlock,
+  ToolUseBlock,
+} from "./types";
 
 /** Text of the most recent user message (joined text blocks), or "" if none. */
 function lastUserText(messages: ChatMessage[]): string {
@@ -2178,8 +2184,9 @@ function resultIdsAfter(messages: ChatMessage[], i: number): Set<string> {
   return ids;
 }
 
-function makeConfirmHandler(block: ToolUseBlock): (summary: string) => Promise<boolean> {
-  return async (summary: string) => {
+/** The confirm card's handler for one call: it shows `prompt` (execute-tool's words) and waits for the answer. */
+function makeConfirmHandler(block: ToolUseBlock): (prompt: ConfirmPrompt) => Promise<boolean> {
+  return async (prompt: ConfirmPrompt) => {
     const store = useAgentStore.getState();
     return await new Promise<boolean>((resolve) => {
       const dotted = registry.resolve(block.name)?.id ?? block.name;
@@ -2199,7 +2206,7 @@ function makeConfirmHandler(block: ToolUseBlock): (summary: string) => Promise<b
         actionId: block.name,
         resolvedActionId: dotted,
         input: block.input,
-        summary,
+        prompt,
         resolve: settle,
       });
     });

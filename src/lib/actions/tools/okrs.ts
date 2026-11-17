@@ -467,6 +467,7 @@ registry.register({
   name: "remove_check_in",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Delete this check-in",
   description:
     "Delete one check-in from a key result, as the OKR page's check-in history does. The key result's current value and confidence then follow the newest check-in left; with none left, current goes back to its baseline (a key result with no baseline keeps its value) and an unscored key result has no confidence. Params: {okrId, keyResultId, checkInId}. Returns {removed: true, current, confidence | null, keyResultProgressPct, progressPct (the objective's), checkInCount} or {removed: false, reason: 'not_found', message}.",
   paramsSchema: removeParams,
