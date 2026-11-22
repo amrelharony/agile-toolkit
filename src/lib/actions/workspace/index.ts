@@ -52,6 +52,11 @@ import {
   IMPROVEMENT_UNIT_MAX,
   INTERRUPT_KINDS,
   KATA_OBSTACLE_STATUSES,
+  KICKOFF_BRIEF_MAX,
+  KICKOFF_FORMATS,
+  KICKOFF_ITEM_MAX,
+  KICKOFF_SLIDER_LABEL_MAX,
+  KICKOFF_STATUSES,
   KR_CHECK_IN_CAP,
   LOOP_POLARITIES,
   LOOP_TEXT_MAX,
@@ -285,6 +290,7 @@ import type {
   EbmBoard,
   WorkflowDefinition,
   Improvement,
+  Kickoff,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -1954,6 +1960,7 @@ const CharterRuleSchema = z.object({
     .optional()
     .describe("The draft of the check-in in progress: true, false or 'partly'."),
   consent: z.array(CharterConsentSchema).optional().describe("Each person's answer to the rule."),
+  sourceRef: HandoffRefSchema.optional().describe("The item it was sent from (a kickoff's rule)."),
 });
 
 const CharterMetaSchema = z.object({
@@ -5624,4 +5631,77 @@ defineCrudActions<Improvement>({
   generateId: () => `improve_${nanoid(8)}`,
   prepare: prepareImprovement,
   beforeWrite: beforeImprovementWrite,
+});
+
+/* P2.8 — Kickoff. Its items are the sectioned kit's (sectionsSchema), with a
+ * worry's ratings and the worry an item answers. */
+
+/** Whether every item has its text, or an owner (a person whose role isn't known yet). */
+const textOrOwner = (sections: Record<string, { text: string; owner?: string }[]>) =>
+  Object.values(sections).every((items) =>
+    items.every((item) => item.text.trim() !== "" || (item.owner ?? "").trim() !== "")
+  );
+
+const KickoffSchema = z
+  .object({
+    id: z.string(),
+    title: Filled(TOOL_TEXT_MAX.short),
+    format: z.enum(KICKOFF_FORMATS),
+    brief: z.string().max(KICKOFF_BRIEF_MAX).optional().describe("What the kickoff is for."),
+    date: IsoDay.optional(),
+    participants: z
+      .array(z.string().max(TOOL_TEXT_MAX.short))
+      .max(TOOL_LIST_MAX.kickoffParticipants)
+      .optional(),
+    sections: sectionsSchema({
+      itemMax: KICKOFF_ITEM_MAX,
+      itemExtra: {
+        likelihood: Scale5.optional().describe("A worry's likelihood, 1–5."),
+        impact: Scale5.optional().describe("A worry's impact, 1–5."),
+        covers: ItemId.optional().describe("The worry item in this kickoff it answers."),
+      },
+    })
+      .refine(textOrOwner, {
+        message: "a kickoff item needs its text, or an owner when it has none",
+      })
+      .describe("The items by the format's section id."),
+    sliders: z
+      .array(
+        z.object({
+          id: ItemId,
+          label: Filled(KICKOFF_SLIDER_LABEL_MAX),
+          position: z
+            .number()
+            .int()
+            .min(1)
+            .max(TOOL_LIST_MAX.kickoffSliders)
+            .describe("Its place in the order, 1 first; each position once."),
+          note: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        })
+      )
+      .max(TOOL_LIST_MAX.kickoffSliders)
+      .refine((sliders) => new Set(sliders.map((s) => s.position)).size === sliders.length, {
+        message: "each slider has its own position",
+      })
+      .optional()
+      .describe("The trade-off sliders, in their order."),
+    slidersSetAt: IsoTime.optional(),
+    status: z.enum(KICKOFF_STATUSES),
+    agreedAt: IsoTime.optional(),
+    sentTo: SentTo.describe("The slider order's decision link."),
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("kickoff")) as unknown as z.ZodType<Kickoff>;
+
+defineCrudActions<Kickoff>({
+  toolId: "workspace.kickoff",
+  entityName:
+    "kickoff (Team Alignment Map, Project Poster, Team Canvas, Inception deck, trade-off sliders or problem framing)",
+  schema: KickoffSchema,
+  selectAll: () => ws().kickoffs ?? [],
+  upsert: (x) => ws().upsertKickoff(x),
+  remove: (id) => ws().removeKickoff(id),
+  generateId: () => `kickoff_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
 });

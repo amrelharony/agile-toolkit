@@ -35,6 +35,10 @@ import {
   EXAMPLE_MAP_KIND,
   HILL_CHART_KIND,
   IMPROVEMENT_KIND,
+  KICKOFF_BRIEF_MAX,
+  KICKOFF_ITEM_MAX,
+  KICKOFF_KIND,
+  KICKOFF_SLIDER_LABEL_MAX,
   MEETING_NOTE_KIND,
   PERSONA_KIND,
   PRODUCT_CANVAS_KIND,
@@ -64,6 +68,7 @@ import {
   IMPEDIMENT_IN_CLUSTER,
   IMPROVEMENT,
   INTERRUPT_FROM_BUG,
+  KICKOFF,
   MEETING_NOTE,
   PERSONA,
   PRODUCT_CANVAS,
@@ -152,6 +157,7 @@ const COLLECTIONS: [toolId: string, slice: keyof Workspace, doc: Doc, kind: stri
     WORKFLOW_DEFINITION_KIND,
   ],
   ["workspace.improvement", "improvements", IMPROVEMENT, IMPROVEMENT_KIND],
+  ["workspace.kickoff", "kickoffs", KICKOFF, KICKOFF_KIND],
 ];
 
 /** The one-document collections: create keeps their fixed id. */
@@ -1355,5 +1361,98 @@ describe("P2.7 the causal loop and the card day", () => {
     const stored = await update("workspace.retro_board", "retroBoards", RETRO_WITH_DAYS);
     expect(stored).toEqual(RETRO_WITH_DAYS);
     expect(RETRO_CARD_DAY_MAX).toBe(30);
+  });
+});
+
+describe("P2.8 kickoffs", () => {
+  const T = "workspace.kickoff";
+  const item = (id: string, extra = {}) => ({ id, text: id, ...extra });
+
+  it("mint kickoff_ ids", async () => {
+    const { id } = (await create(T, { ...KICKOFF, id: undefined })) as { id: string };
+    expect(id).toMatch(/^kickoff_/);
+  });
+
+  it("hold every cap and set", () => {
+    rejects(T, { ...KICKOFF, title: "" });
+    rejects(T, { ...KICKOFF, format: "lean-canvas" });
+    rejects(T, { ...KICKOFF, status: "done" });
+    rejects(T, { ...KICKOFF, brief: "x".repeat(KICKOFF_BRIEF_MAX + 1) });
+    rejects(T, { ...KICKOFF, date: "Monday" });
+    rejects(T, {
+      ...KICKOFF,
+      participants: Array.from(
+        { length: TOOL_LIST_MAX.kickoffParticipants + 1 },
+        (_, i) => `p${i}`
+      ),
+    });
+    rejects(T, {
+      ...KICKOFF,
+      sections: { goal: [item("a", { text: "x".repeat(KICKOFF_ITEM_MAX + 1) })] },
+    });
+    accepts(T, {
+      ...KICKOFF,
+      sections: { goal: [item("a", { text: "x".repeat(KICKOFF_ITEM_MAX) })] },
+    });
+    rejects(T, { ...KICKOFF, sections: { Goal: [item("a")] } });
+    rejects(T, { ...KICKOFF, sections: { worries: [item("a", { likelihood: 6 })] } });
+    rejects(T, { ...KICKOFF, sections: { worries: [item("a", { impact: 0 })] } });
+    rejects(T, { ...KICKOFF, sections: { worries: [item("a", { likelihood: 2.5 })] } });
+    rejects(T, {
+      ...KICKOFF,
+      sections: {
+        goal: Array.from({ length: TOOL_LIST_MAX.sectionItems + 1 }, (_, i) => item(`i${i}`)),
+      },
+    });
+    rejects(T, {
+      ...KICKOFF,
+      sliders: Array.from({ length: TOOL_LIST_MAX.kickoffSliders + 1 }, (_, i) => ({
+        id: `s${i}`,
+        label: "l",
+        position: i + 1,
+      })),
+    });
+    rejects(T, {
+      ...KICKOFF,
+      sliders: [{ id: "s", label: "x".repeat(KICKOFF_SLIDER_LABEL_MAX + 1), position: 1 }],
+    });
+    rejects(T, { ...KICKOFF, sliders: [{ id: "s", label: "l", position: 9 }] });
+    rejects(T, { ...KICKOFF, agreedAt: "2026-11-16" });
+  });
+
+  it("take an item with no text only when it has an owner, on both transports", async () => {
+    rejects(T, { ...KICKOFF, sections: { people: [item("a", { text: " " })] } });
+    accepts(T, { ...KICKOFF, sections: { people: [item("a", { text: "", owner: "Ana" })] } });
+    const blank = { sections: { people: [item("a", { text: "" })] } };
+    await expect(update(T, "kickoffs", KICKOFF, blank)).rejects.toThrow(/text, or an owner/);
+    await expect(updateOverMcp(T, KICKOFF, blank)).rejects.toThrow(/text, or an owner/);
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
+
+  it("give each slider its own position, on both transports", async () => {
+    const twice = {
+      sliders: [
+        { id: "a", label: "Time", position: 1 },
+        { id: "b", label: "Scope", position: 1 },
+      ],
+    };
+    rejects(T, { ...KICKOFF, ...twice });
+    await expect(update(T, "kickoffs", KICKOFF, twice)).rejects.toThrow(/its own position/);
+    await expect(updateOverMcp(T, KICKOFF, twice)).rejects.toThrow(/its own position/);
+  });
+
+  it("refuse a kickoff too big for one row", async () => {
+    const sections = Object.fromEntries(
+      Array.from({ length: TOOL_LIST_MAX.sections }, (_, s) => [
+        `s${s}`,
+        Array.from({ length: TOOL_LIST_MAX.sectionItems }, (_, i) =>
+          item(`i${s}-${i}`, { text: wide(KICKOFF_ITEM_MAX) })
+        ),
+      ])
+    );
+    await expect(create(T, { ...KICKOFF, id: undefined, sections })).rejects.toThrow(
+      /This kickoff is too big to save/
+    );
+    await expect(updateOverMcp(T, KICKOFF, { sections })).rejects.toThrow(/too big to save/);
   });
 });

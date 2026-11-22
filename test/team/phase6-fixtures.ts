@@ -132,6 +132,15 @@ export const AGREEMENT: WorkingAgreement = {
         { name: "Bo", vote: "concern", note: "Hard to read the room", at: "2026-10-01T10:05:00Z" },
       ],
     },
+    // A rule sent from Kickoff keeps where it came from (the tools plan's phase 2, P2.8).
+    {
+      id: "rule-2",
+      category: "other",
+      text: "Say when you're stuck",
+      agreedBy: [],
+      consent: [],
+      sourceRef: { tool: "kickoff", id: "item-4", doc: "kickoff_1" },
+    },
   ],
   meta: { teamName: "Falcons", version: 2, publishedAt: "2026-10-02", description: "Our rules" },
   checkIns: [

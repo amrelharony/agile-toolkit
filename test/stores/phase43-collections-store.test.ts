@@ -37,6 +37,7 @@ import {
   EXAMPLE_MAP_KIND,
   HILL_CHART_KIND,
   IMPROVEMENT_KIND,
+  KICKOFF_KIND,
   MEETING_NOTE_KIND,
   POKER_ASYNC_ROUND_KIND,
   PERSONA_KIND,
@@ -59,6 +60,7 @@ import {
   IMPEDIMENT_IN_CLUSTER,
   IMPROVEMENT,
   INTERRUPT_FROM_BUG,
+  KICKOFF,
   MEETING_NOTE,
   PERSONA,
   POKER_ASYNC_ROUND,
@@ -199,6 +201,14 @@ const COLLECTIONS: {
     remove: (id) => ws().removeImprovement(id),
     toolId: "workspace.improvement",
     kind: IMPROVEMENT_KIND,
+  },
+  {
+    slice: "kickoffs",
+    doc: KICKOFF,
+    upsert: (x) => ws().upsertKickoff(x),
+    remove: (id) => ws().removeKickoff(id),
+    toolId: "workspace.kickoff",
+    kind: KICKOFF_KIND,
   },
 ];
 

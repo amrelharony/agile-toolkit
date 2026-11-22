@@ -1094,6 +1094,8 @@ export interface CharterRule {
   stillWorking?: boolean | "partly";
   /** Each person's answer; the source of truth for `agreedBy` once present. */
   consent?: CharterConsent[];
+  /** The item it was sent from (a kickoff's rule). */
+  sourceRef?: HandoffRef;
 }
 
 export interface CharterMeta {
@@ -3465,6 +3467,10 @@ export const TOOL_LIST_MAX = {
   loopLinks: 60,
   /** The named loops on a causal loop. */
   loopNames: 20,
+  /** A kickoff's trade-off sliders. */
+  kickoffSliders: 8,
+  /** The people at a kickoff. */
+  kickoffParticipants: 30,
 } as const;
 
 export const PARKING_LOT_STATUSES = ["open", "discussed", "sent", "dropped"] as const;
@@ -4810,6 +4816,79 @@ export interface RootCauseLoop {
   names?: RootCauseLoopName[];
 }
 
+/* P2.8, Kickoff: six formats built on the sectioned kit. A rule it sends to
+ * the Working Agreement records it in `CharterRule.sourceRef`. */
+
+export const KICKOFF_FORMATS = [
+  "alignment-map",
+  "project-poster",
+  "team-canvas",
+  "inception",
+  "trade-offs",
+  "problem-framing",
+] as const;
+export type KickoffFormat = (typeof KICKOFF_FORMATS)[number];
+
+export const KICKOFF_STATUSES = ["draft", "agreed"] as const;
+export type KickoffStatus = (typeof KICKOFF_STATUSES)[number];
+
+/** The most characters a kickoff item can have. */
+export const KICKOFF_ITEM_MAX = 500;
+/** The most characters a kickoff's brief can have. */
+export const KICKOFF_BRIEF_MAX = 2000;
+/** The most characters a trade-off slider's label can have. */
+export const KICKOFF_SLIDER_LABEL_MAX = 60;
+
+/**
+ * One line on a kickoff (the sectioned kit's item): its text is at most
+ * KICKOFF_ITEM_MAX and may be empty only when `owner` is set (a person whose
+ * role isn't known yet).
+ */
+export interface KickoffItem extends SectionItem {
+  /** A worry's likelihood and impact, whole numbers 1–5. */
+  likelihood?: number;
+  impact?: number;
+  /** The id of the worry item in the same kickoff this one answers. */
+  covers?: string;
+}
+
+/** One trade-off slider: positions are whole numbers 1–8, each used once. */
+export interface KickoffSlider {
+  id: string;
+  /** At most KICKOFF_SLIDER_LABEL_MAX. */
+  label: string;
+  position: number;
+  /** At most "short". */
+  note?: string;
+}
+
+/** A team's or a piece of work's kickoff (Kickoff), in one of six formats. */
+export interface Kickoff {
+  id: string;
+  /** At most "short". */
+  title: string;
+  format: KickoffFormat;
+  /** At most KICKOFF_BRIEF_MAX. */
+  brief?: string;
+  /** YYYY-MM-DD. */
+  date?: string;
+  /** At most TOOL_LIST_MAX.kickoffParticipants names, each at most "short". */
+  participants?: string[];
+  /** The items by the format's section id (lib/sectioned). */
+  sections: Record<string, KickoffItem[]>;
+  /** At most TOOL_LIST_MAX.kickoffSliders. */
+  sliders?: KickoffSlider[];
+  slidersSetAt?: ISODateString;
+  status: KickoffStatus;
+  agreedAt?: ISODateString;
+  /** The slider order's decision link. */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const KICKOFF_KIND = "workspace:kickoff";
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -4975,6 +5054,7 @@ export interface Workspace {
   /** One WorkflowDefinition, id WORKFLOW_DEFINITION_ID (Kanban's Definition of Workflow). */
   workflowDefinitions?: WorkflowDefinition[];
   improvements?: Improvement[];
+  kickoffs?: Kickoff[];
 }
 
 /**
@@ -5272,6 +5352,7 @@ export const emptyWorkspace = {
   ebmBoards: [],
   workflowDefinitions: [],
   improvements: [],
+  kickoffs: [],
 } satisfies Workspace;
 
 /**

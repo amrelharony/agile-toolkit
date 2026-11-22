@@ -14,6 +14,7 @@ import type {
   Impediment,
   Improvement,
   InterruptItem,
+  Kickoff,
   MeetingNote,
   Persona,
   PokerAsyncRound,
@@ -688,4 +689,41 @@ export const RETRO_WITH_DAYS: RetroBoard = {
   timerSeconds: 0,
   timerRunning: false,
   discussingIndex: 0,
+};
+
+/* P2.8 */
+
+export const KICKOFF: Kickoff = {
+  id: "kickoff_1",
+  title: "Payments team liftoff",
+  format: "team-canvas",
+  brief: "A new team for card payments.",
+  date: "2026-11-16",
+  participants: ["Ana", "Bo"],
+  sections: {
+    people: [
+      { id: "p1", text: "", owner: "Ana" },
+      { id: "p2", text: "Product Owner", owner: "Bo" },
+    ],
+    worries: [
+      {
+        id: "w1",
+        text: "The bank's sandbox is slow",
+        likelihood: 4,
+        impact: 3,
+        sentTo: [{ route: "risk", targetId: "risk_1", at: LATER }],
+      },
+    ],
+    rules: [{ id: "r1", text: "Pair on anything risky", covers: "w1" }],
+  },
+  sliders: [
+    { id: "sl1", label: "Quality", position: 1, note: "Payments can't break" },
+    { id: "sl2", label: "Scope", position: 2 },
+  ],
+  slidersSetAt: AT,
+  status: "agreed",
+  agreedAt: LATER,
+  sentTo: [{ route: "decision", targetId: "dec_2", at: LATER }],
+  createdAt: AT,
+  updatedAt: LATER,
 };
