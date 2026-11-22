@@ -16,8 +16,11 @@
  * The card holds no document state: `items` in, `onChange(next)` out. The
  * tool's store write may refuse a change by returning a sentence (say, the
  * row would be too big to save); the card shows it and keeps what was
- * typed. A delete is never refused, but its Undo may be (the line no longer
- * fits): the card then says so and leaves the list as it is.
+ * typed: an add stays in its field, and an edit stays in its editor (or,
+ * when focus left the editor, on its line, marked "Not saved", until it is
+ * saved or dropped with Escape). A delete is never refused, but its Undo
+ * may be (the line no longer fits): the card then says so and leaves the
+ * list as it is.
  *
  * Undo of a delete can run seconds later, after other changes. Without
  * `update`, it goes through the newest `onChange`, over the list as last
@@ -303,7 +306,8 @@ function ListBody<I extends SectionItem>({
   disabled: boolean;
   problemId?: string;
   onAdd: (text: string) => boolean;
-  onText: (item: I, text: string) => void;
+  /** False when the tool refused the new text. */
+  onText: (item: I, text: string) => boolean;
   onDelete: (item: I) => void;
 }) {
   const [draft, setDraft] = useState("");
@@ -402,10 +406,29 @@ function ItemRow<I extends SectionItem>({
   extras: ReactNode;
   actions: ReactNode;
   label: ReactNode;
-  onText: (text: string) => void;
+  /** False when the tool refused the new text. */
+  onText: (text: string) => boolean;
   onDelete: () => void;
 }) {
   const edit = useInlineEdit();
+  // Words the tool refused, kept so they're never lost: the editor opens on
+  // them again, and until then the line shows them, marked "Not saved".
+  const [unsaved, setUnsaved] = useState<string | null>(null);
+  // An editor ends once, so a refusal mounts a new one (its own state fresh).
+  const [round, setRound] = useState(0);
+  // The editor takes its draft from `title` when it mounts and compares
+  // against `title` when it ends. Opened on the unsaved words, it is then
+  // given the saved text, so saving the same words again tries again.
+  const [seeded, setSeeded] = useState(false);
+  useEffect(() => {
+    if (seeded) setSeeded(false);
+  }, [seeded]);
+
+  const open = () => {
+    if (unsaved !== null) setSeeded(true);
+    edit.start();
+  };
+
   const words = short(item.text);
   const shown = item.text.trim() ? (
     item.text
@@ -427,13 +450,28 @@ function ItemRow<I extends SectionItem>({
           <div className="min-w-0 flex-1">
             {edit.editing ? (
               <InlineItemEditor
+                key={round}
                 label="Edit line"
-                title={item.text}
+                title={seeded && unsaved !== null ? unsaved : item.text}
                 titleLabel="Line"
                 titleMaxLength={itemMax}
                 onDone={(next, { refocus }) => {
+                  if (next && !onText(next.title)) {
+                    // Refused (the card shows why). After Enter or a button,
+                    // the editor opens again on the words; when focus left it,
+                    // they wait on the line, so focus stays where it went.
+                    setUnsaved(next.title);
+                    if (refocus) {
+                      setRound((r) => r + 1);
+                      setSeeded(true);
+                    } else {
+                      edit.stop({ refocus });
+                    }
+                    return;
+                  }
+                  // Saved, cancelled or emptied: the line shows its saved text.
+                  setUnsaved(null);
                   edit.stop({ refocus });
-                  if (next) onText(next.title);
                 }}
               />
             ) : disabled ? (
@@ -442,11 +480,20 @@ function ItemRow<I extends SectionItem>({
               <button
                 ref={edit.triggerRef}
                 type="button"
-                onClick={edit.start}
+                onClick={open}
                 title="Click to edit"
                 className="block w-full cursor-text whitespace-pre-wrap break-words rounded-sm text-left text-sm text-text transition-colors hover:text-accent focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-accent pointer-coarse:min-h-11"
               >
-                {shown} <span className="sr-only">(edit)</span>
+                {unsaved ?? shown}
+                {unsaved !== null && (
+                  <>
+                    {" "}
+                    <span data-unsaved className="text-xs text-danger">
+                      Not saved
+                    </span>
+                  </>
+                )}{" "}
+                <span className="sr-only">(edit)</span>
               </button>
             )}
           </div>

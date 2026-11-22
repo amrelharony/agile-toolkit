@@ -486,6 +486,63 @@ describe("a list section", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
+  describe("an edit the tool refuses", () => {
+    const LONG_TEXT = "Late by a month or more, sadly";
+    const refuseLong = () =>
+      vi.fn((next: RatedItem[]) =>
+        next.some((i) => i.text.length > 20)
+          ? "This canvas is full. Shorten or remove some lines."
+          : undefined
+      );
+    const editLine = (name: string, text: string) => {
+      fireEvent.click(screen.getByRole("button", { name }));
+      fireEvent.change(screen.getByRole("textbox", { name: "Line" }), { target: { value: text } });
+    };
+
+    it("stays open with what was typed after Enter, and tries again on the next Enter", () => {
+      const spy = refuseLong();
+      wrap(<Harness def={LIST} initial={[item("r1", "Late")]} itemMax={50} spy={spy} />);
+      editLine("Late (edit)", LONG_TEXT);
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "Line" }), { key: "Enter" });
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("alert")).toHaveTextContent("This canvas is full.");
+      const editor = screen.getByRole("textbox", { name: "Line" });
+      expect(editor).toHaveValue(LONG_TEXT);
+      expect(editor).toHaveFocus();
+      // The same words again are a new try, not "nothing changed".
+      fireEvent.keyDown(editor, { key: "Enter" });
+      expect(spy).toHaveBeenCalledTimes(2);
+      expect(spy.mock.calls[1][0][0].text).toBe(LONG_TEXT);
+      expect(screen.getByRole("textbox", { name: "Line" })).toHaveValue(LONG_TEXT);
+      // Shortened, it goes through.
+      fireEvent.change(screen.getByRole("textbox", { name: "Line" }), {
+        target: { value: "Late by a month" },
+      });
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "Line" }), { key: "Enter" });
+      expect(rowTexts()).toEqual(["Late by a month"]);
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Late by a month (edit)" })).toHaveFocus();
+    });
+
+    it("keeps the words on the line when focus left, and Escape there drops them", () => {
+      const spy = refuseLong();
+      wrap(<Harness def={LIST} initial={[item("r1", "Late")]} itemMax={50} spy={spy} />);
+      editLine("Late (edit)", LONG_TEXT);
+      fireEvent.blur(screen.getByRole("textbox", { name: "Line" }));
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("alert")).toHaveTextContent("This canvas is full.");
+      // The editor closes (focus stays where it went), and the line holds the words.
+      expect(screen.queryByRole("textbox", { name: "Line" })).not.toBeInTheDocument();
+      const line = screen.getByRole("button", { name: `${LONG_TEXT} Not saved (edit)` });
+      fireEvent.click(line);
+      expect(screen.getByRole("textbox", { name: "Line" })).toHaveValue(LONG_TEXT);
+      fireEvent.keyDown(screen.getByRole("textbox", { name: "Line" }), { key: "Escape" });
+      expect(rowTexts()).toEqual(["Late"]);
+      expect(screen.queryByText("Not saved")).not.toBeInTheDocument();
+      expect(spy).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("shows the lines read only when disabled, with the tool's slots still there", () => {
     wrap(
       <Harness
