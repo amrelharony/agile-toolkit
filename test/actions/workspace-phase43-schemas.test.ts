@@ -1326,6 +1326,79 @@ describe("P2.6 the workflow definition and the flow fields", () => {
     rejects("workspace.impediment", { ...IMPEDIMENT_IN_CLUSTER, cluster: "x".repeat(61) });
     rejects("workspace.impediment", { ...IMPEDIMENT_IN_CLUSTER, blockSide: "both" });
   });
+
+  describe("a Kanban board's cards", () => {
+    const K = "workspace.kanban_board";
+    const LIMITS = { backlog: 0, ready: 5, in_progress: 3, review: 2, done: 0 };
+    const EARLIER = "2026-11-10T08:00:00.000Z";
+    type Board = Doc & { cards: Record<string, unknown>[]; wipLimits: typeof LIMITS };
+    const card = (id: string, extra: Record<string, unknown> = {}) => ({
+      id,
+      title: `Card ${id}`,
+      column: "in_progress",
+      class: "standard",
+      createdAt: "2026-11-01",
+      ...extra,
+    });
+    const board = (cards: Record<string, unknown>[]): Board => ({
+      id: "kanban:current",
+      cards,
+      wipLimits: LIMITS,
+    });
+    const written = () => upsertEntity.mock.calls.at(-1)?.[2] as Board | undefined;
+
+    it("are cleaned and capped, and a card created blocked opens a spell, over MCP", async () => {
+      await create(
+        K,
+        {
+          cards: [
+            card("a", { blocked: true }),
+            card("b", {
+              workType: "chore",
+              demand: "both",
+              blockLog: [
+                "not a spell",
+                { from: "not a time" },
+                { from: EARLIER, to: "2026-11-01T00:00:00.000Z", side: "both", extra: 1 },
+                ...Array.from({ length: TOOL_LIST_MAX.blockLog }, () => ({
+                  from: EARLIER,
+                  to: NOW,
+                })),
+              ],
+            }),
+            card("c", { workType: "debt", demand: "value" }),
+          ],
+          wipLimits: LIMITS,
+        },
+        true
+      );
+      const [a, b, c] = written()!.cards;
+      expect(a.blockLog).toEqual([{ from: NOW }]);
+      expect(b).not.toHaveProperty("workType");
+      expect(b).not.toHaveProperty("demand");
+      expect(b.blockLog).toHaveLength(TOOL_LIST_MAX.blockLog);
+      expect((b.blockLog as unknown[]).every((s) => JSON.stringify(s).includes(EARLIER))).toBe(
+        true
+      );
+      expect(c).toMatchObject({ workType: "debt", demand: "value" });
+      expect(c).not.toHaveProperty("blockLog");
+    });
+
+    it("close the open spell when the flag comes off, over MCP", async () => {
+      const stored = board([card("a", { blocked: true, blockLog: [{ from: EARLIER }] })]);
+      const next = (await updateOverMcp(K, stored, {
+        cards: [card("a", { blockLog: [{ from: EARLIER }] })],
+      })) as Board;
+      expect(next.cards[0].blockLog).toEqual([{ from: EARLIER, to: NOW }]);
+    });
+
+    it("open one spell in the tab: the store keeps the log the CRUD wrote", async () => {
+      const stored = (await update(K, "kanbanBoards", board([card("a")]), {
+        cards: [card("a", { blocked: true })],
+      })) as Board;
+      expect(stored.cards[0]).toMatchObject({ blocked: true, blockLog: [{ from: NOW }] });
+    });
+  });
 });
 
 describe("P2.7 improvements", () => {

@@ -164,6 +164,7 @@ import {
   STORY_STATUS_HISTORY_CAP,
   stampStoryWrite,
 } from "@/lib/sprints/story-status";
+import { cleanCardFlowFields, stampBoardBlocks } from "@/lib/flow/block-stamps";
 import {
   STORY_CRITERIA_MAX,
   STORY_LINK_MAX,
@@ -4330,6 +4331,17 @@ defineCrudActions<KanbanBoard>({
   upsert: (x) => ws().upsertKanbanBoard(x),
   remove: (id) => ws().removeKanbanBoard(id),
   generateId: () => `kanban_${nanoid(8)}`,
+  // The schema takes cards as loose records, so each card's flow fields are
+  // cleaned and capped here (a bad blockLog, workType or demand), and a
+  // card's blocked flag going on or off opens or closes a blocked spell, as
+  // the store's own writes do (lib/flow/block-stamps). In the browser the
+  // store then sees a log this write set and keeps it: nothing is stamped
+  // twice.
+  prepare: (next, current) =>
+    stampBoardBlocks(
+      { ...next, cards: next.cards.map((card) => cleanCardFlowFields(card)) },
+      current
+    ),
 });
 
 defineCrudActions<DependencyMap>({
