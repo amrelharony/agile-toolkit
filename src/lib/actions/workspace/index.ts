@@ -16,6 +16,9 @@ import { nanoid } from "nanoid";
 import { defineCrudActions, type CrudEnv } from "../define-crud";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
+  AARRR_STAGES,
+  AB_DECISIONS,
+  AB_TEST_STATUSES,
   ADKAR_DOC_ID,
   ADKAR_ELEMENTS,
   ALLOCATION_ROUND_TOOLS,
@@ -32,18 +35,24 @@ import {
   DECISION_TEMPLATES,
   DEFAULT_WEIGHTED_MATRIX_ID,
   DOD_DOC_ID,
+  EBM_BOARD_ID,
+  EBM_VALUE_AREAS,
   ENTITY_ROW_MAX_BYTES,
   EPIC_HORIZONS,
   EXAMPLE_MAP_VERDICTS,
   EXAMPLE_QUESTION_STATUSES,
   HANDOFF_ROUTE_IDS,
   HEALTH_DASHBOARD_ID,
+  HEART_CATEGORIES,
   INTERRUPT_KINDS,
   KR_CHECK_IN_CAP,
+  MEASURED_BY_KINDS,
   MEETING_CADENCES,
   MEETING_NOTE_ITEM_KINDS,
   MEETING_NOTE_ITEM_STATUSES,
   MEETING_VERDICTS,
+  METRIC_ROLES,
+  METRIC_SOURCE_IDS,
   MOOD_TRACKER_ID,
   NPS_TAG_LIMIT,
   NPS_TAG_MAX_LENGTH,
@@ -61,6 +70,7 @@ import {
   RACI_ID,
   REACH_PERIODS,
   ROOT_CAUSE_METHODS,
+  SHIPPED_KINDS,
   STRATEGY_MAP_FORMATS,
   STRATEGY_NODE_STATUSES,
   TEST_NOTE_KINDS,
@@ -111,6 +121,8 @@ import {
 import { readLegacyBlob } from "../user-state-blob";
 import { sectionsSchema } from "./sectioned-schema";
 import { strategyMapProblems } from "@/lib/strategy-map/rules";
+import { HYPOTHESIS_UNIT_MAX } from "@/lib/hypotheses/model";
+import { isExampleId } from "@/lib/utils/example-id";
 import { RESPONDENT_MAX, VERBATIM_MAX, normalizeTags, tagsProblem } from "@/lib/nps/score";
 import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import { targetClashes } from "@/lib/opportunity-tree/model";
@@ -255,6 +267,9 @@ import type {
   ProductCanvas,
   StrategyMap,
   Persona,
+  ProductMetric,
+  AbTest,
+  EbmBoard,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -2162,6 +2177,39 @@ const HypothesisSchema = z.object({
     .optional()
     .describe("Success is at least (increase) or at most (decrease) value."),
   actual: z.number().finite().optional().describe("The measured result, in target.unit."),
+  // Value checks (P2.5). Plain strings for the ids and times: the Phase 43
+  // helpers are defined further down.
+  measuredBy: z
+    .object({
+      kind: z.enum(MEASURED_BY_KINDS),
+      metricId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      okrId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      keyResultId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      note: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    })
+    .refine(
+      (m) =>
+        m.kind === "metric"
+          ? Boolean(m.metricId)
+          : m.kind === "key-result"
+            ? Boolean(m.okrId && m.keyResultId)
+            : Boolean(m.note?.trim()),
+      { message: "metric needs metricId, key-result needs okrId and keyResultId, words a note" }
+    )
+    .optional()
+    .describe(
+      "How it is measured: a product metric (metricId), a key result (okrId and keyResultId) or in words (note)."
+    ),
+  shipped: z
+    .object({
+      kind: z.enum(SHIPPED_KINDS),
+      id: z.string().min(1).max(TOOL_TEXT_MAX.short),
+      title: z.string().max(TOOL_TEXT_MAX.short),
+      doneAt: z.string(),
+    })
+    .optional()
+    .describe("The shipped story or epic it checks: set, it is a value check."),
+  checkOn: IsoDay.optional().describe("The day to read the result."),
 });
 
 const HypothesisTrackerSchema = z.object({
@@ -4993,5 +5041,245 @@ defineCrudActions<Persona>({
   upsert: (x) => ws().upsertPersona(x),
   remove: (id) => ws().removePersona(id),
   generateId: () => `persona_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.5 — Product Metrics, the A/B Calculator and the EBM Dashboard. */
+
+/** A day an agent writes: the YYYY-MM-DD shape, and a day the calendar has. */
+const CalendarDay = IsoDay.refine(isDay, { message: "a day on the calendar (YYYY-MM-DD)" });
+
+const ProductMetricSchema = z.object({
+  id: z.string(),
+  name: Filled(TOOL_TEXT_MAX.short),
+  definition: z.string().max(TOOL_TEXT_MAX.text).optional().describe("What it means."),
+  unit: z.string().max(HYPOTHESIS_UNIT_MAX).optional(),
+  direction: z.enum(["increase", "decrease"]).describe("Which way counts as progress."),
+  baseline: z.number().finite().optional(),
+  target: z.number().finite().optional(),
+  owner: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  role: z
+    .enum(METRIC_ROLES)
+    .optional()
+    .describe(
+      `The North Star (one) or one of its inputs (at most ${TOOL_LIST_MAX.northStarInputs}).`
+    ),
+  heart: z
+    .object({
+      category: z.enum(HEART_CATEGORIES),
+      feature: Filled(TOOL_TEXT_MAX.short),
+      goal: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      signal: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    })
+    .optional()
+    .describe("Its HEART goal for one feature: one metric per feature and category."),
+  aarrr: z.enum(AARRR_STAGES).optional().describe("Its funnel stage: one metric per stage."),
+  kva: z.enum(EBM_VALUE_AREAS).optional().describe("Its EBM key value area (an EBM measure)."),
+  source: z
+    .enum(METRIC_SOURCE_IDS)
+    .optional()
+    .describe("The toolkit's own number its readings come from."),
+  readings: z
+    .array(
+      z.object({
+        id: ItemId,
+        date: CalendarDay,
+        value: z.number().finite(),
+        note: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      })
+    )
+    .max(KR_CHECK_IN_CAP)
+    .describe(
+      `Dated readings, at most ${KR_CHECK_IN_CAP}; stored oldest first, one per day (a later one on the same day replaces it).`
+    ),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<ProductMetric>;
+
+/** Times stamped, and the readings oldest first, one per day: the later one on a day wins. */
+function prepareProductMetric(
+  next: ProductMetric,
+  current: ProductMetric | undefined
+): ProductMetric {
+  const byDay = new Map<string, ProductMetric["readings"][number]>();
+  for (const reading of next.readings) byDay.set(reading.date, reading);
+  const readings = Array.from(byDay.values()).sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0
+  );
+  return stampedTimes({ ...next, readings }, current);
+}
+
+/**
+ * One North Star, at most TOOL_LIST_MAX.northStarInputs inputs, one metric
+ * per funnel stage and per HEART feature and category, and at most
+ * TOOL_LIST_MAX.productMetrics metrics, each counted among the rows of the
+ * same kind (real rows apart from the example's).
+ */
+async function beforeProductMetricWrite(
+  next: ProductMetric,
+  current: ProductMetric | undefined,
+  env: CrudEnv<ProductMetric>
+): Promise<void> {
+  const example = isExampleId(next.id);
+  const others = (await env.all()).filter((m) => m.id !== next.id && isExampleId(m.id) === example);
+  const problems: string[] = [];
+  const northStar = others.find((m) => m.role === "north-star");
+  if (next.role === "north-star" && northStar) {
+    problems.push(
+      `Another metric is the North Star (“${northStar.name}”, ${northStar.id}). Make it an input or clear its role first: there is one North Star.`
+    );
+  }
+  const inputs = others.filter((m) => m.role === "input");
+  if (next.role === "input" && inputs.length >= TOOL_LIST_MAX.northStarInputs) {
+    problems.push(
+      `The North Star already has ${inputs.length} inputs, the most it takes. Remove one or clear its role first.`
+    );
+  }
+  const onStage = next.aarrr ? others.find((m) => m.aarrr === next.aarrr) : undefined;
+  if (onStage) {
+    problems.push(
+      `Another metric is on the ${next.aarrr} stage (“${onStage.name}”, ${onStage.id}): one metric per funnel stage.`
+    );
+  }
+  const heart = next.heart;
+  const feature = heart?.feature.trim().toLowerCase();
+  const sameGoal = heart
+    ? others.find(
+        (m) =>
+          m.heart?.category === heart.category && m.heart.feature.trim().toLowerCase() === feature
+      )
+    : undefined;
+  if (heart && sameGoal) {
+    problems.push(
+      `Another metric covers ${heart.category} for “${heart.feature.trim()}” (“${sameGoal.name}”, ${sameGoal.id}): one metric per HEART feature and category.`
+    );
+  }
+  if (!current && others.length >= TOOL_LIST_MAX.productMetrics) {
+    problems.push(
+      `There are already ${others.length} metrics, the most the tool keeps. Remove one first.`
+    );
+  }
+  unlessRefused(next, problems);
+}
+
+defineCrudActions<ProductMetric>({
+  toolId: "workspace.product_metric",
+  entityName:
+    "product metric (a North Star, an input, a HEART goal, a funnel stage or an EBM measure)",
+  schema: ProductMetricSchema,
+  selectAll: () => ws().productMetrics ?? [],
+  upsert: (x) => ws().upsertProductMetric(x),
+  remove: (id) => ws().removeProductMetric(id),
+  generateId: () => `metric_${nanoid(8)}`,
+  prepare: prepareProductMetric,
+  beforeWrite: beforeProductMetricWrite,
+});
+
+/** A whole-number count, 0 or more. */
+const Count = z.number().int().min(0);
+
+const AbTestSchema = z.object({
+  id: z.string(),
+  name: Filled(TOOL_TEXT_MAX.short),
+  question: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  metricName: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  metricId: z.string().max(TOOL_TEXT_MAX.short).optional().describe("The product metric it moves."),
+  hypothesisId: z
+    .string()
+    .max(TOOL_TEXT_MAX.short)
+    .optional()
+    .describe("The hypothesis it tests (Hypothesis Tracker)."),
+  plan: z
+    .object({
+      baseline: z.number().min(0).max(1).describe("The current conversion rate, a fraction."),
+      mde: z.number().positive().finite().describe("The smallest change worth finding."),
+      mdeMode: z.enum(["relative", "absolute"]),
+      confidence: z.union([z.literal(0.9), z.literal(0.95), z.literal(0.99)]),
+      power: z.union([z.literal(0.8), z.literal(0.9)]),
+      sided: z.enum(["two", "one"]),
+      dailyTraffic: z.number().int().positive().optional().describe("Visitors a day."),
+    })
+    .refine((p) => p.mdeMode === "relative" || p.mde <= 1, {
+      message: "an absolute smallest change is a fraction, at most 1",
+    })
+    .describe("The plan, every rate a fraction from 0 to 1."),
+  variants: z
+    .array(
+      z
+        .object({
+          id: ItemId,
+          name: z.string().max(TOOL_TEXT_MAX.short),
+          visitors: Count,
+          conversions: Count,
+        })
+        .refine((v) => v.conversions <= v.visitors, {
+          message: "conversions are at most visitors",
+        })
+    )
+    .length(2)
+    .describe("Exactly two: the control, then B."),
+  guardrails: z
+    .array(
+      z.object({
+        name: z.string().max(TOOL_TEXT_MAX.short),
+        why: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      })
+    )
+    .max(TOOL_LIST_MAX.abGuardrails)
+    .optional(),
+  status: z.enum(AB_TEST_STATUSES),
+  startedOn: IsoDay.optional(),
+  endedOn: IsoDay.optional(),
+  decision: z.enum(AB_DECISIONS).optional(),
+  note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<AbTest>;
+
+defineCrudActions<AbTest>({
+  toolId: "workspace.ab_test",
+  entityName: "A/B test (its plan, two versions' counts and the decision)",
+  schema: AbTestSchema,
+  selectAll: () => ws().abTests ?? [],
+  upsert: (x) => ws().upsertAbTest(x),
+  remove: (id) => ws().removeAbTest(id),
+  generateId: () => `abtest_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/** A key value area's score, from 0 to 1. */
+const AreaScore = z.number().min(0).max(1);
+
+const EbmBoardSchema = z.object({
+  id: SingletonId(EBM_BOARD_ID),
+  strategicGoal: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  strategicWhy: z.string().max(TOOL_TEXT_MAX.text).optional().describe("Why it matters."),
+  reviews: z
+    .array(
+      z.object({
+        id: ItemId,
+        date: IsoDay,
+        focus: z.enum(EBM_VALUE_AREAS).describe("The area to focus on next."),
+        note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+        areas: z
+          .object(Object.fromEntries(EBM_VALUE_AREAS.map((area) => [area, AreaScore.optional()])))
+          .describe("Each area's score, 0 to 1; an area left out was not measured."),
+      })
+    )
+    .max(TOOL_LIST_MAX.ebmReviews)
+    .describe("Recorded reviews, oldest first."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<EbmBoard>;
+
+// A singleton: create needs EBM_BOARD_ID (see SingletonId). The measures are
+// workspace.product_metric rows with kva set.
+defineCrudActions<EbmBoard>({
+  toolId: "workspace.ebm_board",
+  entityName: "EBM board (the strategic goal and the reviews; one document)",
+  schema: EbmBoardSchema,
+  selectAll: () => ws().ebmBoards ?? [],
+  upsert: (x) => ws().upsertEbmBoard(x),
+  remove: (id) => ws().removeEbmBoard(id),
   prepare: (next, current) => stampedTimes(next, current),
 });

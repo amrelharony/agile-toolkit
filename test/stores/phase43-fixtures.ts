@@ -4,15 +4,19 @@
  * import them read-only; extra cases go in their own phase43-<chain> files.
  */
 import type {
+  AbTest,
   BugReport,
+  EbmBoard,
   EpicRoadmap,
   ExampleMap,
   HillChart,
+  HypothesisTracker,
   InterruptItem,
   MeetingNote,
   Persona,
   PokerAsyncRound,
   ProductCanvas,
+  ProductMetric,
   ReleaseReadiness,
   StrategyMap,
   TestSession,
@@ -376,6 +380,101 @@ export const ROADMAP_WITH_HORIZON: EpicRoadmap = {
       progress: 0,
       horizon: "now",
       sourceRef: { tool: "impact-map", id: "d1", doc: "strategyMap_1" },
+    },
+  ],
+};
+
+/* P2.5 */
+
+export const PRODUCT_METRIC: ProductMetric = {
+  id: "metric_1",
+  name: "Weekly active shops",
+  definition: "Shops that took at least one payment in the week.",
+  unit: "shops",
+  direction: "increase",
+  baseline: 800,
+  target: 1200,
+  owner: "Ana",
+  role: "north-star",
+  heart: {
+    category: "engagement",
+    feature: "Refunds",
+    goal: "Shops refund without calling",
+    signal: "Refunds a week",
+  },
+  aarrr: "retention",
+  kva: "current-value",
+  source: "nps-90d",
+  readings: [
+    { id: "rd1", date: "2026-11-02", value: 810 },
+    { id: "rd2", date: "2026-11-09", value: 845, note: "Refunds shipped." },
+  ],
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+export const AB_TEST: AbTest = {
+  id: "abtest_1",
+  name: "Refund button colour",
+  question: "Does a green refund button get more refunds done?",
+  metricName: "Refunds completed",
+  metricId: "metric_1",
+  hypothesisId: "hyp_1",
+  plan: {
+    baseline: 0.12,
+    mde: 0.1,
+    mdeMode: "relative",
+    confidence: 0.95,
+    power: 0.8,
+    sided: "two",
+    dailyTraffic: 400,
+  },
+  variants: [
+    { id: "a", name: "Grey", visitors: 4000, conversions: 480 },
+    { id: "b", name: "Green", visitors: 4000, conversions: 540 },
+  ],
+  guardrails: [{ name: "Support calls", why: "A refund done wrong costs a call." }],
+  status: "done",
+  startedOn: "2026-10-01",
+  endedOn: "2026-10-21",
+  decision: "ship",
+  note: "Green wins.",
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+export const EBM_BOARD: EbmBoard = {
+  id: "ebmBoard:current",
+  strategicGoal: "Every small shop takes cards",
+  strategicWhy: "Cash-only shops lose sales.",
+  reviews: [
+    {
+      id: "rev1",
+      date: "2026-10-01",
+      focus: "time-to-market",
+      note: "Releases are slow.",
+      areas: { "current-value": 0.6, "time-to-market": 0.3, "ability-to-innovate": 0.5 },
+    },
+  ],
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+/** The Hypothesis Tracker with a value check (P2.5's fields). */
+export const TRACKER_WITH_VALUE_CHECK: HypothesisTracker = {
+  id: "hypothesisTracker:current",
+  hypotheses: [
+    {
+      id: "hyp_9",
+      believe: "Refunds in the app",
+      willDo: "cut refund calls",
+      toLearn: "whether shops use it",
+      successMetric: "Refund calls a week",
+      status: "running",
+      raisedAt: AT,
+      measuredBy: { kind: "metric", metricId: "metric_1", note: "Read on Mondays." },
+      shipped: { kind: "story", id: "story_7", title: "Refund a card payment", doneAt: LATER },
+      checkOn: "2026-12-01",
     },
   ],
 };

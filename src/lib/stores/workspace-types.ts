@@ -1533,6 +1533,17 @@ export interface Hypothesis {
   target?: HypothesisTarget;
   /** The measured result, in target.unit. Absent until measured. */
   actual?: number;
+  /*
+   * Value checks (the tools plan's phase 2, P2.5): did the shipped work
+   * deliver? See `HypothesisMeasuredBy` and `HypothesisShipped` in the
+   * Phase 43 block.
+   */
+  /** How it is measured. */
+  measuredBy?: HypothesisMeasuredBy;
+  /** The shipped story or epic it checks: present makes it a value check. */
+  shipped?: HypothesisShipped;
+  /** The day to read the result (YYYY-MM-DD). */
+  checkOn?: string;
 }
 
 export interface HypothesisTracker {
@@ -3423,6 +3434,14 @@ export const TOOL_LIST_MAX = {
   personaPoints: 8,
   /** The interviews a persona comes from. */
   personaInterviews: 20,
+  /** A North Star's input metrics. */
+  northStarInputs: 5,
+  /** Product metrics in all (Product Metrics, EBM Dashboard). */
+  productMetrics: 60,
+  /** An A/B test's guardrail metrics. */
+  abGuardrails: 3,
+  /** EBM reviews kept (six years of quarters). */
+  ebmReviews: 24,
 } as const;
 
 export const PARKING_LOT_STATUSES = ["open", "discussed", "sent", "dropped"] as const;
@@ -4252,6 +4271,208 @@ export interface Persona {
 
 export const PERSONA_KIND = "workspace:persona";
 
+/* P2.5, Product Metrics, the A/B Calculator and the EBM Dashboard. The EBM
+ * measures are ProductMetric rows with `kva` set. The Hypothesis Tracker's
+ * value checks ride `Hypothesis.measuredBy`, `shipped` and `checkOn`. */
+
+/** A North Star, or one of the inputs that move it. */
+export const METRIC_ROLES = ["north-star", "input"] as const;
+export type MetricRole = (typeof METRIC_ROLES)[number];
+
+export const HEART_CATEGORIES = [
+  "happiness",
+  "engagement",
+  "adoption",
+  "retention",
+  "task-success",
+] as const;
+export type HeartCategory = (typeof HEART_CATEGORIES)[number];
+
+export const AARRR_STAGES = [
+  "acquisition",
+  "activation",
+  "retention",
+  "referral",
+  "revenue",
+] as const;
+export type AarrrStage = (typeof AARRR_STAGES)[number];
+
+/** Evidence-Based Management's four key value areas. */
+export const EBM_VALUE_AREAS = [
+  "current-value",
+  "unrealized-value",
+  "time-to-market",
+  "ability-to-innovate",
+] as const;
+export type EbmValueArea = (typeof EBM_VALUE_AREAS)[number];
+
+/** The toolkit's own numbers a metric can read its value from. */
+export const METRIC_SOURCE_IDS = [
+  "cycle-time-median",
+  "dora-lead-time",
+  "dora-deploys",
+  "dora-change-fail",
+  "nps-90d",
+  "open-tech-debt",
+] as const;
+export type MetricSourceId = (typeof METRIC_SOURCE_IDS)[number];
+
+/** One dated reading of a product metric. */
+export interface MetricReading {
+  id: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  value: number;
+  /** At most "short". */
+  note?: string;
+}
+
+/** A number the product lives by (Product Metrics), or an EBM measure (`kva`). */
+export interface ProductMetric {
+  id: string;
+  /** At most "short". */
+  name: string;
+  /** What it means (at most "text"). */
+  definition?: string;
+  /** At most HYPOTHESIS_UNIT_MAX (40) characters. */
+  unit?: string;
+  direction: MetricDirection;
+  baseline?: number;
+  target?: number;
+  /** At most "short". */
+  owner?: string;
+  /** A North Star or one of its inputs. */
+  role?: MetricRole;
+  /** Its HEART goal for one feature (each text at most "short"). */
+  heart?: { category: HeartCategory; feature: string; goal?: string; signal?: string };
+  /** Its AARRR funnel stage. */
+  aarrr?: AarrrStage;
+  /** Its EBM key value area. */
+  kva?: EbmValueArea;
+  /** Where its readings come from in the toolkit, when not typed. */
+  source?: MetricSourceId;
+  /** Oldest first, one per day; at most KR_CHECK_IN_CAP. */
+  readings: MetricReading[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const PRODUCT_METRIC_KIND = "workspace:productMetric";
+
+export const AB_TEST_STATUSES = ["planned", "running", "done"] as const;
+export type AbTestStatus = (typeof AB_TEST_STATUSES)[number];
+
+export const AB_DECISIONS = ["ship", "keep", "rerun"] as const;
+export type AbDecision = (typeof AB_DECISIONS)[number];
+
+/** One version in an A/B test: whole-number counts, conversions at most visitors. */
+export interface AbVariant {
+  id: string;
+  /** At most "short". */
+  name: string;
+  visitors: number;
+  conversions: number;
+}
+
+/** How an A/B test is planned, every rate as a fraction. */
+export interface AbTestPlan {
+  /** The current conversion rate, 0–1. */
+  baseline: number;
+  /** The smallest change worth finding. */
+  mde: number;
+  mdeMode: "relative" | "absolute";
+  /** 0.90, 0.95 or 0.99. */
+  confidence: number;
+  /** 0.8 or 0.9. */
+  power: number;
+  sided: "two" | "one";
+  /** Visitors a day, to say how long it runs. */
+  dailyTraffic?: number;
+}
+
+/** A planned or finished conversion test (A/B Calculator). */
+export interface AbTest {
+  id: string;
+  /** At most "short". */
+  name: string;
+  /** At most "text". */
+  question?: string;
+  metricName?: string;
+  /** The product metric it moves. */
+  metricId?: string;
+  /** The hypothesis it tests (Hypothesis Tracker). */
+  hypothesisId?: string;
+  plan: AbTestPlan;
+  /** Exactly two: the control, then B. */
+  variants: AbVariant[];
+  /** At most TOOL_LIST_MAX.abGuardrails. */
+  guardrails?: { name: string; why?: string }[];
+  status: AbTestStatus;
+  /** YYYY-MM-DD. */
+  startedOn?: string;
+  endedOn?: string;
+  decision?: AbDecision;
+  /** At most "text". */
+  note?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const AB_TEST_KIND = "workspace:abTest";
+
+/** A recorded EBM review: each area's score (0–1; absent: not measured) and the area to focus on next. */
+export interface EbmReview {
+  id: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  focus: EbmValueArea;
+  /** At most "text". */
+  note?: string;
+  areas: Partial<Record<EbmValueArea, number>>;
+}
+
+/** The EBM Dashboard's one document, id EBM_BOARD_ID: the strategic goal and the reviews. */
+export interface EbmBoard {
+  id: string;
+  strategicGoal?: string;
+  /** Why it matters (at most "text"). */
+  strategicWhy?: string;
+  /** Oldest first, at most TOOL_LIST_MAX.ebmReviews. */
+  reviews: EbmReview[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const EBM_BOARD_KIND = "workspace:ebmBoard";
+export const EBM_BOARD_ID = "ebmBoard:current";
+
+/** How a value check is measured: a product metric, a key result, or in words. */
+export const MEASURED_BY_KINDS = ["metric", "key-result", "words"] as const;
+export type MeasuredByKind = (typeof MEASURED_BY_KINDS)[number];
+
+/** What a value check was shipped as. */
+export const SHIPPED_KINDS = ["story", "epic"] as const;
+export type ShippedKind = (typeof SHIPPED_KINDS)[number];
+
+/** How a hypothesis is measured: `metric` names `metricId`, `key-result` both ids, `words` a note. */
+export interface HypothesisMeasuredBy {
+  kind: MeasuredByKind;
+  metricId?: string;
+  okrId?: string;
+  keyResultId?: string;
+  /** At most 200 characters. */
+  note?: string;
+}
+
+/** The shipped story or epic a value check follows. */
+export interface HypothesisShipped {
+  kind: ShippedKind;
+  id: string;
+  /** At most 200 characters. */
+  title: string;
+  doneAt: string;
+}
+
 /* P2.6, Flow Insights and the Definition of Workflow: work types, blocked
  * spells (`Story`, `KanbanCard` and `Impediment` carry the fields) and the
  * workflow definition. */
@@ -4572,6 +4793,11 @@ export interface Workspace {
   /** Impact Maps and Strategy Trees (one entity, by format). */
   strategyMaps?: StrategyMap[];
   personas?: Persona[];
+  /** Product metrics and EBM measures (those with kva set). */
+  productMetrics?: ProductMetric[];
+  abTests?: AbTest[];
+  /** One EbmBoard, id EBM_BOARD_ID. */
+  ebmBoards?: EbmBoard[];
 }
 
 /**
@@ -4864,6 +5090,9 @@ export const emptyWorkspace = {
   productCanvases: [],
   strategyMaps: [],
   personas: [],
+  productMetrics: [],
+  abTests: [],
+  ebmBoards: [],
 } satisfies Workspace;
 
 /**

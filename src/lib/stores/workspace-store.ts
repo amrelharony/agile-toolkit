@@ -147,6 +147,9 @@ import type {
   ProductCanvas,
   StrategyMap,
   Persona,
+  ProductMetric,
+  AbTest,
+  EbmBoard,
 } from "./workspace-types";
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -418,6 +421,12 @@ interface WorkspaceActions {
   removeStrategyMap: (id: string) => void;
   upsertPersona: (x: Persona) => void;
   removePersona: (id: string) => void;
+  upsertProductMetric: (x: ProductMetric) => void;
+  removeProductMetric: (id: string) => void;
+  upsertAbTest: (x: AbTest) => void;
+  removeAbTest: (id: string) => void;
+  upsertEbmBoard: (x: EbmBoard) => void;
+  removeEbmBoard: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert, stamped and cleaned as `upsertStory` does each one. Use
@@ -1675,6 +1684,15 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       upsertPersona: (x) => set((_st) => ({ personas: replaceById(_st.personas ?? [], x) })),
       removePersona: (id) =>
         set((s) => ({ personas: (s.personas ?? []).filter((y) => y.id !== id) })),
+      upsertProductMetric: (x) =>
+        set((_st) => ({ productMetrics: replaceById(_st.productMetrics ?? [], x) })),
+      removeProductMetric: (id) =>
+        set((s) => ({ productMetrics: (s.productMetrics ?? []).filter((y) => y.id !== id) })),
+      upsertAbTest: (x) => set((_st) => ({ abTests: replaceById(_st.abTests ?? [], x) })),
+      removeAbTest: (id) => set((s) => ({ abTests: (s.abTests ?? []).filter((y) => y.id !== id) })),
+      upsertEbmBoard: (x) => set((_st) => ({ ebmBoards: replaceById(_st.ebmBoards ?? [], x) })),
+      removeEbmBoard: (id) =>
+        set((s) => ({ ebmBoards: (s.ebmBoards ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1800,6 +1818,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           productCanvases: s.productCanvases,
           strategyMaps: s.strategyMaps,
           personas: s.personas,
+          productMetrics: s.productMetrics,
+          abTests: s.abTests,
+          ebmBoards: s.ebmBoards,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1959,6 +1980,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           productCanvases: arr("productCanvases"),
           strategyMaps: arr("strategyMaps"),
           personas: arr("personas"),
+          productMetrics: arr("productMetrics"),
+          abTests: arr("abTests"),
+          ebmBoards: arr("ebmBoards"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -2337,6 +2361,9 @@ if (typeof window !== "undefined") {
     registerCollection("productCanvas", "productCanvases");
     registerCollection("strategyMap", "strategyMaps");
     registerCollection("persona", "personas");
+    registerCollection("productMetric", "productMetrics");
+    registerCollection("abTest", "abTests");
+    registerCollection("ebmBoard", "ebmBoards");
     // Kudos wall — was localStorage-only + ephemeral realtime broadcast; now
     // also a per-entity synced collection so the agent (tool.kudos.*) can read
     // + post and the wall cloud-persists cross-device. The realtime broadcast
@@ -2524,6 +2551,9 @@ export function getWorkspaceSnapshot(): Workspace {
     productCanvases: state.productCanvases,
     strategyMaps: state.strategyMaps,
     personas: state.personas,
+    productMetrics: state.productMetrics,
+    abTests: state.abTests,
+    ebmBoards: state.ebmBoards,
   };
 }
 

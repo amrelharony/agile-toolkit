@@ -28,13 +28,16 @@ import { makeContext } from "@/lib/actions/context";
 import * as serverStore from "@/lib/actions/server-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
+  AB_TEST_KIND,
   BUG_REPORT_KIND,
+  EBM_BOARD_KIND,
   ENTITY_ROW_MAX_BYTES,
   EXAMPLE_MAP_KIND,
   HILL_CHART_KIND,
   MEETING_NOTE_KIND,
   PERSONA_KIND,
   PRODUCT_CANVAS_KIND,
+  PRODUCT_METRIC_KIND,
   STRATEGY_MAP_KIND,
   TEST_SESSION_KIND,
   TOOL_LIST_MAX,
@@ -46,7 +49,9 @@ import {
 import "@/lib/actions/workspace";
 import { SECTION_KEY_PATTERN, sectionsSchema } from "@/lib/actions/workspace/sectioned-schema";
 import {
+  AB_TEST,
   BUG_REPORT,
+  EBM_BOARD,
   EXAMPLE_MAP,
   HILL_CHART,
   IMPACT_MAP,
@@ -54,10 +59,12 @@ import {
   MEETING_NOTE,
   PERSONA,
   PRODUCT_CANVAS,
+  PRODUCT_METRIC,
   RELEASES_WITH_NOTES,
   ROADMAP_WITH_HORIZON,
   STRATEGY_TREE,
   TEST_SESSION,
+  TRACKER_WITH_VALUE_CHECK,
 } from "../stores/phase43-fixtures";
 
 const upsertEntity = vi.mocked(serverStore.serverUpsertEntity);
@@ -124,7 +131,17 @@ const COLLECTIONS: [toolId: string, slice: keyof Workspace, doc: Doc, kind: stri
   ["workspace.product_canvas", "productCanvases", PRODUCT_CANVAS, PRODUCT_CANVAS_KIND],
   ["workspace.strategy_map", "strategyMaps", IMPACT_MAP, STRATEGY_MAP_KIND],
   ["workspace.persona", "personas", PERSONA, PERSONA_KIND],
+  ["workspace.product_metric", "productMetrics", PRODUCT_METRIC, PRODUCT_METRIC_KIND],
+  ["workspace.ab_test", "abTests", AB_TEST, AB_TEST_KIND],
+  ["workspace.ebm_board", "ebmBoards", EBM_BOARD, EBM_BOARD_KIND],
 ];
+
+/** The one-document collections: create keeps their fixed id. */
+const SINGLETONS: readonly string[] = ["workspace.ebm_board"];
+
+/** A record to create: without its id, so the CRUD mints one, unless it is a singleton. */
+const fresh = (toolId: string, doc: Doc) =>
+  SINGLETONS.includes(toolId) ? doc : { ...doc, id: undefined };
 
 /** The fields Phase 43 adds to existing records: the CRUD, its slice and a record with them set. */
 const EXTENDED: [name: string, toolId: string, slice: keyof Workspace, doc: Doc][] = [
@@ -145,6 +162,12 @@ const EXTENDED: [name: string, toolId: string, slice: keyof Workspace, doc: Doc]
     "workspace.epic_roadmap",
     "epicRoadmaps",
     ROADMAP_WITH_HORIZON,
+  ],
+  [
+    "a hypothesis's value check (P2.5)",
+    "workspace.hypothesis_tracker",
+    "hypothesisTrackers",
+    TRACKER_WITH_VALUE_CHECK,
   ],
 ];
 
@@ -198,7 +221,7 @@ describe("Phase 43 CRUD schemas keep every field", () => {
   it.each(COLLECTIONS)(
     "%s syncs under its exported kind over MCP",
     async (toolId, _s, doc, kind) => {
-      await create(toolId, { ...doc, id: undefined }, true);
+      await create(toolId, fresh(toolId, doc), true);
       expect(upsertEntity).toHaveBeenCalledTimes(1);
       expect(upsertEntity.mock.calls[0][1]).toBe(kind);
     }
@@ -208,8 +231,7 @@ describe("Phase 43 CRUD schemas keep every field", () => {
     "%s stamps createdAt and updatedAt, never the caller's",
     async (toolId, slice, doc) => {
       await create(toolId, {
-        ...doc,
-        id: undefined,
+        ...fresh(toolId, doc),
         createdAt: "1999-01-01T00:00:00.000Z",
         updatedAt: "1999-01-01T00:00:00.000Z",
       });
@@ -825,6 +847,233 @@ describe("P2.4 epics", () => {
     rejects("workspace.epic_roadmap", {
       ...ROADMAP_WITH_HORIZON,
       epics: [{ ...epic, horizon: "someday" }],
+    });
+  });
+});
+
+describe("P2.5 product metrics", () => {
+  const T = "workspace.product_metric";
+  const metric = (id: string, extra = {}) => ({
+    id,
+    name: id,
+    direction: "increase",
+    readings: [],
+    ...extra,
+  });
+  const seed = (...rows: Doc[]) => {
+    useWorkspaceStore.setState({ productMetrics: rows as never });
+    listEntities.mockResolvedValue(rows);
+  };
+
+  it("mint metric_ ids", async () => {
+    const { id } = (await create(T, metric("m", { id: undefined }))) as { id: string };
+    expect(id).toMatch(/^metric_/);
+  });
+
+  it("hold every cap and set", () => {
+    rejects(T, { ...PRODUCT_METRIC, name: "" });
+    rejects(T, { ...PRODUCT_METRIC, unit: "x".repeat(41) });
+    rejects(T, { ...PRODUCT_METRIC, direction: "up" });
+    rejects(T, { ...PRODUCT_METRIC, role: "output" });
+    rejects(T, { ...PRODUCT_METRIC, aarrr: "awareness" });
+    rejects(T, { ...PRODUCT_METRIC, kva: "value" });
+    rejects(T, { ...PRODUCT_METRIC, source: "velocity" });
+    rejects(T, { ...PRODUCT_METRIC, heart: { category: "joy", feature: "f" } });
+    rejects(T, { ...PRODUCT_METRIC, heart: { category: "adoption", feature: " " } });
+    rejects(T, { ...PRODUCT_METRIC, baseline: Number.POSITIVE_INFINITY });
+    rejects(T, {
+      ...PRODUCT_METRIC,
+      readings: Array.from({ length: 53 }, (_, i) => ({
+        id: `r${i}`,
+        date: "2026-01-01",
+        value: i,
+      })),
+    });
+    for (const date of ["2026-02-30", "2026-13-01", "Monday"]) {
+      rejects(T, { ...PRODUCT_METRIC, readings: [{ id: "r", date, value: 1 }] });
+    }
+  });
+
+  it("keep readings oldest first, one per day, the later one winning", async () => {
+    const { id } = (await create(
+      T,
+      metric("m", {
+        id: undefined,
+        readings: [
+          { id: "r2", date: "2026-11-09", value: 2 },
+          { id: "r1", date: "2026-11-02", value: 1 },
+          { id: "r3", date: "2026-11-09", value: 3 },
+        ],
+      })
+    )) as { id: string };
+    const stored = useWorkspaceStore.getState().productMetrics!.find((m) => m.id === id)!;
+    expect(stored.readings.map((r) => [r.date, r.value])).toEqual([
+      ["2026-11-02", 1],
+      ["2026-11-09", 3],
+    ]);
+  });
+
+  it("refuse a second North Star, in the tab and over MCP", async () => {
+    seed(metric("m1", { role: "north-star" }));
+    await expect(create(T, metric("m2", { role: "north-star" }))).rejects.toThrow(
+      /Another metric is the North Star.*Nothing was saved\./
+    );
+    await expect(create(T, metric("m2", { role: "north-star" }), true)).rejects.toThrow(
+      /there is one North Star/
+    );
+    expect(upsertEntity).not.toHaveBeenCalled();
+    // The North Star itself can be edited.
+    const kept = await update(T, "productMetrics", metric("m1", { role: "north-star" }), {
+      name: "Renamed",
+    });
+    expect((kept as unknown as { name: string }).name).toBe("Renamed");
+  });
+
+  it("refuse a sixth input, a second metric on a stage and on a HEART goal", async () => {
+    seed(
+      ...Array.from({ length: 5 }, (_, i) => metric(`in${i}`, { role: "input" })),
+      metric("stage", { aarrr: "activation" }),
+      metric("heart", { heart: { category: "adoption", feature: "Refunds" } })
+    );
+    await expect(create(T, metric("in5", { role: "input" }))).rejects.toThrow(
+      /already has 5 inputs/
+    );
+    await expect(create(T, metric("s2", { aarrr: "activation" }), true)).rejects.toThrow(
+      /one metric per funnel stage/
+    );
+    await expect(
+      create(T, metric("h2", { heart: { category: "adoption", feature: "  refunds " } }))
+    ).rejects.toThrow(/one metric per HEART feature and category/);
+    // Another category on the same feature is fine.
+    await create(T, metric("h3", { heart: { category: "retention", feature: "Refunds" } }));
+  });
+
+  it("refuse a 61st metric", async () => {
+    seed(...Array.from({ length: TOOL_LIST_MAX.productMetrics }, (_, i) => metric(`m${i}`)));
+    await expect(create(T, metric("one-more"))).rejects.toThrow(/the most the tool keeps/);
+    await expect(create(T, metric("one-more"), true)).rejects.toThrow(/the most the tool keeps/);
+  });
+
+  it("count the example's rows apart from real ones", async () => {
+    seed(metric("example-m1", { role: "north-star" }), metric("example-m2", { aarrr: "revenue" }));
+    await create(T, metric("m1", { role: "north-star", aarrr: "revenue" }));
+    await expect(create(T, metric("example-m3", { role: "north-star" }))).rejects.toThrow(
+      /North Star/
+    );
+  });
+});
+
+describe("P2.5 A/B tests", () => {
+  const T = "workspace.ab_test";
+  const variant = (id: string, visitors: number, conversions: number) => ({
+    id,
+    name: id,
+    visitors,
+    conversions,
+  });
+
+  it("mint abtest_ ids", async () => {
+    const { id } = (await create(T, { ...AB_TEST, id: undefined })) as { id: string };
+    expect(id).toMatch(/^abtest_/);
+  });
+
+  it("take exactly two versions, whole counts, conversions at most visitors", async () => {
+    rejects(T, { ...AB_TEST, variants: [variant("a", 10, 1)] });
+    rejects(T, {
+      ...AB_TEST,
+      variants: [variant("a", 10, 1), variant("b", 10, 1), variant("c", 10, 1)],
+    });
+    rejects(T, { ...AB_TEST, variants: [variant("a", 10.5, 1), variant("b", 10, 1)] });
+    rejects(T, { ...AB_TEST, variants: [variant("a", 10, -1), variant("b", 10, 1)] });
+    rejects(T, { ...AB_TEST, variants: [variant("a", 10, 11), variant("b", 10, 1)] });
+    accepts(T, { ...AB_TEST, variants: [variant("a", 10, 10), variant("b", 0, 0)] });
+    const over = { variants: [variant("a", 10, 11), variant("b", 10, 1)] };
+    await expect(update(T, "abTests", AB_TEST, over)).rejects.toThrow(/at most visitors/);
+    await expect(updateOverMcp(T, AB_TEST, over)).rejects.toThrow(/at most visitors/);
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
+
+  it("keep the plan's fractions in range", () => {
+    const plan = (p: object) => ({ ...AB_TEST, plan: { ...AB_TEST.plan, ...p } });
+    rejects(T, plan({ baseline: 1.2 }));
+    rejects(T, plan({ baseline: -0.1 }));
+    rejects(T, plan({ mde: 0 }));
+    rejects(T, plan({ mdeMode: "absolute", mde: 1.5 }));
+    accepts(T, plan({ mdeMode: "relative", mde: 1.5 }));
+    rejects(T, plan({ confidence: 0.8 }));
+    rejects(T, plan({ power: 0.95 }));
+    rejects(T, plan({ sided: "both" }));
+    rejects(T, plan({ dailyTraffic: 0 }));
+  });
+
+  it("hold every cap and set", () => {
+    rejects(T, { ...AB_TEST, name: "" });
+    rejects(T, { ...AB_TEST, status: "paused" });
+    rejects(T, { ...AB_TEST, decision: "maybe" });
+    rejects(T, { ...AB_TEST, startedOn: "October" });
+    rejects(T, {
+      ...AB_TEST,
+      guardrails: Array.from({ length: TOOL_LIST_MAX.abGuardrails + 1 }, (_, i) => ({
+        name: `g${i}`,
+      })),
+    });
+  });
+});
+
+describe("P2.5 the EBM board", () => {
+  const T = "workspace.ebm_board";
+
+  it("is one document: create needs its id, and a second is refused", async () => {
+    rejects(T, { ...EBM_BOARD, id: "ebmBoard_other" });
+    rejects(T, { ...EBM_BOARD, id: undefined });
+    await create(T, EBM_BOARD);
+    await expect(create(T, EBM_BOARD)).rejects.toThrow();
+  });
+
+  it("hold every cap and range", () => {
+    const review = EBM_BOARD.reviews[0];
+    rejects(T, {
+      ...EBM_BOARD,
+      reviews: Array.from({ length: TOOL_LIST_MAX.ebmReviews + 1 }, (_, i) => ({
+        ...review,
+        id: `r${i}`,
+      })),
+    });
+    rejects(T, { ...EBM_BOARD, reviews: [{ ...review, focus: "speed" }] });
+    rejects(T, { ...EBM_BOARD, reviews: [{ ...review, areas: { "current-value": 1.5 } }] });
+    rejects(T, { ...EBM_BOARD, reviews: [{ ...review, date: "Q3" }] });
+    rejects(T, { ...EBM_BOARD, strategicWhy: "x".repeat(TOOL_TEXT_MAX.text + 1) });
+  });
+});
+
+describe("P2.5 a hypothesis's value check", () => {
+  const T = "workspace.hypothesis_tracker";
+  const [hypothesis] = TRACKER_WITH_VALUE_CHECK.hypotheses;
+  const withMeasure = (measuredBy: object) => ({
+    ...TRACKER_WITH_VALUE_CHECK,
+    hypotheses: [{ ...hypothesis, measuredBy }],
+  });
+
+  it("names what each way of measuring needs", () => {
+    rejects(T, withMeasure({ kind: "metric" }));
+    rejects(T, withMeasure({ kind: "key-result", okrId: "okr_1" }));
+    rejects(T, withMeasure({ kind: "words", note: " " }));
+    rejects(T, withMeasure({ kind: "gut" }));
+    accepts(T, withMeasure({ kind: "key-result", okrId: "okr_1", keyResultId: "kr_1" }));
+    accepts(T, withMeasure({ kind: "words", note: "Ask five shops." }));
+    rejects(T, withMeasure({ kind: "words", note: "x".repeat(201) }));
+  });
+
+  it("caps the shipped item and takes the check day as a day", () => {
+    const withShipped = (shipped: object) => ({
+      ...TRACKER_WITH_VALUE_CHECK,
+      hypotheses: [{ ...hypothesis, shipped }],
+    });
+    rejects(T, withShipped({ ...hypothesis.shipped, kind: "release" }));
+    rejects(T, withShipped({ ...hypothesis.shipped, title: "x".repeat(201) }));
+    rejects(T, {
+      ...TRACKER_WITH_VALUE_CHECK,
+      hypotheses: [{ ...hypothesis, checkOn: "next month" }],
     });
   });
 });

@@ -31,20 +31,25 @@ vi.mock("@/lib/sync/register", () => ({
 import { getWorkspaceSnapshot, useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { kindFromToolId } from "@/lib/actions/server-store";
 import {
+  AB_TEST_KIND,
   BUG_REPORT_KIND,
+  EBM_BOARD_KIND,
   EXAMPLE_MAP_KIND,
   HILL_CHART_KIND,
   MEETING_NOTE_KIND,
   POKER_ASYNC_ROUND_KIND,
   PERSONA_KIND,
   PRODUCT_CANVAS_KIND,
+  PRODUCT_METRIC_KIND,
   STRATEGY_MAP_KIND,
   TEST_SESSION_KIND,
   emptyWorkspace,
   type Workspace,
 } from "@/lib/stores/workspace-types";
 import {
+  AB_TEST,
   BUG_REPORT,
+  EBM_BOARD,
   EXAMPLE_MAP,
   HILL_CHART,
   IMPACT_MAP,
@@ -53,9 +58,11 @@ import {
   PERSONA,
   POKER_ASYNC_ROUND,
   PRODUCT_CANVAS,
+  PRODUCT_METRIC,
   RELEASES_WITH_NOTES,
   ROADMAP_WITH_HORIZON,
   TEST_SESSION,
+  TRACKER_WITH_VALUE_CHECK,
 } from "./phase43-fixtures";
 
 type Doc = { id: string };
@@ -145,6 +152,30 @@ const COLLECTIONS: {
     toolId: "workspace.persona",
     kind: PERSONA_KIND,
   },
+  {
+    slice: "productMetrics",
+    doc: PRODUCT_METRIC,
+    upsert: (x) => ws().upsertProductMetric(x),
+    remove: (id) => ws().removeProductMetric(id),
+    toolId: "workspace.product_metric",
+    kind: PRODUCT_METRIC_KIND,
+  },
+  {
+    slice: "abTests",
+    doc: AB_TEST,
+    upsert: (x) => ws().upsertAbTest(x),
+    remove: (id) => ws().removeAbTest(id),
+    toolId: "workspace.ab_test",
+    kind: AB_TEST_KIND,
+  },
+  {
+    slice: "ebmBoards",
+    doc: EBM_BOARD,
+    upsert: (x) => ws().upsertEbmBoard(x),
+    remove: (id) => ws().removeEbmBoard(id),
+    toolId: "workspace.ebm_board",
+    kind: EBM_BOARD_KIND,
+  },
 ];
 
 /**
@@ -174,6 +205,12 @@ const EXTENDED: {
     slice: "epicRoadmaps",
     doc: ROADMAP_WITH_HORIZON,
     upsert: (x) => ws().upsertEpicRoadmap(x),
+  },
+  {
+    name: "a hypothesis's value check (P2.5)",
+    slice: "hypothesisTrackers",
+    doc: TRACKER_WITH_VALUE_CHECK,
+    upsert: (x) => ws().upsertHypothesisTracker(x),
   },
 ];
 
