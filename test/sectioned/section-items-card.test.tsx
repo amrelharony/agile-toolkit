@@ -172,6 +172,22 @@ describe("a list section", () => {
     expect(addField()).toHaveAttribute("placeholder", "[something] could stop us");
   });
 
+  it("lets a long label wrap beside its count, rather than cutting it off on a phone", () => {
+    const label = "What keeps us up at night as the launch gets near";
+    wrap(<Harness def={{ ...LIST, label }} initial={[]} itemMax={50} />);
+    const heading = screen.getByRole("heading", { name: new RegExp(label) });
+    const words = within(heading).getByText(label);
+    // The nearest white-space rule over the words (SectionCard's title is `truncate`).
+    let rule: string | undefined;
+    for (let el: HTMLElement | null = words; el && !rule; el = el.parentElement) {
+      rule = Array.from(el.classList).find((c) => c === "truncate" || c.startsWith("whitespace-"));
+      if (el === heading) break;
+    }
+    expect(rule).toBe("whitespace-normal");
+    expect(words.className).toMatch(/(^|\s)break-words(\s|$)/);
+    expect(within(heading).getByText("Required · 0 of 3")).toBeInTheDocument();
+  });
+
   it("adds a trimmed line on Enter, clears the field and keeps focus there", () => {
     const spy = vi.fn();
     wrap(<Harness def={LIST} initial={[]} itemMax={50} spy={spy} />);

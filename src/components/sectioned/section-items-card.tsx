@@ -217,7 +217,9 @@ export function SectionItemsCard<I extends SectionItem>({
 
   return (
     <SectionCard
-      title={def.label}
+      // SectionCard cuts a title to one line; a label (up to 60 characters)
+      // beside "Required · 0 of 10" would end in "…" on a phone, so it wraps.
+      title={<span className="whitespace-normal break-words">{def.label}</span>}
       titleSuffix={suffix || undefined}
       actions={actions}
       className={className}
