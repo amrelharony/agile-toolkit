@@ -6,30 +6,43 @@
  *
  * The Supabase client is stubbed with the chainable builder from
  * scalar-blob-cas.test.ts, driven by an ordered response queue, so races are
- * deterministic. It also records every `from()` and `eq()` call.
+ * deterministic. It also records every `from()` and `eq()` call, and each
+ * statement (a `from()` chain) with its own filters, so a test can pin which
+ * row the read and the CAS update aim at.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+type Statement = { op: "select" | "update" | "insert" | null; filters: Array<[string, unknown]> };
 
 const responses: Array<{ data?: unknown; error?: unknown }> = [];
 const updateCalls: Array<Record<string, unknown>> = [];
 const insertCalls: Array<Record<string, unknown>> = [];
 const eqCalls: Array<[string, unknown]> = [];
 const fromCalls: string[] = [];
+const statements: Statement[] = [];
 
 vi.mock("@supabase/supabase-js", () => {
   const next = () => Promise.resolve(responses.shift() ?? { data: null, error: null });
+  const current = () => statements[statements.length - 1];
   // One shared chainable, thenable builder. Chain methods return `this`;
   // terminals (`maybeSingle`, `insert`, and awaiting the update's `.select()`)
-  // each consume the next queued response.
+  // each consume the next queued response. A statement's op is its first
+  // verb, so the update's trailing `.select("store_key")` stays an update.
   const builder: Record<string, unknown> = {
     from: (table: string) => {
       fromCalls.push(table);
+      statements.push({ op: null, filters: [] });
       return builder;
     },
-    select: () => builder,
+    select: () => {
+      const s = current();
+      if (s && s.op === null) s.op = "select";
+      return builder;
+    },
     eq: (col: string, val: unknown) => {
       eqCalls.push([col, val]);
+      current()?.filters.push([col, val]);
       return builder;
     },
     order: () => builder,
@@ -38,10 +51,14 @@ vi.mock("@supabase/supabase-js", () => {
     is: () => builder,
     update: (payload: Record<string, unknown>) => {
       updateCalls.push(payload);
+      const s = current();
+      if (s && s.op === null) s.op = "update";
       return builder;
     },
     insert: (payload: Record<string, unknown>) => {
       insertCalls.push(payload);
+      const s = current();
+      if (s && s.op === null) s.op = "insert";
       return next();
     },
     maybeSingle: () => next(),
@@ -90,12 +107,30 @@ const row = (payload: unknown, updatedAt: string) => ({
 const CAS_HIT = { data: [{ store_key: KEY }] };
 const CAS_MISS = { data: [] };
 
+/** The read of one user's row of one store, and the CAS update of that same row. */
+const readOf = (storeKey: string): Statement => ({
+  op: "select",
+  filters: [
+    ["user_id", "u1"],
+    ["store_key", storeKey],
+  ],
+});
+const casOf = (storeKey: string, token: string): Statement => ({
+  op: "update",
+  filters: [
+    ["user_id", "u1"],
+    ["store_key", storeKey],
+    ["updated_at", token],
+  ],
+});
+
 beforeEach(() => {
   responses.length = 0;
   updateCalls.length = 0;
   insertCalls.length = 0;
   eqCalls.length = 0;
   fromCalls.length = 0;
+  statements.length = 0;
   process.env.NEXT_PUBLIC_SUPABASE_URL = "http://localhost";
   process.env.SUPABASE_SERVICE_ROLE_KEY = "test-service-key";
 });
@@ -139,6 +174,12 @@ describe("serverPatchUserStateBlob: the compare-and-set loop", () => {
     expect(updateCalls).toHaveLength(1);
     expect(updateCalls[0].payload).toEqual({ items: ["theirs", "mine"], note: "n" });
     expect(eqCalls).toContainEqual(["updated_at", "t2"]);
+    expect(statements).toEqual([
+      readOf(KEY),
+      { op: "insert", filters: [] },
+      readOf(KEY),
+      casOf(KEY, "t2"),
+    ]);
     expect(result).toEqual({ written: true, payload: { items: ["theirs", "mine"], note: "n" } });
   });
 
@@ -161,6 +202,9 @@ describe("serverPatchUserStateBlob: the compare-and-set loop", () => {
       ["updated_at", "t1"],
       ["updated_at", "t2"],
     ]);
+    // Both reads and both CAS updates aim at this user's row of this store,
+    // never at the workspace scalars row or at every user's row with the key.
+    expect(statements).toEqual([readOf(KEY), casOf(KEY, "t1"), readOf(KEY), casOf(KEY, "t2")]);
     // The answer is the payload that was really written: the last run's.
     expect(result).toEqual({ written: true, payload: { items: ["a", "b", "c"], note: "theirs" } });
   });
@@ -188,6 +232,14 @@ describe("serverPatchUserStateBlob: the compare-and-set loop", () => {
     expect(insertCalls[0].client_id).toBe("server-mcp");
     expect(updateCalls[0].client_id).toBe("server-mcp");
     expect(eqCalls).toContainEqual(["store_key", RS_KEY]);
+    // The second allowed key is pinned on the update path too, not only the read.
+    expect(statements).toEqual([
+      readOf(KEY),
+      { op: "insert", filters: [] },
+      readOf(RS_KEY),
+      casOf(RS_KEY, "t1"),
+    ]);
+    expect(insertCalls[0].store_key).toBe(KEY);
   });
 
   it("throws when it doesn't converge, after maxAttempts lost races (5 by default)", async () => {
@@ -320,6 +372,19 @@ describe("serverPatchUserStateBlob: the allow list", () => {
       store_key: WORKSPACE_SCALARS_STORE_KEY,
       payload: { teamName: "Falcons" },
     });
+  });
+
+  it("keeps the workspace scalars' read and CAS update on the scalars row, after a lost race", async () => {
+    responses.push(row({ teamName: "Falcons" }, "t1"), CAS_MISS);
+    responses.push(row({ teamName: "Falcons", maturityLevel: 2 }, "t2"), CAS_HIT);
+    await serverPatchWorkspaceBlob("u1", { teamName: "Hawks" });
+    expect(statements).toEqual([
+      readOf(WORKSPACE_SCALARS_STORE_KEY),
+      casOf(WORKSPACE_SCALARS_STORE_KEY, "t1"),
+      readOf(WORKSPACE_SCALARS_STORE_KEY),
+      casOf(WORKSPACE_SCALARS_STORE_KEY, "t2"),
+    ]);
+    expect(updateCalls[1].payload).toEqual({ teamName: "Hawks", maturityLevel: 2 });
   });
 });
 
