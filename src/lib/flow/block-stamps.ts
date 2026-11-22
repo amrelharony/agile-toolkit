@@ -12,7 +12,9 @@
  *   - example rows are never stamped;
  *   - a write that set its own log (an Undo putting a copy back, a block
  *     note, an agent's backfill) is kept as written: its `blockLog` differs
- *     by value from the stored row's, or, on a new row, it has one at all;
+ *     by value from the stored row's (whatever order a spell's keys are in:
+ *     jsonb, zod and the cleaners each write their own), or, on a new row,
+ *     it has one at all;
  *   - the flag going on appends `{from: at}`;
  *   - the flag going off (a move into Done drops it too) closes the open
  *     spell, the last one without `to`. With no open spell nothing is
@@ -79,11 +81,42 @@ function momentMs(at: unknown): number | null {
 
 /* ── Stamps ──────────────────────────────────────────────────────────── */
 
-/** Equal by value: no log and an empty one are the same. */
+/** A spell's fields, in the order `canonSpell` lists them. */
+const SPELL_KEYS = ["from", "to", "cause", "cluster", "side", "earlier", "sentTo"] as const;
+
+/**
+ * A spell's fields as a list in a fixed order, and its links' fields too, so
+ * two equal spells compare equal whatever order their keys were written in.
+ * Postgres jsonb reads keys back shortest first (`{"to", "from"}`), zod
+ * writes them in schema order, and closing a spell appends `to` after the
+ * note. Unknown keys don't count; anything that isn't a spell is left as it is.
+ */
+function canonSpell(spell: unknown): unknown {
+  if (!spell || typeof spell !== "object" || Array.isArray(spell)) return spell;
+  const raw = spell as Record<string, unknown>;
+  return SPELL_KEYS.map((key) => {
+    const value = raw[key];
+    if (key !== "sentTo" || !Array.isArray(value)) return value;
+    return value.map((link: unknown) => {
+      if (!link || typeof link !== "object" || Array.isArray(link)) return link;
+      const { route, targetId, at } = link as Record<string, unknown>;
+      return [route, targetId, at];
+    });
+  });
+}
+
+/** Two spells equal by value, whatever order their keys are in. */
+function sameSpell(a: unknown, b: unknown): boolean {
+  return a === b || JSON.stringify(canonSpell(a)) === JSON.stringify(canonSpell(b));
+}
+
+/** Equal by value, whatever order the keys are in: no log and an empty one are the same. */
 function sameLog(a: unknown, b: unknown): boolean {
   const x = Array.isArray(a) && a.length === 0 ? undefined : a;
   const y = Array.isArray(b) && b.length === 0 ? undefined : b;
-  return x === y || JSON.stringify(x) === JSON.stringify(y);
+  if (x === y) return true;
+  if (!Array.isArray(x) || !Array.isArray(y)) return JSON.stringify(x) === JSON.stringify(y);
+  return x.length === y.length && x.every((spell, i) => sameSpell(spell, y[i]));
 }
 
 /**
@@ -325,7 +358,7 @@ function notedSpell(spell: BlockSpell, note: SpellNote): BlockSpell {
     if (sentTo === undefined) delete out.sentTo;
     else out.sentTo = sentTo;
   }
-  return JSON.stringify(out) === JSON.stringify(spell) ? spell : out;
+  return sameSpell(out, spell) ? spell : out;
 }
 
 /**

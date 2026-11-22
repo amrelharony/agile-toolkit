@@ -143,6 +143,62 @@ describe("stampStoryBlocks", () => {
     ]);
   });
 
+  it("reads the same log with its keys in another order as the same log", () => {
+    // Read back from jsonb (keys shortest first) and validated by zod (schema order).
+    const stored = story("a", {
+      blockLog: [
+        {
+          to: T1,
+          from: T0,
+          cause: "Waiting on legal",
+          sentTo: [{ at: T1, route: "impediment", targetId: "imp_1" } as HandoffLink],
+        },
+      ],
+    });
+    const patched = {
+      ...stored,
+      blocked: true,
+      blockLog: [{ from: T0, to: T1, cause: "Waiting on legal", sentTo: [LINK] }],
+    };
+    expect(Object.keys(patched.blockLog[0])).not.toEqual(Object.keys(stored.blockLog![0]));
+    expect(stampStoryBlocks(patched, stored, T2).blockLog).toEqual([
+      { from: T0, to: T1, cause: "Waiting on legal", sentTo: [LINK] },
+      { from: T2 },
+    ]);
+    // And off again: the spell it opened is closed.
+    const reopened = stampStoryBlocks(patched, stored, T2);
+    const reread = {
+      ...reopened,
+      blockLog: reopened.blockLog!.map(({ from, to, cause, sentTo }) =>
+        to ? { to, from, cause, sentTo } : { from }
+      ),
+    };
+    const at = local("2026-11-26", 9);
+    expect(stampStoryBlocks(withStoryBlocked(reopened, false), reread, at).blockLog).toEqual([
+      { from: T0, to: T1, cause: "Waiting on legal", sentTo: [LINK] },
+      { from: T2, to: at },
+    ]);
+  });
+
+  it("stamps a story blocked, noted, unblocked and blocked again over the transports", () => {
+    const start = story("st1", { status: "in_progress" });
+    const blocked = stampStoryBlocks(withStoryBlocked(start, true), start, T0);
+    const noted = withSpellNote(blocked, { cause: "Waiting on legal" }, { at: T0 })!;
+    const unblocked = stampStoryBlocks(withStoryBlocked(noted, false), noted, T1);
+    // Closing the spell writes `to` after the note: {from, cause, to}.
+    expect(Object.keys(unblocked.blockLog![0])).toEqual(["from", "cause", "to"]);
+    // An agent's patch, validated in schema order: {from, to, cause}.
+    const patch = {
+      ...unblocked,
+      blocked: true,
+      blockLog: [{ from: T0, to: T1, cause: "Waiting on legal" }],
+    };
+    expect(stampStoryBlocks(patch, unblocked, T2).blockLog).toEqual([
+      { from: T0, to: T1, cause: "Waiting on legal" },
+      { from: T2 },
+    ]);
+  });
+
   it("gives the story back by reference when nothing changes", () => {
     const prev = story("a", { blocked: true, blockLog: [{ from: T0 }] });
     const next = { ...prev, title: "Renamed" };
@@ -211,6 +267,19 @@ describe("stampBoardBlocks", () => {
     const fresh = stampBoardBlocks(board([card("c", { blocked: true }), card("d")]), undefined, T0);
     expect(fresh.cards[0].blockLog).toEqual([{ from: T0 }]);
     expect(fresh.cards[1].blockLog).toBeUndefined();
+  });
+
+  it("stamps a card the board CRUD cleaned, whose spell's keys come back in another order", () => {
+    const stored = card("a", {
+      column: "in_progress",
+      blockLog: [{ from: T0, cause: "Flaky build", to: T1 }],
+    });
+    const cleaned = cleanCardFlowFields({ ...stored, blocked: true });
+    expect(Object.keys(cleaned.blockLog![0])).toEqual(["from", "to", "cause"]);
+    expect(stampBoardBlocks(board([cleaned]), board([stored]), T2).cards[0].blockLog).toEqual([
+      { from: T0, to: T1, cause: "Flaky build" },
+      { from: T2 },
+    ]);
   });
 
   it("gives the board back by reference when no card is stamped", () => {
@@ -422,6 +491,18 @@ describe("withSpellNote", () => {
     expect(withSpellNote(blocked, { cause: "Review queue" }, { spellFrom: T0 })).toBe(blocked);
     expect(withSpellNote(blocked, {})).toBe(blocked);
     expect(withSpellNote(blocked, { cause: "" })).toBe(blocked);
+    // A spell read back from jsonb, its keys and its links' keys in another order.
+    const reread = story("b", {
+      blocked: true,
+      blockLog: [
+        {
+          from: T0,
+          cause: "Review queue",
+          sentTo: [{ at: T1, route: "impediment", targetId: "imp_1" } as HandoffLink],
+        },
+      ],
+    });
+    expect(withSpellNote(reread, { cause: "Review queue", sentTo: [LINK] })).toBe(reread);
   });
 
   it("works on a Kanban card too", () => {
