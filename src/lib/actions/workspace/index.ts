@@ -22,6 +22,8 @@ import {
   ADKAR_DOC_ID,
   ADKAR_ELEMENTS,
   ALLOCATION_ROUND_TOOLS,
+  BLOCKER_CLUSTER_MAX,
+  BLOCK_SIDES,
   BUG_CLOSE_REASONS,
   BUG_PRIORITIES,
   BUG_REACH,
@@ -81,7 +83,11 @@ import {
   WEIGHTED_CRITERION_KIND,
   WEIGHTED_MATRIX_KIND,
   WEIGHTED_OPTION_KIND,
+  WORKFLOW_DEFINITION_ID,
+  WORKFLOW_SLE_PERCENTILES,
   WORKING_AGREEMENT_ID,
+  WORK_DEMANDS,
+  WORK_TYPES,
   weightedMatrixRemoval,
   withoutWeightedScores,
 } from "@/lib/stores/workspace-types";
@@ -270,6 +276,7 @@ import type {
   ProductMetric,
   AbTest,
   EbmBoard,
+  WorkflowDefinition,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -328,6 +335,22 @@ const HandoffLinkSchema = z.object({
   route: z.enum(HANDOFF_ROUTE_IDS),
   targetId: z.string(),
   at: z.string(),
+});
+
+// A blocked spell on a story or a Kanban card (workspace-types BlockSpell),
+// stamped by lib/flow/block-stamps when the blocked flag changes. Listed so
+// an update keeps the log; send one only to backfill or annotate it.
+const BlockSpellSchema = z.object({
+  from: z.string().describe("ISO time the flag went on."),
+  to: z.string().optional().describe("ISO time it went off; absent while still blocked."),
+  cause: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  cluster: z.string().max(BLOCKER_CLUSTER_MAX).optional(),
+  side: z.enum(BLOCK_SIDES).optional(),
+  earlier: z
+    .literal(true)
+    .optional()
+    .describe("Flagged before tracking began: its time is a lower bound."),
+  sentTo: z.array(HandoffLinkSchema).max(1).optional(),
 });
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -534,6 +557,23 @@ const StorySchema = z.object({
     .max(STORY_TICKET_KEY_MAX)
     .optional()
     .describe('Its key in the tracker, such as "PAY-12" (at most 50 characters). "" clears it.'),
+  workType: z
+    .enum(WORK_TYPES)
+    .optional()
+    .describe("What kind of work it is: a feature, a defect, debt or risk."),
+  demand: z
+    .enum(WORK_DEMANDS)
+    .optional()
+    .describe(
+      "value: new work people asked for; failure: repeat work caused by an earlier failure."
+    ),
+  blockLog: z
+    .array(BlockSpellSchema)
+    .max(TOOL_LIST_MAX.blockLog)
+    .optional()
+    .describe(
+      `Its blocked spells, oldest first (latest ${TOOL_LIST_MAX.blockLog}), stamped when blocked changes.`
+    ),
 }) as unknown as z.ZodType<Story>;
 
 const ImpedimentSchema = z.object({
@@ -552,6 +592,15 @@ const ImpedimentSchema = z.object({
   escalatedAt: z.string().optional(),
   dueDate: z.string().optional(),
   expectedResolutionDays: z.number().int().min(0).optional(),
+  cluster: z
+    .string()
+    .max(BLOCKER_CLUSTER_MAX)
+    .optional()
+    .describe('The blocker cluster it belongs to, such as "Waiting for a review".'),
+  blockSide: z
+    .enum(BLOCK_SIDES)
+    .optional()
+    .describe("Whether the blocker sits inside the team or outside it."),
 }) as unknown as z.ZodType<Impediment>;
 
 // Mirrors `Risk` field for field (z.object drops keys it doesn't know).
@@ -5281,5 +5330,119 @@ defineCrudActions<EbmBoard>({
   selectAll: () => ws().ebmBoards ?? [],
   upsert: (x) => ws().upsertEbmBoard(x),
   remove: (id) => ws().removeEbmBoard(id),
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.6 — Kanban's Definition of Workflow, one document. Flow Insights reads
+ * its work-type targets; the stories' and cards' work types and blocked
+ * spells ride StorySchema above and the Kanban board's cards. Every policy
+ * and short text is capped at TOOL_TEXT_MAX.short, so 12 saved versions
+ * keep the row small. */
+
+const KANBAN_COLUMNS = ["backlog", "ready", "in_progress", "review", "done"] as const;
+const KANBAN_CLASSES = ["standard", "expedite", "fixed_date", "intangible"] as const;
+
+/** The workflow fields a saved version keeps a copy of. */
+const WorkflowFields = {
+  board: z.enum(["sprint", "flow"]).optional().describe("The board it describes."),
+  workItem: z.string().max(TOOL_TEXT_MAX.short).optional().describe("What one item of work is."),
+  startPoint: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  finishPoint: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  workTypes: z
+    .array(
+      z.object({
+        type: z.enum(WORK_TYPES),
+        meaning: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        targetPct: Percent.optional().describe("The target share of finished work, 0–100."),
+      })
+    )
+    .max(WORK_TYPES.length)
+    .optional(),
+  policies: z
+    .array(
+      z.object({
+        stage: z.string().max(20),
+        enter: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        exit: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      })
+    )
+    .max(6)
+    .optional()
+    .describe("When work enters and leaves each stage."),
+  classPolicies: z
+    .array(z.object({ class: z.enum(KANBAN_CLASSES), policy: z.string().max(TOOL_TEXT_MAX.short) }))
+    .max(KANBAN_CLASSES.length)
+    .optional(),
+  wipPolicy: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  pullPolicy: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  blockerPolicy: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  sle: z
+    .object({
+      days: z.number().int().min(1).max(365),
+      pct: z.literal(WORKFLOW_SLE_PERCENTILES),
+    })
+    .optional()
+    .describe("The service level expectation: pct percent of items finish within days."),
+};
+
+const WorkflowDefinitionSchema = z.object({
+  id: SingletonId(WORKFLOW_DEFINITION_ID),
+  ...WorkflowFields,
+  statik: z
+    .object({
+      inside: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      outside: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      demand: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      capability: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      workflow: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      classes: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      design: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      rollout: z.string().max(TOOL_TEXT_MAX.text).optional(),
+    })
+    .optional()
+    .describe("Notes from the STATIK steps, one per step."),
+  cadences: z
+    .array(
+      z.object({
+        id: ItemId,
+        name: Filled(TOOL_TEXT_MAX.short),
+        cadence: z.enum(MEETING_CADENCES),
+        minutes: z.number().int().min(5).max(240).optional(),
+        purpose: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      })
+    )
+    .max(TOOL_LIST_MAX.kanbanCadences)
+    .optional()
+    .describe("The team's recurring Kanban meetings."),
+  versions: z
+    .array(
+      z.object({
+        version: z.number().int().min(1),
+        savedAt: z.string(),
+        note: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        expect: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        snapshot: z.object({
+          ...WorkflowFields,
+          wipLimits: z.partialRecord(z.enum(KANBAN_COLUMNS), z.number()),
+        }),
+      })
+    )
+    .max(TOOL_LIST_MAX.workflowVersions)
+    .optional()
+    .describe(
+      `Saved versions, oldest first (the latest ${TOOL_LIST_MAX.workflowVersions}), each with the board's WIP limits at the time.`
+    ),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<WorkflowDefinition>;
+
+// A singleton: create needs WORKFLOW_DEFINITION_ID (see SingletonId).
+defineCrudActions<WorkflowDefinition>({
+  toolId: "workspace.workflow_definition",
+  entityName: "workflow definition (Kanban's Definition of Workflow; one document)",
+  schema: WorkflowDefinitionSchema,
+  selectAll: () => ws().workflowDefinitions ?? [],
+  upsert: (x) => ws().upsertWorkflowDefinition(x),
+  remove: (id) => ws().removeWorkflowDefinition(id),
   prepare: (next, current) => stampedTimes(next, current),
 });

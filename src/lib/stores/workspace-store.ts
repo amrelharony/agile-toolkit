@@ -150,6 +150,7 @@ import type {
   ProductMetric,
   AbTest,
   EbmBoard,
+  WorkflowDefinition,
 } from "./workspace-types";
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -427,6 +428,8 @@ interface WorkspaceActions {
   removeAbTest: (id: string) => void;
   upsertEbmBoard: (x: EbmBoard) => void;
   removeEbmBoard: (id: string) => void;
+  upsertWorkflowDefinition: (x: WorkflowDefinition) => void;
+  removeWorkflowDefinition: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert, stamped and cleaned as `upsertStory` does each one. Use
@@ -1693,6 +1696,12 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
       upsertEbmBoard: (x) => set((_st) => ({ ebmBoards: replaceById(_st.ebmBoards ?? [], x) })),
       removeEbmBoard: (id) =>
         set((s) => ({ ebmBoards: (s.ebmBoards ?? []).filter((y) => y.id !== id) })),
+      upsertWorkflowDefinition: (x) =>
+        set((_st) => ({ workflowDefinitions: replaceById(_st.workflowDefinitions ?? [], x) })),
+      removeWorkflowDefinition: (id) =>
+        set((s) => ({
+          workflowDefinitions: (s.workflowDefinitions ?? []).filter((y) => y.id !== id),
+        })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1821,6 +1830,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           productMetrics: s.productMetrics,
           abTests: s.abTests,
           ebmBoards: s.ebmBoards,
+          workflowDefinitions: s.workflowDefinitions,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1983,6 +1993,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           productMetrics: arr("productMetrics"),
           abTests: arr("abTests"),
           ebmBoards: arr("ebmBoards"),
+          workflowDefinitions: arr("workflowDefinitions"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -2364,6 +2375,7 @@ if (typeof window !== "undefined") {
     registerCollection("productMetric", "productMetrics");
     registerCollection("abTest", "abTests");
     registerCollection("ebmBoard", "ebmBoards");
+    registerCollection("workflowDefinition", "workflowDefinitions");
     // Kudos wall — was localStorage-only + ephemeral realtime broadcast; now
     // also a per-entity synced collection so the agent (tool.kudos.*) can read
     // + post and the wall cloud-persists cross-device. The realtime broadcast
@@ -2554,6 +2566,7 @@ export function getWorkspaceSnapshot(): Workspace {
     productMetrics: state.productMetrics,
     abTests: state.abTests,
     ebmBoards: state.ebmBoards,
+    workflowDefinitions: state.workflowDefinitions,
   };
 }
 

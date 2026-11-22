@@ -11,6 +11,7 @@ import type {
   ExampleMap,
   HillChart,
   HypothesisTracker,
+  Impediment,
   InterruptItem,
   MeetingNote,
   Persona,
@@ -18,8 +19,10 @@ import type {
   ProductCanvas,
   ProductMetric,
   ReleaseReadiness,
+  Story,
   StrategyMap,
   TestSession,
+  WorkflowDefinition,
 } from "@/lib/stores/workspace-types";
 
 export const AT = "2026-11-12T09:00:00.000Z";
@@ -477,4 +480,92 @@ export const TRACKER_WITH_VALUE_CHECK: HypothesisTracker = {
       checkOn: "2026-12-01",
     },
   ],
+};
+
+/* P2.6 */
+
+export const WORKFLOW_DEFINITION: WorkflowDefinition = {
+  id: "workflow-definition:current",
+  board: "flow",
+  workItem: "A story or a bug",
+  startPoint: "Ready",
+  finishPoint: "Done",
+  workTypes: [
+    { type: "feature", meaning: "New value for shops", targetPct: 60 },
+    { type: "defect", targetPct: 20 },
+    { type: "debt", targetPct: 15 },
+    { type: "risk", targetPct: 5 },
+  ],
+  policies: [{ stage: "Review", enter: "Tests pass", exit: "Two approvals" }],
+  classPolicies: [{ class: "expedite", policy: "One at a time, swarm on it" }],
+  wipPolicy: "Finish before you start",
+  pullPolicy: "Oldest first",
+  blockerPolicy: "Raise at the next standup",
+  sle: { days: 10, pct: 85 },
+  statik: {
+    inside: "Late reviews",
+    outside: "Shops wait for fixes",
+    demand: "Features and bugs",
+    capability: "Ten items a week",
+    workflow: "Ready, doing, review, done",
+    classes: "Standard and expedite",
+    design: "A flow board",
+    rollout: "Start next sprint",
+  },
+  cadences: [
+    {
+      id: "cad1",
+      name: "Replenishment",
+      cadence: "weekly",
+      minutes: 30,
+      purpose: "Pick next work",
+    },
+  ],
+  versions: [
+    {
+      version: 1,
+      savedAt: AT,
+      note: "First version",
+      expect: "Fewer late reviews",
+      snapshot: {
+        board: "flow",
+        workItem: "A story",
+        sle: { days: 12, pct: 85 },
+        wipLimits: { backlog: 0, ready: 5, in_progress: 3, review: 2, done: 0 },
+      },
+    },
+  ],
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+/** A story with Flow Insights' fields (P2.6). */
+export const STORY_WITH_FLOW: Story = {
+  id: "story_flow",
+  title: "Fix the refund button",
+  status: "in_progress",
+  blocked: false,
+  workType: "defect",
+  demand: "failure",
+  blockLog: [
+    {
+      from: AT,
+      to: LATER,
+      cause: "Waiting for the bank's sandbox",
+      cluster: "A vendor or outside service",
+      side: "external",
+      sentTo: [{ route: "impediment", targetId: "imp_4", at: LATER }],
+    },
+    { from: "2026-11-01T09:00:00.000Z", to: "2026-11-01T12:00:00.000Z", earlier: true },
+  ],
+};
+
+/** An impediment in a blocker cluster (P2.6). */
+export const IMPEDIMENT_IN_CLUSTER: Impediment = {
+  id: "imp_4",
+  title: "Bank sandbox is down",
+  severity: "high",
+  raisedAt: AT,
+  cluster: "A vendor or outside service",
+  blockSide: "external",
 };

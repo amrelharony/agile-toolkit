@@ -4798,6 +4798,8 @@ export interface Workspace {
   abTests?: AbTest[];
   /** One EbmBoard, id EBM_BOARD_ID. */
   ebmBoards?: EbmBoard[];
+  /** One WorkflowDefinition, id WORKFLOW_DEFINITION_ID (Kanban's Definition of Workflow). */
+  workflowDefinitions?: WorkflowDefinition[];
 }
 
 /**
@@ -5093,6 +5095,7 @@ export const emptyWorkspace = {
   productMetrics: [],
   abTests: [],
   ebmBoards: [],
+  workflowDefinitions: [],
 } satisfies Workspace;
 
 /**

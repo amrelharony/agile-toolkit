@@ -43,6 +43,7 @@ import {
   PRODUCT_METRIC_KIND,
   STRATEGY_MAP_KIND,
   TEST_SESSION_KIND,
+  WORKFLOW_DEFINITION_KIND,
   emptyWorkspace,
   type Workspace,
 } from "@/lib/stores/workspace-types";
@@ -53,6 +54,7 @@ import {
   EXAMPLE_MAP,
   HILL_CHART,
   IMPACT_MAP,
+  IMPEDIMENT_IN_CLUSTER,
   INTERRUPT_FROM_BUG,
   MEETING_NOTE,
   PERSONA,
@@ -61,8 +63,10 @@ import {
   PRODUCT_METRIC,
   RELEASES_WITH_NOTES,
   ROADMAP_WITH_HORIZON,
+  STORY_WITH_FLOW,
   TEST_SESSION,
   TRACKER_WITH_VALUE_CHECK,
+  WORKFLOW_DEFINITION,
 } from "./phase43-fixtures";
 
 type Doc = { id: string };
@@ -176,6 +180,14 @@ const COLLECTIONS: {
     toolId: "workspace.ebm_board",
     kind: EBM_BOARD_KIND,
   },
+  {
+    slice: "workflowDefinitions",
+    doc: WORKFLOW_DEFINITION,
+    upsert: (x) => ws().upsertWorkflowDefinition(x),
+    remove: (id) => ws().removeWorkflowDefinition(id),
+    toolId: "workspace.workflow_definition",
+    kind: WORKFLOW_DEFINITION_KIND,
+  },
 ];
 
 /**
@@ -211,6 +223,12 @@ const EXTENDED: {
     slice: "hypothesisTrackers",
     doc: TRACKER_WITH_VALUE_CHECK,
     upsert: (x) => ws().upsertHypothesisTracker(x),
+  },
+  {
+    name: "an impediment's cluster and side (P2.6)",
+    slice: "impediments",
+    doc: IMPEDIMENT_IN_CLUSTER,
+    upsert: (x) => ws().upsertImpediment(x),
   },
 ];
 
@@ -303,4 +321,21 @@ describe("the fields Phase 43 adds to existing records", () => {
       expect(stored()).toEqual(e.doc);
     }
   );
+});
+
+describe("the story fields Phase 43 adds", () => {
+  it("a story keeps its work type, demand and blocked spells through upsert, export and import", () => {
+    ws().upsertStory(STORY_WITH_FLOW);
+    const stored = () => ws().stories.find((s) => s.id === STORY_WITH_FLOW.id);
+    const flow = (s: typeof STORY_WITH_FLOW | undefined) => ({
+      workType: s?.workType,
+      demand: s?.demand,
+      blockLog: s?.blockLog,
+    });
+    expect(flow(stored())).toEqual(flow(STORY_WITH_FLOW));
+    const json = ws().exportJSON();
+    ws().resetWorkspace();
+    ws().importJSON(json);
+    expect(flow(stored())).toEqual(flow(STORY_WITH_FLOW));
+  });
 });

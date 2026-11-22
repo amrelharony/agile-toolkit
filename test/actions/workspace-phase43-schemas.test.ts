@@ -45,6 +45,7 @@ import {
   type ExampleMap,
   type ProductCanvas,
   type Workspace,
+  WORKFLOW_DEFINITION_KIND,
 } from "@/lib/stores/workspace-types";
 import "@/lib/actions/workspace";
 import { SECTION_KEY_PATTERN, sectionsSchema } from "@/lib/actions/workspace/sectioned-schema";
@@ -55,6 +56,7 @@ import {
   EXAMPLE_MAP,
   HILL_CHART,
   IMPACT_MAP,
+  IMPEDIMENT_IN_CLUSTER,
   INTERRUPT_FROM_BUG,
   MEETING_NOTE,
   PERSONA,
@@ -63,8 +65,10 @@ import {
   RELEASES_WITH_NOTES,
   ROADMAP_WITH_HORIZON,
   STRATEGY_TREE,
+  STORY_WITH_FLOW,
   TEST_SESSION,
   TRACKER_WITH_VALUE_CHECK,
+  WORKFLOW_DEFINITION,
 } from "../stores/phase43-fixtures";
 
 const upsertEntity = vi.mocked(serverStore.serverUpsertEntity);
@@ -134,10 +138,16 @@ const COLLECTIONS: [toolId: string, slice: keyof Workspace, doc: Doc, kind: stri
   ["workspace.product_metric", "productMetrics", PRODUCT_METRIC, PRODUCT_METRIC_KIND],
   ["workspace.ab_test", "abTests", AB_TEST, AB_TEST_KIND],
   ["workspace.ebm_board", "ebmBoards", EBM_BOARD, EBM_BOARD_KIND],
+  [
+    "workspace.workflow_definition",
+    "workflowDefinitions",
+    WORKFLOW_DEFINITION,
+    WORKFLOW_DEFINITION_KIND,
+  ],
 ];
 
 /** The one-document collections: create keeps their fixed id. */
-const SINGLETONS: readonly string[] = ["workspace.ebm_board"];
+const SINGLETONS: readonly string[] = ["workspace.ebm_board", "workspace.workflow_definition"];
 
 /** A record to create: without its id, so the CRUD mints one, unless it is a singleton. */
 const fresh = (toolId: string, doc: Doc) =>
@@ -168,6 +178,12 @@ const EXTENDED: [name: string, toolId: string, slice: keyof Workspace, doc: Doc]
     "workspace.hypothesis_tracker",
     "hypothesisTrackers",
     TRACKER_WITH_VALUE_CHECK,
+  ],
+  [
+    "an impediment's cluster and side (P2.6)",
+    "workspace.impediment",
+    "impediments",
+    IMPEDIMENT_IN_CLUSTER,
   ],
 ];
 
@@ -1075,5 +1091,90 @@ describe("P2.5 a hypothesis's value check", () => {
       ...TRACKER_WITH_VALUE_CHECK,
       hypotheses: [{ ...hypothesis, checkOn: "next month" }],
     });
+  });
+});
+
+describe("P2.6 the workflow definition and the flow fields", () => {
+  const T = "workspace.workflow_definition";
+
+  it("is one document: create needs its id", async () => {
+    rejects(T, { ...WORKFLOW_DEFINITION, id: "workflow_other" });
+    await create(T, WORKFLOW_DEFINITION);
+    await expect(create(T, WORKFLOW_DEFINITION)).rejects.toThrow();
+  });
+
+  it("hold every cap and set", () => {
+    const wd = WORKFLOW_DEFINITION;
+    rejects(T, { ...wd, board: "wall" });
+    rejects(T, { ...wd, workItem: "x".repeat(TOOL_TEXT_MAX.short + 1) });
+    rejects(T, { ...wd, workTypes: [...wd.workTypes!, { type: "feature" }] });
+    rejects(T, { ...wd, workTypes: [{ type: "chore" }] });
+    rejects(T, { ...wd, workTypes: [{ type: "feature", targetPct: 101 }] });
+    rejects(T, { ...wd, workTypes: [{ type: "feature", targetPct: 33.3 }] });
+    rejects(T, {
+      ...wd,
+      policies: Array.from({ length: 7 }, (_, i) => ({ stage: `s${i}` })),
+    });
+    rejects(T, { ...wd, policies: [{ stage: "x".repeat(21) }] });
+    rejects(T, { ...wd, classPolicies: [{ class: "urgent", policy: "p" }] });
+    rejects(T, { ...wd, sle: { days: 0, pct: 85 } });
+    rejects(T, { ...wd, sle: { days: 366, pct: 85 } });
+    rejects(T, { ...wd, sle: { days: 10, pct: 80 } });
+    rejects(T, { ...wd, statik: { inside: "x".repeat(TOOL_TEXT_MAX.text + 1) } });
+    rejects(T, {
+      ...wd,
+      cadences: Array.from({ length: TOOL_LIST_MAX.kanbanCadences + 1 }, (_, i) => ({
+        id: `c${i}`,
+        name: "c",
+        cadence: "weekly",
+      })),
+    });
+    rejects(T, { ...wd, cadences: [{ id: "c", name: "c", cadence: "hourly" }] });
+    rejects(T, { ...wd, cadences: [{ id: "c", name: "c", cadence: "weekly", minutes: 4 }] });
+    const version = wd.versions![0];
+    rejects(T, {
+      ...wd,
+      versions: Array.from({ length: TOOL_LIST_MAX.workflowVersions + 1 }, (_, i) => ({
+        ...version,
+        version: i + 1,
+      })),
+    });
+    rejects(T, { ...wd, versions: [{ ...version, version: 0 }] });
+    rejects(T, {
+      ...wd,
+      versions: [{ ...version, snapshot: { ...version.snapshot, wipLimits: { doing: 3 } } }],
+    });
+  });
+
+  it("a story keeps its work type, demand and blocked spells, capped", async () => {
+    const parsed = parseCreate("workspace.story", STORY_WITH_FLOW);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+    const stored = (await update("workspace.story", "stories", STORY_WITH_FLOW, {
+      title: "Fix the refund button on Android",
+    })) as typeof STORY_WITH_FLOW;
+    expect(stored.workType).toBe("defect");
+    expect(stored.demand).toBe("failure");
+    expect(stored.blockLog).toEqual(STORY_WITH_FLOW.blockLog);
+    const spell = STORY_WITH_FLOW.blockLog![0];
+    const withLog = (blockLog: unknown) => ({ ...STORY_WITH_FLOW, blockLog });
+    rejects("workspace.story", { ...STORY_WITH_FLOW, workType: "chore" });
+    rejects("workspace.story", { ...STORY_WITH_FLOW, demand: "both" });
+    rejects(
+      "workspace.story",
+      withLog(Array.from({ length: TOOL_LIST_MAX.blockLog + 1 }, () => ({ from: NOW })))
+    );
+    rejects("workspace.story", withLog([{ ...spell, cause: "x".repeat(TOOL_TEXT_MAX.short + 1) }]));
+    rejects("workspace.story", withLog([{ ...spell, cluster: "x".repeat(61) }]));
+    rejects("workspace.story", withLog([{ ...spell, side: "both" }]));
+    rejects("workspace.story", withLog([{ ...spell, earlier: false }]));
+    rejects(
+      "workspace.story",
+      withLog([{ ...spell, sentTo: [spell.sentTo![0], { ...spell.sentTo![0], route: "risk" }] }])
+    );
+  });
+
+  it("an impediment's cluster is capped and its side is inside or outside", () => {
+    rejects("workspace.impediment", { ...IMPEDIMENT_IN_CLUSTER, cluster: "x".repeat(61) });
+    rejects("workspace.impediment", { ...IMPEDIMENT_IN_CLUSTER, blockSide: "both" });
   });
 });
