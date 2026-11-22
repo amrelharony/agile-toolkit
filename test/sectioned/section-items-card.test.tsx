@@ -79,7 +79,58 @@ function Harness({ initial, spy, ...props }: HarnessProps) {
   );
 }
 
+const IDEAS: SectionDef = {
+  id: "ideas",
+  label: "Ideas to try",
+  prompt: "What could we try first?",
+  kind: "list",
+  max: 5,
+  required: false,
+};
+
+type Doc = Record<string, RatedItem[]>;
+
+/**
+ * Two cards over one document, whose onChange saves the whole document and
+ * closes over it as the page renders: the way Kickoff and Product Canvas
+ * save a whole row.
+ */
+function DocHarness({ initial, spy }: { initial: Doc; spy?: (doc: Doc) => string | void }) {
+  const [doc, setDoc] = useState(initial);
+  const save = (next: Doc) => {
+    const refused = spy?.(next);
+    if (typeof refused === "string") return refused;
+    setDoc(next);
+  };
+  return (
+    <>
+      {[LIST, IDEAS].map((def) => (
+        <SectionItemsCard<RatedItem>
+          key={def.id}
+          def={def}
+          items={doc[def.id]}
+          itemMax={50}
+          onChange={(next) => save({ ...doc, [def.id]: next })}
+        />
+      ))}
+    </>
+  );
+}
+
 const wrap = (ui: ReactNode) => render(<TooltipProvider>{ui}</TooltipProvider>);
+
+/** The lines a list section shows, by its label. */
+const textsOf = (label: string) => {
+  const list = screen.queryByRole("list", { name: label });
+  if (!list) return [];
+  return within(list)
+    .queryAllByRole("listitem")
+    .map((r) =>
+      r
+        .querySelector("[data-slot=text] button, [data-slot=text] p")
+        ?.textContent?.replace(" (edit)", "")
+    );
+};
 
 const addField = () => screen.getByRole("textbox", { name: "Add to What could trip us up" });
 
@@ -108,6 +159,7 @@ const undoLast = () => {
 
 beforeEach(() => {
   toastSpy.mockReset();
+  toastSpy.dismiss.mockClear();
 });
 
 describe("a list section", () => {
@@ -255,6 +307,88 @@ describe("a list section", () => {
     typeAndEnter(addField(), "New");
     undoLast();
     expect(rowTexts()).toEqual(["One", "Two", "New"]);
+  });
+
+  it("undoes through the newest onChange, so a line added to another section since stays", () => {
+    wrap(
+      <DocHarness
+        initial={{ risks: [item("r1", "One"), item("r2", "Two")], ideas: [item("i1", "Pilot")] }}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete “One”" }));
+    typeAndEnter(screen.getByRole("textbox", { name: "Add to Ideas to try" }), "Survey");
+    expect(textsOf(IDEAS.label)).toEqual(["Pilot", "Survey"]);
+    undoLast();
+    expect(textsOf(LIST.label)).toEqual(["One", "Two"]);
+    expect(textsOf(IDEAS.label)).toEqual(["Pilot", "Survey"]);
+  });
+
+  it("says when the tool refuses an Undo, and builds the next change on what the tool holds", () => {
+    // The Undo's list no longer fits: the row grew in the meantime.
+    const spy = vi.fn((doc: Doc) =>
+      doc.risks.length === 2 && doc.risks.some((i) => i.text === "One")
+        ? "This kickoff is too big to save. Shorten or remove some lines."
+        : undefined
+    );
+    wrap(<DocHarness initial={{ risks: [item("r1", "One"), item("r2", "Two")] }} spy={spy} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete “One”" }));
+    expect(textsOf(LIST.label)).toEqual(["Two"]);
+    undoLast();
+    expect(screen.getByRole("alert")).toHaveTextContent("This kickoff is too big to save.");
+    expect(textsOf(LIST.label)).toEqual(["Two"]);
+    // The refused line never comes back with a later change.
+    typeAndEnter(addField(), "Three");
+    expect(spy.mock.calls.at(-1)?.[0].risks.map((i) => i.text)).toEqual(["Two", "Three"]);
+    expect(textsOf(LIST.label)).toEqual(["Two", "Three"]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("closes its Undo toasts when it goes, since its onChange no longer follows the page", () => {
+    toastSpy.mockReturnValueOnce("undo-1");
+    const { unmount } = wrap(<Harness def={LIST} initial={[item("r1", "One")]} itemMax={50} />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete “One”" }));
+    expect(toastSpy.dismiss).not.toHaveBeenCalled();
+    unmount();
+    expect(toastSpy.dismiss).toHaveBeenCalledTimes(1);
+    expect(toastSpy.dismiss).toHaveBeenCalledWith("undo-1");
+  });
+
+  it("with update, undoes into the document the delete came from, after another one opened", () => {
+    const docs: Record<string, Doc> = {
+      a: { risks: [item("r1", "One"), item("r2", "Two")] },
+      b: { risks: [item("r9", "Other")] },
+    };
+    function DocsHarness() {
+      const [all, setAll] = useState(docs);
+      const [open, setOpen] = useState("a");
+      // Copies, as a page that cleans what it reads: the card finds lines by id.
+      const items = all[open].risks.map((x) => ({ ...x }));
+      return (
+        <>
+          <button type="button" onClick={() => setOpen("b")}>
+            Open b
+          </button>
+          <SectionItemsCard<RatedItem>
+            def={LIST}
+            items={items}
+            itemMax={50}
+            onChange={(next) => setAll((d) => ({ ...d, [open]: { ...d[open], risks: next } }))}
+            update={(fn) =>
+              setAll((d) => ({ ...d, [open]: { ...d[open], risks: fn(d[open].risks) } }))
+            }
+          />
+          <p data-testid="doc-a">{all.a.risks.map((i) => i.text).join(", ")}</p>
+        </>
+      );
+    }
+    wrap(<DocsHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Delete “One”" }));
+    expect(textsOf(LIST.label)).toEqual(["Two"]);
+    fireEvent.click(screen.getByRole("button", { name: "Open b" }));
+    expect(textsOf(LIST.label)).toEqual(["Other"]);
+    undoLast();
+    expect(textsOf(LIST.label)).toEqual(["Other"]);
+    expect(screen.getByTestId("doc-a")).toHaveTextContent("One, Two");
   });
 
   it("deletes only the row pressed when two items share an id", () => {

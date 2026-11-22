@@ -16,7 +16,16 @@
  * The card holds no document state: `items` in, `onChange(next)` out. The
  * tool's store write may refuse a change by returning a sentence (say, the
  * row would be too big to save); the card shows it and keeps what was
- * typed. A delete is never refused.
+ * typed. A delete is never refused, but its Undo may be (the line no longer
+ * fits): the card then says so and leaves the list as it is.
+ *
+ * Undo of a delete can run seconds later, after other changes. Without
+ * `update`, it goes through the newest `onChange`, over the list as last
+ * written, so an `onChange` that closes over the page's state is fine. Key
+ * the card by the document and the section, so that opening another document
+ * mounts new cards: a card that goes closes its Undo toasts, which could no
+ * longer land in the right document. With `update`, the delete and its Undo
+ * go through the `update` the delete was made with, and its Undo stays.
  *
  * `disabled` shows the text read only, without the card's own add, edit
  * and delete; the tool's slots still render, and the tool decides what
@@ -35,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { roomLeft, type SectionDef } from "@/lib/sectioned/model";
 import type { SectionItem } from "@/lib/stores/workspace-types";
 import { cutText } from "@/lib/utils/cut-text";
+import { toast } from "@/lib/utils/toast";
 import { removeWithUndo } from "@/lib/utils/undoable";
 
 export interface SectionItemsCardProps<I extends SectionItem> {
@@ -45,6 +55,15 @@ export interface SectionItemsCardProps<I extends SectionItem> {
    * card shows it and keeps what was typed. A delete is never refused.
    */
   onChange: (next: I[]) => string | void;
+  /**
+   * A functional write for a delete and its Undo (removeWithUndo's
+   * `update`): `fn` takes the section's items as the tool holds them when it
+   * runs, and returns the new list. Return a sentence to refuse. Bind it to
+   * the document (a store action that reads the newest row by its id): the
+   * Undo then puts the line back in the document it came from, whatever
+   * changed or opened since. Adds and edits still go through `onChange`.
+   */
+  update?: (fn: (items: readonly I[]) => I[]) => string | void;
   /** The cap on one item's text: the tool's item cap, or its long cap for a long section. */
   itemMax: number;
   /** Under an item's text: the tool's own fields (owner, ratings, fact or guess). */
@@ -74,6 +93,15 @@ function short(text: string, max = 60): string {
   return t.length > max ? `${cutText(t, max - 1).trimEnd()}…` : t;
 }
 
+/** The tool's sentence when it refused a write; null when the write went through. */
+const refusal = (result: string | void): string | null =>
+  typeof result === "string" && result ? result : null;
+
+/** `item` as a list holds it: this very object (so a repeated id stays), or else the first with its id. */
+function pickItem<I extends SectionItem>(items: readonly I[], item: I): I | undefined {
+  return items.includes(item) ? item : items.find((x) => x.id === item.id);
+}
+
 /** React keys from ids, a repeated id getting its own key so the rows stay apart. */
 function rowKeys(items: readonly SectionItem[]): string[] {
   const count = new Map<string, number>();
@@ -88,6 +116,7 @@ export function SectionItemsCard<I extends SectionItem>({
   def,
   items,
   onChange,
+  update,
   itemMax,
   renderExtras,
   renderActions,
@@ -106,11 +135,30 @@ export function SectionItemsCard<I extends SectionItem>({
   useEffect(() => {
     latest.current = list;
   }, [list]);
+  // The newest onChange, for an Undo that runs renders after its delete: the
+  // tool's onChange may close over the page's state as it was then.
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const mounted = useRef(false);
+  // Undo toasts that write through onChange: closed when the card goes.
+  const undoToasts = useRef(new Set<string | number>());
+  useEffect(() => {
+    mounted.current = true;
+    const open = undoToasts.current;
+    return () => {
+      mounted.current = false;
+      // Another document or format took its place, or the page went: the
+      // newest onChange is frozen now, and an Undo through it could write
+      // the line into the wrong document or over a newer change.
+      open.forEach((id) => toast.dismiss(id));
+      open.clear();
+    };
+  }, []);
 
   /** Write a change; false when the tool refused it (its sentence then shows). */
   const write = (next: I[]): boolean => {
-    const refused = onChange(next);
-    if (typeof refused === "string" && refused) {
+    const refused = refusal(onChange(next));
+    if (refused) {
       setProblem(refused);
       return false;
     }
@@ -122,15 +170,39 @@ export function SectionItemsCard<I extends SectionItem>({
   /** Remove one item (this object: a repeated id stays), with Undo. */
   const removeItem = (item: I, label: string) => {
     setProblem(null);
-    removeWithUndo<I>({
+    // The delete's own `update`, bound to the document it was made in.
+    const through = update;
+    // The item as the list being changed holds it (see pickItem).
+    let target: I | undefined;
+    const run = (fn: (items: readonly I[]) => I[], items: readonly I[]) => {
+      target = pickItem(items, item);
+      return fn(items);
+    };
+    // removeWithUndo runs the delete at once; a later call is the Undo.
+    let deleting = true;
+    const toastId = removeWithUndo<I>({
       label,
       update: (fn) => {
-        const next = fn(latest.current);
-        latest.current = next;
-        onChange(next);
+        let refused: string | null;
+        if (through) {
+          let next = undefined as I[] | undefined;
+          refused = refusal(through((items) => (next = run(fn, items))));
+          // The delete, as written now, until the page shows it. An Undo is
+          // left to the page: the card may be showing another document by then.
+          if (deleting && next && !refused) latest.current = next;
+        } else {
+          const next = run(fn, latest.current);
+          refused = refusal(onChangeRef.current(next));
+          // A refused Undo leaves the list as it was: the next change builds
+          // on what the tool holds, never on the line it didn't take back.
+          if (!refused) latest.current = next;
+        }
+        if (refused && mounted.current) setProblem(refused);
       },
-      match: (x) => x === item,
+      match: (x) => x === target,
     });
+    deleting = false;
+    if (!through && toastId !== undefined) undoToasts.current.add(toastId);
   };
 
   const newItem = (text: string): I => (makeItem ? makeItem(text) : ({ id: nanoid(8), text } as I));
