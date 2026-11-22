@@ -130,7 +130,7 @@ export const BUG_REPORT: BugReport = {
   triagedAt: AT,
   closedAt: LATER,
   sourceRef: { tool: "test-sessions", id: "n1", doc: "tsess_1" },
-  sentTo: [{ route: "backlog-story", targetId: "story_9", at: LATER }],
+  sentTo: [{ route: "interrupt", targetId: "interrupt_9", at: LATER }],
   createdAt: AT,
   updatedAt: LATER,
 };
@@ -191,7 +191,7 @@ export const TEST_SESSION: TestSession = {
       at: AT,
       kind: "bug",
       text: "Refund button does nothing on Android",
-      sentTo: [{ route: "backlog-story", targetId: "story_9", at: LATER }],
+      sentTo: [{ route: "bug", targetId: "bug_1", at: LATER }],
     },
     { id: "n2", at: LATER, kind: "idea", text: "Try a refund while offline" },
   ],

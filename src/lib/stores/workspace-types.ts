@@ -315,6 +315,14 @@ export const HANDOFF_ROUTE_IDS = [
   "opportunity",
   // Phase 42: an item opened as a root-cause analysis (Root Cause).
   "root-cause",
+  // Phase 43, the tools plan's phase 2: a bug to triage (Bug Triage) and an
+  // interrupt in the running sprint (Interrupt Buffer), P2.2; an epic on the
+  // roadmap (Epic Roadmap), P2.4; a rule proposed in the Working Agreement,
+  // P2.8.
+  "bug",
+  "interrupt",
+  "epic",
+  "agreement-rule",
 ] as const;
 
 export type HandoffRouteId = (typeof HANDOFF_ROUTE_IDS)[number];
