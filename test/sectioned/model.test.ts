@@ -571,7 +571,11 @@ describe("adding accepted lines", () => {
       aim: [item("a", "Typed by hand")],
       ideas: [item("i1", "Try a pilot")],
     };
-    const { sections: next, added } = addDraftLines(
+    const {
+      sections: next,
+      added,
+      skipped,
+    } = addDraftLines(
       sections,
       [
         { sectionId: "ideas", text: "TRY a pilot" },
@@ -584,6 +588,8 @@ describe("adding accepted lines", () => {
       makeId
     );
     expect(added).toEqual([{ sectionId: "ideas", itemId: "new1" }]);
+    // Only the two badly named lines had words and didn't go in.
+    expect(skipped).toBe(2);
     expect(next.aim).toBe(sections.aim);
     expect(next.ideas.map((i) => i.text)).toEqual(["Try a pilot", "New one"]);
     expect(Object.getPrototypeOf(next)).toBe(Object.prototype);
@@ -594,8 +600,93 @@ describe("adding accepted lines", () => {
     expect(addDraftLines(sections, [{ sectionId: "ideas", text: "try a pilot" }], makeId)).toEqual({
       sections,
       added: [],
+      skipped: 0,
     });
     expect(addDraftLines(sections, [], makeId).sections).toBe(sections);
+  });
+
+  it("with the format, adds nothing to a list that filled up after the lines were offered", () => {
+    n = 0;
+    const atOffer: Sections = { ideas: [item("i1", "Try a pilot")] };
+    const offered = draftLinesFor(FORMAT, atOffer, [
+      { sectionId: "ideas", text: "Run a survey" },
+      { sectionId: "ideas", text: "Ask support" },
+    ]).lines;
+    expect(offered).toHaveLength(2);
+    // While the suggestions show, two more lines are typed: 3 of 3.
+    const now: Sections = {
+      ideas: [...atOffer.ideas, item("i2", "Pair up"), item("i3", "Mob on it")],
+    };
+    const result = addDraftLines(now, offered, makeId, FORMAT);
+    expect(result).toEqual({ sections: now, added: [], skipped: 2 });
+    // Without the format both would go in, and the next read would cut them back out.
+    const unchecked = addDraftLines(now, offered, makeId).sections;
+    expect(unchecked.ideas).toHaveLength(5);
+    expect(
+      cleanSections(unchecked, FORMAT, { itemMax: 200, longMax: 2000 }).ideas.map((i) => i.text)
+    ).toEqual(["Try a pilot", "Pair up", "Mob on it"]);
+  });
+
+  it("with the format, fills what room is left and counts the rest", () => {
+    n = 0;
+    const now: Sections = { ideas: [item("i1", "Try a pilot"), item("i2", "Pair up")] };
+    const {
+      sections: next,
+      added,
+      skipped,
+    } = addDraftLines(
+      now,
+      [
+        { sectionId: "ideas", text: "Run a survey" },
+        { sectionId: "ideas", text: "Ask support" },
+        { sectionId: "ideas", text: "ask  SUPPORT" },
+        { sectionId: "ideas", text: "pair up" },
+      ],
+      makeId,
+      FORMAT
+    );
+    expect(added).toEqual([{ sectionId: "ideas", itemId: "new1" }]);
+    expect(next.ideas.map((i) => i.text)).toEqual(["Try a pilot", "Pair up", "Run a survey"]);
+    // "Ask support" found no room; its repeat and the line already there aren't counted.
+    expect(skipped).toBe(1);
+  });
+
+  it("with the format, leaves a single or long answer given since alone, and an unknown section out", () => {
+    n = 0;
+    const now: Sections = {
+      aim: [item("a", "Typed while the drafts showed")],
+      story: [item("s", "Once upon a sprint")],
+    };
+    const {
+      sections: next,
+      added,
+      skipped,
+    } = addDraftLines(
+      now,
+      [
+        { sectionId: "aim", text: "Ship by May" },
+        { sectionId: "story", text: "A drafted story" },
+        { sectionId: "nowhere", text: "Not a section" },
+        { sectionId: "risks", text: "Budget cut" },
+        { sectionId: "risks", text: "Key person leaves" },
+        { sectionId: "risks", text: "Scope creep" },
+      ],
+      makeId,
+      FORMAT
+    );
+    expect(next.aim).toBe(now.aim);
+    expect(next.story).toBe(now.story);
+    expect(next.nowhere).toBeUndefined();
+    // An empty list takes up to its max (Risks holds 2).
+    expect(added).toEqual([
+      { sectionId: "risks", itemId: "new1" },
+      { sectionId: "risks", itemId: "new2" },
+    ]);
+    expect(skipped).toBe(4);
+    // An empty single answer still takes one line.
+    const empty = addDraftLines({}, [{ sectionId: "aim", text: "Ship by May" }], makeId, FORMAT);
+    expect(empty.sections.aim).toEqual([{ id: "new3", text: "Ship by May" }]);
+    expect(empty.skipped).toBe(0);
   });
 
   it("Undo takes out exactly the added items, whatever was typed since", () => {

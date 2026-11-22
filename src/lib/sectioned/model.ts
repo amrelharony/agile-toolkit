@@ -444,23 +444,42 @@ export interface AddedLine {
 
 /**
  * Accepted lines added as new items at the end of their sections (ids from
- * `makeId`), with where each went. Blank lines, section ids that aren't
- * ids, and lines the section already holds are skipped. It never changes
- * an item that is there: a single or long answer that holds text is
- * replaced only through the tool's own "Replace" step. Sections it doesn't
- * touch keep their arrays.
+ * `makeId`), with where each went. Blank lines and lines the section
+ * already holds are left out. It never changes an item that is there: a
+ * single or long answer that holds text is replaced only through the
+ * tool's own "Replace" step. Sections it doesn't touch keep their arrays.
+ *
+ * Pass the format: the lines were offered a while ago, and the document may
+ * have changed since. With it, a line goes in only where there is room now
+ * (a list below its `max`, a single or long answer that holds nothing), so
+ * an accept never overflows a section that `cleanSections` would later cut
+ * back, dropping the accepted lines unseen. A line for a section the format
+ * doesn't have is left out too.
+ *
+ * `skipped` counts the lines with words that didn't go in: no room, a
+ * section the format doesn't have, or an id that isn't a section id. A line
+ * the section already holds isn't counted (it's there), and neither is a
+ * repeat of a line that found no room. The tool can say "N lines didn't fit".
  */
 export function addDraftLines<I extends SectionItem>(
   sections: Sections<I>,
   accepted: readonly DraftLine[],
-  makeId: () => string
-): { sections: Sections<I>; added: AddedLine[] } {
+  makeId: () => string,
+  format?: SectionFormat
+): { sections: Sections<I>; added: AddedLine[]; skipped: number } {
+  const defs = format ? new Map(format.sections.map((d) => [d.id, d])) : null;
   const next: Sections<I> = { ...sections };
   const added: AddedLine[] = [];
   const seen = new Map<string, Set<string>>();
+  let skipped = 0;
   for (const line of accepted) {
     const text = oneLine(line.text);
-    if (!text || !SECTION_ID_PATTERN.test(line.sectionId)) continue;
+    if (!text) continue;
+    const def = defs?.get(line.sectionId);
+    if (!SECTION_ID_PATTERN.test(line.sectionId) || (defs && !def)) {
+      skipped++;
+      continue;
+    }
     const current = own(next, line.sectionId) ?? [];
     let keys = seen.get(line.sectionId);
     if (!keys) {
@@ -470,11 +489,15 @@ export function addDraftLines<I extends SectionItem>(
     const key = lineKey(text);
     if (keys.has(key)) continue;
     keys.add(key);
+    if (def && roomLeft(def, current) === 0) {
+      skipped++;
+      continue;
+    }
     const itemId = makeId();
     next[line.sectionId] = [...current, { id: itemId, text } as I];
     added.push({ sectionId: line.sectionId, itemId });
   }
-  return { sections: added.length > 0 ? next : sections, added };
+  return { sections: added.length > 0 ? next : sections, added, skipped };
 }
 
 /** The document without the items `addDraftLines` added: the Undo of an accept. Other sections keep their arrays. */
