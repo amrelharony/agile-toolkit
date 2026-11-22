@@ -12,15 +12,19 @@ import { isExampleId } from "@/lib/utils/example-id";
 export const UNSIZED_BATCH_MIN = 5;
 
 /**
- * The backlog's stories with no size yet: not done, in no sprint, with no
- * points, and not the example's. In backlog order.
+ * The backlog's stories with no size yet: in the backlog (not started, in no
+ * sprint), with no points above 0, and not the example's. In backlog order.
+ * The same test as Refinement's isBacklogUnsized and the Sprint Cockpit's
+ * "backlog stories to size", so a count from here matches the number those
+ * pages show: a 0-point story still needs a size, and work already started
+ * isn't sized here.
  */
 export function unsizedBacklog<S extends Story>(stories: readonly S[]): S[] {
   return stories.filter(
     (s) =>
-      s.status !== "done" &&
       !s.sprintId &&
-      (typeof s.points !== "number" || !Number.isFinite(s.points)) &&
+      s.status === "backlog" &&
+      !(typeof s.points === "number" && Number.isFinite(s.points) && s.points > 0) &&
       !isExampleId(s.id)
   );
 }
