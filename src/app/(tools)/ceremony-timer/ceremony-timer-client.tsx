@@ -23,7 +23,7 @@ import { useToolSonification } from "@/lib/sonification/use-sonification";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { findRosterMember, nameKey } from "@/lib/team/use-team-roster";
-import { useDockTimer } from "@/lib/timer/dock-timer";
+import { useDockTimer, useRingsOwnAlarm } from "@/lib/timer/dock-timer";
 import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
 import {
@@ -47,7 +47,7 @@ import {
 } from "./agenda";
 import { AgendaCard } from "./agenda-card";
 import { AgendaPicker } from "./agenda-picker";
-import { flashTitle, playChime, vibrate } from "./alarm";
+import { playChime, timesUp } from "./alarm";
 import { buildExample } from "./example";
 import { keptRunOf, speakingShares, withKeptRun, type KeptRun, type ShareRuns } from "./history";
 import { toMarkdown } from "./markdown";
@@ -187,6 +187,9 @@ function keptId(): string {
 }
 
 export function CeremonyTimerClient() {
+  // While the page is open it rings its own time's up (below), so the dock
+  // stays quiet here; away from it, the dock rings with the switch it carries.
+  useRingsOwnAlarm(DOCK_HREF);
   const { agendaId, run } = useTimerSession(
     useShallow((s) => ({ agendaId: s.agendaId, run: s.run }))
   );
@@ -278,10 +281,22 @@ export function CeremonyTimerClient() {
     if (run && run === quietRunRef.current) return;
     quietRunRef.current = null;
     const dock = useDockTimer.getState();
-    const next = agenda ? dockFor(run, agenda, DOCK_HREF, Date.now()) : null;
+    // The switch as it is now; a toggle on its own is carried by the next effect.
+    const sound = useTimerSettings.getState().chime === true;
+    const next = agenda ? dockFor(run, agenda, DOCK_HREF, Date.now(), sound) : null;
     if (next) dock.publish(next);
     else if (dock.timer?.href === DOCK_HREF) dock.publish(null);
   }, [ready, run, agenda]);
+
+  // Keep the docked segment's chime with the switch, so turning it on or off
+  // reaches a segment already on the dock (and the run kept quiet on mount)
+  // without publishing the run again.
+  useEffect(() => {
+    if (!ready) return;
+    const dock = useDockTimer.getState();
+    const t = dock.timer;
+    if (t?.href === DOCK_HREF && t.chime !== chime) dock.publish({ ...t, chime });
+  }, [ready, chime]);
 
   useVisibilityTick(Boolean(view?.running), 1000, () => setNow(Date.now()));
 
@@ -310,11 +325,7 @@ export function CeremonyTimerClient() {
       const what = agenda.segments.length > 1 ? view.segment.label : agenda.short;
       sonify("finish");
       announce(`${what}: time's up`, "assertive");
-      flashTitle("Time's up");
-      if (chime) {
-        playChime(3);
-        vibrate();
-      }
+      timesUp({ sound: chime });
     } else if (prev.left > 10 && left <= 10) {
       sonify("ten-seconds");
     } else if (left > 0 && left !== prev.left && left % 60 === 0) {

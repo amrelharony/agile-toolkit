@@ -6,9 +6,9 @@
  * Kept in this browser only.
  *
  * The Ceremony Timer and Facilitator Timers have their own switches (their
- * settings stores). A Facilitator Timers step on the dock carries its
- * switch (`DockedTimer.chime`); the Ceremony Timer's doesn't yet, so away
- * from its page this setting rings it.
+ * settings stores). A segment or step of theirs on the dock carries its
+ * tool's switch (`DockedTimer.chime`), so away from its page that switch
+ * rings it, not this setting.
  */
 
 import { create } from "zustand";

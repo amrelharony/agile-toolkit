@@ -36,6 +36,7 @@ vi.mock("@/app/(tools)/ceremony-timer/alarm", () => ({
   playChime: vi.fn(),
   vibrate: vi.fn(),
   flashTitle: vi.fn(),
+  timesUp: vi.fn(),
 }));
 
 import { CeremonyTimerClient } from "@/app/(tools)/ceremony-timer/ceremony-timer-client";
