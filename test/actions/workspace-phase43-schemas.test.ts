@@ -59,6 +59,7 @@ import {
 } from "@/lib/stores/workspace-types";
 import "@/lib/actions/workspace";
 import { SECTION_KEY_PATTERN, sectionsSchema } from "@/lib/actions/workspace/sectioned-schema";
+import { SECTION_ITEM_ID_MAX } from "@/lib/sectioned/model";
 import {
   AB_TEST,
   ANALYSIS_WITH_LOOP,
@@ -727,6 +728,11 @@ describe("the sectioned kit's schema factory", () => {
     ok({ ["g".repeat(32)]: [item("a")] });
   });
 
+  it("caps an item id at the kit's SECTION_ITEM_ID_MAX, so every cleaned document passes", () => {
+    ok({ goal: [item("i".repeat(SECTION_ITEM_ID_MAX))] });
+    no({ goal: [item("i".repeat(SECTION_ITEM_ID_MAX + 1))] });
+  });
+
   it("keeps every item field, the tool's own extras included", () => {
     const sections = {
       goal: [
@@ -1316,9 +1322,17 @@ describe("P2.6 the workflow definition and the flow fields", () => {
     rejects("workspace.story", withLog([{ ...spell, cluster: "x".repeat(61) }]));
     rejects("workspace.story", withLog([{ ...spell, side: "both" }]));
     rejects("workspace.story", withLog([{ ...spell, earlier: false }]));
+    // One link per route, as cleanBlockLog keeps them: two routes are fine,
+    // two links on one route are not.
+    expect(
+      parseCreate(
+        "workspace.story",
+        withLog([{ ...spell, sentTo: [spell.sentTo![0], { ...spell.sentTo![0], route: "risk" }] }])
+      ).success
+    ).toBe(true);
     rejects(
       "workspace.story",
-      withLog([{ ...spell, sentTo: [spell.sentTo![0], { ...spell.sentTo![0], route: "risk" }] }])
+      withLog([{ ...spell, sentTo: [spell.sentTo![0], { ...spell.sentTo![0], targetId: "i2" }] }])
     );
   });
 

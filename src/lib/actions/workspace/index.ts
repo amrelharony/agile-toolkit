@@ -380,7 +380,14 @@ const BlockSpellSchema = z.object({
     .literal(true)
     .optional()
     .describe("Flagged before tracking began: its time is a lower bound."),
-  sentTo: z.array(HandoffLinkSchema).max(1).optional(),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .max(HANDOFF_ROUTE_IDS.length)
+    .refine((links) => new Set(links.map((l) => l.route)).size === links.length, {
+      message: "one link per route",
+    })
+    .optional()
+    .describe("Where the spell was sent: one link per route."),
 });
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
