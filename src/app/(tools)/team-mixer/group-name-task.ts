@@ -7,11 +7,11 @@
  * and "Suggest names" never disagree on what a theme holds.
  */
 
-import { THEME_NAMES_MAX, themeNamesTask } from "@/lib/ai/tasks/picker";
-import type { AiTaskDef } from "@/lib/ai/task-types";
+import { THEME_NAMES_MAX, themeNamesTask } from "@/lib/ai/tasks/picker.lite";
+import type { AiTaskLike } from "@/lib/ai/task-ref";
 
 export interface GroupNameAi<I, O> {
-  task: AiTaskDef<I, O>;
+  task: AiTaskLike<I, O>;
   /** The task's input for a theme and a number of names. */
   input: (theme: string, count: number) => I;
   /** The names in the task's answer. */

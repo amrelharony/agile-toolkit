@@ -1,6 +1,7 @@
 /**
  * Anonymous vote rounds (Health Check, Psych Safety, Mood Tracker; Kano;
- * Buy-a-Feature and the $100 Test; Quick Vote): the wire protocol.
+ * Buy-a-Feature and the $100 Test; Quick Vote; Relative Sizing): the wire
+ * protocol.
  *
  * A host publishes a questionnaire (questions on one scale) in a visitor
  * room, `visitor:<tool>:<code>`. Participants answer with numbers only, and
@@ -97,6 +98,7 @@ export const VOTE_ROOM_TOOLS = [
   "buy-a-feature",
   "hundred-dollar-test",
   "quick-vote",
+  "relative-sizing",
 ] as const satisfies readonly VisitorTool[];
 export type VoteRoomTool = (typeof VOTE_ROOM_TOOLS)[number];
 
@@ -148,6 +150,8 @@ export const VOTE_ROUND_KINDS = {
   "buy-a-feature": ["allocation"],
   "hundred-dollar-test": ["allocation"],
   "quick-vote": ["scale", "choice", "rank", "number", "pair"],
+  // Each story is a question, each bucket a point on its scale.
+  "relative-sizing": ["scale"],
 } as const satisfies Readonly<Record<VoteRoomTool, readonly VoteRoundKind[]>>;
 
 /** Whether `tool` may run rounds of `kind`. False for anything outside the kit. */

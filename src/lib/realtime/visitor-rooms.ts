@@ -5,7 +5,7 @@
  * a Retro live with their team over a temporary Supabase broadcast and
  * presence channel, and anyone can run an anonymous vote round (Health
  * Check, Psych Safety, Mood Tracker; Kano; Buy-a-Feature, the $100 Test;
- * Quick Vote), a show room (Picker, Team Mixer, Card Decks: the host
+ * Quick Vote; Relative Sizing), a show room (Picker, Team Mixer, Card Decks: the host
  * shows, everyone watches) or a wall room (Audience Wall: short anonymous
  * posts and upvotes) the same way. Nothing is written to a database. The
  * whole feature is off unless the build sets `NEXT_PUBLIC_VISITOR_ROOMS=1`.
@@ -58,13 +58,13 @@ export function visitorRoomsEnabled(): boolean {
 
 /**
  * The tools that can run a visitor room. The newest migration that defines
- * `realtime_room_allowed` (0039 today) lists the same tools, in this order,
+ * `realtime_room_allowed` (0041 today) lists the same tools, in this order,
  * in the Realtime policy's visitor branch: change both together, with a new
  * migration (test/realtime/visitor-topic-migration.test.ts checks the
  * newest one agrees). Kano, Buy-a-Feature and the $100 Test joined in
  * 0028; Quick Vote, Audience Wall, Picker, Team Mixer and Card Decks in
- * 0039. Until a tool's migration is pushed, its private channels are
- * refused.
+ * 0039; Relative Sizing in 0041. Until a tool's migration is pushed, its
+ * private channels are refused.
  */
 export const VISITOR_TOOLS = [
   "planning-poker",
@@ -80,6 +80,7 @@ export const VISITOR_TOOLS = [
   "picker",
   "team-mixer",
   "card-decks",
+  "relative-sizing",
 ] as const;
 export type VisitorTool = (typeof VISITOR_TOOLS)[number];
 
@@ -115,6 +116,9 @@ export const VISITOR_ROOM_KIND: Readonly<Record<VisitorTool, VisitorRoomKind>> =
   picker: "show",
   "team-mixer": "show",
   "card-decks": "show",
+  // Its live round is private scale ballots: the stories are the questions,
+  // the buckets the points (vote-room/protocol.ts).
+  "relative-sizing": "vote",
 };
 
 /**

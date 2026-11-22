@@ -59,6 +59,6 @@ export const STARTER_CATALOG: StarterRule[] = [
   { category: "conflict", text: "Critique the work, not the person" },
 ];
 
-/** A rule's text as a dedupe key: case, spacing and a closing full stop don't make a new rule. */
-export const ruleKey = (text: string): string =>
-  text.trim().replace(/\s+/g, " ").replace(/\.$/, "").toLowerCase();
+// The dedupe key lives with the agreement model, which the hand-offs and
+// agent actions read too; re-exported here so the page's imports stay.
+export { ruleKey } from "@/lib/working-agreement/model";

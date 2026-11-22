@@ -24,6 +24,7 @@ import type {
   HandoffRef,
   HandoffRouteId,
   ImpedimentSeverity,
+  InterruptKind,
 } from "@/lib/stores/workspace-types";
 
 export type { HandoffLink, HandoffRef, HandoffRouteId };
@@ -76,6 +77,17 @@ export interface HandoffSource {
   parentId?: string;
   /** A risk raised as an impediment keeps its level. Absent or unknown: "medium". */
   severity?: ImpedimentSeverity;
+  /*
+   * The tools plan's phase 2 (Phase 43).
+   */
+  /** Tags a backlog story keeps: up to 5, trimmed, each at most 40 characters (a bug's "bug"). */
+  tags?: string[];
+  /** When it is due, YYYY-MM-DD: a retro action keeps it as its due date. */
+  due?: string;
+  /** The product area it is in: the "bug" route keeps it. */
+  area?: string;
+  /** What an interrupt is (the "interrupt" route). Absent kind: read from the title. */
+  interrupt?: { kind?: InterruptKind; emergency?: boolean };
   /** Where the item lives, so the target can link back to it. */
   sourceRef: HandoffRef;
 }

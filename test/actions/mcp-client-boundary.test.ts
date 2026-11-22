@@ -91,15 +91,16 @@ describe("what the MCP handlers call", () => {
 });
 
 describe("the action files", () => {
-  it.each(["parking-lot", "facilitator-timers"])(
-    "%s reaches no client module but the workspace store",
-    (tool) => {
-      const { seen, clients } = walk([abs(`src/lib/actions/tools/${tool}.ts`)]);
-      expect(clients).toEqual([]);
-      expect(seen.has(abs("src/lib/handoffs/registry.ts"))).toBe(false);
-      expect(seen.has(abs("src/lib/timer/dock-timer.ts"))).toBe(false);
-      expect(seen.has(abs("src/lib/facilitator-timers/store.ts"))).toBe(false);
-      expect(seen.size).toBeGreaterThan(4);
-    }
-  );
+  it.each([
+    // One tool id per line, so tools added side by side merge cleanly.
+    "parking-lot",
+    "facilitator-timers",
+  ])("%s reaches no client module but the workspace store", (tool) => {
+    const { seen, clients } = walk([abs(`src/lib/actions/tools/${tool}.ts`)]);
+    expect(clients).toEqual([]);
+    expect(seen.has(abs("src/lib/handoffs/registry.ts"))).toBe(false);
+    expect(seen.has(abs("src/lib/timer/dock-timer.ts"))).toBe(false);
+    expect(seen.has(abs("src/lib/facilitator-timers/store.ts"))).toBe(false);
+    expect(seen.size).toBeGreaterThan(4);
+  });
 });

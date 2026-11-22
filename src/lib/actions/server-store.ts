@@ -28,9 +28,15 @@
  * Echo suppression: rows written from here carry `client_id =
  * "server-mcp"` so the browser sync engine's per-tab id check won't
  * confuse them with the user's own local writes.
+ *
+ * Tool stores (`createPersistedStore` blobs in `user_state`, keyed by
+ * "agile-toolkit:<name>") are written only through
+ * `serverPatchUserStateBlob`, and only for the keys on
+ * `SERVER_WRITABLE_BLOB_KEYS`.
  */
 
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 // Scalars (teamName, maturityLevel) cloud-sync as one flat blob. This key
 // MUST equal the storeKey the browser's scalars blob adapter registers
@@ -276,7 +282,8 @@ export async function serverGetWorkspaceBlob(userId: string): Promise<Record<str
 /**
  * A tool's cloud-synced `usePersisted` blob (a `user_state` row by its
  * store key, e.g. "agile-toolkit:dod-builder"), or null when the user has
- * none. Read-only: agents read a tool that hasn't moved into the workspace.
+ * none. Agents read a tool that hasn't moved into the workspace; a tool on
+ * SERVER_WRITABLE_BLOB_KEYS is written with serverPatchUserStateBlob.
  */
 export async function serverGetUserStateBlob(
   userId: string,
@@ -290,6 +297,124 @@ export async function serverGetUserStateBlob(
     .maybeSingle();
   if (error) throw error;
   return (data as { payload?: unknown } | null)?.payload ?? null;
+}
+
+/**
+ * Tool stores the server may write: `createPersistedStore` keys
+ * ("agile-toolkit:<name>") whose page applies a remote row. Never a core
+ * store or a moved store's old blob.
+ *
+ * An allow list, not a pattern: "agile-toolkit:workspace" (browser-local),
+ * ":workspace:scalars" (serverPatchWorkspaceBlob's own row), ":history",
+ * ":llm" and the old DoD Builder blob ("agile-toolkit:dod-builder",
+ * DOD_LEGACY_KEY, kept as a backup since its data moved into the workspace)
+ * all look like tool keys. A tool joins when its MCP write verbs move onto
+ * `serverPatchUserStateBlob`, one key per line.
+ */
+export const SERVER_WRITABLE_BLOB_KEYS: readonly string[] = [
+  "agile-toolkit:card-decks", // CARD_DECKS_STORE_KEY; P2.0c converts its verbs
+  "agile-toolkit:relative-sizing", // P2.1's MCP handlers
+];
+
+/**
+ * The most a server blob write may grow a row to, as `jsonBytes` measures
+ * it: half the database's 1 MB cap on `user_state.payload`
+ * (0005_user_state.sql), which measures the stored jsonb text, a little
+ * longer than compact JSON. The browser saves up to the database's cap, so a
+ * row can already be bigger: a write over this cap is refused only when it is
+ * also bigger than the row it replaces (never refuse a write only because it
+ * came over MCP).
+ */
+export const USER_STATE_BLOB_MAX_BYTES = 512 * 1024;
+
+/** What `serverPatchUserStateBlob` did: wrote `payload`, or wrote nothing and why. */
+export type BlobPatchResult<T> =
+  | { written: true; payload: T }
+  | { written: false; reason: "unchanged" | "too_large" };
+
+const asObject = (value: unknown): Record<string, unknown> =>
+  value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+
+/**
+ * The compare-and-set loop every `user_state` write goes through. Reads the
+ * row, runs `mutate` on its payload (null when there is no row), and writes
+ * the result back:
+ * - no row: insert. If a concurrent writer beats us to it, the
+ *   (user_id, store_key) primary key refuses our insert (23505) and we loop
+ *   to take the update path instead;
+ * - a row: update ONLY if its `updated_at` is unchanged since the read (the
+ *   `touch_sync_updated_at` trigger re-stamps it on every write, so it is the
+ *   CAS token). Zero rows back means another writer got there first: re-read
+ *   and run `mutate` again on the winner's payload.
+ * `mutate` returning null writes nothing ("unchanged"); a result over
+ * `maxBytes` that is also bigger than the row it read writes nothing
+ * ("too_large"), while one that doesn't grow the row is written. Throws after
+ * `maxAttempts` lost races (a hot row under sustained contention: vanishingly
+ * rare for one user).
+ */
+async function casUserState<T>(
+  userId: string,
+  storeKey: string,
+  mutate: (current: unknown | null) => T | null,
+  maxAttempts: number,
+  { maxBytes = Infinity, what }: { maxBytes?: number; what: string }
+): Promise<BlobPatchResult<T>> {
+  const c = admin();
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const { data, error: readErr } = await c
+      .from("user_state")
+      .select("payload, updated_at")
+      .eq("user_id", userId)
+      .eq("store_key", storeKey)
+      .maybeSingle();
+    if (readErr) throw readErr;
+
+    const row = data as { payload?: unknown; updated_at: string } | null;
+    const current = row?.payload ?? null;
+    const next = mutate(current);
+    if (next === null) return { written: false, reason: "unchanged" };
+    if (maxBytes !== Infinity) {
+      const nextBytes = jsonBytes(next);
+      // Refuse only a write that is over the cap AND bigger than the row we
+      // read. The browser has no cap of its own below the database's, so a
+      // row can already be over ours; a write that doesn't grow it (a
+      // shuffle that clears a round) is left to the database's own check,
+      // just like the page's save. The row is measured only when needed,
+      // and again on every attempt, since a lost race brings a new row.
+      if (nextBytes > maxBytes && nextBytes > (row ? jsonBytes(current) : 0)) {
+        return { written: false, reason: "too_large" };
+      }
+    }
+
+    if (!row) {
+      const { error: insErr } = await c.from("user_state").insert({
+        user_id: userId,
+        store_key: storeKey,
+        payload: next,
+        client_id: SERVER_CLIENT_ID,
+      });
+      if (!insErr) return { written: true, payload: next };
+      if ((insErr as { code?: string }).code !== "23505") throw insErr;
+      continue;
+    }
+
+    const { data: updated, error: upErr } = await c
+      .from("user_state")
+      .update({
+        payload: next,
+        client_id: SERVER_CLIENT_ID,
+        // Re-stamped server-side by the touch_sync_updated_at trigger.
+        updated_at: new Date().toISOString(),
+      })
+      .eq("user_id", userId)
+      .eq("store_key", storeKey)
+      .eq("updated_at", row.updated_at) // CAS: only if no one wrote since our read
+      .select("store_key");
+    if (upErr) throw upErr;
+    if (updated && updated.length === 1) return { written: true, payload: next };
+    // Lost the race — another writer advanced updated_at. Re-read & retry.
+  }
+  throw new Error(`[server-store] ${what} did not converge after ${maxAttempts} attempts`);
 }
 
 /**
@@ -312,55 +437,69 @@ export async function serverPatchWorkspaceBlob(
   patch: Record<string, unknown>,
   maxAttempts = 5
 ): Promise<void> {
-  const c = admin();
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const { data, error: readErr } = await c
-      .from("user_state")
-      .select("payload, updated_at")
-      .eq("user_id", userId)
-      .eq("store_key", WORKSPACE_SCALARS_STORE_KEY)
-      .maybeSingle();
-    if (readErr) throw readErr;
+  await casUserState(
+    userId,
+    WORKSPACE_SCALARS_STORE_KEY,
+    (current) => ({ ...asObject(current), ...patch }),
+    maxAttempts,
+    { what: "workspace blob patch" }
+  );
+}
 
-    if (!data) {
-      // First touch — no row yet. Insert. If a concurrent writer beats us to
-      // it, the (user_id, store_key) unique constraint rejects our insert
-      // (23505) and we loop to take the update/CAS path instead.
-      const { error: insErr } = await c.from("user_state").insert({
-        user_id: userId,
-        store_key: WORKSPACE_SCALARS_STORE_KEY,
-        payload: { ...patch },
-        client_id: SERVER_CLIENT_ID,
-      });
-      if (!insErr) return;
-      if ((insErr as { code?: string }).code !== "23505") throw insErr;
-      continue;
-    }
-
-    const row = data as { payload?: unknown; updated_at: string };
-    const current: Record<string, unknown> =
-      row.payload && typeof row.payload === "object"
-        ? (row.payload as Record<string, unknown>)
-        : {};
-    const merged = { ...current, ...patch };
-    const { data: updated, error: upErr } = await c
-      .from("user_state")
-      .update({
-        payload: merged,
-        client_id: SERVER_CLIENT_ID,
-        // Re-stamped server-side by the touch_sync_updated_at trigger.
-        updated_at: new Date().toISOString(),
-      })
-      .eq("user_id", userId)
-      .eq("store_key", WORKSPACE_SCALARS_STORE_KEY)
-      .eq("updated_at", row.updated_at) // CAS: only if no one wrote since our read
-      .select("store_key");
-    if (upErr) throw upErr;
-    if (updated && updated.length === 1) return;
-    // Lost the race — another writer advanced updated_at. Re-read & merge.
+/**
+ * Write a tool store's cloud blob from the server: Amr's MCP write verbs for
+ * a tool that keeps a `createPersistedStore`, with the same compare-and-set
+ * as the workspace scalars. Only for keys on `SERVER_WRITABLE_BLOB_KEYS`; any
+ * other key throws before a database call.
+ *
+ * The contract for `mutate`:
+ * - it is pure, and runs again on the fresh payload when the write loses a
+ *   race (capture the verb's answer in a closure: the last run wins);
+ * - it gets null when the user has no row yet;
+ * - it returns the WHOLE flat blob, normalised by the store's own
+ *   normaliser, with every key of the store's initial state (the browser's
+ *   setSnapshot keeps only known keys and merges), or null to write nothing
+ *   (an honest refusal: say why in the verb's answer).
+ *
+ * Open tabs pick the row up over realtime, because its `client_id` is not
+ * theirs. Known limit: a tab whose store changed and hasn't pushed yet
+ * (mid-debounce) ignores the remote row (BUG-S14 guard) and pushes its own
+ * snapshot over it, as with the workspace scalars; a converted verb's
+ * description says so.
+ *
+ * Returns `{written: true, payload}`, or `{written: false, reason}` for
+ * "unchanged" (`mutate` returned null) and "too_large" (over `maxBytes`,
+ * default `USER_STATE_BLOB_MAX_BYTES`, and bigger than the row it would
+ * replace). A write that doesn't grow the row is never "too_large", even on a
+ * row the browser already saved past the cap, because the page could save it
+ * too. Never refuse a write only because it came over MCP.
+ */
+export async function serverPatchUserStateBlob<T extends object>(
+  userId: string,
+  storeKey: string,
+  mutate: (current: unknown | null) => T | null,
+  opts: { maxAttempts?: number; maxBytes?: number } = {}
+): Promise<BlobPatchResult<T>> {
+  if (!SERVER_WRITABLE_BLOB_KEYS.includes(storeKey)) {
+    throw new Error(
+      `[server-store] "${storeKey}" is not a server-writable tool store (SERVER_WRITABLE_BLOB_KEYS)`
+    );
   }
-  throw new Error(
-    `[server-store] workspace blob patch did not converge after ${maxAttempts} attempts`
+  const { maxAttempts = 5, maxBytes = USER_STATE_BLOB_MAX_BYTES } = opts;
+  return casUserState(
+    userId,
+    storeKey,
+    (current) => {
+      const next = mutate(current);
+      if (next !== null && (typeof next !== "object" || Array.isArray(next))) {
+        throw new Error(
+          `[server-store] blob patch for ${storeKey} must return the store's whole blob as an object`
+        );
+      }
+      return next;
+    },
+    maxAttempts,
+    { maxBytes, what: `blob patch for ${storeKey}` }
   );
 }
 

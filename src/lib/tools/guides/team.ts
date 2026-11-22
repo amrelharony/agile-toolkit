@@ -569,4 +569,46 @@ export const GUIDES: ToolGuide[] = [
     ],
     timebox: "Thirty to sixty minutes, once a quarter.",
   },
+  {
+    toolId: "kickoff",
+    summary:
+      "Kickoff helps a new team or new work start on the same page: pick a format, fill it in together, agree it, and send what came out to the tools that keep it.",
+    whenToUse: [
+      "The first sprint of a new team or a new piece of work.",
+      "When people join or leave the team.",
+      "Work that has no one-line problem statement yet.",
+    ],
+    steps: [
+      "Pick a format and write a short brief: what this is and why now.",
+      "Fill it in together, or collect answers from phones without names.",
+      "Ask Amr drafts lines from the brief, or draft without AI from starter lines. Nothing is added until you accept it.",
+      "Put the trade-offs in order, so the team knows what gives way first.",
+      "Send worries to the Risk Register, rules to the Working Agreement, assumptions to the Hypothesis Tracker and scope to the backlog.",
+      "Agree it and export it.",
+    ],
+    tips: [
+      "Lines with [brackets] still need filling in.",
+      "A canvas is agreed when everyone can say its goal in one line.",
+    ],
+    timebox: "15 minutes for trade-offs; 45–90 for a canvas; half a day for an inception deck.",
+  },
+  {
+    toolId: "team-time",
+    summary:
+      "Team Time helps a team spread across time zones and offices meet fairly: the hours everyone shares, a poll for a meeting time, a rotation so the same people don't always take the late call, and the days people are in the office.",
+    whenToUse: [
+      "A team spread across time zones.",
+      "Choosing a time for a new recurring meeting.",
+      "A hybrid team picking its office days.",
+    ],
+    steps: [
+      "People: add each person's time zone, working hours, working days and office days.",
+      "Shared hours shows when everyone overlaps. Make those hours your core hours in the Working Agreement.",
+      "Find a time: pick a few slots, record who can make each one, then choose one.",
+      "Rotate: a recurring meeting moves between times, in turn or by who has had the worst of it so far.",
+      "Office days: for each site, the best anchor day and who never meets the others in person.",
+      "Ask Amr writes a short note on the schedule with tips, and the page's own summary works without AI. Follow-the-sun hand-overs live in the Async Standup.",
+    ],
+    timebox: "Ten minutes to set up.",
+  },
 ];

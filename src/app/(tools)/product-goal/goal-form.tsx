@@ -21,7 +21,7 @@ import {
   GOAL_DRAFT_STORIES_MAX,
   productGoalDraftTask,
   type DraftedGoal,
-} from "@/lib/ai/tasks/product-goal";
+} from "@/lib/ai/tasks/product-goal.lite";
 import {
   GOAL_STATUS_LABEL,
   goalChecks,

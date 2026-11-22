@@ -20,7 +20,7 @@ import { ArrowRight, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BlurTextarea } from "@/components/shared/blur-fields";
 import { AiButton, AiSuggestions } from "@/components/ai";
-import { countermeasureTask } from "@/lib/ai/tasks/root-cause";
+import { countermeasureTask } from "@/lib/ai/tasks/root-cause.lite";
 import type { AiSource } from "@/lib/ai/task-types";
 import { liveLink, getHandoffRoute } from "@/lib/handoffs/registry";
 import { TOOL_TEXT_MAX, type RootCauseAnalysis } from "@/lib/stores/workspace-types";

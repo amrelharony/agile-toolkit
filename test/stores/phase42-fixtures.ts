@@ -46,6 +46,19 @@ export const ANALYSIS: RootCauseAnalysis = {
   postMortemId: "pm_4",
   sourceRef: { tool: "retro", id: "card_7", doc: "retro:current" },
   sentTo: [{ route: "retro-action", targetId: "action_2", at: LATER }],
+  // The causal loop the tools plan's phase 2 adds (P2.7), so "update keeps
+  // every field" covers it.
+  loop: {
+    nodes: [
+      { id: "n1", text: "Late branch cut" },
+      { id: "n2", text: "Rushed testing" },
+    ],
+    links: [
+      { id: "l1", from: "n1", to: "n2", polarity: "same" },
+      { id: "l2", from: "n2", to: "n1", polarity: "same", delay: true },
+    ],
+    names: [{ key: "n1>n2", name: "The Friday squeeze" }],
+  },
   createdAt: AT,
   updatedAt: LATER,
 };

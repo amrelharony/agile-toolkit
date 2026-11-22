@@ -59,6 +59,7 @@ export const CATEGORY_MAX = 60;
 export const ROOT_CAUSE_METHOD_LABEL: Record<RootCauseMethod, string> = {
   "five-whys": "5 Whys",
   fishbone: "Fishbone",
+  "causal-loop": "Causal loop",
 };
 
 /** One line, trimmed and capped (an ellipsis marks a cut). */

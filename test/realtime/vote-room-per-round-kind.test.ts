@@ -94,6 +94,8 @@ describe("the kinds each tool may run", () => {
       "buy-a-feature": ["allocation"],
       "hundred-dollar-test": ["allocation"],
       "quick-vote": ["scale", "choice", "rank", "number", "pair"],
+      // Relative Sizing (the tools plan's phase 2) sorts stories into buckets on a scale.
+      "relative-sizing": ["scale"],
     });
     expect(Object.keys(VOTE_ROUND_KINDS)).toEqual([...VOTE_ROOM_TOOLS]);
   });

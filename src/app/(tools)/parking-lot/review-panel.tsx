@@ -11,7 +11,7 @@ import {
   PARKING_ROUTE_TEXT_MAX,
   parkingRouteTask,
   type ParkingRouteInput,
-} from "@/lib/ai/tasks/parking-lot";
+} from "@/lib/ai/tasks/parking-lot.lite";
 import type { ParkingLotItem } from "@/lib/stores/workspace-types";
 import {
   DESTINATION_LABEL,

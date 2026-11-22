@@ -38,6 +38,13 @@ import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { RETRO_BOARD_ID } from "@/lib/handoffs/targets/retro-board";
 import { HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
 import { DEPENDENCY_MAP_ID } from "@/lib/handoffs/targets/dependency";
+import { EPIC_ROADMAP_ID } from "@/lib/roadmap/epic-source";
+import { WA_ID } from "@/lib/working-agreement/model";
+import { buildBugReport } from "@/lib/handoffs/targets/bug";
+import { activeSprintOf, buildInterruptItem } from "@/lib/handoffs/targets/interrupt";
+import { buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
+import { buildRetroCard } from "@/lib/handoffs/targets/retro-board";
+import type { Sprint } from "@/lib/stores/workspace-types";
 
 const ROUTES = Object.keys(HANDOFF_ROUTES) as HandoffRouteId[];
 
@@ -108,8 +115,34 @@ function targetEverywhere(route: HandoffRouteId, id: string): boolean[] {
       ];
     case "root-cause":
       return [(ws().rootCauseAnalyses ?? []).some((a) => a.id === id)];
+    case "bug":
+      return [(ws().bugReports ?? []).some((b) => b.id === id)];
+    case "interrupt":
+      return [(ws().interruptItems ?? []).some((i) => i.id === id)];
+    case "epic":
+      return [
+        (ws().epicRoadmaps ?? [])
+          .find((d) => d.id === EPIC_ROADMAP_ID)
+          ?.epics.some((e) => e.id === id) ?? false,
+      ];
+    case "agreement-rule":
+      return [
+        (ws().workingAgreements ?? [])
+          .find((d) => d.id === WA_ID)
+          ?.rules.some((r) => r.id === id) ?? false,
+      ];
   }
 }
+
+/** The running sprint the interrupt route logs into (it refuses with none). */
+const ACTIVE_SPRINT: Sprint = {
+  id: "sprint_active",
+  name: "Sprint 12",
+  startDate: "2026-11-10",
+  endDate: "2026-11-21",
+  pointsPlanned: 30,
+  status: "active",
+};
 
 beforeEach(() => {
   undo.last = null;
@@ -126,6 +159,12 @@ beforeEach(() => {
     dependencyMaps: [],
     opportunityTrees: [],
     rootCauseAnalyses: [],
+    bugReports: [],
+    interruptItems: [],
+    epicRoadmaps: [],
+    workingAgreements: [],
+    // The interrupt route needs a running sprint, or it refuses every send.
+    sprints: [ACTIVE_SPRINT],
   });
 });
 
@@ -400,9 +439,19 @@ describe("source back-links", () => {
         "retro-topic",
         "risk",
         "root-cause",
+        "agreement-rule",
+        "bug",
+        "epic",
+        "interrupt",
       ].sort()
     );
     expect(sourceHref({ tool: "root-cause", id: "rca_1" })).toBe("/root-cause?analysis=rca_1");
+    // An improvement's step or obstacle names its improvement in doc; an
+    // analysis it planned names it in id.
+    expect(sourceHref({ tool: "improve", id: "s1", doc: "improve_1" })).toBe(
+      "/improve?item=improve_1"
+    );
+    expect(sourceHref({ tool: "improve", id: "improve 2" })).toBe("/improve?item=improve%202");
     for (const route of ROUTES) expect(getHandoffRoute(route).id).toBe(route);
     // One route per id the workspace schemas accept on a stored link.
     expect([...ROUTES].sort()).toEqual([...HANDOFF_ROUTE_IDS].sort());
@@ -506,5 +555,169 @@ describe("opportunity", () => {
     seed([node("o1", "outcome", null)]);
     expect(() => getHandoffRoute("opportunity").remove("nope")).not.toThrow();
     expect(nodes().map((n) => n.id)).toEqual(["o1"]);
+  });
+});
+
+describe("the tools plan's phase 2 routes", () => {
+  it("bug: logs a new bug from the first line, keeping what happened, the area and who raised it", () => {
+    const link = sendHandoff(
+      "bug",
+      src({
+        title: "\n  Refund   button\tdoes nothing\nOn Android only",
+        area: "Payments",
+        sourceRef: { tool: "test-sessions", id: "n1", doc: "tsess_1" },
+      }),
+      linkStore()
+    )!;
+    const bug = (ws().bugReports ?? []).find((b) => b.id === link.targetId)!;
+    expect(bug).toMatchObject({
+      title: "Refund button does nothing",
+      actual: "They fail one run in five.",
+      area: "Payments",
+      reportedBy: "Alice",
+      status: "new",
+      sourceRef: { tool: "test-sessions", id: "n1", doc: "tsess_1" },
+    });
+    expect(bug.id).toMatch(/^bug_/);
+    expect(bug.createdAt).toBe(bug.updatedAt);
+    const route = getHandoffRoute("bug");
+    expect(route.targetHref(bug.id)).toBe(`/bug-triage?bug=${bug.id}`);
+    expect(route.isDone?.(bug.id)).toBe(false);
+    ws().upsertBugReport({ ...bug, status: "closed", closeReason: "fixed" });
+    expect(route.isDone?.(bug.id)).toBe(true);
+  });
+
+  it("bug: caps the title, what happened and the area", () => {
+    const bug = buildBugReport(
+      src({ title: "x".repeat(300), description: "y".repeat(1200), area: "z".repeat(300) }),
+      "bug_1",
+      "2026-11-12T09:00:00.000Z"
+    );
+    expect(bug.title).toHaveLength(200);
+    expect(bug.actual).toHaveLength(1000);
+    expect(bug.area).toHaveLength(200);
+    expect(buildBugReport(src({ description: " ", raisedBy: "" }))).not.toHaveProperty("actual");
+  });
+
+  it("interrupt: logs in the newest running sprint that isn't the example's, kind from the title", () => {
+    useWorkspaceStore.setState({
+      sprints: [
+        { ...ACTIVE_SPRINT, id: "example-s1", startDate: "2026-11-20" },
+        ACTIVE_SPRINT,
+        { ...ACTIVE_SPRINT, id: "old", startDate: "2026-10-01", status: "completed" },
+      ],
+    });
+    const link = sendHandoff(
+      "interrupt",
+      src({ title: "Checkout is down for one bank", points: 3 }),
+      linkStore()
+    )!;
+    const item = (ws().interruptItems ?? []).find((i) => i.id === link.targetId)!;
+    expect(item).toMatchObject({
+      sprintId: "sprint_active",
+      title: "Checkout is down for one bank",
+      size: 3,
+      emergency: false,
+      sourceRef: { tool: "retro", id: "card-1", doc: "retro:current" },
+    });
+    expect(item.kind).toBe(buildInterruptItem(src({ title: item.title }), "s").kind);
+    const route = getHandoffRoute("interrupt");
+    expect(route.targetHref(item.id)).toBe("/interrupt-buffer?sprint=sprint_active");
+    expect(route.targetHref("gone")).toBe("/interrupt-buffer");
+    expect(route.isDone?.(item.id)).toBe(false);
+    ws().upsertInterruptItem({ ...item, resolvedAt: "2026-11-13T09:00:00.000Z" });
+    expect(route.isDone?.(item.id)).toBe(true);
+  });
+
+  it("interrupt: takes the kind and emergency a source gives, and caps the size", () => {
+    const item = buildInterruptItem(
+      src({ points: 500, interrupt: { kind: "support", emergency: true } }),
+      "sprint_active"
+    );
+    expect(item).toMatchObject({ kind: "support", emergency: true, size: 100 });
+    expect(buildInterruptItem(src({ points: undefined }), "s")).not.toHaveProperty("size");
+  });
+
+  it("interrupt: with no sprint running it says so and the send is skipped", () => {
+    useWorkspaceStore.setState({
+      sprints: [
+        { ...ACTIVE_SPRINT, id: "example-s1" },
+        { ...ACTIVE_SPRINT, status: "planned" },
+      ],
+    });
+    expect(activeSprintOf(ws().sprints)).toBeUndefined();
+    expect(getHandoffRoute("interrupt").problem?.(src())).toBe("No sprint is running");
+    const store = linkStore();
+    expect(sendHandoff("interrupt", src(), store)).toBeNull();
+    expect(ws().interruptItems).toEqual([]);
+    expect(store.links).toEqual([]);
+  });
+
+  it("epic: puts the epic on the roadmap, starting it, and is done when the epic is", () => {
+    const link = sendHandoff(
+      "epic",
+      src({ sourceRef: { tool: "impact-map", id: "d1", doc: "strategyMap_1" } }),
+      linkStore()
+    )!;
+    const doc = (ws().epicRoadmaps ?? []).find((d) => d.id === EPIC_ROADMAP_ID)!;
+    const epic = doc.epics.find((e) => e.id === link.targetId)!;
+    expect(epic).toMatchObject({
+      title: "Fix the flaky checkout tests",
+      progress: 0,
+      sourceRef: { tool: "impact-map", id: "d1", doc: "strategyMap_1" },
+    });
+    expect(epic).not.toHaveProperty("horizon");
+    const route = getHandoffRoute("epic");
+    expect(route.targetHref(epic.id)).toBe(`/epic-roadmap?epic=${epic.id}`);
+    expect(route.isDone?.(epic.id)).toBe(false);
+    ws().upsertStory({ id: "s1", title: "One", status: "done", epicId: epic.id });
+    expect(route.isDone?.(epic.id)).toBe(true);
+  });
+
+  it("agreement-rule: proposes the rule, refuses one already there, done on full consent", () => {
+    const link = sendHandoff(
+      "agreement-rule",
+      src({
+        title: "Pair on risky changes",
+        sourceRef: { tool: "kickoff", id: "r1", doc: "kickoff_1" },
+      }),
+      linkStore()
+    )!;
+    const doc = (ws().workingAgreements ?? []).find((d) => d.id === WA_ID)!;
+    expect(doc.rules.find((r) => r.id === link.targetId)).toMatchObject({
+      category: "other",
+      text: "Pair on risky changes",
+      agreedBy: [],
+      sourceRef: { tool: "kickoff", id: "r1", doc: "kickoff_1" },
+    });
+    const route = getHandoffRoute("agreement-rule");
+    expect(route.problem?.(src({ title: "  pair ON risky changes. " }))).toBe(
+      "The Working Agreement already has this rule."
+    );
+    expect(route.problem?.(src({ title: "Something else" }))).toBeNull();
+    expect(route.targetHref(link.targetId)).toBe("/working-agreement");
+  });
+
+  it("a backlog story keeps up to 5 trimmed tags of up to 40 characters", () => {
+    const story = buildBacklogStory(
+      src({ tags: [" bug ", "", "x".repeat(50), "a", "b", "c", "d"] }),
+      "story_1"
+    );
+    expect(story.tags).toEqual(["bug", "x".repeat(40), "a", "b", "c"]);
+    expect(buildBacklogStory(src({ tags: ["  "] }), "story_2")).not.toHaveProperty("tags");
+    expect(buildBacklogStory(src(), "story_3")).not.toHaveProperty("tags");
+  });
+
+  it("a retro action keeps the day it is due; a topic and a bad day don't", () => {
+    const format = { columns: [{ key: "start" }] } as never;
+    expect(buildRetroCard(src({ due: "2026-12-01" }), format, true, "c1").dueDate).toBe(
+      "2026-12-01"
+    );
+    expect(buildRetroCard(src({ due: "2026-12-01" }), format, false, "c2")).not.toHaveProperty(
+      "dueDate"
+    );
+    for (const due of ["2026-02-30", "next Friday", "2026-12-01T09:00:00Z"]) {
+      expect(buildRetroCard(src({ due }), format, true, "c3")).not.toHaveProperty("dueDate");
+    }
   });
 });

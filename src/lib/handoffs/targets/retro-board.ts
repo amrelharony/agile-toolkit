@@ -18,6 +18,7 @@ import {
   blankRetroBoard,
   newestArchivedRetro,
 } from "@/lib/retro/board";
+import { isIsoDate } from "@/lib/sprints/calendar";
 import type { HandoffSource } from "../types";
 
 /** The current retro's id (lib/retro/board). */
@@ -60,6 +61,11 @@ function newBoard(): RetroBoard {
 /** Cards whose send started the board (Undo takes the board away with them). */
 const startedBoardFor = new Set<string>();
 
+/** Whether `due` is a YYYY-MM-DD day the calendar has. */
+function isDueDay(due: string | undefined): due is string {
+  return typeof due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(due) && isIsoDate(due);
+}
+
 export function buildRetroCard(
   src: HandoffSource,
   format: Pick<RetroFormat, "columns"> | undefined,
@@ -75,6 +81,8 @@ export function buildRetroCard(
     isActionItem: action,
     assignee: action ? (src.owner ?? "").trim() : "",
     discussing: false,
+    // An action keeps the day it is due (an Improve countermeasure's date).
+    ...(action && isDueDay(src.due) ? { dueDate: src.due } : {}),
     sourceRef: src.sourceRef,
   };
 }

@@ -23,7 +23,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useStableOrder } from "@/hooks/use-stable-order";
 import type { AiSource } from "@/lib/ai/task-types";
-import { meetingAuditSuggestTask } from "@/lib/ai/tasks/meeting-audit";
+import { meetingAuditSuggestTask } from "@/lib/ai/tasks/meeting-audit.lite";
 import { generateMeetingAuditPrompts } from "@/lib/ai-prompts/meeting-audit";
 import { cheer } from "@/lib/celebrate/cheer";
 import { MEETING_AUDIT_ACTIONS } from "@/lib/history/event-actions";

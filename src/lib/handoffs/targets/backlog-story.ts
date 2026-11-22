@@ -19,10 +19,23 @@ import type { HandoffRoute, HandoffSource } from "../types";
 /** Same cap as Sprint Planning's add-story field. */
 export const STORY_TITLE_MAX = 200;
 
+/** Tags a sent story keeps, and the length of each. */
+export const STORY_TAGS_MAX = 5;
+export const STORY_TAG_MAX = 40;
+
+/** The source's tags as a story keeps them: trimmed, blank ones dropped, each cut, at most 5. */
+function storyTags(tags: readonly string[] | undefined): string[] {
+  return (tags ?? [])
+    .map((t) => (typeof t === "string" ? t.trim().slice(0, STORY_TAG_MAX) : ""))
+    .filter((t) => t !== "")
+    .slice(0, STORY_TAGS_MAX);
+}
+
 export function buildBacklogStory(src: HandoffSource, id = `story_${nanoid(8)}`): Story {
   const owner = (src.owner ?? "").trim();
   const points = src.points;
   const notes = storyNotes(src.description);
+  const tags = storyTags(src.tags);
   return {
     id,
     title: src.title.trim().slice(0, STORY_TITLE_MAX),
@@ -30,6 +43,7 @@ export function buildBacklogStory(src: HandoffSource, id = `story_${nanoid(8)}`)
     ...(typeof points === "number" && Number.isFinite(points) && points > 0 ? { points } : {}),
     ...(owner ? { owner } : {}),
     ...(notes ? { notes } : {}),
+    ...(tags.length > 0 ? { tags } : {}),
     sourceRef: src.sourceRef,
   };
 }
