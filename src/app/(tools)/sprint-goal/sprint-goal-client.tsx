@@ -88,6 +88,18 @@ const STEP_LABELS: Record<Step, string> = {
   results: "Key Results",
 };
 
+/**
+ * What a step tab shows below `sm`, under its icon, where the full label
+ * doesn't fit four across. Each is a word of the full label, which stays the
+ * tab's name (`aria-label`), so what a voice user sees is what they can say.
+ */
+const SHORT_STEP_LABELS: Record<Step, string> = {
+  objective: "Objective",
+  goal: "Goal",
+  criteria: "Criteria",
+  results: "Results",
+};
+
 const STEP_ICONS: Record<Step, React.ReactNode> = {
   objective: <Target className="w-4 h-4" />,
   goal: <Lightbulb className="w-4 h-4" />,
@@ -719,15 +731,18 @@ export function SprintGoalClient() {
         <div className="lg:col-span-2 min-w-0">
           <Card className="bg-card border-border p-4 sm:p-6">
             <Tabs value={activeStep} onValueChange={(v) => setActiveStep(v as Step)}>
-              <TabsList className="w-full bg-card border border-border mb-6">
+              <TabsList className="h-auto w-full bg-card border border-border mb-6">
                 {STEPS.map((step) => (
                   <TabsTrigger
                     key={step}
                     value={step}
                     aria-label={STEP_LABELS[step]}
-                    className="flex-1 gap-2 data-[state=active]:bg-accent-cyan/15 data-[state=active]:text-accent data-[state=active]:shadow-none text-sub"
+                    className="flex-1 flex-col gap-0.5 px-1.5 sm:flex-row sm:gap-2 sm:px-3 data-[state=active]:bg-accent-cyan/15 data-[state=active]:text-accent data-[state=active]:shadow-none text-sub"
                   >
                     {STEP_ICONS[step]}
+                    <span aria-hidden="true" className="sm:hidden text-xs">
+                      {SHORT_STEP_LABELS[step]}
+                    </span>
                     <span className="hidden sm:inline">{STEP_LABELS[step]}</span>
                   </TabsTrigger>
                 ))}
