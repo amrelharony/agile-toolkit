@@ -2,8 +2,9 @@
  * The sectioned kit's pure model (lib/sectioned/model.ts), shared by Kickoff
  * and Product Canvas: format checks, reading a document against its format
  * (caps, with a tool's extra item fields kept), room, placeholders, gaps,
- * the Markdown with and without a credit, the drafted-line filter, and
- * adding accepted lines with the ids Undo needs.
+ * the Markdown with and without a credit, the drafted-line filter, adding
+ * accepted lines with the ids Undo needs, and the server half's prompt
+ * text.
  */
 
 import { describe, expect, it } from "vitest";
@@ -27,6 +28,7 @@ import {
   type SectionFormat,
   type Sections,
 } from "@/lib/sectioned/model";
+import { SECTIONED_RULES, sectionListText } from "@/lib/ai/tasks/_sectioned.server";
 
 const def = (over: Partial<SectionDef> & Pick<SectionDef, "id">): SectionDef => ({
   label: `Label ${over.id}`,
@@ -612,5 +614,36 @@ describe("adding accepted lines", () => {
     expect(undone.risks).toBe(typed.risks);
     expect(removeDraftLines(sections, [])).toBe(sections);
     expect(removeDraftLines(sections, [{ sectionId: "ideas", itemId: "gone" }])).toBe(sections);
+  });
+});
+
+describe("the server half's prompt text", () => {
+  it("lists each section's id, label, what it holds and its prompt, in order", () => {
+    expect(sectionListText(FORMAT)).toBe(
+      [
+        "- aim: Our aim (one short answer). What goes in aim.",
+        "- ideas: Ideas (a list of up to 3 lines). What goes in ideas.",
+        "- story: The story (one longer answer). What goes in story.",
+        "- risks: Risks (a list of up to 2 lines). What goes in risks.",
+      ].join("\n")
+    );
+  });
+
+  it("can list only some kinds of section", () => {
+    expect(
+      sectionListText(FORMAT, { kinds: ["list"] })
+        .split("\n")
+        .map((l) => l.split(":")[0])
+    ).toEqual(["- ideas", "- risks"]);
+  });
+
+  it("holds the shared rules, one sentence each", () => {
+    expect(SECTIONED_RULES.length).toBeGreaterThanOrEqual(4);
+    const rules = SECTIONED_RULES.join(" ");
+    expect(rules).toMatch(/only the section ids listed/);
+    expect(rules).toMatch(/one idea per line/i);
+    expect(rules).toMatch(/never invent names, dates or numbers/i);
+    expect(rules).toMatch(/leave a section out rather than pad it/i);
+    for (const rule of SECTIONED_RULES) expect(rule).toMatch(/^[A-Z].*\.$/);
   });
 });
