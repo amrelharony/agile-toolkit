@@ -105,9 +105,9 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   // The EBM measures are product metrics; its experiments are hypotheses.
   "ebm-dashboard": ["workspace.ebm_board", "workspace.product_metric", "tool.hypothesis_tracker"],
   eisenhower: ["workspace.prioritization"],
-  // The cost ticker can count the team from the roster.
   // Rules and examples go to the story as Given/When/Then.
   "example-mapping": ["workspace.example_map", "workspace.story"],
+  // The cost ticker can count the team from the roster.
   "facilitator-timers": ["workspace.team_member"],
   "feature-flag-tracker": ["workspace.feature_flag"],
   "flaky-tests": ["workspace.flaky_test_board"],
