@@ -146,6 +146,14 @@ const wide = (n: number) => "界".repeat(n);
 /** Text of `n` characters that JSON-escapes to 6 bytes each (a control character). */
 const escaped = (n: number) => String.fromCharCode(7).repeat(n);
 
+/** `n` hand-off links on one route: a sentTo list has no cap of its own, so it can grow a row. */
+const links = (n: number, route: string) =>
+  Array.from({ length: n }, (_, i) => ({
+    route,
+    targetId: `${route}_${String(i).padStart(8, "0")}`,
+    at: NOW,
+  }));
+
 const COLLECTIONS: [toolId: string, slice: keyof Workspace, doc: Doc, kind: string][] = [
   ["workspace.example_map", "exampleMaps", EXAMPLE_MAP, EXAMPLE_MAP_KIND],
   ["workspace.bug_report", "bugReports", BUG_REPORT, BUG_REPORT_KIND],
@@ -600,6 +608,33 @@ describe("P2.2 test sessions", () => {
     await expect(updateOverMcp(T, TEST_SESSION, off)).rejects.toThrow(/adds up to 100/);
     expect(upsertEntity).not.toHaveBeenCalled();
   });
+
+  it("refuse a session too big for one row, on both transports", async () => {
+    // 200 notes at their cap in 3-byte text stay under the limit, so each
+    // note also lists where it was sent: sentTo has no cap of its own.
+    const notes = Array.from({ length: TOOL_LIST_MAX.sessionNotes }, (_, i) => ({
+      ...note(i),
+      text: wide(TOOL_TEXT_MAX.capture),
+    }));
+    accepts(T, { ...TEST_SESSION, notes });
+    const sent = notes.map((n) => ({ ...n, sentTo: links(20, "bug") }));
+    const big = { ...TEST_SESSION, notes: sent };
+    expect(new TextEncoder().encode(JSON.stringify(big)).length).toBeGreaterThan(
+      ENTITY_ROW_MAX_BYTES
+    );
+    await expect(create(T, { ...big, id: undefined })).rejects.toThrow(
+      /This test session is too big to save\. Shorten or remove some lines\. Nothing was saved\./
+    );
+    await expect(create(T, { ...big, id: undefined }, true)).rejects.toThrow(/too big to save/);
+    await expect(update(T, "testSessions", TEST_SESSION, { notes: sent })).rejects.toThrow(
+      /too big to save/
+    );
+    expect(useWorkspaceStore.getState().testSessions).toEqual([TEST_SESSION]);
+    await expect(updateOverMcp(T, TEST_SESSION, { notes: sent })).rejects.toThrow(
+      /too big to save/
+    );
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
 });
 
 describe("P2.2 meeting notes", () => {
@@ -636,6 +671,38 @@ describe("P2.2 meeting notes", () => {
       ...MEETING_NOTE,
       items: [{ ...item(1), detail: "x".repeat(TOOL_TEXT_MAX.text + 1) }],
     });
+  });
+
+  it("refuse a note too big for one row, on both transports", async () => {
+    // The pasted notes and 50 items at their caps in 3-byte text stay under
+    // the limit, so each item also lists where it was sent: sentTo has no
+    // cap of its own.
+    const items = Array.from({ length: TOOL_LIST_MAX.noteItems }, (_, i) => ({
+      ...item(i),
+      text: wide(TOOL_TEXT_MAX.short),
+      detail: wide(TOOL_TEXT_MAX.text),
+      owner: wide(TOOL_TEXT_MAX.short),
+      quote: wide(TOOL_TEXT_MAX.short),
+    }));
+    const full = { ...MEETING_NOTE, text: wide(TOOL_TEXT_MAX.paste), items };
+    accepts(T, full);
+    const sent = items.map((i) => ({ ...i, sentTo: links(80, "retro-action") }));
+    const big = { ...full, items: sent };
+    expect(new TextEncoder().encode(JSON.stringify(big)).length).toBeGreaterThan(
+      ENTITY_ROW_MAX_BYTES
+    );
+    await expect(create(T, { ...big, id: undefined })).rejects.toThrow(
+      /This meeting note is too big to save\. Shorten or remove some lines\. Nothing was saved\./
+    );
+    await expect(create(T, { ...big, id: undefined }, true)).rejects.toThrow(/too big to save/);
+    await expect(update(T, "meetingNotes", MEETING_NOTE, { items: sent })).rejects.toThrow(
+      /too big to save/
+    );
+    expect(useWorkspaceStore.getState().meetingNotes).toEqual([MEETING_NOTE]);
+    await expect(updateOverMcp(T, MEETING_NOTE, { items: sent })).rejects.toThrow(
+      /too big to save/
+    );
+    expect(upsertEntity).not.toHaveBeenCalled();
   });
 });
 
@@ -869,6 +936,40 @@ describe("P2.4 strategy maps", () => {
     await expect(
       create(T, { ...IMPACT_MAP, id: undefined, nodes: [node("g", null, 0, { note: "n" })] })
     ).rejects.toThrow(/no status or note/);
+  });
+
+  it("refuse a map too big for one row, on both transports", async () => {
+    // A strategy tree of 150 nodes, one root and the rest under it, with
+    // every text field at its cap in 3-byte text: a valid tree, so only its
+    // size refuses it.
+    const full = (id: string, parentId: string | null, level: number) =>
+      node(id, parentId, level, {
+        text: wide(TOOL_TEXT_MAX.short),
+        detail: wide(TOOL_TEXT_MAX.text),
+        measure: wide(TOOL_TEXT_MAX.short),
+        owner: wide(TOOL_TEXT_MAX.short),
+        note: wide(TOOL_TEXT_MAX.text),
+      });
+    const nodes = [
+      full("v", null, 0),
+      ...Array.from({ length: TOOL_LIST_MAX.strategyNodes - 1 }, (_, i) => full(`n${i}`, "v", 1)),
+    ];
+    const big = { ...STRATEGY_TREE, nodes };
+    expect(new TextEncoder().encode(JSON.stringify(big)).length).toBeGreaterThan(
+      ENTITY_ROW_MAX_BYTES
+    );
+    await expect(create(T, { ...big, id: undefined })).rejects.toThrow(
+      /This strategy map is too big to save\. Shorten or remove some lines\. Nothing was saved\./
+    );
+    await expect(create(T, { ...big, id: undefined }, true)).rejects.toThrow(/too big to save/);
+    await expect(update(T, "strategyMaps", STRATEGY_TREE, { nodes })).rejects.toThrow(
+      /too big to save/
+    );
+    expect(useWorkspaceStore.getState().strategyMaps).toEqual([STRATEGY_TREE]);
+    await expect(updateOverMcp(T, STRATEGY_TREE, { nodes })).rejects.toThrow(/too big to save/);
+    expect(upsertEntity).not.toHaveBeenCalled();
+    // A third of them fits.
+    accepts(T, { ...big, nodes: nodes.slice(0, 50) });
   });
 });
 
