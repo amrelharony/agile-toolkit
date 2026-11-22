@@ -458,11 +458,11 @@ export const PACKS = {
     bytes2x: 150704,
   },
   lights: {
-    src: "/mascot/amr-lights.20f76e2b.webp",
-    src2x: "/mascot/amr-lights@2x.ce08f93b.webp",
+    src: "/mascot/amr-lights.6f677025.webp",
+    src2x: "/mascot/amr-lights@2x.b449966d.webp",
     frames: 7,
-    bytes: 54292,
-    bytes2x: 150528,
+    bytes: 56462,
+    bytes2x: 153590,
   },
   capacity: {
     src: "/mascot/amr-capacity.b04af4af.webp",
