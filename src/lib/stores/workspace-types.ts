@@ -193,6 +193,18 @@ export interface Story {
   link?: string;
   /** Its key in the team's tracker, such as "PAY-12" (at most 50 characters). */
   ticketKey?: string;
+  /*
+   * Flow Insights' fields (the tools plan's phase 2; see `BlockSpell` and
+   * `WORK_TYPES` in the Phase 43 block below). All optional: stories from
+   * before them have none.
+   */
+  /** What kind of work it is: a feature, a defect, debt or risk. */
+  workType?: WorkType;
+  /** Whether it adds value or is repeat work caused by an earlier failure. */
+  demand?: WorkDemand;
+  /** Its blocked spells, oldest first, stamped by lib/flow/block-stamps; at
+   *  most TOOL_LIST_MAX.blockLog are kept. */
+  blockLog?: BlockSpell[];
 }
 
 /** One Given/When/Then acceptance criterion on a story (see `Story.gwt`). */
@@ -261,6 +273,11 @@ export interface Impediment {
   dueDate?: ISODateString;
   /** Expected days to resolve, from when it was raised. */
   expectedResolutionDays?: number;
+  /** The blocker cluster it belongs to, such as "Waiting for a review" (at
+   *  most BLOCKER_CLUSTER_MAX characters). */
+  cluster?: string;
+  /** Whether the blocker sits inside the team or outside it. */
+  blockSide?: BlockSide;
 }
 
 /* ── Hand-offs ─────────────────────────────────────────────────────────
@@ -2771,6 +2788,13 @@ export interface KanbanCard {
   /** Column moves, oldest first; only the latest `KANBAN_HISTORY_CAP`
    *  (lib/kanban/flow.ts) are kept. Absent on cards from before it. */
   history?: KanbanColumnChange[];
+  /** What kind of work it is (see `Story.workType`). */
+  workType?: WorkType;
+  /** Whether it adds value or is failure demand (see `Story.demand`). */
+  demand?: WorkDemand;
+  /** Its blocked spells, oldest first, stamped by lib/flow/block-stamps; at
+   *  most TOOL_LIST_MAX.blockLog are kept. */
+  blockLog?: BlockSpell[];
 }
 
 /** One move of a Flow-board card, as `movedCard` (lib/kanban/flow.ts) records it. */
@@ -3329,7 +3353,7 @@ export interface PokerRound {
 /** Text caps for the Phase 42 records: a label, a sentence or two, notes. */
 export const TOOL_TEXT_MAX = { short: 200, text: 1000, long: 5000 } as const;
 
-/** List caps for the Phase 42 records. */
+/** List caps for the Phase 42 and Phase 43 records. */
 export const TOOL_LIST_MAX = {
   /** A 5 Whys chain. */
   whys: 20,
@@ -3343,6 +3367,16 @@ export const TOOL_LIST_MAX = {
   ratings: 20,
   /** A story's Given/When/Then criteria. */
   gwt: 20,
+  /** A sectioned document's sections (lib/sectioned: Kickoff, Product Canvas). */
+  sections: 16,
+  /** Items in one section of a sectioned document. */
+  sectionItems: 30,
+  /** Blocked spells kept on a story or a Kanban card (lib/flow/block-stamps). */
+  blockLog: 20,
+  /** Saved versions of the Definition of Workflow. */
+  workflowVersions: 12,
+  /** Kanban cadences on the Definition of Workflow. */
+  kanbanCadences: 10,
 } as const;
 
 export const PARKING_LOT_STATUSES = ["open", "discussed", "sent", "dropped"] as const;
@@ -3549,6 +3583,186 @@ export interface MeetingAudit {
 }
 
 export const MEETING_AUDIT_KIND = "workspace:meetingAudit";
+
+/* ── Phase 43: the tools plan's phase 2 ───────────────────────────────
+ * The shared types the phase 2 tools build on, grouped by PR. Text and list
+ * caps are TOOL_TEXT_MAX and TOOL_LIST_MAX above; "short" is
+ * TOOL_TEXT_MAX.short and "text" TOOL_TEXT_MAX.text. */
+
+/* The sectioned kit (lib/sectioned): Kickoff and Product Canvas. */
+
+/** One line in a sectioned document (lib/sectioned): Kickoff's and Product Canvas's items extend it. */
+export interface SectionItem {
+  id: string;
+  text: string;
+  /** Who owns it: the roster's spelling when they're on the team. */
+  owner?: string;
+  /** Where it was sent: one link per route. */
+  sentTo?: HandoffLink[];
+}
+
+/* P2.6, Flow Insights and the Definition of Workflow: work types, blocked
+ * spells (`Story`, `KanbanCard` and `Impediment` carry the fields) and the
+ * workflow definition. */
+
+/** The kinds of work a story or a card can be. */
+export const WORK_TYPES = ["feature", "defect", "debt", "risk"] as const;
+export type WorkType = (typeof WORK_TYPES)[number];
+
+/** Value demand is new work people asked for; failure demand is repeat work caused by an earlier failure. */
+export const WORK_DEMANDS = ["value", "failure"] as const;
+export type WorkDemand = (typeof WORK_DEMANDS)[number];
+
+/** Whether a blocker sits inside the team or outside it. */
+export const BLOCK_SIDES = ["internal", "external"] as const;
+export type BlockSide = (typeof BLOCK_SIDES)[number];
+
+/** The most characters a blocker cluster's name can have. */
+export const BLOCKER_CLUSTER_MAX = 60;
+
+/**
+ * A blocked spell, stamped by lib/flow/block-stamps: when the flag went on
+ * (`from`) and off (`to`, absent while it is still blocked). `earlier`:
+ * flagged before tracking began (its time is a lower bound).
+ */
+export interface BlockSpell {
+  from: ISODateString;
+  to?: ISODateString;
+  /** What blocked it (at most "short"). */
+  cause?: string;
+  /** The blocker cluster it belongs to (at most BLOCKER_CLUSTER_MAX). */
+  cluster?: string;
+  side?: BlockSide;
+  earlier?: true;
+  /** Where it was sent (an impediment): at most one link per route. */
+  sentTo?: HandoffLink[];
+}
+
+/** The percentiles a service level expectation can be set at. */
+export const WORKFLOW_SLE_PERCENTILES = [50, 75, 85, 90, 95] as const;
+export type WorkflowSlePercentile = (typeof WORKFLOW_SLE_PERCENTILES)[number];
+
+/** One work type on the workflow: what it means here and the share of finished work it aims for. */
+export interface WorkflowWorkType {
+  type: WorkType;
+  /** What it means for this team (at most "short"). */
+  meaning?: string;
+  /** The target share of finished work, a whole number 0–100. */
+  targetPct?: number;
+}
+
+/** When work enters and leaves one stage of the workflow. */
+export interface WorkflowStagePolicy {
+  /** The stage's name (at most 20 characters). */
+  stage: string;
+  /** When work enters it (at most "short"). */
+  enter?: string;
+  /** When work leaves it (at most "short"). */
+  exit?: string;
+}
+
+/** How one class of service is handled (the policy at most "short"). */
+export interface WorkflowClassPolicy {
+  class: KanbanClassOfService;
+  policy: string;
+}
+
+/** Notes from the STATIK steps, one per step (each at most "text"). */
+export interface StatikNotes {
+  inside?: string;
+  outside?: string;
+  demand?: string;
+  capability?: string;
+  workflow?: string;
+  classes?: string;
+  design?: string;
+  rollout?: string;
+}
+
+/** A recurring Kanban meeting on the workflow. */
+export interface KanbanCadence {
+  id: string;
+  /** Its name (at most "short"). */
+  name: string;
+  cadence: MeetingCadence;
+  /** Its length in minutes, 5–240. */
+  minutes?: number;
+  /** What it is for (at most "short"). */
+  purpose?: string;
+}
+
+/**
+ * A saved version's copy of the workflow, with the board's WIP limits at the
+ * time, so a compare shows a WIP change. No STATIK notes, no cadences and no
+ * versions.
+ */
+export type WorkflowSnapshot = Pick<
+  WorkflowDefinition,
+  | "board"
+  | "workItem"
+  | "startPoint"
+  | "finishPoint"
+  | "workTypes"
+  | "policies"
+  | "classPolicies"
+  | "wipPolicy"
+  | "pullPolicy"
+  | "blockerPolicy"
+  | "sle"
+> & { wipLimits: Record<KanbanColumnId, number> };
+
+/** A saved version of the workflow. */
+export interface WorkflowVersion {
+  /** Its number, a whole number from 1. */
+  version: number;
+  savedAt: ISODateString;
+  /** What changed. */
+  note?: string;
+  /** What the team expects to change because of it (at most "short"). */
+  expect?: string;
+  snapshot: WorkflowSnapshot;
+}
+
+/**
+ * The team's Definition of Workflow (Kanban): one document, id
+ * WORKFLOW_DEFINITION_ID, describing one board (`board`). Its work-type
+ * targets apply to both boards, because Flow Insights reads them for both.
+ * Every policy and short text is at most "short", so its saved versions
+ * keep the row small.
+ */
+export interface WorkflowDefinition {
+  /** WORKFLOW_DEFINITION_ID. */
+  id: string;
+  /** The board it describes. */
+  board?: "sprint" | "flow";
+  /** What one item of work is. */
+  workItem?: string;
+  /** Where work is counted as started. */
+  startPoint?: string;
+  /** Where work is counted as finished. */
+  finishPoint?: string;
+  /** At most 4, one per work type. */
+  workTypes?: WorkflowWorkType[];
+  /** At most 6. */
+  policies?: WorkflowStagePolicy[];
+  /** At most 4, one per class of service. */
+  classPolicies?: WorkflowClassPolicy[];
+  wipPolicy?: string;
+  pullPolicy?: string;
+  blockerPolicy?: string;
+  /** The service level expectation: `pct` percent of items finish within `days` (1–365). */
+  sle?: { days: number; pct: WorkflowSlePercentile };
+  statik?: StatikNotes;
+  /** At most TOOL_LIST_MAX.kanbanCadences. */
+  cadences?: KanbanCadence[];
+  /** Saved versions: only the latest TOOL_LIST_MAX.workflowVersions are kept. */
+  versions?: WorkflowVersion[];
+  createdAt?: ISODateString;
+  updatedAt?: ISODateString;
+}
+
+export const WORKFLOW_DEFINITION_ID = "workflow-definition:current";
+export const WORKFLOW_DEFINITION_KIND = "workspace:workflowDefinition";
 
 export interface Workspace {
   teamMembers: TeamMember[];
