@@ -705,7 +705,7 @@ export const tools: ToolDefinition[] = [
     code: "C1",
     name: "Retro Board",
     description:
-      "Run the sprint's retrospective in 8 formats or your own columns, starting from that sprint's facts: write, dot-vote, discuss and agree actions with owners",
+      "Run the sprint's retrospective in 9 formats or your own columns, starting from that sprint's facts: write, dot-vote, discuss and agree actions with owners",
     category: "Ceremonies",
     path: "/retro",
     icon: MessageSquare,
@@ -893,7 +893,7 @@ export const tools: ToolDefinition[] = [
     code: "D5",
     name: "Impediment Tracker",
     description:
-      "Log, escalate, and resolve impediments with owners, due dates, age badges, and time-to-resolve metrics",
+      "Log, escalate and resolve impediments with owners and due dates, and see which blockers cost the most time",
     category: "Team Health & Maturity",
     path: "/impediments",
     icon: AlertTriangle,
@@ -923,7 +923,7 @@ export const tools: ToolDefinition[] = [
     code: "A8",
     name: "PI Planning Board",
     description:
-      "SAFe Program Increment board: teams × iterations, PI objectives with business value, and dependencies on the Dependency Map",
+      "SAFe Program Increment board: teams × iterations, PI objectives with business value, ROAM risks, a confidence vote, predictability and dependencies on the Dependency Map",
     category: "Portfolio & Scaling",
     path: "/pi-planning",
     icon: CalendarRange,
@@ -940,7 +940,8 @@ export const tools: ToolDefinition[] = [
     id: "epic-roadmap",
     code: "A9",
     name: "Epic Roadmap",
-    description: "Timeline of epics across quarters, with progress rolled up from their stories",
+    description:
+      "Epics on a quarterly timeline or a Now, Next, Later board, with progress rolled up from their stories",
     category: "Portfolio & Scaling",
     path: "/epic-roadmap",
     icon: Milestone,
@@ -1124,7 +1125,7 @@ export const tools: ToolDefinition[] = [
     code: "B8",
     name: "Kanban Board",
     description:
-      "Run the sprint on a board of its stories, or keep a WIP-limited flow board with cycle time and throughput",
+      "Run the sprint on a board of its stories, or keep a WIP-limited flow board with cycle time, throughput and a Definition of Workflow",
     category: "Flow & Delivery",
     path: "/kanban",
     icon: Columns,
@@ -1667,7 +1668,7 @@ export const tools: ToolDefinition[] = [
     code: "N1",
     name: "Working Agreement Builder",
     description:
-      "Team charter rules with each person's consent, dated check-in rounds with an adherence trend, and published versions to compare",
+      "Team charter rules with each person's consent, templates for urgency, core hours, focus time and AI use, check-ins and versions",
     category: "Workshops & Facilitation",
     path: "/working-agreement",
     icon: Handshake,
@@ -1766,7 +1767,7 @@ export const tools: ToolDefinition[] = [
     code: "C10",
     name: "Async Standup Digest",
     description:
-      "Written standup updates with who hasn't posted, a blockers-first daily digest, and a 14-day history",
+      "Written standup updates, classic or Progress/Plans/Problems, a DRI per blocker, hand-overs between time zones and a daily digest",
     category: "Ceremonies",
     path: "/async-standup",
     icon: Mail,
@@ -2676,7 +2677,7 @@ export const tools: ToolDefinition[] = [
     code: "T9",
     name: "Root Cause",
     description:
-      "Find the root of a problem with 5 Whys or a fishbone diagram, count causes on a Pareto chart and agree a countermeasure",
+      "Find a problem's root with 5 Whys, a fishbone or a causal loop, rank causes on a Pareto chart and agree a countermeasure",
     category: "Root Cause Analysis",
     path: "/root-cause",
     icon: FishSymbol,
