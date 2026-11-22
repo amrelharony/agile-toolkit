@@ -109,6 +109,10 @@ export const resultOfMark = (mark: CheckInMark): CharterCheckInResult =>
 export const markOfResult = (result: CharterCheckInResult): CheckInMark =>
   result === "partly" ? "partly" : result === "working";
 
+/** A rule's text as a dedupe key: case, spacing and a closing full stop don't make a new rule. */
+export const ruleKey = (text: string): string =>
+  text.trim().replace(/\s+/g, " ").replace(/\.$/, "").toLowerCase();
+
 /** An agreement with nothing in it yet: version 0, unpublished. */
 export function emptyAgreement(): WorkingAgreement {
   return { id: WA_ID, rules: [], meta: { version: 0 } };
