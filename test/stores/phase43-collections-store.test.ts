@@ -36,6 +36,7 @@ import {
   EBM_BOARD_KIND,
   EXAMPLE_MAP_KIND,
   HILL_CHART_KIND,
+  IMPROVEMENT_KIND,
   MEETING_NOTE_KIND,
   POKER_ASYNC_ROUND_KIND,
   PERSONA_KIND,
@@ -49,12 +50,14 @@ import {
 } from "@/lib/stores/workspace-types";
 import {
   AB_TEST,
+  ANALYSIS_WITH_LOOP,
   BUG_REPORT,
   EBM_BOARD,
   EXAMPLE_MAP,
   HILL_CHART,
   IMPACT_MAP,
   IMPEDIMENT_IN_CLUSTER,
+  IMPROVEMENT,
   INTERRUPT_FROM_BUG,
   MEETING_NOTE,
   PERSONA,
@@ -62,6 +65,7 @@ import {
   PRODUCT_CANVAS,
   PRODUCT_METRIC,
   RELEASES_WITH_NOTES,
+  RETRO_WITH_DAYS,
   ROADMAP_WITH_HORIZON,
   STORY_WITH_FLOW,
   TEST_SESSION,
@@ -188,6 +192,14 @@ const COLLECTIONS: {
     toolId: "workspace.workflow_definition",
     kind: WORKFLOW_DEFINITION_KIND,
   },
+  {
+    slice: "improvements",
+    doc: IMPROVEMENT,
+    upsert: (x) => ws().upsertImprovement(x),
+    remove: (id) => ws().removeImprovement(id),
+    toolId: "workspace.improvement",
+    kind: IMPROVEMENT_KIND,
+  },
 ];
 
 /**
@@ -229,6 +241,18 @@ const EXTENDED: {
     slice: "impediments",
     doc: IMPEDIMENT_IN_CLUSTER,
     upsert: (x) => ws().upsertImpediment(x),
+  },
+  {
+    name: "a root-cause analysis's causal loop (P2.7)",
+    slice: "rootCauseAnalyses",
+    doc: ANALYSIS_WITH_LOOP,
+    upsert: (x) => ws().upsertRootCauseAnalysis(x),
+  },
+  {
+    name: "a retro card's day (P2.7)",
+    slice: "retroBoards",
+    doc: RETRO_WITH_DAYS,
+    upsert: (x) => ws().upsertRetroBoard(x),
   },
 ];
 

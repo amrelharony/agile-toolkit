@@ -34,15 +34,18 @@ import {
   ENTITY_ROW_MAX_BYTES,
   EXAMPLE_MAP_KIND,
   HILL_CHART_KIND,
+  IMPROVEMENT_KIND,
   MEETING_NOTE_KIND,
   PERSONA_KIND,
   PRODUCT_CANVAS_KIND,
   PRODUCT_METRIC_KIND,
+  RETRO_CARD_DAY_MAX,
   STRATEGY_MAP_KIND,
   TEST_SESSION_KIND,
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
   type ExampleMap,
+  type Improvement,
   type ProductCanvas,
   type Workspace,
   WORKFLOW_DEFINITION_KIND,
@@ -51,18 +54,22 @@ import "@/lib/actions/workspace";
 import { SECTION_KEY_PATTERN, sectionsSchema } from "@/lib/actions/workspace/sectioned-schema";
 import {
   AB_TEST,
+  ANALYSIS_WITH_LOOP,
+  AT as AT_TIME,
   BUG_REPORT,
   EBM_BOARD,
   EXAMPLE_MAP,
   HILL_CHART,
   IMPACT_MAP,
   IMPEDIMENT_IN_CLUSTER,
+  IMPROVEMENT,
   INTERRUPT_FROM_BUG,
   MEETING_NOTE,
   PERSONA,
   PRODUCT_CANVAS,
   PRODUCT_METRIC,
   RELEASES_WITH_NOTES,
+  RETRO_WITH_DAYS,
   ROADMAP_WITH_HORIZON,
   STRATEGY_TREE,
   STORY_WITH_FLOW,
@@ -144,6 +151,7 @@ const COLLECTIONS: [toolId: string, slice: keyof Workspace, doc: Doc, kind: stri
     WORKFLOW_DEFINITION,
     WORKFLOW_DEFINITION_KIND,
   ],
+  ["workspace.improvement", "improvements", IMPROVEMENT, IMPROVEMENT_KIND],
 ];
 
 /** The one-document collections: create keeps their fixed id. */
@@ -184,6 +192,12 @@ const EXTENDED: [name: string, toolId: string, slice: keyof Workspace, doc: Doc]
     "workspace.impediment",
     "impediments",
     IMPEDIMENT_IN_CLUSTER,
+  ],
+  [
+    "a root-cause analysis's causal loop (P2.7)",
+    "workspace.root_cause_analysis",
+    "rootCauseAnalyses",
+    ANALYSIS_WITH_LOOP,
   ],
 ];
 
@@ -406,7 +420,7 @@ describe("the fields Phase 43 adds to existing records", () => {
     const parsed = parseCreate(toolId, doc);
     expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
     expect((parsed.data as { entity: Doc }).entity).toEqual(doc);
-    expect(await update(toolId, slice, doc)).toEqual(doc);
+    expect(unstamped((await update(toolId, slice, doc))!)).toEqual(unstamped(doc));
   });
 
   it("cap a release's notes", () => {
@@ -1176,5 +1190,170 @@ describe("P2.6 the workflow definition and the flow fields", () => {
   it("an impediment's cluster is capped and its side is inside or outside", () => {
     rejects("workspace.impediment", { ...IMPEDIMENT_IN_CLUSTER, cluster: "x".repeat(61) });
     rejects("workspace.impediment", { ...IMPEDIMENT_IN_CLUSTER, blockSide: "both" });
+  });
+});
+
+describe("P2.7 improvements", () => {
+  const T = "workspace.improvement";
+  const open: Improvement = { ...IMPROVEMENT, status: "open", closedAt: undefined };
+  const step = (id: string, status: string, extra = {}) => ({ id, text: id, status, ...extra });
+
+  it("mint improve_ ids", async () => {
+    const { id } = (await create(T, { ...IMPROVEMENT, id: undefined })) as { id: string };
+    expect(id).toMatch(/^improve_/);
+  });
+
+  it("hold every cap and set", () => {
+    rejects(T, { ...IMPROVEMENT, title: " " });
+    accepts(T, { ...IMPROVEMENT, background: "", target: { text: "" } });
+    rejects(T, { ...IMPROVEMENT, method: "pdca" });
+    rejects(T, { ...IMPROVEMENT, status: "done" });
+    rejects(T, { ...IMPROVEMENT, current: { text: "x", unit: "x".repeat(21) } });
+    rejects(T, { ...IMPROVEMENT, current: { text: "x", value: Number.NaN } });
+    rejects(T, { ...IMPROVEMENT, current: { text: "x", date: "December" } });
+    rejects(T, { ...IMPROVEMENT, rootCauseId: "x".repeat(65) });
+    rejects(T, {
+      ...IMPROVEMENT,
+      pastTargets: [{ text: "t", reachedAt: "2026-11-15" }],
+    });
+    rejects(T, {
+      ...IMPROVEMENT,
+      obstacles: Array.from({ length: TOOL_LIST_MAX.kataObstacles + 1 }, (_, i) => ({
+        id: `o${i}`,
+        text: "o",
+        status: "open",
+      })),
+    });
+    rejects(T, {
+      ...IMPROVEMENT,
+      steps: Array.from({ length: TOOL_LIST_MAX.improveSteps + 1 }, (_, i) =>
+        step(`s${i}`, "planned")
+      ),
+    });
+    rejects(T, {
+      ...IMPROVEMENT,
+      readings: Array.from({ length: TOOL_LIST_MAX.improveReadings + 1 }, (_, i) => ({
+        id: `r${i}`,
+        date: "2026-11-01",
+        value: i,
+      })),
+    });
+    rejects(T, { ...IMPROVEMENT, steps: [step("s", "skipped")] });
+    rejects(T, { ...IMPROVEMENT, steps: [step("s", "done", { doneAt: "Tuesday" })] });
+    rejects(T, { ...IMPROVEMENT, steps: [step("s", "planned", { due: "soon" })] });
+    rejects(T, { ...IMPROVEMENT, nextCoachingAt: "Friday" });
+  });
+
+  it("stamp closedAt with the status, and clear it when it is open again", async () => {
+    const closed = (await update(T, "improvements", open, { status: "dropped" })) as Improvement;
+    expect(closed.closedAt).toBe(NOW);
+    const kept = (await update(T, "improvements", IMPROVEMENT, {
+      title: "Renamed",
+    })) as Improvement;
+    expect(kept.closedAt).toBe(IMPROVEMENT.closedAt);
+    const reopened = (await update(T, "improvements", IMPROVEMENT, {
+      status: "checking",
+    })) as Improvement;
+    expect(reopened).not.toHaveProperty("closedAt");
+  });
+
+  it("stamp a done step's doneAt, and drop it from a step that isn't done", async () => {
+    const stored = (await update(T, "improvements", open, {
+      steps: [
+        step("a", "done"),
+        step("b", "running", { doneAt: AT_TIME }),
+        step("c", "done", { doneAt: AT_TIME }),
+      ],
+    })) as Improvement;
+    expect(stored.steps.map((s) => s.doneAt)).toEqual([NOW, undefined, AT_TIME]);
+    expect(stored.steps[1]).not.toHaveProperty("doneAt");
+  });
+
+  it("keep only the first working obstacle working, over MCP too", async () => {
+    const obstacles = [
+      { id: "o1", text: "a", status: "open" },
+      { id: "o2", text: "b", status: "working" },
+      { id: "o3", text: "c", status: "working" },
+    ];
+    const stored = (await update(T, "improvements", open, { obstacles })) as Improvement;
+    expect(stored.obstacles.map((o) => o.status)).toEqual(["open", "working", "open"]);
+    const written = (await updateOverMcp(T, open, { obstacles })) as Improvement;
+    expect(written.obstacles.map((o) => o.status)).toEqual(["open", "working", "open"]);
+  });
+
+  it("refuse a change of method, in the tab and over MCP", async () => {
+    await expect(update(T, "improvements", IMPROVEMENT, { method: "a3" })).rejects.toThrow(
+      "An improvement keeps the method it started with. Nothing was saved."
+    );
+    expect(useWorkspaceStore.getState().improvements).toEqual([IMPROVEMENT]);
+    await expect(updateOverMcp(T, IMPROVEMENT, { method: "a3" })).rejects.toThrow(
+      /keeps the method it started with/
+    );
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
+
+  it("refuse an improvement too big for one row", async () => {
+    const steps = Array.from({ length: TOOL_LIST_MAX.improveSteps }, (_, i) =>
+      step(`s${i}`, "planned", {
+        text: wide(TOOL_TEXT_MAX.text),
+        expect: wide(TOOL_TEXT_MAX.text),
+        result: wide(TOOL_TEXT_MAX.text),
+        learned: wide(TOOL_TEXT_MAX.text),
+      })
+    );
+    await expect(create(T, { ...open, id: undefined, steps })).rejects.toThrow(
+      /This improvement is too big to save/
+    );
+    await expect(updateOverMcp(T, open, { steps })).rejects.toThrow(/too big to save/);
+  });
+});
+
+describe("P2.7 the causal loop and the card day", () => {
+  const T = "workspace.root_cause_analysis";
+  const loop = ANALYSIS_WITH_LOOP.loop!;
+
+  it("caps the loop's things, arrows and names", () => {
+    const withLoop = (patch: object) => ({ ...ANALYSIS_WITH_LOOP, loop: { ...loop, ...patch } });
+    rejects(T, withLoop({ nodes: [{ id: "n", text: " " }] }));
+    rejects(T, withLoop({ nodes: [{ id: "n", text: "x".repeat(121) }] }));
+    rejects(T, withLoop({ nodes: [{ id: "", text: "n" }] }));
+    rejects(
+      T,
+      withLoop({
+        nodes: Array.from({ length: TOOL_LIST_MAX.loopNodes + 1 }, (_, i) => ({
+          id: `n${i}`,
+          text: "n",
+        })),
+      })
+    );
+    rejects(
+      T,
+      withLoop({
+        links: Array.from({ length: TOOL_LIST_MAX.loopLinks + 1 }, (_, i) => ({
+          id: `l${i}`,
+          from: "n1",
+          to: "n2",
+          polarity: "same",
+        })),
+      })
+    );
+    rejects(T, withLoop({ links: [{ id: "l", from: "n1", to: "n2", polarity: "plus" }] }));
+    rejects(T, withLoop({ names: [{ key: "k", name: "x".repeat(81) }] }));
+    rejects(T, withLoop({ names: [{ key: "x".repeat(1001), name: "n" }] }));
+    rejects(
+      T,
+      withLoop({
+        names: Array.from({ length: TOOL_LIST_MAX.loopNames + 1 }, (_, i) => ({
+          key: `k${i}`,
+          name: "n",
+        })),
+      })
+    );
+  });
+
+  it("keeps a retro card's day on the board", async () => {
+    const stored = await update("workspace.retro_board", "retroBoards", RETRO_WITH_DAYS);
+    expect(stored).toEqual(RETRO_WITH_DAYS);
+    expect(RETRO_CARD_DAY_MAX).toBe(30);
   });
 });

@@ -2470,7 +2470,16 @@ export interface RetroCard {
   dueDate?: ISODateString;
   /** The item this was sent from (a red health check, a kudos). */
   sourceRef?: HandoffRef;
+  /**
+   * The sprint day it happened, 0-based like `SprintDay.day` (0 is the first
+   * day), at most RETRO_CARD_DAY_MAX: an Emotional Seismograph board charts
+   * its cards by day.
+   */
+  day?: number;
 }
+
+/** The latest sprint day a retro card can be placed on (0-based). */
+export const RETRO_CARD_DAY_MAX = 30;
 
 /** A retrospective board — a singleton document (one current retro under a
  *  fixed id) holding the format, phase, cards, and timer state. Starting a
@@ -3442,6 +3451,20 @@ export const TOOL_LIST_MAX = {
   abGuardrails: 3,
   /** EBM reviews kept (six years of quarters). */
   ebmReviews: 24,
+  /** An Improvement Kata's obstacles. */
+  kataObstacles: 30,
+  /** An improvement's steps: an A3's countermeasures or a Kata's experiments. */
+  improveSteps: 50,
+  /** An improvement's readings. */
+  improveReadings: 100,
+  /** An Improvement Kata's past target conditions. */
+  improvePastTargets: 20,
+  /** The things on a causal loop (Root Cause). */
+  loopNodes: 30,
+  /** The arrows on a causal loop. */
+  loopLinks: 60,
+  /** The named loops on a causal loop. */
+  loopNames: 20,
 } as const;
 
 export const PARKING_LOT_STATUSES = ["open", "discussed", "sent", "dropped"] as const;
@@ -3472,7 +3495,7 @@ export interface ParkingLotItem {
 /** The kind it syncs under (user_entities), for server-side reads and writes. */
 export const PARKING_LOT_ITEM_KIND = "workspace:parkingLotItem";
 
-export const ROOT_CAUSE_METHODS = ["five-whys", "fishbone"] as const;
+export const ROOT_CAUSE_METHODS = ["five-whys", "fishbone", "causal-loop"] as const;
 export type RootCauseMethod = (typeof ROOT_CAUSE_METHODS)[number];
 
 /** One answer in a 5 Whys chain, in order: the first answers why the problem happened. */
@@ -3514,6 +3537,8 @@ export interface RootCauseAnalysis {
   sourceRef?: HandoffRef;
   /** Where its countermeasure was sent (Retro Actions: "retro-action"). */
   sentTo?: HandoffLink[];
+  /** Its causal loop (the tools plan's phase 2; see `RootCauseLoop`). */
+  loop?: RootCauseLoop;
   createdAt: ISODateString;
   updatedAt: ISODateString;
 }
@@ -4636,6 +4661,155 @@ export interface WorkflowDefinition {
 export const WORKFLOW_DEFINITION_ID = "workflow-definition:current";
 export const WORKFLOW_DEFINITION_KIND = "workspace:workflowDefinition";
 
+/* P2.7, Improve (an A3 or the Improvement Kata), Root Cause's causal loop
+ * (`RootCauseAnalysis.loop`) and the Emotional Seismograph's card days
+ * (`RetroCard.day`). */
+
+export const IMPROVEMENT_METHODS = ["a3", "kata"] as const;
+export type ImprovementMethod = (typeof IMPROVEMENT_METHODS)[number];
+
+export const IMPROVEMENT_STATUSES = ["open", "checking", "closed", "dropped"] as const;
+export type ImprovementStatus = (typeof IMPROVEMENT_STATUSES)[number];
+
+export const IMPROVEMENT_STEP_STATUSES = ["planned", "running", "done", "dropped"] as const;
+export type ImprovementStepStatus = (typeof IMPROVEMENT_STEP_STATUSES)[number];
+
+export const KATA_OBSTACLE_STATUSES = ["open", "working", "cleared"] as const;
+export type KataObstacleStatus = (typeof KATA_OBSTACLE_STATUSES)[number];
+
+/** The most characters an improvement's unit can have. */
+export const IMPROVEMENT_UNIT_MAX = 20;
+
+/** Where things stand, or where the team wants them: words, and a number with a date when there is one. */
+export interface ImprovementCondition {
+  /** At most "text"; may be blank. */
+  text: string;
+  /** What is measured (at most "short"). */
+  metric?: string;
+  value?: number;
+  /** At most IMPROVEMENT_UNIT_MAX. */
+  unit?: string;
+  /** YYYY-MM-DD. */
+  date?: string;
+}
+
+/** A Kata target that was reached, kept when the next one is set. */
+export type ImprovementPastTarget = ImprovementCondition & { reachedAt: ISODateString };
+
+/** One dated reading of the improvement's number (note at most "short"). */
+export type ImprovementReading = Pick<KeyResultCheckIn, "id" | "date" | "value" | "note">;
+
+/** Something in the way of a Kata's target. */
+export interface ImprovementObstacle {
+  id: string;
+  text: string;
+  status: KataObstacleStatus;
+  /** Where it was sent (an impediment). */
+  sentTo?: HandoffLink[];
+}
+
+/** An A3's countermeasure or a Kata's experiment. */
+export interface ImprovementStep {
+  id: string;
+  /** Each at most "text". */
+  text: string;
+  expect?: string;
+  result?: string;
+  learned?: string;
+  /** The obstacle a Kata experiment works on. */
+  obstacleId?: string;
+  /** At most "short". */
+  owner?: string;
+  /** YYYY-MM-DD. */
+  due?: string;
+  status: ImprovementStepStatus;
+  doneAt?: ISODateString;
+  /** Where it was sent: Retro Actions or the backlog. */
+  sentTo?: HandoffLink[];
+}
+
+/** One thing being improved (Improve): an A3 or an Improvement Kata. */
+export interface Improvement {
+  id: string;
+  /** At most "short"; the only field that can't be blank. */
+  title: string;
+  /** Fixed when it starts. */
+  method: ImprovementMethod;
+  status: ImprovementStatus;
+  /** Each at most "short". */
+  owner?: string;
+  coach?: string;
+  /** Why it matters (at most "text"). */
+  background: string;
+  current: ImprovementCondition;
+  target: ImprovementCondition;
+  /** At most TOOL_LIST_MAX.improvePastTargets. */
+  pastTargets?: ImprovementPastTarget[];
+  /** Why it happens (at most "text"). */
+  analysis?: string;
+  /** The Root Cause analysis it links (at most 64 characters). */
+  rootCauseId?: string;
+  /** At most TOOL_LIST_MAX.kataObstacles; at most one "working". */
+  obstacles: ImprovementObstacle[];
+  /** At most TOOL_LIST_MAX.improveSteps. */
+  steps: ImprovementStep[];
+  /** At most TOOL_LIST_MAX.improveReadings. */
+  readings: ImprovementReading[];
+  /** Each at most "text". */
+  check?: string;
+  followUp?: string;
+  /** The next coaching talk (YYYY-MM-DD). */
+  nextCoachingAt?: string;
+  closedAt?: ISODateString;
+  /** Where it was sent: one link per route. */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const IMPROVEMENT_KIND = "workspace:improvement";
+
+/** An arrow on a causal loop: both things move the same way, or opposite ways. */
+export const LOOP_POLARITIES = ["same", "opposite"] as const;
+export type LoopPolarity = (typeof LOOP_POLARITIES)[number];
+
+/** Text caps on a causal loop: a thing on it, a loop's name. */
+export const LOOP_TEXT_MAX = { node: 120, name: 80 } as const;
+
+/** A thing on a causal loop that goes up or down. */
+export interface RootCauseLoopNode {
+  id: string;
+  /** At most LOOP_TEXT_MAX.node. */
+  text: string;
+}
+
+/** An arrow from one thing to another. */
+export interface RootCauseLoopLink {
+  id: string;
+  from: string;
+  to: string;
+  polarity: LoopPolarity;
+  /** The effect comes later. */
+  delay?: boolean;
+}
+
+/** A name the team gave one loop, keyed by the loop (at most 1,000 characters). */
+export interface RootCauseLoopName {
+  key: string;
+  /** At most LOOP_TEXT_MAX.name. */
+  name: string;
+}
+
+/** A Root Cause analysis's causal loop diagram. */
+export interface RootCauseLoop {
+  /** At most TOOL_LIST_MAX.loopNodes. */
+  nodes: RootCauseLoopNode[];
+  /** At most TOOL_LIST_MAX.loopLinks. */
+  links: RootCauseLoopLink[];
+  /** At most TOOL_LIST_MAX.loopNames. */
+  names?: RootCauseLoopName[];
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -4800,6 +4974,7 @@ export interface Workspace {
   ebmBoards?: EbmBoard[];
   /** One WorkflowDefinition, id WORKFLOW_DEFINITION_ID (Kanban's Definition of Workflow). */
   workflowDefinitions?: WorkflowDefinition[];
+  improvements?: Improvement[];
 }
 
 /**
@@ -5096,6 +5271,7 @@ export const emptyWorkspace = {
   abTests: [],
   ebmBoards: [],
   workflowDefinitions: [],
+  improvements: [],
 } satisfies Workspace;
 
 /**

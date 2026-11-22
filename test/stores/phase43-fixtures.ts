@@ -12,6 +12,7 @@ import type {
   HillChart,
   HypothesisTracker,
   Impediment,
+  Improvement,
   InterruptItem,
   MeetingNote,
   Persona,
@@ -19,6 +20,8 @@ import type {
   ProductCanvas,
   ProductMetric,
   ReleaseReadiness,
+  RetroBoard,
+  RootCauseAnalysis,
   Story,
   StrategyMap,
   TestSession,
@@ -568,4 +571,121 @@ export const IMPEDIMENT_IN_CLUSTER: Impediment = {
   raisedAt: AT,
   cluster: "A vendor or outside service",
   blockSide: "external",
+};
+
+/* P2.7 */
+
+export const IMPROVEMENT: Improvement = {
+  id: "improve_1",
+  title: "Shorter review wait",
+  method: "kata",
+  status: "closed",
+  owner: "Ana",
+  coach: "Bo",
+  background: "Stories wait two days for a review.",
+  current: { text: "Two days", metric: "Review wait", value: 2, unit: "days", date: "2026-11-01" },
+  target: {
+    text: "Half a day",
+    metric: "Review wait",
+    value: 0.5,
+    unit: "days",
+    date: "2026-12-01",
+  },
+  pastTargets: [
+    {
+      text: "One day",
+      metric: "Review wait",
+      value: 1,
+      unit: "days",
+      date: "2026-11-15",
+      reachedAt: AT,
+    },
+  ],
+  analysis: "Reviews wait for the one senior developer.",
+  rootCauseId: "rca_1",
+  obstacles: [
+    {
+      id: "o1",
+      text: "Only one person reviews",
+      status: "working",
+      sentTo: [{ route: "impediment", targetId: "imp_5", at: LATER }],
+    },
+    { id: "o2", text: "Big pull requests", status: "cleared" },
+  ],
+  steps: [
+    {
+      id: "s1",
+      text: "Pair reviews on Tuesdays",
+      expect: "Wait drops to a day",
+      result: "It dropped to a day and a half",
+      learned: "Pairing helps; size matters more",
+      obstacleId: "o1",
+      owner: "Ana",
+      due: "2026-11-10",
+      status: "done",
+      doneAt: LATER,
+      sentTo: [{ route: "retro-action", targetId: "action_3", at: LATER }],
+    },
+    { id: "s2", text: "Cap pull requests at 300 lines", status: "planned" },
+  ],
+  readings: [
+    { id: "rd1", date: "2026-11-01", value: 2 },
+    { id: "rd2", date: "2026-11-08", value: 1.5, note: "After pairing" },
+  ],
+  check: "The wait halved.",
+  followUp: "Keep pairing.",
+  nextCoachingAt: "2026-11-20",
+  closedAt: LATER,
+  sentTo: [{ route: "root-cause", targetId: "rca_2", at: LATER }],
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+/** A causal loop on a Root Cause analysis (P2.7's field). */
+export const ANALYSIS_WITH_LOOP: RootCauseAnalysis = {
+  id: "rca_loop",
+  title: "Releases keep slipping",
+  problem: "Each release is later than the one before.",
+  method: "causal-loop",
+  whys: [],
+  causes: [],
+  loop: {
+    nodes: [
+      { id: "n1", text: "Late releases" },
+      { id: "n2", text: "Overtime" },
+      { id: "n3", text: "Bugs" },
+    ],
+    links: [
+      { id: "l1", from: "n1", to: "n2", polarity: "same" },
+      { id: "l2", from: "n2", to: "n3", polarity: "same", delay: true },
+      { id: "l3", from: "n3", to: "n1", polarity: "same" },
+    ],
+    names: [{ key: "n1>n2>n3", name: "The overtime spiral" }],
+  },
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+/** A retro board whose card carries its sprint day (P2.7's Emotional Seismograph field). */
+export const RETRO_WITH_DAYS: RetroBoard = {
+  id: "retro:current",
+  format: { id: "seismograph", name: "Emotional Seismograph", columns: [] } as never,
+  phase: "write",
+  cards: [
+    {
+      id: "c1",
+      columnKey: "highs",
+      text: "Demo went well",
+      votes: 0,
+      groupedWith: null,
+      isActionItem: false,
+      assignee: "",
+      discussing: false,
+      day: 4,
+    },
+  ],
+  userVotes: 0,
+  timerSeconds: 0,
+  timerRunning: false,
+  discussingIndex: 0,
 };

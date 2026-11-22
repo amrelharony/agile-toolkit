@@ -46,8 +46,15 @@ import {
   HANDOFF_ROUTE_IDS,
   HEALTH_DASHBOARD_ID,
   HEART_CATEGORIES,
+  IMPROVEMENT_METHODS,
+  IMPROVEMENT_STATUSES,
+  IMPROVEMENT_STEP_STATUSES,
+  IMPROVEMENT_UNIT_MAX,
   INTERRUPT_KINDS,
+  KATA_OBSTACLE_STATUSES,
   KR_CHECK_IN_CAP,
+  LOOP_POLARITIES,
+  LOOP_TEXT_MAX,
   MEASURED_BY_KINDS,
   MEETING_CADENCES,
   MEETING_NOTE_ITEM_KINDS,
@@ -277,6 +284,7 @@ import type {
   AbTest,
   EbmBoard,
   WorkflowDefinition,
+  Improvement,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -4338,6 +4346,31 @@ const RootCauseAnalysisSchema = z.object({
     .array(HandoffLinkSchema)
     .optional()
     .describe("Where the countermeasure was sent (Retro Actions)."),
+  loop: z
+    .object({
+      nodes: z
+        .array(z.object({ id: z.string().min(1).max(64), text: Filled(LOOP_TEXT_MAX.node) }))
+        .max(TOOL_LIST_MAX.loopNodes),
+      links: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(64),
+            from: z.string().min(1).max(64),
+            to: z.string().min(1).max(64),
+            polarity: z
+              .enum(LOOP_POLARITIES)
+              .describe("same: both move the same way (+); opposite: they move apart (−)."),
+            delay: z.boolean().optional().describe("The effect comes later."),
+          })
+        )
+        .max(TOOL_LIST_MAX.loopLinks),
+      names: z
+        .array(z.object({ key: z.string().max(1000), name: Filled(LOOP_TEXT_MAX.name) }))
+        .max(TOOL_LIST_MAX.loopNames)
+        .optional(),
+    })
+    .optional()
+    .describe("Its causal loop: the things that go up or down, and the arrows between them."),
   createdAt: StampedAt,
   updatedAt: StampedAt,
 }) as unknown as z.ZodType<RootCauseAnalysis>;
@@ -5445,4 +5478,150 @@ defineCrudActions<WorkflowDefinition>({
   upsert: (x) => ws().upsertWorkflowDefinition(x),
   remove: (id) => ws().removeWorkflowDefinition(id),
   prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.7 — Improve: an A3 or an Improvement Kata. Root Cause's causal loop
+ * rides RootCauseAnalysisSchema (Phase 42 block) and a retro card's day the
+ * retro board's cards. Only the title can't be blank: between "Reached it"
+ * and the next target a Kata's target text is blank, and updates must still
+ * be taken. */
+
+const ImprovementConditionSchema = z.object({
+  text: z.string().max(TOOL_TEXT_MAX.text),
+  metric: z.string().max(TOOL_TEXT_MAX.short).optional().describe("What is measured."),
+  value: z.number().finite().optional(),
+  unit: z.string().max(IMPROVEMENT_UNIT_MAX).optional(),
+  date: IsoDay.optional(),
+});
+
+const ImprovementSchema = z
+  .object({
+    id: z.string(),
+    title: Filled(TOOL_TEXT_MAX.short),
+    method: z
+      .enum(IMPROVEMENT_METHODS)
+      .describe("An A3 or an Improvement Kata; fixed when it starts."),
+    status: z
+      .enum(IMPROVEMENT_STATUSES)
+      .describe("closedAt is stamped when it is closed or dropped, cleared when it is open again."),
+    owner: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    coach: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    background: z
+      .string()
+      .max(TOOL_TEXT_MAX.text)
+      .describe("Why it matters (an A3), or the challenge (a Kata)."),
+    current: ImprovementConditionSchema.describe("Where things stand today."),
+    target: ImprovementConditionSchema.describe("Where the team wants them."),
+    pastTargets: z
+      .array(ImprovementConditionSchema.extend({ reachedAt: IsoTime }))
+      .max(TOOL_LIST_MAX.improvePastTargets)
+      .optional()
+      .describe("Kata targets reached, oldest first."),
+    analysis: z.string().max(TOOL_TEXT_MAX.text).optional().describe("Why it happens (an A3)."),
+    rootCauseId: z.string().max(64).optional().describe("The Root Cause analysis it links."),
+    obstacles: z
+      .array(
+        z.object({
+          id: ItemId,
+          text: z.string().max(TOOL_TEXT_MAX.text),
+          status: z.enum(KATA_OBSTACLE_STATUSES).describe("At most one is working."),
+          sentTo: SentTo,
+        })
+      )
+      .max(TOOL_LIST_MAX.kataObstacles)
+      .describe("A Kata's obstacles to its target."),
+    steps: z
+      .array(
+        z.object({
+          id: ItemId,
+          text: z.string().max(TOOL_TEXT_MAX.text),
+          expect: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          result: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          learned: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          obstacleId: ItemId.optional().describe("The obstacle a Kata experiment works on."),
+          owner: z.string().max(TOOL_TEXT_MAX.short).optional(),
+          due: IsoDay.optional(),
+          status: z.enum(IMPROVEMENT_STEP_STATUSES),
+          doneAt: IsoTime.optional().describe("Stamped when the step is done."),
+          sentTo: SentTo.describe("Where it was sent: Retro Actions or the backlog."),
+        })
+      )
+      .max(TOOL_LIST_MAX.improveSteps)
+      .describe("An A3's countermeasures or a Kata's experiments."),
+    readings: z
+      .array(
+        z.object({
+          id: ItemId,
+          date: IsoDay,
+          value: z.number().finite(),
+          note: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        })
+      )
+      .max(TOOL_LIST_MAX.improveReadings)
+      .describe("Dated readings of its number."),
+    check: z.string().max(TOOL_TEXT_MAX.text).optional().describe("What the check showed (an A3)."),
+    followUp: z.string().max(TOOL_TEXT_MAX.text).optional(),
+    nextCoachingAt: IsoDay.optional().describe("The next coaching talk (a Kata)."),
+    closedAt: IsoTime.optional(),
+    sentTo: SentTo,
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("improvement")) as unknown as z.ZodType<Improvement>;
+
+/**
+ * Times stamped; closedAt set when the improvement is closed or dropped
+ * (when it has none) and cleared when it is open or being checked; a done
+ * step gets doneAt when it has none, and a step that isn't done loses it;
+ * only the first working obstacle stays working, the rest read as open.
+ */
+function prepareImprovement(next: Improvement, current: Improvement | undefined): Improvement {
+  const stamped = stampedTimes(next, current);
+  let item: Improvement;
+  if (stamped.status === "closed" || stamped.status === "dropped") {
+    item = stamped.closedAt ? stamped : { ...stamped, closedAt: stamped.updatedAt };
+  } else {
+    const { closedAt: _closed, ...open } = stamped;
+    void _closed;
+    item = open;
+  }
+  const steps = item.steps.map((step) => {
+    if (step.status === "done") return step.doneAt ? step : { ...step, doneAt: item.updatedAt };
+    if (step.doneAt === undefined) return step;
+    const { doneAt: _done, ...rest } = step;
+    void _done;
+    return rest;
+  });
+  let working = false;
+  const obstacles = item.obstacles.map((obstacle) => {
+    if (obstacle.status !== "working") return obstacle;
+    if (!working) {
+      working = true;
+      return obstacle;
+    }
+    return { ...obstacle, status: "open" as const };
+  });
+  return { ...item, steps, obstacles };
+}
+
+/** An update that changes the method is refused: an A3 and a Kata hold different things. */
+async function beforeImprovementWrite(
+  next: Improvement,
+  current: Improvement | undefined
+): Promise<void> {
+  if (current && current.method !== next.method) {
+    throw new Error("An improvement keeps the method it started with. Nothing was saved.");
+  }
+}
+
+defineCrudActions<Improvement>({
+  toolId: "workspace.improvement",
+  entityName: "improvement (an A3 or an Improvement Kata)",
+  schema: ImprovementSchema,
+  selectAll: () => ws().improvements ?? [],
+  upsert: (x) => ws().upsertImprovement(x),
+  remove: (id) => ws().removeImprovement(id),
+  generateId: () => `improve_${nanoid(8)}`,
+  prepare: prepareImprovement,
+  beforeWrite: beforeImprovementWrite,
 });

@@ -151,6 +151,7 @@ import type {
   AbTest,
   EbmBoard,
   WorkflowDefinition,
+  Improvement,
 } from "./workspace-types";
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -430,6 +431,8 @@ interface WorkspaceActions {
   removeEbmBoard: (id: string) => void;
   upsertWorkflowDefinition: (x: WorkflowDefinition) => void;
   removeWorkflowDefinition: (id: string) => void;
+  upsertImprovement: (x: Improvement) => void;
+  removeImprovement: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert, stamped and cleaned as `upsertStory` does each one. Use
@@ -1702,6 +1705,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((s) => ({
           workflowDefinitions: (s.workflowDefinitions ?? []).filter((y) => y.id !== id),
         })),
+      upsertImprovement: (x) =>
+        set((_st) => ({ improvements: replaceById(_st.improvements ?? [], x) })),
+      removeImprovement: (id) =>
+        set((s) => ({ improvements: (s.improvements ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1831,6 +1838,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           abTests: s.abTests,
           ebmBoards: s.ebmBoards,
           workflowDefinitions: s.workflowDefinitions,
+          improvements: s.improvements,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1994,6 +2002,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           abTests: arr("abTests"),
           ebmBoards: arr("ebmBoards"),
           workflowDefinitions: arr("workflowDefinitions"),
+          improvements: arr("improvements"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -2376,6 +2385,7 @@ if (typeof window !== "undefined") {
     registerCollection("abTest", "abTests");
     registerCollection("ebmBoard", "ebmBoards");
     registerCollection("workflowDefinition", "workflowDefinitions");
+    registerCollection("improvement", "improvements");
     // Kudos wall — was localStorage-only + ephemeral realtime broadcast; now
     // also a per-entity synced collection so the agent (tool.kudos.*) can read
     // + post and the wall cloud-persists cross-device. The realtime broadcast
@@ -2567,6 +2577,7 @@ export function getWorkspaceSnapshot(): Workspace {
     abTests: state.abTests,
     ebmBoards: state.ebmBoards,
     workflowDefinitions: state.workflowDefinitions,
+    improvements: state.improvements,
   };
 }
 
