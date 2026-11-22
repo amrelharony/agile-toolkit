@@ -146,6 +146,11 @@ const EXPECTED: Record<VisitorTool, { room: RegExp; consent: string; name: strin
     consent: VISITOR_ROOM_CONSENT_TEXT,
     name: "Card Decks",
   },
+  "relative-sizing": {
+    room: /^vote relative-sizing/,
+    consent: VOTE_ROOM_CONSENT_TEXT,
+    name: "Relative Sizing",
+  },
 };
 
 describe("join routing, for every kind of room", () => {

@@ -70,6 +70,8 @@ import {
   quarterLabel,
 } from "@/lib/roadmap/quarters";
 import { RELEASE_DOC_ID } from "@/lib/releases/gates";
+import { releaseNotesSteps } from "@/lib/releases/notes-steps";
+import { isValueCheck, valueCheckSteps } from "@/lib/hypotheses/value-steps";
 import { shipEvents, shippedBetween } from "@/lib/releases/model";
 import { gateResults, releaseChecks } from "@/lib/releases/auto-gates";
 import { flagSummary } from "@/lib/flags/model";
@@ -1292,6 +1294,8 @@ const RULES: Record<string, NextStepRule<object>> = {
         });
         break;
       }
+      // Release notes (the tools plan's phase 2): none until P2.2 lands them.
+      steps.push(...releaseNotesSteps({ doc, stories: linkable, today }));
       return steps;
     },
   }),
@@ -3761,8 +3765,13 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   "hypothesis-tracker": rule({
-    select: (ws) => ({ trackers: ws.hypothesisTrackers, canvases: ws.riskiestAssumptions }),
-    steps: ({ trackers, canvases }) => {
+    select: (ws) => ({
+      trackers: ws.hypothesisTrackers,
+      canvases: ws.riskiestAssumptions,
+      metrics: ws.productMetrics,
+      okrs: ws.okrs,
+    }),
+    steps: ({ trackers, canvases, metrics, okrs }) => {
       const hypotheses = hypothesesOf(trackers);
       if (hypotheses.length === 0) return [];
       const steps: NextStep[] = [];
@@ -3793,11 +3802,13 @@ const RULES: Record<string, NextStepRule<object>> = {
           href: "/hypothesis-tracker",
         });
       }
-      // Running with a number to hit and nothing measured yet, the oldest first.
+      // Running with a number to hit and nothing measured yet, the oldest
+      // first. A value check gets its own step (valueCheckSteps, below).
       const waiting = hypotheses
         .filter(
           (h) =>
             h.status === "running" &&
+            !isValueCheck(h) &&
             typeof h.target?.value === "number" &&
             Number.isFinite(h.target.value) &&
             suggestVerdict(h) === null
@@ -3816,6 +3827,8 @@ const RULES: Record<string, NextStepRule<object>> = {
           href: "/hypothesis-tracker",
         });
       }
+      // Did the shipped work deliver? (the tools plan's phase 2, P2.5)
+      steps.push(...valueCheckSteps(hypotheses, { metrics, okrs }, todayIso()));
       return steps;
     },
   }),
@@ -4271,6 +4284,110 @@ const RULES: Record<string, NextStepRule<object>> = {
       }
       return steps;
     },
+  }),
+
+  // ── Phase 43, the tools plan's phase 2 ─────────────────────────────
+  // Each rule loads its tool's own module, which starts as a stub returning
+  // no steps; the tool's builder fills it, keeping the function's name and
+  // arguments. A rule's select reads only workspace store values.
+  "example-mapping": lazyRule(() => import("@/lib/example-mapping/next-steps"), {
+    select: (ws) => ({ maps: ws.exampleMaps, stories: ws.stories }),
+    steps: (s, m) => m.exampleMappingSteps(s),
+  }),
+  "relative-sizing": lazyRule(() => import("@/lib/relative-sizing/next-steps"), {
+    select: (ws) => ({ stories: ws.stories, sprints: ws.sprints }),
+    steps: (s, m) => m.relativeSizingSteps(s),
+  }),
+  "bug-triage": lazyRule(() => import("@/lib/bug-triage/model"), {
+    select: (ws) => ({ bugs: ws.bugReports, stories: ws.stories, interrupts: ws.interruptItems }),
+    steps: (s, m) => m.bugTriageSteps(s, todayIso()),
+  }),
+  "hill-chart": lazyRule(() => import("@/lib/hill-chart/model"), {
+    select: (ws) => ({ charts: ws.hillCharts }),
+    steps: (s, m) => m.hillChartSteps(s, new Date()),
+  }),
+  "test-sessions": lazyRule(() => import("@/lib/test-sessions/model"), {
+    select: (ws) => ({ sessions: ws.testSessions }),
+    steps: (s, m) => m.testSessionsSteps(s, new Date()),
+  }),
+  "notes-to-actions": lazyRule(() => import("@/lib/notes-to-actions/model"), {
+    select: (ws) => ({ notes: ws.meetingNotes }),
+    steps: (s, m) => m.notesToActionsSteps(s, new Date()),
+  }),
+  "product-canvas": lazyRule(() => import("@/lib/product-canvas/next-steps"), {
+    select: (ws) => ({
+      canvases: ws.productCanvases,
+      goals: ws.productGoals,
+      trackers: ws.hypothesisTrackers,
+    }),
+    steps: (s, m) => m.productCanvasSteps(s),
+  }),
+  "impact-map": lazyRule(() => import("@/lib/strategy-map/next-steps"), {
+    select: (ws) => ({ maps: ws.strategyMaps, stories: ws.stories, roadmaps: ws.epicRoadmaps }),
+    steps: (s, m) => m.impactMapSteps(s),
+  }),
+  "strategy-tree": lazyRule(() => import("@/lib/strategy-map/next-steps"), {
+    select: (ws) => ({ maps: ws.strategyMaps, trackers: ws.hypothesisTrackers }),
+    steps: (s, m) => m.strategyTreeSteps(s, new Date()),
+  }),
+  "persona-library": lazyRule(() => import("@/lib/personas/next-steps"), {
+    select: (ws) => ({ personas: ws.personas, maps: ws.strategyMaps, logs: ws.userInterviewLogs }),
+    steps: (s, m) => m.personaSteps(s),
+  }),
+  "product-metrics": lazyRule(() => import("@/lib/product-metrics/next-steps"), {
+    select: (ws) => ({
+      metrics: ws.productMetrics,
+      goals: ws.productGoals,
+      trackers: ws.hypothesisTrackers,
+    }),
+    steps: (s, m) => m.productMetricsSteps(s, todayIso()),
+  }),
+  "ab-calculator": lazyRule(() => import("@/lib/experiments/next-steps"), {
+    select: (ws) => ({ tests: ws.abTests, trackers: ws.hypothesisTrackers }),
+    steps: (s, m) => m.abCalculatorSteps(s, todayIso()),
+  }),
+  "ebm-dashboard": lazyRule(() => import("@/lib/ebm/next-steps"), {
+    select: (ws) => ({
+      boards: ws.ebmBoards,
+      metrics: ws.productMetrics,
+      goals: ws.productGoals,
+      trackers: ws.hypothesisTrackers,
+    }),
+    steps: (s, m) => m.ebmSteps(s, todayIso()),
+  }),
+  "flow-insights": lazyRule(() => import("@/lib/flow/insights-steps"), {
+    select: (ws) => ({
+      stories: ws.stories,
+      sprints: ws.sprints,
+      boards: ws.kanbanBoards,
+      plans: ws.capacityPlans,
+    }),
+    steps: (s, m) => m.flowInsightsSteps(s),
+  }),
+  improve: lazyRule(() => import("@/lib/improve/model"), {
+    select: (ws) => ({ items: ws.improvements, boards: ws.retroBoards, stories: ws.stories }),
+    steps: (s, m) => m.improveSteps(s, todayIso()),
+  }),
+  kickoff: lazyRule(() => import("@/lib/kickoff/next-step"), {
+    select: (ws) => ({
+      kickoffs: ws.kickoffs,
+      goals: ws.productGoals,
+      agreements: ws.workingAgreements,
+      members: ws.teamMembers,
+      sprints: ws.sprints,
+    }),
+    steps: (s, m) => m.kickoffNextSteps(s, todayIso()),
+  }),
+  "team-time": lazyRule(() => import("@/lib/team-time/next-step"), {
+    select: (ws) => ({
+      people: ws.teamTimePeople,
+      members: ws.teamMembers,
+      cadences: ws.ceremonyCadences,
+      agreements: ws.workingAgreements,
+      polls: ws.teamTimePolls,
+    }),
+    steps: (s, m) =>
+      m.teamTimeSteps(s, new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone),
   }),
 };
 

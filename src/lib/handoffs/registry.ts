@@ -28,6 +28,10 @@ import { decisionRoute } from "./targets/decision";
 import { dependencyRoute } from "./targets/dependency";
 import { opportunityRoute } from "./targets/opportunity";
 import { rootCauseRoute } from "./targets/root-cause";
+import { bugRoute } from "./targets/bug";
+import { interruptRoute } from "./targets/interrupt";
+import { epicRoute } from "./targets/epic";
+import { agreementRuleRoute } from "./targets/agreement-rule";
 
 /** One route per id in HANDOFF_ROUTE_IDS: a stored link on any of them reads through its route. */
 export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
@@ -43,6 +47,11 @@ export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
   dependency: dependencyRoute,
   opportunity: opportunityRoute,
   "root-cause": rootCauseRoute,
+  // Phase 43, the tools plan's phase 2.
+  bug: bugRoute,
+  interrupt: interruptRoute,
+  epic: epicRoute,
+  "agreement-rule": agreementRuleRoute,
 };
 
 export function getHandoffRoute(id: HandoffRouteId): HandoffRoute {
@@ -128,6 +137,33 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   // A contributing factor taken to Root Cause (its analysis's sourceRef): the
   // plan's hand-off from Post-Mortem, whose sender Root Cause's builder adds.
   "post-mortem": { name: "post-mortem", href: "/post-mortem" },
+  // Phase 43, the tools plan's phase 2: listed ahead of their senders.
+  "example-mapping": { name: "example map", href: "/example-mapping" },
+  "relative-sizing": { name: "relative sizing", href: "/relative-sizing" },
+  "bug-triage": { name: "bug triage", href: "/bug-triage" },
+  "hill-chart": { name: "hill chart", href: "/hill-chart" },
+  "test-sessions": { name: "test sessions", href: "/test-sessions" },
+  "notes-to-actions": { name: "meeting notes", href: "/notes-to-actions" },
+  "product-canvas": { name: "product canvas", href: "/product-canvas" },
+  "impact-map": { name: "impact map", href: "/impact-map" },
+  "strategy-tree": { name: "strategy tree", href: "/strategy-tree" },
+  improve: { name: "improvement", href: "/improve" },
+  kickoff: { name: "kickoff", href: "/kickoff" },
+  // A blocked card or story logged as an impediment (P2.6b).
+  kanban: { name: "Kanban board", href: "/kanban" },
+};
+
+/** Phase 43's tools that open the document an item came from, and the query key each reads. */
+const DOC_PARAMS: Readonly<Record<string, string>> = {
+  "example-mapping": "map",
+  "relative-sizing": "board",
+  "hill-chart": "chart",
+  "test-sessions": "session",
+  "notes-to-actions": "note",
+  "product-canvas": "canvas",
+  "impact-map": "map",
+  "strategy-tree": "tree",
+  kickoff: "kickoff",
 };
 
 /** The sending tool, or undefined for one not listed (never an inherited key like "constructor"). */
@@ -159,6 +195,21 @@ export function sourceHref(ref: HandoffRef | undefined): string | null {
   // A countermeasure sent from Root Cause opens its analysis.
   if (ref?.tool === "root-cause" && ref.id) {
     return `${tool.href}?analysis=${encodeURIComponent(ref.id)}`;
+  }
+  // Phase 43: a bug sent on opens that bug; an improvement's step or obstacle
+  // names its improvement in `doc`, an analysis it planned names it in `id`.
+  if (ref?.tool === "bug-triage" && ref.id) {
+    return `${tool.href}?bug=${encodeURIComponent(ref.id)}`;
+  }
+  if (ref?.tool === "improve") {
+    return `${tool.href}?item=${encodeURIComponent(ref.doc ?? ref.id)}`;
+  }
+  const docParam =
+    ref && Object.prototype.hasOwnProperty.call(DOC_PARAMS, ref.tool)
+      ? DOC_PARAMS[ref.tool]
+      : undefined;
+  if (docParam && ref?.doc) {
+    return `${tool.href}?${docParam}=${encodeURIComponent(ref.doc)}`;
   }
   return tool.href;
 }

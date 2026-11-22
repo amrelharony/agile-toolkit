@@ -40,7 +40,7 @@ describe("visitorRoomsEnabled", () => {
 });
 
 describe("tools and codes", () => {
-  it("allows Planning Poker, Retro, the vote-round tools and the Phase 1 room tools", () => {
+  it("allows Planning Poker, Retro, the vote-round tools and the Phase 1 and 2 room tools", () => {
     expect(VISITOR_TOOLS).toEqual([
       "planning-poker",
       "retro",
@@ -55,8 +55,10 @@ describe("tools and codes", () => {
       "picker",
       "team-mixer",
       "card-decks",
+      "relative-sizing",
     ]);
     expect(isVisitorTool("retro")).toBe(true);
+    expect(isVisitorTool("relative-sizing")).toBe(true);
     expect(isVisitorTool("mood-tracker")).toBe(true);
     expect(isVisitorTool("kano-model")).toBe(true);
     expect(isVisitorTool("hundred-dollar-test")).toBe(true);
@@ -80,6 +82,7 @@ describe("tools and codes", () => {
       picker: "show",
       "team-mixer": "show",
       "card-decks": "show",
+      "relative-sizing": "vote",
     });
     expect(Object.keys(VISITOR_ROOM_KIND).sort()).toEqual([...VISITOR_TOOLS].sort());
   });

@@ -48,15 +48,15 @@ describe("home tool sections", () => {
   it("counts only the visible tools in a mixed section", () => {
     prefs.showAllTools = false;
     const { unmount } = render(<ToolSections />);
-    // "Quality & risk" keeps risk, debt and the quality trackers; the SRE and
-    // security tools are shelved.
+    // "Quality & risk" keeps risk, debt and the quality trackers (Bug Triage
+    // and Test Sessions among them); the SRE and security tools are shelved.
     const quality = screen.getByText("Quality & risk").closest("summary");
-    expect(quality?.textContent).toMatch(/6 tools$/);
+    expect(quality?.textContent).toMatch(/8 tools$/);
     unmount();
 
     prefs.showAllTools = true;
     render(<ToolSections />);
     const all = screen.getByText("Quality & risk").closest("summary");
-    expect(all?.textContent).toMatch(/16 tools$/);
+    expect(all?.textContent).toMatch(/18 tools$/);
   });
 });

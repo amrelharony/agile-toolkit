@@ -182,6 +182,9 @@ describe("buildVisitorTurnTools on the real registry", () => {
         text
       ).toEqual([]);
     }
+    // The page gets the room verbs alone, not the wall's group: a vague ask
+    // offers no wall of its own to a visitor either.
+    expect(names("zzqx", "sprint-review")).not.toContain("tool_audience_wall_add_wall");
   });
 
   it("accepts the page as a path", () => {

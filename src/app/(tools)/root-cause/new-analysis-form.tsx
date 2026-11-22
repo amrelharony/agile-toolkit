@@ -43,6 +43,7 @@ export function validateAnalysisDraft(
 const METHOD_HINT: Record<RootCauseMethod, string> = {
   "five-whys": "Ask why, about five times, down one chain of causes.",
   fishbone: "Lay out many causes under people, process, tools and more, then count them.",
+  "causal-loop": "Map what feeds what, and find the loops that keep the problem going.",
 };
 
 export function NewAnalysisForm({

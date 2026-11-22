@@ -445,7 +445,7 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "root-cause",
     summary:
-      "Root Cause takes a problem back to its causes with 5 Whys or a fishbone diagram, shows which causes matter most on a Pareto chart, and ends with a countermeasure the team can act on.",
+      "Root Cause takes a problem back to its causes with 5 Whys, a fishbone diagram or a causal loop, shows which causes matter most on a Pareto chart, and ends with a countermeasure the team can act on.",
     whenToUse: [
       "A problem that keeps coming back after a retro said it was fixed.",
       "After an incident: a post-mortem's contributing factor opens here with Analyze in Root Cause.",
@@ -455,13 +455,15 @@ export const GUIDES: ToolGuide[] = [
       "Write the problem as a fact: what happened, where and how often, with no blame.",
       "For 5 Whys, ask why it happened and write the answer, then ask why again, usually about five times. Under each answer, check Is this really why? If fixing it wouldn't stop the line above, try another answer.",
       "For a fishbone, add causes under people, process, tools, environment, measurement or your own categories (rename one to change it, or remove an empty one), and count how often each one happens.",
+      "For a causal loop, add the things that go up or down, then arrows: + when both move the same way, − when they move opposite ways. Arrows that lead back to the start make a loop: R feeds itself, B holds itself back.",
       "The Pareto chart puts the causes in order of their count and names the few behind most of the problem.",
-      "Mark a why or a cause as the root cause and write a countermeasure. Send to Retro Actions makes it an action someone owns; under Post-mortem, link the analysis to the incident it came from.",
-      "Ask Amr suggests the next why, a category for each cause, or countermeasures with a check of whether each worked. You pick what fits; nothing is added on its own.",
+      "Mark a why, a cause or a thing on the loop as the root cause and write a countermeasure. Send to Retro Actions makes it an action someone owns; under Post-mortem, link the analysis to the incident it came from. Plan and check it in Improve carries it on.",
+      "Ask Amr suggests the next why, a category for each cause, the arrows for a loop, or countermeasures with a check of whether each worked. You pick what fits; nothing is added on its own.",
     ],
     tips: [
       "Stop at a cause you can act on. “People make mistakes” isn't a root cause; the process that let the mistake through is.",
       "Most problems have more than one cause, and a fishbone shows them side by side.",
+      "A problem that comes back after every fix is often a loop: look for the thing that sits in the most loops.",
     ],
     timebox: "Twenty to forty-five minutes.",
   },
@@ -486,5 +488,51 @@ export const GUIDES: ToolGuide[] = [
       "The story-splitting cards follow the SPIDR patterns: spikes, paths, interfaces, data and rules.",
     ],
     timebox: "Two to ten minutes per card.",
+  },
+  {
+    toolId: "notes-to-actions",
+    summary:
+      "Notes to Actions turns the notes from any meeting into work that doesn't get lost. Paste the notes, find the actions, decisions, blockers, bugs and open questions in them, keep the ones that are real and send each to the tool that tracks it.",
+    whenToUse: [
+      "After a meeting that ended with a page of notes.",
+      "With the minutes from someone else's meeting.",
+      "Before a retro, to collect what was promised.",
+    ],
+    steps: [
+      "Paste the notes and name the meeting.",
+      "Find the actions: Ask Amr reads the notes and lists what it finds, each with the line it came from. Find without AI picks the lines that start like an action or a decision.",
+      "Keep or drop each item, and fix its words, owner and due date.",
+      "Send actions to Retro Actions, decisions to the Decision Log as proposed, blockers to Impediments, stories to the backlog and bugs to Bug Triage, each with Undo.",
+      "Once you're done, forget the pasted text and keep only the items.",
+    ],
+    tips: [
+      "Names and private details go to the AI service too, so take them out first if they shouldn't.",
+      "An answered question needs no tool: mark it answered.",
+    ],
+    timebox: "Five minutes after the meeting.",
+  },
+  {
+    toolId: "improve",
+    summary:
+      "Improve works on one thing at a time, in one of two ways. An A3 fits a problem on one page: why it matters, where things stand, the target, the cause, what you'll change and whether it worked. The Improvement Kata moves towards a target in small experiments, with a short coaching talk after each one.",
+    whenToUse: [
+      "When a retro or a Root Cause analysis names something worth more than one action.",
+      "When the team wants to move one number, such as review wait or lead time, step by step.",
+      "To coach a team or a person through small experiments, a few minutes at a time.",
+    ],
+    steps: [
+      "Start one: name it and pick A3 or Improvement Kata. From a Root Cause analysis, Plan and check it in Improve fills in the problem, its root cause and its countermeasure.",
+      "Say where things are today and where you want them, each with a number and a date, then log a reading each time you measure. The chart shows the readings against the target.",
+      "On an A3, write why it happens or link a Root Cause analysis, then list what you'll change, each with an owner and a date. Send one to Retro Actions, with its date, or to the Backlog: it reads as done once it's done there.",
+      "On a Kata, list the obstacles and pick the one you're on. Each experiment says what you'll try and what you expect, then what happened and what you learned.",
+      "Coach me walks a short talk over the Kata: what the last try showed, today's number, the aim, the obstacle, the next try and when to look again. Reached it keeps the target as a past one.",
+      "Ask Amr suggests countermeasures for an A3 or next experiments for a Kata. You pick one; nothing is added on its own.",
+    ],
+    tips: [
+      "One target at a time: a Kata target is a few weeks away, never the whole challenge.",
+      "The checks under an A3 say what's still missing before you call it done.",
+      "The Kata and its coaching talk come from Mike Rother's Toyota Kata; the words here are our own.",
+    ],
+    timebox: "Fifteen minutes per coaching talk; an hour or two to write an A3.",
   },
 ];

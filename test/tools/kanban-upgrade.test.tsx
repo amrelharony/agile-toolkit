@@ -720,6 +720,57 @@ describe("undoing a move", () => {
     expect(revertMove(done, before, "done")!.blocked).toBe(true);
   });
 
+  it("through the store, blocking opens a spell, Done closes it and Undo opens it again", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(ago(2)));
+    seed({ stories: [story("a", "A", { status: "in_progress", startedAt: ago(3) })] });
+    liveSprintWriter.setBlocked("a", true);
+    expect(storyById("a")).toMatchObject({ blocked: true, blockLog: [{ from: ago(2) }] });
+    const blocked = storyById("a");
+
+    vi.setSystemTime(NOW);
+    liveSprintWriter.setStatus("a", "done");
+    expect(storyById("a").blocked).toBeUndefined();
+    expect(storyById("a").blockLog).toEqual([{ from: ago(2), to: NOW.toISOString() }]);
+
+    // The sprint board's Undo: the flag and the open spell come back as they
+    // were, not a second spell from the Undo's time.
+    liveSprintWriter.restore(revertMove(storyById("a"), blocked, "done")!);
+    expect(storyById("a")).toMatchObject({ status: "in_progress", blocked: true });
+    expect(storyById("a").blockLog).toEqual([{ from: ago(2) }]);
+
+    // Unblocking closes the same spell; a write that changes nothing else
+    // leaves the log alone.
+    liveSprintWriter.setBlocked("a", false);
+    expect(storyById("a").blockLog).toEqual([{ from: ago(2), to: NOW.toISOString() }]);
+    liveSprintWriter.setOwner("a", "Ben");
+    expect(storyById("a").blockLog).toEqual([{ from: ago(2), to: NOW.toISOString() }]);
+  });
+
+  it("through the store, a flow card's spell opens when blocked and closes on the move to Done", () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(ago(1)));
+    seed({ cards: [card("c1", "Card", { column: "in_progress", startedAt: ago(4) })] });
+    const write = (change: (c: KanbanCard) => KanbanCard) => {
+      const board = flowBoard()!;
+      useWorkspaceStore
+        .getState()
+        .upsertKanbanBoard({ ...board, cards: board.cards.map((c) => change(c)) });
+    };
+    write((c) => ({ ...c, blocked: true }));
+    expect(flowBoard()!.cards[0].blockLog).toEqual([{ from: ago(1) }]);
+
+    vi.setSystemTime(NOW);
+    write((c) => movedCard(c, "done", NOW.toISOString()));
+    expect(flowBoard()!.cards[0].blocked).toBeUndefined();
+    expect(flowBoard()!.cards[0].blockLog).toEqual([{ from: ago(1), to: NOW.toISOString() }]);
+
+    // A write that changes nothing about the flag returns the board as given.
+    const stored = flowBoard()!;
+    useWorkspaceStore.getState().upsertKanbanBoard(stored);
+    expect(flowBoard()).toBe(stored);
+  });
+
   it("leaves a story that moved away and back since, though its status matches again", () => {
     const todo = story("a", "A", { status: "todo" });
     const first = withStoryStatus(todo, "in_progress", ago(3));
