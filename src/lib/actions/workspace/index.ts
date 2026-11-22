@@ -27,6 +27,9 @@ import {
   DECISION_TEMPLATES,
   DEFAULT_WEIGHTED_MATRIX_ID,
   DOD_DOC_ID,
+  ENTITY_ROW_MAX_BYTES,
+  EXAMPLE_MAP_VERDICTS,
+  EXAMPLE_QUESTION_STATUSES,
   HANDOFF_ROUTE_IDS,
   HEALTH_DASHBOARD_ID,
   INTERRUPT_KINDS,
@@ -219,6 +222,8 @@ import type {
   ParkingLotItem,
   ProductGoal,
   RootCauseAnalysis,
+  // Phase 43 — the tools plan's phase 2
+  ExampleMap,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -4429,4 +4434,110 @@ defineCrudActions<Whiteboard>({
   // A board id names its Realtime channels (tool:canvas:room:<id>), so it
   // must not be guessable: nanoid's full 21 characters (~126 bits).
   generateId: () => `wb_${nanoid()}`,
+});
+
+/* ────────────────────────────────────────────────────────────────────
+ * Phase 43 — the tools plan's phase 2, by PR in plan order.
+ *
+ * New collections, so each schema holds the caps the pages use too, as in
+ * Phase 42: a record a page saved always validates, and every field is
+ * listed, since update writes what the schema parsed. createdAt and
+ * updatedAt are stamped (stampedTimes), never taken from the caller. Each
+ * toolId's suffix camelCases to its registered kind (EXAMPLE_MAP_KIND, …).
+ * The records that can grow past a synced row's limit at their caps refuse
+ * a row over ENTITY_ROW_MAX_BYTES (fitsRow), worded the same for each.
+ * ────────────────────────────────────────────────────────────────── */
+
+/** Whether a record fits one synced row (ENTITY_ROW_MAX_BYTES of UTF-8 JSON). */
+const fitsRow = (row: unknown) =>
+  new TextEncoder().encode(JSON.stringify(row)).length <= ENTITY_ROW_MAX_BYTES;
+
+/** The refusal of a record too big for one row, naming what it is. */
+const tooBigToSave = (entity: string) => ({
+  message: `This ${entity} is too big to save. Shorten or remove some lines. Nothing was saved.`,
+});
+
+/** An id inside a record (a rule's, a node's): what the pages mint, and a bound on it. */
+const ItemId = z.string().min(1).max(64);
+
+/** Where an item was sent: one link per route, as every hand-off source records it. */
+const SentTo = z.array(HandoffLinkSchema).optional();
+
+/* P2.1 — Example Mapping. Planning Poker's estimates without a meeting
+ * (pokerAsyncRounds) have no CRUD: their replies hold other people's names
+ * and notes. */
+
+const ExampleMapSchema = z
+  .object({
+    id: z.string(),
+    title: Filled(TOOL_TEXT_MAX.short).describe("The story it maps, as typed or its title."),
+    storyId: z
+      .string()
+      .max(TOOL_TEXT_MAX.short)
+      .optional()
+      .describe("The backlog story it maps (a workspace.story id)."),
+    rules: z
+      .array(
+        z.object({
+          id: ItemId,
+          text: z.string().max(TOOL_TEXT_MAX.short),
+          sentTo: SentTo.describe('The story "Split by rule" made from it ("backlog-story").'),
+        })
+      )
+      .max(TOOL_LIST_MAX.mapRules)
+      .describe("The rules the story must follow."),
+    examples: z
+      .array(
+        z
+          .object({
+            id: ItemId,
+            ruleId: ItemId.describe("The rule it illustrates."),
+            text: z.string().max(TOOL_TEXT_MAX.short),
+            given: z.string().max(TOOL_TEXT_MAX.text).optional(),
+            when: z.string().max(TOOL_TEXT_MAX.text).optional(),
+            then: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          })
+          .refine(
+            (e) =>
+              [e.given, e.when, e.then].every((v) => v === undefined) ||
+              [e.given, e.when, e.then].every((v) => v !== undefined),
+            { message: "an example has Given, When and Then all three, or none" }
+          )
+      )
+      .max(TOOL_LIST_MAX.mapExamples)
+      .describe("Concrete examples, each under a rule; Given, When and Then all three or none."),
+    questions: z
+      .array(
+        z.object({
+          id: ItemId,
+          text: z.string().max(TOOL_TEXT_MAX.short),
+          ruleId: ItemId.optional().describe("The rule it is about, when it is about one."),
+          owner: z.string().max(TOOL_TEXT_MAX.short).optional().describe("Who finds the answer."),
+          status: z.enum(EXAMPLE_QUESTION_STATUSES),
+          answer: z.string().max(TOOL_TEXT_MAX.text).optional(),
+        })
+      )
+      .max(TOOL_LIST_MAX.mapQuestions)
+      .describe("Questions nobody can answer yet."),
+    verdict: z
+      .enum(EXAMPLE_MAP_VERDICTS)
+      .optional()
+      .describe("Ready to build, split by rule, or not yet (waiting on answers)."),
+    timeboxMinutes: z.number().int().min(5).max(60).optional(),
+    sentAt: IsoTime.optional().describe("When its rules and examples were last sent to the story."),
+    sentTo: SentTo.describe('Where it was sent: the story ("backlog-story").'),
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("example map")) as unknown as z.ZodType<ExampleMap>;
+
+defineCrudActions<ExampleMap>({
+  toolId: "workspace.example_map",
+  entityName: "example map (a story's rules, examples and open questions)",
+  schema: ExampleMapSchema,
+  selectAll: () => ws().exampleMaps ?? [],
+  upsert: (x) => ws().upsertExampleMap(x),
+  remove: (id) => ws().removeExampleMap(id),
+  generateId: () => `exmap_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
 });

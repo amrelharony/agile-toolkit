@@ -3377,6 +3377,12 @@ export const TOOL_LIST_MAX = {
   workflowVersions: 12,
   /** Kanban cadences on the Definition of Workflow. */
   kanbanCadences: 10,
+  /** An example map's rules (Example Mapping). */
+  mapRules: 12,
+  /** An example map's examples, all rules together. */
+  mapExamples: 60,
+  /** An example map's open questions. */
+  mapQuestions: 20,
 } as const;
 
 export const PARKING_LOT_STATUSES = ["open", "discussed", "sent", "dropped"] as const;
@@ -3589,6 +3595,15 @@ export const MEETING_AUDIT_KIND = "workspace:meetingAudit";
  * caps are TOOL_TEXT_MAX and TOOL_LIST_MAX above; "short" is
  * TOOL_TEXT_MAX.short and "text" TOOL_TEXT_MAX.text. */
 
+/**
+ * The most bytes of UTF-8 JSON one synced row may hold. The database refuses
+ * a `user_entities` row over 512 KB (0005_user_state.sql); this leaves room
+ * for the row's own columns. At their caps several Phase 43 records could
+ * pass it, so their CRUDs refuse a bigger row and their pages check
+ * `jsonBytes(row)` against it before a write that grows one.
+ */
+export const ENTITY_ROW_MAX_BYTES = 480 * 1024;
+
 /* The sectioned kit (lib/sectioned): Kickoff and Product Canvas. */
 
 /** One line in a sectioned document (lib/sectioned): Kickoff's and Product Canvas's items extend it. */
@@ -3600,6 +3615,153 @@ export interface SectionItem {
   /** Where it was sent: one link per route. */
   sentTo?: HandoffLink[];
 }
+
+/* P2.1, Example Mapping and Planning Poker's estimates without a meeting. */
+
+/** What an example map says about its story: ready to build, too big (split by rule), or waiting on answers. */
+export const EXAMPLE_MAP_VERDICTS = ["ready", "split", "not-yet"] as const;
+export type ExampleMapVerdict = (typeof EXAMPLE_MAP_VERDICTS)[number];
+
+export const EXAMPLE_QUESTION_STATUSES = ["open", "answered", "dropped"] as const;
+export type ExampleQuestionStatus = (typeof EXAMPLE_QUESTION_STATUSES)[number];
+
+/** A rule the story must follow (a blue card). */
+export interface ExampleMapRule {
+  id: string;
+  /** The rule (at most "short"). */
+  text: string;
+  /** The backlog story "Split by rule" made from it ("backlog-story"). */
+  sentTo?: HandoffLink[];
+}
+
+/** A concrete example under one rule (a green card); Given, When and Then are all three or none. */
+export interface ExampleMapExample {
+  id: string;
+  /** The rule it illustrates. */
+  ruleId: string;
+  /** The example in a line (at most "short"). */
+  text: string;
+  /** Each at most "text". */
+  given?: string;
+  when?: string;
+  then?: string;
+}
+
+/** A question nobody can answer yet (a red card). */
+export interface ExampleMapQuestion {
+  id: string;
+  /** The question (at most "short"). */
+  text: string;
+  /** The rule it is about, when it is about one. */
+  ruleId?: string;
+  /** Who will find the answer (at most "short"): the roster's spelling when they're on the team. */
+  owner?: string;
+  status: ExampleQuestionStatus;
+  /** The answer, once it is answered (at most "text"). */
+  answer?: string;
+}
+
+/**
+ * An example map (Example Mapping): one story's rules, an example for each
+ * and the open questions, mapped in a short timebox.
+ */
+export interface ExampleMap {
+  id: string;
+  /** The story as typed, or its title (at most "short"). */
+  title: string;
+  /** The backlog story it maps. */
+  storyId?: string;
+  /** At most TOOL_LIST_MAX.mapRules. */
+  rules: ExampleMapRule[];
+  /** At most TOOL_LIST_MAX.mapExamples. */
+  examples: ExampleMapExample[];
+  /** At most TOOL_LIST_MAX.mapQuestions. */
+  questions: ExampleMapQuestion[];
+  verdict?: ExampleMapVerdict;
+  /** The timebox in minutes, 5–60 (the page starts at 25). */
+  timeboxMinutes?: number;
+  /** When its rules and examples were last sent to the story. */
+  sentAt?: ISODateString;
+  /** Where it was sent: only "backlog-story". */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const EXAMPLE_MAP_KIND = "workspace:exampleMap";
+
+export const POKER_ASYNC_STATUSES = ["open", "revealed", "closed"] as const;
+export type PokerAsyncStatus = (typeof POKER_ASYNC_STATUSES)[number];
+
+/** Caps for an estimate without a meeting (Planning Poker); `keepDays` is how long a closed round is kept. */
+export const POKER_ASYNC_MAX = {
+  stories: 20,
+  replies: 20,
+  deck: 16,
+  title: 80,
+  storyTitle: 120,
+  note: 140,
+  notesPerReply: 5,
+  name: 40,
+  expected: 20,
+  keepDays: 14,
+} as const;
+
+/** One story in an estimate without a meeting. */
+export interface PokerAsyncStory {
+  /** The queue story's sessionStoryId, otherwise a UUID. */
+  id: string;
+  /** At most POKER_ASYNC_MAX.storyTitle. */
+  title: string;
+  /** The card the team settled on. */
+  finalEstimate?: string;
+  /** Marked to talk about. */
+  discuss?: boolean;
+}
+
+/** One person's reply: a card per story and up to POKER_ASYNC_MAX.notesPerReply notes. */
+export interface PokerAsyncReply {
+  id: string;
+  /** As they typed it, cleaned to at most POKER_ASYNC_MAX.name characters. */
+  name: string;
+  votes: { storyId: string; card: string }[];
+  /** Each at most POKER_ASYNC_MAX.note characters. */
+  notes?: { storyId: string; text: string }[];
+  at: ISODateString;
+}
+
+/**
+ * A Planning Poker round without a meeting: people reply by a due date,
+ * then the host reveals. Store only (no CRUD): replies hold other people's
+ * names and notes.
+ */
+export interface PokerAsyncRound {
+  /** "async_…". */
+  id: string;
+  /** At most POKER_ASYNC_MAX.title. */
+  title: string;
+  /** The tool's ScaleType ("fibonacci", "tshirt" or "custom"). */
+  scaleType: string;
+  /** The cards, at most POKER_ASYNC_MAX.deck, each at most 32 characters. */
+  deck: string[];
+  /** 1 to POKER_ASYNC_MAX.stories. */
+  stories: PokerAsyncStory[];
+  /** Who is expected to reply, at most POKER_ASYNC_MAX.expected names. */
+  expected?: string[];
+  /** The day replies are due (YYYY-MM-DD). */
+  dueDate?: string;
+  /** Show each card's meaning from the Estimation Guide. */
+  withMeanings?: boolean;
+  /** At most POKER_ASYNC_MAX.replies. */
+  replies: PokerAsyncReply[];
+  status: PokerAsyncStatus;
+  revealedAt?: ISODateString;
+  closedAt?: ISODateString;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const POKER_ASYNC_ROUND_KIND = "workspace:pokerAsyncRound";
 
 /* P2.6, Flow Insights and the Definition of Workflow: work types, blocked
  * spells (`Story`, `KanbanCard` and `Impediment` carry the fields) and the
@@ -3909,6 +4071,10 @@ export interface Workspace {
   interruptItems?: InterruptItem[];
   notebookEntries?: NotebookEntry[];
   meetingAudits?: MeetingAudit[];
+  // Phase 43 — the tools plan's phase 2
+  exampleMaps?: ExampleMap[];
+  /** Planning Poker's estimates without a meeting (store only, no CRUD). */
+  pokerAsyncRounds?: PokerAsyncRound[];
 }
 
 /**
@@ -4191,6 +4357,9 @@ export const emptyWorkspace = {
   interruptItems: [],
   notebookEntries: [],
   meetingAudits: [],
+  // Phase 43 — the tools plan's phase 2
+  exampleMaps: [],
+  pokerAsyncRounds: [],
 } satisfies Workspace;
 
 /**

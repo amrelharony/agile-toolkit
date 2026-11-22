@@ -137,6 +137,9 @@ import type {
   InterruptItem,
   NotebookEntry,
   MeetingAudit,
+  // Phase 43 — the tools plan's phase 2
+  ExampleMap,
+  PokerAsyncRound,
 } from "./workspace-types";
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -389,6 +392,11 @@ interface WorkspaceActions {
   removeNotebookEntry: (id: string) => void;
   upsertMeetingAudit: (x: MeetingAudit) => void;
   removeMeetingAudit: (id: string) => void;
+  // Phase 43 — the tools plan's phase 2
+  upsertExampleMap: (x: ExampleMap) => void;
+  removeExampleMap: (id: string) => void;
+  upsertPokerAsyncRound: (x: PokerAsyncRound) => void;
+  removePokerAsyncRound: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert, stamped and cleaned as `upsertStory` does each one. Use
@@ -1612,6 +1620,15 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ meetingAudits: replaceById(_st.meetingAudits ?? [], x) })),
       removeMeetingAudit: (id) =>
         set((s) => ({ meetingAudits: (s.meetingAudits ?? []).filter((y) => y.id !== id) })),
+      // Phase 43 — the tools plan's phase 2
+      upsertExampleMap: (x) =>
+        set((_st) => ({ exampleMaps: replaceById(_st.exampleMaps ?? [], x) })),
+      removeExampleMap: (id) =>
+        set((s) => ({ exampleMaps: (s.exampleMaps ?? []).filter((y) => y.id !== id) })),
+      upsertPokerAsyncRound: (x) =>
+        set((_st) => ({ pokerAsyncRounds: replaceById(_st.pokerAsyncRounds ?? [], x) })),
+      removePokerAsyncRound: (id) =>
+        set((s) => ({ pokerAsyncRounds: (s.pokerAsyncRounds ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1727,6 +1744,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           interruptItems: s.interruptItems,
           notebookEntries: s.notebookEntries,
           meetingAudits: s.meetingAudits,
+          // Phase 43 — the tools plan's phase 2
+          exampleMaps: s.exampleMaps,
+          pokerAsyncRounds: s.pokerAsyncRounds,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1876,6 +1896,9 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           interruptItems: arr("interruptItems"),
           notebookEntries: arr("notebookEntries"),
           meetingAudits: arr("meetingAudits"),
+          // Phase 43 — the tools plan's phase 2
+          exampleMaps: arr("exampleMaps"),
+          pokerAsyncRounds: arr("pokerAsyncRounds"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -2242,6 +2265,11 @@ if (typeof window !== "undefined") {
     registerCollection("interruptItem", "interruptItems");
     registerCollection("notebookEntry", "notebookEntries");
     registerCollection("meetingAudit", "meetingAudits");
+    // Phase 43 — the tools plan's phase 2, the same way: each kind is what
+    // its workspace.* CRUD derives and what its *_KIND constant names
+    // (pokerAsyncRound has no CRUD; it names POKER_ASYNC_ROUND_KIND).
+    registerCollection("exampleMap", "exampleMaps");
+    registerCollection("pokerAsyncRound", "pokerAsyncRounds");
     // Kudos wall — was localStorage-only + ephemeral realtime broadcast; now
     // also a per-entity synced collection so the agent (tool.kudos.*) can read
     // + post and the wall cloud-persists cross-device. The realtime broadcast
@@ -2420,6 +2448,8 @@ export function getWorkspaceSnapshot(): Workspace {
     interruptItems: state.interruptItems,
     notebookEntries: state.notebookEntries,
     meetingAudits: state.meetingAudits,
+    exampleMaps: state.exampleMaps,
+    pokerAsyncRounds: state.pokerAsyncRounds,
   };
 }
 
