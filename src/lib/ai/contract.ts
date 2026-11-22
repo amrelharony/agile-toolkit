@@ -77,6 +77,8 @@ export type ToolAiErrorCode =
   | "no_backend"
   /** Browser side only: the request never got an answer. */
   | "network"
+  /** Browser side only: the task's def (its schemas) didn't load. */
+  | "load_failed"
   /** Browser side only: the answer wasn't readable. */
   | "bad_answer";
 
@@ -107,6 +109,8 @@ export const TOOL_AI_ERROR_TEXT: Record<ToolAiErrorCode, string> = {
   rate_limited: "You've reached the AI limit for now. The tool still works without AI.",
   no_backend: "No AI service is set up on the server. Add your own key in AI settings instead.",
   network: "Couldn't reach the site. Check your connection and try again.",
+  load_failed:
+    "Couldn't load Amr's help. Check your connection and try again. The tool still works without AI.",
   bad_answer: "Amr's answer didn't come through properly. Try again.",
 };
 
