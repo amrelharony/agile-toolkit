@@ -317,9 +317,13 @@ export const SERVER_WRITABLE_BLOB_KEYS: readonly string[] = [
 ];
 
 /**
- * The most a server blob write may hold, as `jsonBytes` measures it: half
- * the database's 1 MB cap on `user_state.payload` (0005_user_state.sql),
- * which measures the stored jsonb text, a little longer than compact JSON.
+ * The most a server blob write may grow a row to, as `jsonBytes` measures
+ * it: half the database's 1 MB cap on `user_state.payload`
+ * (0005_user_state.sql), which measures the stored jsonb text, a little
+ * longer than compact JSON. The browser saves up to the database's cap, so a
+ * row can already be bigger: a write over this cap is refused only when it is
+ * also bigger than the row it replaces (never refuse a write only because it
+ * came over MCP).
  */
 export const USER_STATE_BLOB_MAX_BYTES = 512 * 1024;
 
@@ -343,8 +347,10 @@ const asObject = (value: unknown): Record<string, unknown> =>
  *   CAS token). Zero rows back means another writer got there first: re-read
  *   and run `mutate` again on the winner's payload.
  * `mutate` returning null writes nothing ("unchanged"); a result over
- * `maxBytes` writes nothing ("too_large"). Throws after `maxAttempts` lost
- * races (a hot row under sustained contention: vanishingly rare for one user).
+ * `maxBytes` that is also bigger than the row it read writes nothing
+ * ("too_large"), while one that doesn't grow the row is written. Throws after
+ * `maxAttempts` lost races (a hot row under sustained contention: vanishingly
+ * rare for one user).
  */
 async function casUserState<T>(
   userId: string,
@@ -364,10 +370,20 @@ async function casUserState<T>(
     if (readErr) throw readErr;
 
     const row = data as { payload?: unknown; updated_at: string } | null;
-    const next = mutate(row?.payload ?? null);
+    const current = row?.payload ?? null;
+    const next = mutate(current);
     if (next === null) return { written: false, reason: "unchanged" };
-    if (maxBytes !== Infinity && jsonBytes(next) > maxBytes) {
-      return { written: false, reason: "too_large" };
+    if (maxBytes !== Infinity) {
+      const nextBytes = jsonBytes(next);
+      // Refuse only a write that is over the cap AND bigger than the row we
+      // read. The browser has no cap of its own below the database's, so a
+      // row can already be over ours; a write that doesn't grow it (a
+      // shuffle that clears a round) is left to the database's own check,
+      // just like the page's save. The row is measured only when needed,
+      // and again on every attempt, since a lost race brings a new row.
+      if (nextBytes > maxBytes && nextBytes > (row ? jsonBytes(current) : 0)) {
+        return { written: false, reason: "too_large" };
+      }
     }
 
     if (!row) {
@@ -453,8 +469,10 @@ export async function serverPatchWorkspaceBlob(
  *
  * Returns `{written: true, payload}`, or `{written: false, reason}` for
  * "unchanged" (`mutate` returned null) and "too_large" (over `maxBytes`,
- * default `USER_STATE_BLOB_MAX_BYTES`). Never refuse a write only because it
- * came over MCP.
+ * default `USER_STATE_BLOB_MAX_BYTES`, and bigger than the row it would
+ * replace). A write that doesn't grow the row is never "too_large", even on a
+ * row the browser already saved past the cap, because the page could save it
+ * too. Never refuse a write only because it came over MCP.
  */
 export async function serverPatchUserStateBlob<T extends object>(
   userId: string,

@@ -310,6 +310,63 @@ describe("serverPatchUserStateBlob: the size cap", () => {
     ).resolves.toEqual({ written: false, reason: "too_large" });
     expect(insertCalls).toHaveLength(1);
   });
+
+  // The browser saves up to the database's 1 MB cap, so a Card Decks row at
+  // its own caps (40 decks x 80 cards) can already be past ours. A verb that
+  // doesn't grow such a row must save over MCP, as it does on the page.
+  const KB = 1024;
+  const blobOf = (noteBytes: number) => ({ items: [] as string[], note: "x".repeat(noteBytes) });
+
+  it("writes a blob that shrinks a row the page already saved past the cap", async () => {
+    const saved = blobOf(600 * KB);
+    const shuffled = blobOf(590 * KB);
+    expect(jsonBytes(saved)).toBeGreaterThan(USER_STATE_BLOB_MAX_BYTES);
+    expect(jsonBytes(shuffled)).toBeGreaterThan(USER_STATE_BLOB_MAX_BYTES);
+    responses.push(row(saved, "t1"), CAS_HIT);
+
+    const result = await serverPatchUserStateBlob("u1", KEY, () => shuffled);
+
+    expect(result).toEqual({ written: true, payload: shuffled });
+    expect(updateCalls).toHaveLength(1);
+    expect(updateCalls[0].payload).toEqual(shuffled);
+    expect(statements).toEqual([readOf(KEY), casOf(KEY, "t1")]);
+  });
+
+  it("writes a blob the same size as the oversized row it replaces", async () => {
+    const saved = blobOf(600 * KB);
+    const same = { items: [] as string[], note: "y".repeat(600 * KB) };
+    expect(jsonBytes(same)).toBe(jsonBytes(saved));
+    responses.push(row(saved, "t1"), CAS_HIT);
+    await expect(serverPatchUserStateBlob("u1", KEY, () => same)).resolves.toEqual({
+      written: true,
+      payload: same,
+    });
+    expect(updateCalls).toHaveLength(1);
+  });
+
+  it("still refuses a write that grows a row past the cap, even by a few bytes", async () => {
+    const saved = blobOf(600 * KB);
+    responses.push(row(saved, "t1"));
+    await expect(
+      serverPatchUserStateBlob("u1", KEY, (raw) => ({ ...asBlob(raw), items: ["a dealt card"] }))
+    ).resolves.toEqual({ written: false, reason: "too_large" });
+    expect(updateCalls).toHaveLength(0);
+    expect(insertCalls).toHaveLength(0);
+  });
+
+  it("measures the row it read on every attempt, not only the first", async () => {
+    const big = blobOf(590 * KB);
+    responses.push(row(blobOf(600 * KB), "t1"), CAS_MISS); // shrinks the first row, loses the race
+    responses.push(row(blobOf(10), "t2")); // the winner shrank it: the same blob now grows it
+    const mutate = vi.fn(() => big);
+
+    await expect(serverPatchUserStateBlob("u1", KEY, mutate)).resolves.toEqual({
+      written: false,
+      reason: "too_large",
+    });
+    expect(mutate).toHaveBeenCalledTimes(2);
+    expect(updateCalls).toHaveLength(1);
+  });
 });
 
 describe("serverPatchUserStateBlob: the allow list", () => {
