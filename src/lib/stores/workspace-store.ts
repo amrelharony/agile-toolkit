@@ -7,6 +7,7 @@ import {
   withStorySprint,
 } from "@/lib/sprints/story-status";
 import { cleanStoryFields } from "@/lib/stories/fields";
+import { stampBoardBlocks, stampStoryBlocks } from "@/lib/flow/block-stamps";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { reportStorageWriteFailure } from "./storage-health";
 import type {
@@ -684,18 +685,24 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           return next;
         }),
       // Every local write of a story records when it was created, any
-      // change of its sprint and when what it says was refined (refinedAt;
-      // lib/sprints/story-status.ts); synced rows from other devices arrive
-      // through setEntities and keep their own stamps. Its notes, acceptance
-      // criteria, link and ticket key are cleaned and capped here too
-      // (lib/stories/fields.ts), whichever page wrote them.
+      // change of its sprint, when what it says was refined (refinedAt;
+      // lib/sprints/story-status.ts) and when its blocked flag went on or
+      // off (blockLog; lib/flow/block-stamps.ts); synced rows from other
+      // devices arrive through setEntities and keep their own stamps. Its
+      // notes, acceptance criteria, link and ticket key are cleaned and
+      // capped here too (lib/stories/fields.ts), whichever page wrote them.
       upsertStory: (s) =>
         set((_st) => {
           const prev = _st.stories.find((x) => x.id === s.id);
+          const at = new Date().toISOString();
           return {
             stories: replaceById(
               _st.stories,
-              stampRefinedWrite(stampStoryMembership(cleanStoryFields(s), prev), prev)
+              stampRefinedWrite(
+                stampStoryMembership(stampStoryBlocks(cleanStoryFields(s), prev, at), prev, at),
+                prev,
+                at
+              )
             ),
           };
         }),
@@ -877,7 +884,8 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => {
           if (items.length === 0) return _st;
           // Stamped as `upsertStory` stamps each one (created, joined its
-          // sprint, refined), with one time for the batch.
+          // sprint, refined, blocked or unblocked), with one time for the
+          // batch.
           const stored = new Map(_st.stories.map((x) => [x.id, x]));
           const at = new Date().toISOString();
           return {
@@ -886,7 +894,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
               items.map((s) => {
                 const prev = stored.get(s.id);
                 return stampRefinedWrite(
-                  stampStoryMembership(cleanStoryFields(s), prev, at),
+                  stampStoryMembership(stampStoryBlocks(cleanStoryFields(s), prev, at), prev, at),
                   prev,
                   at
                 );
@@ -1631,8 +1639,17 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ moodEntries: replaceById(_st.moodEntries ?? [], x) })),
       removeMoodEntry: (id) =>
         set((s) => ({ moodEntries: (s.moodEntries ?? []).filter((y) => y.id !== id) })),
+      // Each card's blocked flag going on or off opens or closes a blocked
+      // spell (lib/flow/block-stamps.ts), card by card against the stored
+      // board; synced boards arrive through setEntities and keep their logs.
       upsertKanbanBoard: (x) =>
-        set((_st) => ({ kanbanBoards: replaceById(_st.kanbanBoards ?? [], x) })),
+        set((_st) => {
+          const boards = _st.kanbanBoards ?? [];
+          const prev = boards.find((b) => b.id === x.id);
+          return {
+            kanbanBoards: replaceById(boards, stampBoardBlocks(x, prev, new Date().toISOString())),
+          };
+        }),
       removeKanbanBoard: (id) =>
         set((s) => ({ kanbanBoards: (s.kanbanBoards ?? []).filter((y) => y.id !== id) })),
       upsertDependencyMap: (x) =>
