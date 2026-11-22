@@ -38,6 +38,11 @@ const T2 = local("2026-11-25", 11);
 
 const LINK: HandoffLink = { route: "impediment", targetId: "imp_1", at: T1 };
 
+/** Half an emoji: a high surrogate with no low one after it. */
+const LONE_HIGH = /[\ud800-\udbff](?![\udc00-\udfff])/;
+/** How JSON.stringify writes half an emoji, the text jsonb refuses. */
+const LONE_ESCAPE = /\\ud[89ab]/i;
+
 const board = (cards: KanbanBoard["cards"]): KanbanBoard => ({
   id: "kanban:current",
   cards,
@@ -352,6 +357,20 @@ describe("cleanBlockLog", () => {
     ]);
   });
 
+  it("never cuts through a character, so jsonb never sees half an emoji", () => {
+    const [spell] = cleanBlockLog([
+      { from: T0, cause: `${"c".repeat(199)}😀 and more`, cluster: `${"k".repeat(59)}😀 team` },
+    ])!;
+    expect(spell.cause).toBe("c".repeat(199));
+    expect(spell.cluster).toBe("k".repeat(59));
+    expect(spell.cause).not.toMatch(LONE_HIGH);
+    expect(spell.cluster).not.toMatch(LONE_HIGH);
+    expect(JSON.stringify(spell)).not.toMatch(LONE_ESCAPE);
+    // An emoji that fits is kept whole.
+    const [whole] = cleanBlockLog([{ from: T0, cause: `${"c".repeat(198)}😀 and more` }])!;
+    expect(whole.cause).toBe(`${"c".repeat(198)}😀`);
+  });
+
   it("keeps only valid hand-off links, the first one per route", () => {
     const [spell] = cleanBlockLog([
       {
@@ -464,6 +483,18 @@ describe("withSpellNote", () => {
   it("cuts the cause and the cluster to their caps", () => {
     const out = withSpellNote(blocked, { cause: "x".repeat(300), cluster: "y".repeat(90) })!;
     expect(out.blockLog![1]).toEqual({ from: T2, cause: "x".repeat(200), cluster: "y".repeat(60) });
+    // Never through a character.
+    const emoji = withSpellNote(blocked, {
+      cause: `${"x".repeat(199)}😀`,
+      cluster: `${"y".repeat(59)}😀`,
+    })!;
+    expect(emoji.blockLog![1]).toEqual({
+      from: T2,
+      cause: "x".repeat(199),
+      cluster: "y".repeat(59),
+    });
+    expect(emoji.blockLog![1].cause).not.toMatch(LONE_HIGH);
+    expect(JSON.stringify(emoji.blockLog)).not.toMatch(LONE_ESCAPE);
   });
 
   it("opens an earlier spell on a row blocked since before tracking", () => {
@@ -514,14 +545,18 @@ describe("withSpellNote", () => {
 });
 
 describe("a leaf module", () => {
-  it("imports only the workspace types and isExampleId", () => {
+  it("imports only the workspace types, isExampleId and cutText", () => {
     const src = readFileSync(path.join(process.cwd(), "src/lib/flow/block-stamps.ts"), "utf8");
     const specs = Array.from(src.matchAll(/^import[^;]*?from\s+["']([^"']+)["']/gm)).map(
       (m) => m[1]
     );
     expect(specs.length).toBeGreaterThan(0);
     for (const spec of specs) {
-      expect(["@/lib/stores/workspace-types", "@/lib/utils/example-id"]).toContain(spec);
+      expect([
+        "@/lib/stores/workspace-types",
+        "@/lib/utils/cut-text",
+        "@/lib/utils/example-id",
+      ]).toContain(spec);
     }
   });
 });

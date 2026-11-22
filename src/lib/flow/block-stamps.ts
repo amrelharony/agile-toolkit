@@ -24,7 +24,8 @@
  *   - nothing to stamp: `next` itself, by reference.
  *
  * A leaf, so lib/sprints/story-status can import it without a loop: types
- * and caps from the workspace types, `isExampleId`, and its own date maths.
+ * and caps from the workspace types, `isExampleId`, `cutText` (pure, from
+ * lib/utils/cut-text), and its own date maths.
  * Nothing from ./items, ./cycle, ./stages or lib/kanban.
  */
 
@@ -45,6 +46,7 @@ import type {
   KanbanCard,
   Story,
 } from "@/lib/stores/workspace-types";
+import { cutText } from "@/lib/utils/cut-text";
 import { isExampleId } from "@/lib/utils/example-id";
 
 /** At most this many blocked spells are kept per story or card (the latest). */
@@ -216,10 +218,13 @@ export function stampBoardBlocks(
 
 /* ── Cleaning what an agent or a sync wrote ─────────────────────────── */
 
-/** `text` trimmed and cut to `max`, or undefined when there is none. */
+/**
+ * `text` trimmed and cut to `max` without splitting a character (a lone
+ * half of an emoji is refused by jsonb), or undefined when there is none.
+ */
 function cleanText(text: unknown, max: number): string | undefined {
   if (typeof text !== "string") return undefined;
-  const out = text.trim().slice(0, max).trim();
+  const out = cutText(text.trim(), max).trim();
   return out === "" ? undefined : out;
 }
 
