@@ -83,12 +83,15 @@ python -I scripts/build-mascot-live.py --check <folder with L01-L10>
 
 ## Rebuilding
 
-The refined release: take it in (above), then
+The refined release: take it in (above), put in its single-slot corrections, then build:
 
 ```bash
+python -I scripts/patch-refined-slots.py <sources folder> <patches folder>
 python -I scripts/build-mascot-packs.py <sources folder> --as-drawn --preview <scratch folder>
 python -I scripts/build-mascot-scenes.py <sources folder> --preview <scratch folder>
 ```
+
+The corrections are listed in `docs/mascot/refined-patches.json`: each one is a redrawn 384 × 512 cell for one slot, kept beside the sources (`AMR_Build_Sources_Refined/patches/`, outside git) and checked by its sha256. The builder stops if a corrected sheet in the folder is still the release's, so a rebuild can't bring the old frame back. A correction drawn with a smaller head than the rest of its sheet names a `head_scale`, which the as-drawn build applies to that frame alone. Today there is one: S64 slot 4, `lights.sweep`, redrawn on 17 November 2026 because the release drew his lowered left hand as a claw and the torch without light; its head is scaled ×1.10.
 
 The expansion release comes after them (its packs are kept as they are by both): see [Expansion scenes](#expansion-scenes).
 
