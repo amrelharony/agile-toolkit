@@ -8,7 +8,7 @@ import {
   RISK_NOTE_REASONS_MAX,
   sprintRiskNoteTask,
   type RiskNoteInput,
-} from "@/lib/ai/tasks/sprint";
+} from "@/lib/ai/tasks/sprint.lite";
 import type { SprintRisk } from "@/lib/sprints/risk";
 import type { Sprint } from "@/lib/stores/workspace-types";
 

@@ -3,16 +3,17 @@
  * and its length, for the Ceremony Timer's saved agendas. The person
  * reviews every segment before any of it is kept (<AiSuggestions>).
  *
- * Browser-safe: schemas with hard caps, a fallback that needs no model (the
- * nearest built-in agenda, split over the minutes), and a sample input. The
- * prompt lives in `facilitator-timers.server.ts`.
+ * This half is the def: schemas with hard caps, a fallback that needs no
+ * model (the nearest built-in agenda, split over the minutes, from
+ * `facilitator-timers.lite.ts`, which pages import), and a sample input.
+ * The prompt lives in `facilitator-timers.server.ts`.
  */
 
 import { z } from "zod";
 import { defineAiTask } from "../define-task";
-import { fallbackAgenda } from "@/lib/facilitator-timers/agenda";
+import { AGENDA_MAX_SEGMENTS, agendaFallback } from "./facilitator-timers.lite";
 
-export const AGENDA_MAX_SEGMENTS = 12;
+export { AGENDA_MAX_SEGMENTS, agendaFallback } from "./facilitator-timers.lite";
 
 const input = z.object({
   goal: z.string().trim().min(3).max(280),
@@ -33,6 +34,9 @@ const output = z.object({
     .max(AGENDA_MAX_SEGMENTS),
 });
 
+export type AgendaInput = z.infer<typeof input>;
+export type AgendaOutput = z.infer<typeof output>;
+
 export const agendaTask = defineAiTask({
   id: "facilitator-timers.agenda",
   toolId: "facilitator-timers",
@@ -41,6 +45,6 @@ export const agendaTask = defineAiTask({
   maxTokens: 4096,
   input,
   output,
-  fallback: (i) => fallbackAgenda(i),
+  fallback: agendaFallback,
   sample: { goal: "Agree how we split the checkout rewrite into releases", minutes: 60 },
 });

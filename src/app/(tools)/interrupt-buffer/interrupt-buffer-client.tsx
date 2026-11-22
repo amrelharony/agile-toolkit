@@ -53,7 +53,7 @@ import { INTERRUPT_BUFFER_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
 import { isExampleId } from "@/lib/utils/example-id";
 import type { AiSource } from "@/lib/ai/task-types";
-import { CLASSIFY_MAX, interruptClassifyTask } from "@/lib/ai/tasks/interrupt-buffer";
+import { CLASSIFY_MAX, interruptClassifyTask } from "@/lib/ai/tasks/interrupt-buffer.lite";
 import {
   EMPTY_INTERRUPT_DRAFT,
   INTERRUPT_KIND_LABEL,

@@ -1,17 +1,19 @@
 /**
- * Interrupt Buffer's AI task, the browser-safe half: read interrupt titles
- * and suggest each one's kind (bug, support, request, incident, other) and
- * a guessed size in points. The person confirms or changes each before it
- * is saved. Without AI, keyword rules answer (lib/sprints/interrupts
- * `classifyInterrupt`). The prompt lives in `interrupt-buffer.server.ts`.
+ * Interrupt Buffer's AI task, the def: read interrupt titles and suggest
+ * each one's kind (bug, support, request, incident, other) and a guessed
+ * size in points. The person confirms or changes each before it is saved.
+ * Without AI, keyword rules answer (lib/sprints/interrupts
+ * `classifyInterrupt`, through `interrupt-buffer.lite.ts`, which pages
+ * import). The prompt lives in `interrupt-buffer.server.ts`.
  */
 
 import { z } from "zod";
 import { defineAiTask } from "../define-task";
 import { INTERRUPT_KINDS } from "@/lib/stores/workspace-types";
-import { INTERRUPT_SIZE_MAX, classifyInterrupt } from "@/lib/sprints/interrupts";
+import { INTERRUPT_SIZE_MAX } from "@/lib/sprints/interrupts";
+import { CLASSIFY_MAX, interruptClassifyFallback } from "./interrupt-buffer.lite";
 
-export const CLASSIFY_MAX = 20;
+export { CLASSIFY_MAX, interruptClassifyFallback } from "./interrupt-buffer.lite";
 
 const input = z.object({
   titles: z.array(z.string().trim().min(1).max(300)).min(1).max(CLASSIFY_MAX),
@@ -46,9 +48,7 @@ export const interruptClassifyTask = defineAiTask({
   maxTokens: 4096,
   input,
   output,
-  fallback: ({ titles }) => ({
-    items: titles.map((title, index) => ({ index, ...classifyInterrupt(title) })),
-  }),
+  fallback: interruptClassifyFallback,
   sample: {
     titles: [
       "Checkout is down for card payments",

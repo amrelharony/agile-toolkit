@@ -20,7 +20,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { AiSource } from "@/lib/ai/task-types";
-import { notebookTagInput, notebookTagTask } from "@/lib/ai/tasks/sm-notebook";
+import { notebookTagInput, notebookTagTask } from "@/lib/ai/tasks/sm-notebook.lite";
 import {
   NOTEBOOK_EVENTS,
   NOTE_BODY_MAX,

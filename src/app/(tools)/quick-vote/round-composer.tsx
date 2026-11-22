@@ -24,7 +24,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup } from "@/components/ui/toggle-group";
 import type { AiSource } from "@/lib/ai/task-types";
-import { SUGGEST_OPTIONS_MAX, isBlankOptions, suggestOptionsTask } from "@/lib/ai/tasks/_example";
+import {
+  SUGGEST_OPTIONS_MAX,
+  isBlankOptions,
+  suggestOptionsTask,
+} from "@/lib/ai/tasks/_example.lite";
 import { VOTE_LIMITS } from "@/lib/realtime/vote-room/protocol";
 import { FEELINGS, feelingsQuestion, type QuickVotePreset } from "@/lib/quick-vote/presets";
 import {

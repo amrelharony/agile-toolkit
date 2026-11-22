@@ -58,7 +58,7 @@ import {
   backlogHealthReviewTask,
   fitReviewInput,
   type ReviewOutput,
-} from "@/lib/ai/tasks/backlog-health";
+} from "@/lib/ai/tasks/backlog-health.lite";
 import { backlogForHealth, backlogHealth, type HealthVerdict } from "@/lib/backlog/health";
 import { buildExample } from "./example";
 import { healthCsv, toMarkdown } from "./markdown";

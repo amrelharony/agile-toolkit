@@ -4,7 +4,7 @@ import {
   MEETING_AUDIT_MAX_MEETINGS,
   MEETING_AUDIT_TEXT_MAX,
   type MeetingAuditAiInput,
-} from "@/lib/ai/tasks/meeting-audit";
+} from "@/lib/ai/tasks/meeting-audit.lite";
 import {
   ATTENDEES_MAX,
   AUDIT_QUESTION_IDS,

@@ -27,6 +27,12 @@
  * A visitor's answers carry the quota headers: they update the chat panel's
  * count (useAgentStore().visitorQuota) and `remaining`.
  *
+ * The task is a def or a page's lazy ref (lib/ai/task-ref, from
+ * `@/lib/ai/tasks/<toolId>.lite`). A ref's def, with its schemas, loads on
+ * the first `run` (or on `preload()`, which only loads while AI is
+ * available): `run` says "running" at once, and a def that won't load
+ * answers `load_failed` with the fallback ready. `fallback()` never waits.
+ *
  * AI never writes on its own: the result is handed back for the person to
  * accept (<AiSuggestions>), and accepted items go through the tool's store.
  */
@@ -44,6 +50,13 @@ import {
   toolAiErrorText,
   type ToolAiErrorCode,
 } from "./contract";
+import {
+  answerWithoutAi,
+  peekAiTask,
+  preloadAiTask,
+  resolveAiTask,
+  type AiTaskLike,
+} from "./task-ref";
 import type { AiFallbackReason, AiSource, AiTaskDef } from "./task-types";
 
 export type ToolAiStatus = "idle" | "running" | "done" | "error" | "needs_consent";
@@ -108,8 +121,14 @@ export interface UseToolAi<I, O> {
   cancel(): void;
   /** Back to idle, clearing the answer and the error. */
   reset(): void;
-  /** The task's answer without AI. */
+  /** The task's answer without AI (synchronous, def loaded or not). */
   fallback(input: I): O;
+  /**
+   * Start loading a lazy task's def ahead of a run (on hover, focus or
+   * touch). Only while AI is available, so a visitor with AI off never
+   * downloads the schemas.
+   */
+  preload(): void;
 }
 
 /** Where the request goes and why it may not, from who is here and what is open. */
@@ -128,7 +147,28 @@ function decide(
   return { path: "visitor", reason: null };
 }
 
-export function useToolAi<I, O>(task: AiTaskDef<I, O>): UseToolAi<I, O> {
+/** The task's def (loading a ref's), or null when it fails to load or `signal` aborts first. */
+function loadDef<I, O>(
+  task: AiTaskLike<I, O>,
+  signal: AbortSignal
+): Promise<AiTaskDef<I, O> | null> {
+  return new Promise((resolve) => {
+    const onAbort = () => resolve(null);
+    signal.addEventListener("abort", onAbort, { once: true });
+    resolveAiTask(task).then(
+      (def) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(def);
+      },
+      () => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(null);
+      }
+    );
+  });
+}
+
+export function useToolAi<I, O>(task: AiTaskLike<I, O>): UseToolAi<I, O> {
   const { isOwner, visitor } = useOwnerState();
   const inLiveRoom = useSyncExternalStore(subscribeLiveVisitorRoom, inLiveVisitorRoom, () => false);
   const { path, reason } = decide(isOwner, visitor, inLiveRoom, task.ownerOnly === true);
@@ -141,7 +181,7 @@ export function useToolAi<I, O>(task: AiTaskDef<I, O>): UseToolAi<I, O> {
   const [remaining, setRemaining] = useState<number | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
-  const pendingRef = useRef<{ input: I } | null>(null);
+  const pendingRef = useRef<{ input: I; def: AiTaskDef<I, O> } | null>(null);
   const taskRef = useRef(task);
   taskRef.current = task;
   const pathRef = useRef(path);
@@ -151,16 +191,17 @@ export function useToolAi<I, O>(task: AiTaskDef<I, O>): UseToolAi<I, O> {
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
-  const fallback = useCallback((input: I): O => taskRef.current.fallback(input), []);
+  // The loaded def's fallback when there is one (a test may stand in for it),
+  // else the ref's: the same function.
+  const fallback = useCallback(
+    (input: I): O => (peekAiTask(taskRef.current) ?? taskRef.current).fallback(input),
+    []
+  );
 
-  const safeFallback = useCallback((input: unknown): O | null => {
-    try {
-      const parsed = taskRef.current.input.safeParse(input);
-      return parsed.success ? taskRef.current.fallback(parsed.data) : null;
-    } catch {
-      return null;
-    }
-  }, []);
+  const safeFallback = useCallback(
+    (input: unknown): O | null => answerWithoutAi(taskRef.current, input),
+    []
+  );
 
   const fail = useCallback(
     (code: string, input: unknown): ToolAiRunResult<O> => {
@@ -172,13 +213,22 @@ export function useToolAi<I, O>(task: AiTaskDef<I, O>): UseToolAi<I, O> {
     [safeFallback]
   );
 
+  /** A new request: the one before it stops, and the state says "running". */
+  const begin = useCallback((): AbortController => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setStatus("running");
+    return controller;
+  }, []);
+
   const send = useCallback(
-    async (input: I, to: "owner" | "visitor"): Promise<ToolAiRunResult<O>> => {
-      const current = taskRef.current;
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      setStatus("running");
+    async (
+      def: AiTaskDef<I, O>,
+      input: I,
+      to: "owner" | "visitor",
+      controller: AbortController
+    ): Promise<ToolAiRunResult<O>> => {
       setError(null);
       setData(null);
       setSource(null);
@@ -190,7 +240,7 @@ export function useToolAi<I, O>(task: AiTaskDef<I, O>): UseToolAi<I, O> {
         res = await fetch(to === "owner" ? TOOL_AI_OWNER_PATH : TOOL_AI_VISITOR_PATH, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ task: current.id, input }),
+          body: JSON.stringify({ task: def.id, input }),
           signal: controller.signal,
         });
       } catch {
@@ -241,7 +291,7 @@ export function useToolAi<I, O>(task: AiTaskDef<I, O>): UseToolAi<I, O> {
       }
 
       const answer = body as { ok?: unknown; data?: unknown; source?: unknown; reason?: unknown };
-      const checked = answer && answer.ok === true ? current.output.safeParse(answer.data) : null;
+      const checked = answer && answer.ok === true ? def.output.safeParse(answer.data) : null;
       if (!checked?.success) return fail("bad_answer", input);
       const src: AiSource = answer.source === "fallback" ? "fallback" : "ai";
       const why =
@@ -264,35 +314,60 @@ export function useToolAi<I, O>(task: AiTaskDef<I, O>): UseToolAi<I, O> {
     async (input: I): Promise<ToolAiRunResult<O>> => {
       const to = pathRef.current;
       if (!to) return { status: "unavailable", reason: reasonRef.current ?? "off" };
+      // "Running" before anything loads: the button says so, a second press
+      // does nothing, and Stop cancels the load too.
+      const controller = begin();
+      const release = () => {
+        if (abortRef.current === controller) abortRef.current = null;
+      };
+      let def = peekAiTask(taskRef.current);
+      if (!def) {
+        def = await loadDef(taskRef.current, controller.signal);
+        if (controller.signal.aborted) {
+          if (abortRef.current === controller) {
+            abortRef.current = null;
+            setStatus("idle");
+          }
+          return { status: "cancelled" };
+        }
+        if (!def) {
+          release();
+          return fail("load_failed", input);
+        }
+      }
       // Checked here first, so a bad input never leaves the browser or costs a use.
-      const parsed = taskRef.current.input.safeParse(input);
-      if (!parsed.success) return fail("bad_input", input);
+      const parsed = def.input.safeParse(input);
+      if (!parsed.success) {
+        release();
+        return fail("bad_input", input);
+      }
       if (to === "visitor" && !hasVisitorAiConsent()) {
-        pendingRef.current = { input: parsed.data };
+        release();
+        pendingRef.current = { input: parsed.data, def };
         setError(null);
         setStatus("needs_consent");
         return { status: "needs_consent" };
       }
-      return send(parsed.data, to);
+      return send(def, parsed.data, to, controller);
     },
-    [fail, send]
+    [begin, fail, send]
   );
 
   const agree = useCallback(async (): Promise<ToolAiRunResult<O> | null> => {
     storeVisitorAiConsent();
     const pending = pendingRef.current;
     pendingRef.current = null;
-    if (!pending) {
+    const to = pathRef.current;
+    if (!pending || !to) {
       setStatus("idle");
       return null;
     }
-    const to = pathRef.current;
-    if (to !== "visitor") {
-      setStatus("idle");
-      return to ? send(pending.input, to) : null;
-    }
-    return send(pending.input, to);
-  }, [send]);
+    return send(pending.def, pending.input, to, begin());
+  }, [begin, send]);
+
+  const preload = useCallback(() => {
+    if (pathRef.current) preloadAiTask(taskRef.current);
+  }, []);
 
   const decline = useCallback(() => {
     pendingRef.current = null;
@@ -336,6 +411,7 @@ export function useToolAi<I, O>(task: AiTaskDef<I, O>): UseToolAi<I, O> {
       cancel,
       reset,
       fallback,
+      preload,
     }),
     [
       path,
@@ -352,6 +428,7 @@ export function useToolAi<I, O>(task: AiTaskDef<I, O>): UseToolAi<I, O> {
       cancel,
       reset,
       fallback,
+      preload,
     ]
   );
 }

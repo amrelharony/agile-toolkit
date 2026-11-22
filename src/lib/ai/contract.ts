@@ -22,6 +22,22 @@ export const TOOL_AI_OWNER_MAX_BODY_BYTES = 256 * 1024;
 export const TOOL_AI_VISITOR_MAX_BODY_BYTES = 64 * 1024;
 
 /**
+ * What one task's request (`{ task, input }`) may weigh, in UTF-8 bytes of
+ * its JSON: the visitor route's cap, less room for the envelope. Size inputs
+ * with it and `jsonBytes` (lib/utils/json-bytes); never a budget of your own.
+ *
+ * A task whose input at its caps can pass it ships a fitter (as Backlog
+ * Health's `fitReviewInput`) and a test that the fitted largest input fits.
+ * Count 3 bytes per counted character: zod's `.max()` counts UTF-16 units,
+ * and real text costs at most 3 UTF-8 bytes a unit (a BMP character such as
+ * CJK is 1 unit and 3 bytes, an astral one 2 units and 4 bytes), so every
+ * golden "largest input fits" test uses 3-byte text. Control characters and
+ * lone surrogates JSON-escape to 6 bytes: the route's 413 (`too_large`) is
+ * their backstop, and the fallback still answers.
+ */
+export const TOOL_AI_BODY_BUDGET = TOOL_AI_VISITOR_MAX_BODY_BYTES - 4 * 1024;
+
+/**
  * How long one request may run inside the route (maxDuration is 300 s). Past
  * it the repair call is skipped and the upstream call is aborted.
  */
@@ -61,6 +77,8 @@ export type ToolAiErrorCode =
   | "no_backend"
   /** Browser side only: the request never got an answer. */
   | "network"
+  /** Browser side only: the task's def (its schemas) didn't load. */
+  | "load_failed"
   /** Browser side only: the answer wasn't readable. */
   | "bad_answer";
 
@@ -91,6 +109,8 @@ export const TOOL_AI_ERROR_TEXT: Record<ToolAiErrorCode, string> = {
   rate_limited: "You've reached the AI limit for now. The tool still works without AI.",
   no_backend: "No AI service is set up on the server. Add your own key in AI settings instead.",
   network: "Couldn't reach the site. Check your connection and try again.",
+  load_failed:
+    "Couldn't load Amr's help. Check your connection and try again. The tool still works without AI.",
   bad_answer: "Amr's answer didn't come through properly. Try again.",
 };
 
