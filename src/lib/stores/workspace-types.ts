@@ -1280,6 +1280,10 @@ export interface WardleyMap {
  * TreeNodeKind).
  * ────────────────────────────────────────────────────────────────── */
 
+/** An epic's place on the Now, Next, Later board (Epic Roadmap). */
+export const EPIC_HORIZONS = ["now", "next", "later"] as const;
+export type EpicHorizon = (typeof EPIC_HORIZONS)[number];
+
 export interface Epic {
   id: string;
   title: string;
@@ -1289,6 +1293,10 @@ export interface Epic {
   progress: number;
   owner?: string;
   color?: string;
+  /** Set by hand on the Now, Next, Later board; absent: read from its quarters. */
+  horizon?: EpicHorizon;
+  /** The item it was sent from (an impact map's deliverable, a strategy tree's initiative). */
+  sourceRef?: HandoffRef;
 }
 
 export interface EpicRoadmap {
@@ -3409,6 +3417,12 @@ export const TOOL_LIST_MAX = {
   itemLinks: 10,
   /** Who asked for an idea in the idea inbox. */
   requesters: 20,
+  /** A strategy map's nodes (Impact Map, Strategy Tree). */
+  strategyNodes: 150,
+  /** A persona's goals, frustrations or habits, each list. */
+  personaPoints: 8,
+  /** The interviews a persona comes from. */
+  personaInterviews: 20,
 } as const;
 
 export const PARKING_LOT_STATUSES = ["open", "discussed", "sent", "dropped"] as const;
@@ -4138,6 +4152,106 @@ export interface ProductCanvas {
 
 export const PRODUCT_CANVAS_KIND = "workspace:productCanvas";
 
+/* P2.4, Impact Map and Strategy Tree (one StrategyMap entity with a
+ * format) and the Persona Library. The Epic Roadmap's Now, Next, Later
+ * rides `Epic.horizon`; an epic sent from a map records it in
+ * `Epic.sourceRef`. */
+
+export const STRATEGY_MAP_FORMATS = ["impact-map", "dibb", "lean-value-tree", "hoshin"] as const;
+export type StrategyMapFormat = (typeof STRATEGY_MAP_FORMATS)[number];
+
+/** Where a strategy tree's part stands (not used on an impact map). */
+export const STRATEGY_NODE_STATUSES = ["proposed", "agreed", "questioned", "dropped"] as const;
+export type StrategyNodeStatus = (typeof STRATEGY_NODE_STATUSES)[number];
+
+/**
+ * One node of a strategy map. On an impact map level 0 is the goal, 1 an
+ * actor, 2 an impact and 3 a deliverable; a strategy tree's levels follow
+ * its format. Rules (lib/strategy-map/rules): one root at level 0, each
+ * node one level below its parent; `personaId` only on an impact map's
+ * actors, `focus` only on one of its impacts; `status` and `note` only on
+ * a strategy tree.
+ */
+export interface StrategyMapNode {
+  id: string;
+  /** null for the root. */
+  parentId: string | null;
+  level: 0 | 1 | 2 | 3;
+  /** At most "short". */
+  text: string;
+  /** At most "text". */
+  detail?: string;
+  /** How it is measured (at most "short"). */
+  measure?: string;
+  /** Who owns it (at most "short"). */
+  owner?: string;
+  status?: StrategyNodeStatus;
+  /** At most "text". */
+  note?: string;
+  /** The persona an impact map's actor is (Persona Library). */
+  personaId?: string;
+  /** The impact the team focuses on (one per impact map). */
+  focus?: boolean;
+  /** Where it was sent: the backlog, the roadmap or the Hypothesis Tracker. */
+  sentTo?: HandoffLink[];
+}
+
+/** An impact map or a strategy tree (DIBB, Lean Value Tree or Hoshin Kanri). */
+export interface StrategyMap {
+  id: string;
+  /** Fixed once the map is made. */
+  format: StrategyMapFormat;
+  /** At most "short". */
+  title: string;
+  /** At most TOOL_LIST_MAX.strategyNodes. */
+  nodes: StrategyMapNode[];
+  /** The Product Goal it starts from. */
+  productGoalId?: string;
+  /** The day its goal is due (YYYY-MM-DD). */
+  targetDate?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const STRATEGY_MAP_KIND = "workspace:strategyMap";
+
+/** A main persona, a secondary one, or an anti-persona (who the product is not for). */
+export const PERSONA_TIERS = ["primary", "secondary", "anti"] as const;
+export type PersonaTier = (typeof PERSONA_TIERS)[number];
+
+/** How much of a persona comes from research. */
+export const PERSONA_EVIDENCE = ["assumed", "some", "researched"] as const;
+export type PersonaEvidence = (typeof PERSONA_EVIDENCE)[number];
+
+/** Someone the team builds for (Persona Library). Personas live only here. */
+export interface Persona {
+  id: string;
+  /** A made-up name (at most "short"). */
+  name: string;
+  /** At most "short". */
+  role: string;
+  /** At most "text". */
+  summary?: string;
+  tier: PersonaTier;
+  evidence: PersonaEvidence;
+  /** Each list at most TOOL_LIST_MAX.personaPoints points of at most "short". */
+  goals: string[];
+  pains: string[];
+  behaviours: string[];
+  /** At most "short". */
+  quote?: string;
+  /** At most "text". */
+  context?: string;
+  /** At most TOOL_LIST_MAX.tags, each at most "short". */
+  tags: string[];
+  /** The User Interview Log interviews it comes from, at most TOOL_LIST_MAX.personaInterviews. */
+  interviewIds?: string[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const PERSONA_KIND = "workspace:persona";
+
 /* P2.6, Flow Insights and the Definition of Workflow: work types, blocked
  * spells (`Story`, `KanbanCard` and `Impediment` carry the fields) and the
  * workflow definition. */
@@ -4455,6 +4569,9 @@ export interface Workspace {
   testSessions?: TestSession[];
   meetingNotes?: MeetingNote[];
   productCanvases?: ProductCanvas[];
+  /** Impact Maps and Strategy Trees (one entity, by format). */
+  strategyMaps?: StrategyMap[];
+  personas?: Persona[];
 }
 
 /**
@@ -4745,6 +4862,8 @@ export const emptyWorkspace = {
   testSessions: [],
   meetingNotes: [],
   productCanvases: [],
+  strategyMaps: [],
+  personas: [],
 } satisfies Workspace;
 
 /**

@@ -5,13 +5,16 @@
  */
 import type {
   BugReport,
+  EpicRoadmap,
   ExampleMap,
   HillChart,
   InterruptItem,
   MeetingNote,
+  Persona,
   PokerAsyncRound,
   ProductCanvas,
   ReleaseReadiness,
+  StrategyMap,
   TestSession,
 } from "@/lib/stores/workspace-types";
 
@@ -277,4 +280,102 @@ export const PRODUCT_CANVAS: ProductCanvas = {
   sentTo: [{ route: "hypothesis", targetId: "hyp_1", at: LATER }],
   createdAt: AT,
   updatedAt: LATER,
+};
+
+/* P2.4 */
+
+/** An impact map: goal, actors (one a persona), impacts (one the focus) and a deliverable. */
+export const IMPACT_MAP: StrategyMap = {
+  id: "strategyMap_1",
+  format: "impact-map",
+  title: "More shops take refunds themselves",
+  nodes: [
+    {
+      id: "g",
+      parentId: null,
+      level: 0,
+      text: "Halve refund calls by March",
+      measure: "Refund calls a week",
+      detail: "From 40 to 20.",
+    },
+    { id: "a1", parentId: "g", level: 1, text: "Shop owners", personaId: "persona_1" },
+    { id: "i1", parentId: "a1", level: 2, text: "Refund from the app", focus: true },
+    {
+      id: "d1",
+      parentId: "i1",
+      level: 3,
+      text: "Refund button on a payment",
+      owner: "Ana",
+      sentTo: [{ route: "backlog-story", targetId: "story_7", at: LATER }],
+    },
+  ],
+  productGoalId: "goal_1",
+  targetDate: "2027-03-31",
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+/** A Lean Value Tree, with the statuses and notes an impact map doesn't take. */
+export const STRATEGY_TREE: StrategyMap = {
+  id: "strategyMap_2",
+  format: "lean-value-tree",
+  title: "Payments for small shops",
+  nodes: [
+    { id: "v", parentId: null, level: 0, text: "Every shop takes cards", status: "agreed" },
+    {
+      id: "goal",
+      parentId: "v",
+      level: 1,
+      text: "Setup in a minute",
+      measure: "Median setup time",
+      owner: "Bo",
+      status: "agreed",
+    },
+    {
+      id: "bet",
+      parentId: "goal",
+      level: 2,
+      text: "A guided setup",
+      status: "questioned",
+      note: "Needs a test first.",
+      sentTo: [{ route: "hypothesis", targetId: "hyp_2", at: LATER }],
+    },
+    { id: "init", parentId: "bet", level: 3, text: "Setup checklist", status: "proposed" },
+  ],
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+export const PERSONA: Persona = {
+  id: "persona_1",
+  name: "Mina, the corner shop owner",
+  role: "Runs a small shop alone",
+  summary: "Takes cash and cards; does the books on Sunday.",
+  tier: "primary",
+  evidence: "some",
+  goals: ["Get paid fast", "Spend less on fees"],
+  pains: ["Phoning support to refund"],
+  behaviours: ["Uses her phone for everything"],
+  quote: "I don't have time to call anyone.",
+  context: "Busy mornings, quiet afternoons.",
+  tags: ["retail", "solo"],
+  interviewIds: ["int_1", "int_2"],
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+/** The Epic Roadmap with an epic on the Now column, sent from an impact map (P2.4's fields). */
+export const ROADMAP_WITH_HORIZON: EpicRoadmap = {
+  id: "epicRoadmap:current",
+  epics: [
+    {
+      id: "epic_1",
+      title: "Refunds in the app",
+      startQuarter: "2027-Q1",
+      endQuarter: "2027-Q1",
+      progress: 0,
+      horizon: "now",
+      sourceRef: { tool: "impact-map", id: "d1", doc: "strategyMap_1" },
+    },
+  ],
 };

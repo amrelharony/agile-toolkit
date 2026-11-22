@@ -33,7 +33,9 @@ import {
   EXAMPLE_MAP_KIND,
   HILL_CHART_KIND,
   MEETING_NOTE_KIND,
+  PERSONA_KIND,
   PRODUCT_CANVAS_KIND,
+  STRATEGY_MAP_KIND,
   TEST_SESSION_KIND,
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
@@ -47,10 +49,14 @@ import {
   BUG_REPORT,
   EXAMPLE_MAP,
   HILL_CHART,
+  IMPACT_MAP,
   INTERRUPT_FROM_BUG,
   MEETING_NOTE,
+  PERSONA,
   PRODUCT_CANVAS,
   RELEASES_WITH_NOTES,
+  ROADMAP_WITH_HORIZON,
+  STRATEGY_TREE,
   TEST_SESSION,
 } from "../stores/phase43-fixtures";
 
@@ -116,6 +122,8 @@ const COLLECTIONS: [toolId: string, slice: keyof Workspace, doc: Doc, kind: stri
   ["workspace.test_session", "testSessions", TEST_SESSION, TEST_SESSION_KIND],
   ["workspace.meeting_note", "meetingNotes", MEETING_NOTE, MEETING_NOTE_KIND],
   ["workspace.product_canvas", "productCanvases", PRODUCT_CANVAS, PRODUCT_CANVAS_KIND],
+  ["workspace.strategy_map", "strategyMaps", IMPACT_MAP, STRATEGY_MAP_KIND],
+  ["workspace.persona", "personas", PERSONA, PERSONA_KIND],
 ];
 
 /** The fields Phase 43 adds to existing records: the CRUD, its slice and a record with them set. */
@@ -131,6 +139,12 @@ const EXTENDED: [name: string, toolId: string, slice: keyof Workspace, doc: Doc]
     "workspace.interrupt_item",
     "interruptItems",
     INTERRUPT_FROM_BUG,
+  ],
+  [
+    "an epic's horizon and sourceRef (P2.4)",
+    "workspace.epic_roadmap",
+    "epicRoadmaps",
+    ROADMAP_WITH_HORIZON,
   ],
 ];
 
@@ -684,5 +698,133 @@ describe("P2.3 product canvases", () => {
     await expect(create(T, { ...big, id: undefined }, true)).rejects.toThrow(/too big to save/);
     await expect(updateOverMcp(T, PRODUCT_CANVAS, { sections })).rejects.toThrow(/too big to save/);
     expect(upsertEntity).not.toHaveBeenCalled();
+  });
+});
+
+describe("P2.4 strategy maps", () => {
+  const T = "workspace.strategy_map";
+  const node = (id: string, parentId: string | null, level: number, extra = {}) => ({
+    id,
+    parentId,
+    level,
+    text: id,
+    ...extra,
+  });
+
+  it("mint strategyMap_ ids, and keep a strategy tree's every field", async () => {
+    const { id } = (await create(T, { ...IMPACT_MAP, id: undefined })) as { id: string };
+    expect(id).toMatch(/^strategyMap_/);
+    const parsed = parseCreate(T, STRATEGY_TREE);
+    expect((parsed.data as { entity: Doc }).entity).toEqual(STRATEGY_TREE);
+    const stored = await update(T, "strategyMaps", STRATEGY_TREE);
+    expect(unstamped(stored!)).toEqual(unstamped(STRATEGY_TREE));
+  });
+
+  it("hold every cap and set", () => {
+    rejects(T, { ...IMPACT_MAP, format: "okr-tree" });
+    rejects(T, { ...IMPACT_MAP, title: "" });
+    rejects(T, { ...IMPACT_MAP, targetDate: "March" });
+    rejects(T, { ...IMPACT_MAP, productGoalId: "x".repeat(TOOL_TEXT_MAX.short + 1) });
+    const chain = [node("g", null, 0)];
+    accepts(T, { ...IMPACT_MAP, nodes: chain });
+    rejects(T, {
+      ...IMPACT_MAP,
+      nodes: [
+        node("g", null, 0),
+        ...Array.from({ length: TOOL_LIST_MAX.strategyNodes }, (_, i) => node(`n${i}`, "g", 1)),
+      ],
+    });
+    rejects(T, { ...IMPACT_MAP, nodes: [node("g", null, 0, { text: " " })] });
+    rejects(T, { ...IMPACT_MAP, nodes: [node("g", null, 4)] });
+    rejects(T, { ...IMPACT_MAP, nodes: [node("g", null, 0.5)] });
+    rejects(T, { ...STRATEGY_TREE, nodes: [node("g", null, 0, { status: "maybe" })] });
+    rejects(T, {
+      ...STRATEGY_TREE,
+      nodes: [node("g", null, 0, { detail: "x".repeat(TOOL_TEXT_MAX.text + 1) })],
+    });
+    rejects(T, {
+      ...STRATEGY_TREE,
+      nodes: [node("g", null, 0, { measure: "x".repeat(TOOL_TEXT_MAX.short + 1) })],
+    });
+  });
+
+  it("refuse a map that breaks the tree rules, on both transports", async () => {
+    const twoRoots = { nodes: [node("g", null, 0), node("h", null, 0)] };
+    await expect(create(T, { ...IMPACT_MAP, id: undefined, ...twoRoots })).rejects.toThrow(
+      /one root.*Nothing was saved\./
+    );
+    await expect(create(T, { ...IMPACT_MAP, id: undefined, ...twoRoots }, true)).rejects.toThrow(
+      /one root/
+    );
+    const skipped = { nodes: [node("g", null, 0), node("d", "g", 2)] };
+    await expect(update(T, "strategyMaps", IMPACT_MAP, skipped)).rejects.toThrow(
+      /one level below its parent/
+    );
+    expect(useWorkspaceStore.getState().strategyMaps).toEqual([IMPACT_MAP]);
+    await expect(updateOverMcp(T, IMPACT_MAP, skipped)).rejects.toThrow(
+      /one level below its parent/
+    );
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
+
+  it("keep the format a map was made with, on both transports", async () => {
+    const change = { format: "dibb", nodes: [node("g", null, 0)] };
+    await expect(update(T, "strategyMaps", IMPACT_MAP, change)).rejects.toThrow(
+      /Make a new map instead/
+    );
+    await expect(updateOverMcp(T, IMPACT_MAP, change)).rejects.toThrow(/Make a new map instead/);
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
+
+  it("keep an impact map's own fields on an impact map", async () => {
+    await expect(
+      create(T, { ...STRATEGY_TREE, id: undefined, nodes: [node("g", null, 0, { focus: true })] })
+    ).rejects.toThrow(/focus/);
+    await expect(
+      create(T, { ...IMPACT_MAP, id: undefined, nodes: [node("g", null, 0, { note: "n" })] })
+    ).rejects.toThrow(/no status or note/);
+  });
+});
+
+describe("P2.4 personas", () => {
+  const T = "workspace.persona";
+
+  it("mint persona_ ids", async () => {
+    const { id } = (await create(T, { ...PERSONA, id: undefined })) as { id: string };
+    expect(id).toMatch(/^persona_/);
+  });
+
+  it("hold every cap and set", () => {
+    rejects(T, { ...PERSONA, name: "" });
+    rejects(T, { ...PERSONA, role: " " });
+    rejects(T, { ...PERSONA, tier: "main" });
+    rejects(T, { ...PERSONA, evidence: "lots" });
+    for (const key of ["goals", "pains", "behaviours"]) {
+      rejects(T, {
+        ...PERSONA,
+        [key]: Array.from({ length: TOOL_LIST_MAX.personaPoints + 1 }, (_, i) => `p${i}`),
+      });
+      rejects(T, { ...PERSONA, [key]: ["x".repeat(TOOL_TEXT_MAX.short + 1)] });
+    }
+    rejects(T, {
+      ...PERSONA,
+      tags: Array.from({ length: TOOL_LIST_MAX.tags + 1 }, (_, i) => `t${i}`),
+    });
+    rejects(T, {
+      ...PERSONA,
+      interviewIds: Array.from({ length: TOOL_LIST_MAX.personaInterviews + 1 }, (_, i) => `i${i}`),
+    });
+    rejects(T, { ...PERSONA, quote: "x".repeat(TOOL_TEXT_MAX.short + 1) });
+    rejects(T, { ...PERSONA, context: "x".repeat(TOOL_TEXT_MAX.text + 1) });
+  });
+});
+
+describe("P2.4 epics", () => {
+  it("take only the three horizons", () => {
+    const [epic] = ROADMAP_WITH_HORIZON.epics;
+    rejects("workspace.epic_roadmap", {
+      ...ROADMAP_WITH_HORIZON,
+      epics: [{ ...epic, horizon: "someday" }],
+    });
   });
 });

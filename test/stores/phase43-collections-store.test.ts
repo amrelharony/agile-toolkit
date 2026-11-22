@@ -36,7 +36,9 @@ import {
   HILL_CHART_KIND,
   MEETING_NOTE_KIND,
   POKER_ASYNC_ROUND_KIND,
+  PERSONA_KIND,
   PRODUCT_CANVAS_KIND,
+  STRATEGY_MAP_KIND,
   TEST_SESSION_KIND,
   emptyWorkspace,
   type Workspace,
@@ -45,11 +47,14 @@ import {
   BUG_REPORT,
   EXAMPLE_MAP,
   HILL_CHART,
+  IMPACT_MAP,
   INTERRUPT_FROM_BUG,
   MEETING_NOTE,
+  PERSONA,
   POKER_ASYNC_ROUND,
   PRODUCT_CANVAS,
   RELEASES_WITH_NOTES,
+  ROADMAP_WITH_HORIZON,
   TEST_SESSION,
 } from "./phase43-fixtures";
 
@@ -124,6 +129,22 @@ const COLLECTIONS: {
     toolId: "workspace.product_canvas",
     kind: PRODUCT_CANVAS_KIND,
   },
+  {
+    slice: "strategyMaps",
+    doc: IMPACT_MAP,
+    upsert: (x) => ws().upsertStrategyMap(x),
+    remove: (id) => ws().removeStrategyMap(id),
+    toolId: "workspace.strategy_map",
+    kind: STRATEGY_MAP_KIND,
+  },
+  {
+    slice: "personas",
+    doc: PERSONA,
+    upsert: (x) => ws().upsertPersona(x),
+    remove: (id) => ws().removePersona(id),
+    toolId: "workspace.persona",
+    kind: PERSONA_KIND,
+  },
 ];
 
 /**
@@ -147,6 +168,12 @@ const EXTENDED: {
     slice: "interruptItems",
     doc: INTERRUPT_FROM_BUG,
     upsert: (x) => ws().upsertInterruptItem(x),
+  },
+  {
+    name: "an epic's horizon and sourceRef (P2.4)",
+    slice: "epicRoadmaps",
+    doc: ROADMAP_WITH_HORIZON,
+    upsert: (x) => ws().upsertEpicRoadmap(x),
   },
 ];
 

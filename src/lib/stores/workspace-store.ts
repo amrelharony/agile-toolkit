@@ -145,6 +145,8 @@ import type {
   TestSession,
   MeetingNote,
   ProductCanvas,
+  StrategyMap,
+  Persona,
 } from "./workspace-types";
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -412,6 +414,10 @@ interface WorkspaceActions {
   removeMeetingNote: (id: string) => void;
   upsertProductCanvas: (x: ProductCanvas) => void;
   removeProductCanvas: (id: string) => void;
+  upsertStrategyMap: (x: StrategyMap) => void;
+  removeStrategyMap: (id: string) => void;
+  upsertPersona: (x: Persona) => void;
+  removePersona: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert, stamped and cleaned as `upsertStory` does each one. Use
@@ -1662,6 +1668,13 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ productCanvases: replaceById(_st.productCanvases ?? [], x) })),
       removeProductCanvas: (id) =>
         set((s) => ({ productCanvases: (s.productCanvases ?? []).filter((y) => y.id !== id) })),
+      upsertStrategyMap: (x) =>
+        set((_st) => ({ strategyMaps: replaceById(_st.strategyMaps ?? [], x) })),
+      removeStrategyMap: (id) =>
+        set((s) => ({ strategyMaps: (s.strategyMaps ?? []).filter((y) => y.id !== id) })),
+      upsertPersona: (x) => set((_st) => ({ personas: replaceById(_st.personas ?? [], x) })),
+      removePersona: (id) =>
+        set((s) => ({ personas: (s.personas ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1785,6 +1798,8 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           testSessions: s.testSessions,
           meetingNotes: s.meetingNotes,
           productCanvases: s.productCanvases,
+          strategyMaps: s.strategyMaps,
+          personas: s.personas,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1942,6 +1957,8 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           testSessions: arr("testSessions"),
           meetingNotes: arr("meetingNotes"),
           productCanvases: arr("productCanvases"),
+          strategyMaps: arr("strategyMaps"),
+          personas: arr("personas"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -2318,6 +2335,8 @@ if (typeof window !== "undefined") {
     registerCollection("testSession", "testSessions");
     registerCollection("meetingNote", "meetingNotes");
     registerCollection("productCanvas", "productCanvases");
+    registerCollection("strategyMap", "strategyMaps");
+    registerCollection("persona", "personas");
     // Kudos wall — was localStorage-only + ephemeral realtime broadcast; now
     // also a per-entity synced collection so the agent (tool.kudos.*) can read
     // + post and the wall cloud-persists cross-device. The realtime broadcast
@@ -2503,6 +2522,8 @@ export function getWorkspaceSnapshot(): Workspace {
     testSessions: state.testSessions,
     meetingNotes: state.meetingNotes,
     productCanvases: state.productCanvases,
+    strategyMaps: state.strategyMaps,
+    personas: state.personas,
   };
 }
 

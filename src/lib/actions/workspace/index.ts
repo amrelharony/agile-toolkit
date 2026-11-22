@@ -33,6 +33,7 @@ import {
   DEFAULT_WEIGHTED_MATRIX_ID,
   DOD_DOC_ID,
   ENTITY_ROW_MAX_BYTES,
+  EPIC_HORIZONS,
   EXAMPLE_MAP_VERDICTS,
   EXAMPLE_QUESTION_STATUSES,
   HANDOFF_ROUTE_IDS,
@@ -47,6 +48,8 @@ import {
   NPS_TAG_LIMIT,
   NPS_TAG_MAX_LENGTH,
   PARKING_LOT_STATUSES,
+  PERSONA_EVIDENCE,
+  PERSONA_TIERS,
   PRODUCT_BET_STATUSES,
   PRODUCT_CANVAS_EVIDENCE,
   PRODUCT_CANVAS_FORMATS,
@@ -58,6 +61,8 @@ import {
   RACI_ID,
   REACH_PERIODS,
   ROOT_CAUSE_METHODS,
+  STRATEGY_MAP_FORMATS,
+  STRATEGY_NODE_STATUSES,
   TEST_NOTE_KINDS,
   TEST_SESSION_COVERAGE,
   TEST_SESSION_STATUSES,
@@ -105,6 +110,7 @@ import {
 } from "@/lib/tech-debt/legacy";
 import { readLegacyBlob } from "../user-state-blob";
 import { sectionsSchema } from "./sectioned-schema";
+import { strategyMapProblems } from "@/lib/strategy-map/rules";
 import { RESPONDENT_MAX, VERBATIM_MAX, normalizeTags, tagsProblem } from "@/lib/nps/score";
 import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import { targetClashes } from "@/lib/opportunity-tree/model";
@@ -247,6 +253,8 @@ import type {
   TestSession,
   MeetingNote,
   ProductCanvas,
+  StrategyMap,
+  Persona,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -2115,6 +2123,15 @@ const EpicSchema = z.object({
   progress: z.number(),
   owner: z.string().optional(),
   color: z.string().optional(),
+  horizon: z
+    .enum(EPIC_HORIZONS)
+    .optional()
+    .describe(
+      "Its place on the Now, Next, Later board, set by hand; absent: read from its quarters."
+    ),
+  sourceRef: HandoffRefSchema.optional().describe(
+    "The item it was sent from (an impact map's deliverable, a strategy tree's initiative)."
+  ),
 });
 
 const EpicRoadmapSchema = z.object({
@@ -4877,5 +4894,104 @@ defineCrudActions<ProductCanvas>({
   upsert: (x) => ws().upsertProductCanvas(x),
   remove: (id) => ws().removeProductCanvas(id),
   generateId: () => `pcanvas_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.4 — Impact Map and Strategy Tree (one StrategyMap entity, by format)
+ * and the Persona Library. A map's tree rules (one root, each node one
+ * level below its parent, the impact map's own fields) are judged by
+ * strategyMapProblems on both transports. */
+
+const StrategyMapSchema = z
+  .object({
+    id: z.string(),
+    format: z
+      .enum(STRATEGY_MAP_FORMATS)
+      .describe("An impact map, or a strategy tree's shape; fixed once the map is made."),
+    title: Filled(TOOL_TEXT_MAX.short),
+    nodes: z
+      .array(
+        z.object({
+          id: ItemId,
+          parentId: ItemId.nullable().describe("The node above it; null for the root."),
+          level: z
+            .number()
+            .int()
+            .min(0)
+            .max(3)
+            .describe("0 the root; impact map: 1 actor, 2 impact, 3 deliverable."),
+          text: Filled(TOOL_TEXT_MAX.short),
+          detail: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          measure: z.string().max(TOOL_TEXT_MAX.short).optional(),
+          owner: z.string().max(TOOL_TEXT_MAX.short).optional(),
+          status: z
+            .enum(STRATEGY_NODE_STATUSES)
+            .optional()
+            .describe("A strategy tree's part only."),
+          note: z.string().max(TOOL_TEXT_MAX.text).optional().describe("A strategy tree's only."),
+          personaId: z
+            .string()
+            .max(TOOL_TEXT_MAX.short)
+            .optional()
+            .describe("The persona an impact map's actor (level 1) is."),
+          focus: z.boolean().optional().describe("The impact map's one focus impact (level 2)."),
+          sentTo: SentTo,
+        })
+      )
+      .max(TOOL_LIST_MAX.strategyNodes)
+      .describe("The tree: one root at level 0, each node one level below its parent."),
+    productGoalId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    targetDate: IsoDay.optional(),
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("strategy map")) as unknown as z.ZodType<StrategyMap>;
+
+defineCrudActions<StrategyMap>({
+  toolId: "workspace.strategy_map",
+  entityName:
+    "strategy map (an impact map, or a DIBB, Lean Value Tree or Hoshin Kanri strategy tree)",
+  schema: StrategyMapSchema,
+  selectAll: () => ws().strategyMaps ?? [],
+  upsert: (x) => ws().upsertStrategyMap(x),
+  remove: (id) => ws().removeStrategyMap(id),
+  generateId: () => `strategyMap_${nanoid(8)}`,
+  prepare: (next, current) =>
+    stampedTimes(unlessRefused(next, strategyMapProblems(next, current)), current),
+});
+
+/** A persona's goals, frustrations or habits: short points, at most TOOL_LIST_MAX.personaPoints. */
+const PersonaPoints = z.array(z.string().max(TOOL_TEXT_MAX.short)).max(TOOL_LIST_MAX.personaPoints);
+
+const PersonaSchema = z.object({
+  id: z.string(),
+  name: Filled(TOOL_TEXT_MAX.short).describe("A made-up name."),
+  role: Filled(TOOL_TEXT_MAX.short),
+  summary: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  tier: z.enum(PERSONA_TIERS).describe("A main, secondary or anti-persona."),
+  evidence: z.enum(PERSONA_EVIDENCE).describe("How much of it comes from research."),
+  goals: PersonaPoints,
+  pains: PersonaPoints.describe("Frustrations."),
+  behaviours: PersonaPoints.describe("Habits: how they work."),
+  quote: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  context: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  tags: z.array(z.string().max(TOOL_TEXT_MAX.short)).max(TOOL_LIST_MAX.tags),
+  interviewIds: z
+    .array(z.string().max(TOOL_TEXT_MAX.short))
+    .max(TOOL_LIST_MAX.personaInterviews)
+    .optional()
+    .describe("The User Interview Log interviews it comes from."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<Persona>;
+
+defineCrudActions<Persona>({
+  toolId: "workspace.persona",
+  entityName: "persona (someone the team builds for)",
+  schema: PersonaSchema,
+  selectAll: () => ws().personas ?? [],
+  upsert: (x) => ws().upsertPersona(x),
+  remove: (id) => ws().removePersona(id),
+  generateId: () => `persona_${nanoid(8)}`,
   prepare: (next, current) => stampedTimes(next, current),
 });
