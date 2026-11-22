@@ -1,18 +1,18 @@
 /**
- * The Sprint Cockpit's AI task, the browser-safe half: read what the risk
- * rule found (lib/sprints/risk `sprintRisk`) and write two or three plain
- * sentences on why the sprint goal is at risk and what the team could try.
- * The note is only shown: nothing is saved from it. Without AI the rule's
- * own sentences answer (`riskNote`). The prompt lives in `sprint.server.ts`.
+ * The Sprint Cockpit's AI task, the def: read what the risk rule found
+ * (lib/sprints/risk `sprintRisk`) and write two or three plain sentences on
+ * why the sprint goal is at risk and what the team could try. The note is
+ * only shown: nothing is saved from it. Without AI the rule's own sentences
+ * answer (`riskNote`, through `sprint.lite.ts`, which pages import). The
+ * prompt lives in `sprint.server.ts`.
  */
 
 import { z } from "zod";
 import { defineAiTask } from "../define-task";
-import { riskNote, type RiskLevel } from "@/lib/sprints/risk";
+import type { RiskLevel } from "@/lib/sprints/risk";
+import { RISK_NOTE_MAX, RISK_NOTE_REASONS_MAX, sprintRiskNoteFallback } from "./sprint.lite";
 
-/** At most this many reasons go to the model (the rule gives up to nine). */
-export const RISK_NOTE_REASONS_MAX = 9;
-export const RISK_NOTE_MAX = 700;
+export { RISK_NOTE_MAX, RISK_NOTE_REASONS_MAX, sprintRiskNoteFallback } from "./sprint.lite";
 
 const LEVELS = ["none", "watch", "at_risk"] as const satisfies readonly RiskLevel[];
 
@@ -41,12 +41,6 @@ const output = z.object({
 export type RiskNoteInput = z.infer<typeof input>;
 export type RiskNoteOutput = z.infer<typeof output>;
 
-/** The note without AI, cut to the output's cap. */
-function fallbackNote(i: RiskNoteInput): string {
-  const note = riskNote(i);
-  return note.length > RISK_NOTE_MAX ? `${note.slice(0, RISK_NOTE_MAX - 1).trimEnd()}…` : note;
-}
-
 export const sprintRiskNoteTask = defineAiTask({
   id: "sprint.risk_note",
   toolId: "sprint",
@@ -55,7 +49,7 @@ export const sprintRiskNoteTask = defineAiTask({
   maxTokens: 2048,
   input,
   output,
-  fallback: (i) => ({ note: fallbackNote(i) }),
+  fallback: sprintRiskNoteFallback,
   sample: {
     sprint: "Sprint 14",
     goal: "Customers can pay with a saved card",

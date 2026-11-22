@@ -1,5 +1,6 @@
 /**
- * Root Cause's AI tasks, the browser-safe half (prompts in root-cause.server.ts):
+ * Root Cause's AI tasks, the defs (prompts in root-cause.server.ts; pages
+ * import `root-cause.lite.ts`, which holds the fallbacks):
  *
  *   root-cause.next_why       the problem and the chain so far → up to 3
  *                             candidate answers to the next "why?"
@@ -15,10 +16,24 @@
  */
 
 import { z } from "zod";
-import { defineAiTask } from "../define-task";
+import { defineAiTask, type SchemaOf } from "../define-task";
+import {
+  ROOT_CAUSE_SUGGESTIONS_MAX,
+  categoriesFallback,
+  countermeasureFallback,
+  nextWhyFallback,
+} from "./root-cause.lite";
 
-/** Candidates one ask returns. */
-export const ROOT_CAUSE_SUGGESTIONS_MAX = 3;
+export {
+  ROOT_CAUSE_SUGGESTIONS_MAX,
+  categoriesFallback,
+  categoryFor,
+  countermeasureFallback,
+  fallbackCategoryMoves,
+  fallbackCountermeasures,
+  fallbackNextWhys,
+  nextWhyFallback,
+} from "./root-cause.lite";
 
 const Line = (max: number) => z.string().trim().max(max);
 
@@ -33,36 +48,8 @@ const nextWhyOutput = z.object({
   whys: z.array(Line(300).min(1)).min(1).max(ROOT_CAUSE_SUGGESTIONS_MAX),
 });
 
-/** "“Deploys failed”" for a template, cut to fit. */
-function quoted(text: string, max = 120): string {
-  const t = text
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/[.?!]+$/, "");
-  return `“${t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t}”`;
-}
-
-/** The first sentence: the problem's title, when the page sends the title and the fact. */
-function firstSentence(text: string): string {
-  return text.trim().split(/(?<=[.?!])\s+/)[0] ?? text;
-}
-
-/**
- * Three candidate answers to the next "why?", built from the last answer
- * (or the problem's first sentence, its title, before the first): a check
- * that didn't catch it, the way of working that let it through, and nobody
- * owning it. Generic on purpose: they are prompts the team edits, and each
- * points at the process rather than a person.
- */
-export function fallbackNextWhys(problem: string, whys: readonly string[]): string[] {
-  const last = [...whys].reverse().find((w) => w.trim()) ?? firstSentence(problem);
-  const it = quoted(last);
-  return [
-    `No check caught ${it} before it went further.`,
-    `The way we plan and hand over work made ${it} easy to miss.`,
-    `Nobody clearly owned ${it}, so it waited.`,
-  ];
-}
+export type NextWhyInput = SchemaOf<typeof nextWhyInput>;
+export type NextWhyOutput = SchemaOf<typeof nextWhyOutput>;
 
 export const nextWhyTask = defineAiTask({
   id: "root-cause.next_why",
@@ -72,7 +59,7 @@ export const nextWhyTask = defineAiTask({
   maxTokens: 4096,
   input: nextWhyInput,
   output: nextWhyOutput,
-  fallback: ({ problem, whys }) => ({ whys: fallbackNextWhys(problem, whys) }),
+  fallback: nextWhyFallback,
   sample: {
     problem: "Two of the last three releases were rolled back the same day.",
     whys: [
@@ -110,63 +97,8 @@ const categoriesOutput = z.object({
     .max(100),
 });
 
-/**
- * Words that place a cause under one of the six default categories, first
- * match wins (in this order). Whole-word stems, lower case.
- */
-const CATEGORY_RULES: readonly { category: string; words: RegExp }[] = [
-  {
-    category: "Measurement",
-    words:
-      /\b(metric|monitor|alert|dashboard|measur|log|logging|observab|report|data|kpi|sla|trac(k|ing))/,
-  },
-  {
-    category: "Tools",
-    words:
-      /\b(tool|ci\b|pipeline|build|script|jira|server|library|framework|test suite|automation|deploy(ment)? tool|ide|laptop|software|bug)/,
-  },
-  {
-    category: "Environment",
-    words:
-      /\b(environment|staging|prod(uction)?|network|office|remote|time ?zone|outage|infra|cloud|vendor|weather|noise|holiday)/,
-  },
-  {
-    category: "People",
-    words:
-      /\b(skill|training|onboard|knowledge|new joiner|staff|hire|hiring|people|person|tired|overload|burnout|availab|sick|leave|holiday cover)/,
-  },
-  {
-    category: "Process",
-    words:
-      /\b(process|review|hand-?off|handover|approval|step|policy|plan|estimate|meeting|refinement|definition of done|checklist|priorit|scope|requirement|communicat)/,
-  },
-];
-
-/** The category a cause's words point to, or null when none does. */
-export function categoryFor(text: string): string | null {
-  const t = text.toLowerCase();
-  return CATEGORY_RULES.find((r) => r.words.test(t))?.category ?? null;
-}
-
-/**
- * Moves without AI: each cause whose words point to one of the board's
- * categories (by the keyword rules above) and that sits under another one.
- * A rule's category the board doesn't have is skipped.
- */
-export function fallbackCategoryMoves(
-  categories: readonly string[],
-  causes: readonly { id: string; text: string; category: string }[]
-): { causeId: string; category: string }[] {
-  const byKey = new Map(categories.map((c) => [c.trim().toLowerCase(), c]));
-  const out: { causeId: string; category: string }[] = [];
-  for (const cause of causes) {
-    const pick = categoryFor(cause.text);
-    const target = pick ? byKey.get(pick.toLowerCase()) : undefined;
-    if (!target || target.toLowerCase() === cause.category.trim().toLowerCase()) continue;
-    out.push({ causeId: cause.id, category: target });
-  }
-  return out.slice(0, 100);
-}
+export type CategoriesInput = SchemaOf<typeof categoriesInput>;
+export type CategoriesOutput = SchemaOf<typeof categoriesOutput>;
 
 export const categoriesTask = defineAiTask({
   id: "root-cause.categories",
@@ -176,7 +108,7 @@ export const categoriesTask = defineAiTask({
   maxTokens: 4096,
   input: categoriesInput,
   output: categoriesOutput,
-  fallback: ({ categories, causes }) => ({ moves: fallbackCategoryMoves(categories, causes) }),
+  fallback: categoriesFallback,
   sample: {
     problem: "Customers saw checkout errors for two hours before anyone noticed.",
     categories: ["People", "Process", "Tools", "Environment", "Measurement", "Other"],
@@ -209,28 +141,8 @@ const countermeasureOutput = z.object({
     .max(ROOT_CAUSE_SUGGESTIONS_MAX),
 });
 
-/**
- * Three countermeasures without AI, built from the root cause: stop it at
- * the source, catch it earlier, and make someone own it, each with a check
- * the team can look at in a sprint or two.
- */
-export function fallbackCountermeasures(rootCause: string): { text: string; check: string }[] {
-  const it = quoted(rootCause);
-  return [
-    {
-      text: `Change the step that lets ${it} happen, and write the new way into the Definition of Done.`,
-      check: "At the next two retros, ask whether it happened again.",
-    },
-    {
-      text: `Add a check that catches ${it} before work moves on.`,
-      check: "Count how often the check catches it over the next sprint.",
-    },
-    {
-      text: `Name one owner for ${it} and review it at each Sprint Review.`,
-      check: "The owner reports at the next review whether it came back.",
-    },
-  ];
-}
+export type CountermeasureInput = SchemaOf<typeof countermeasureInput>;
+export type CountermeasureOutput = SchemaOf<typeof countermeasureOutput>;
 
 export const countermeasureTask = defineAiTask({
   id: "root-cause.countermeasure",
@@ -240,7 +152,7 @@ export const countermeasureTask = defineAiTask({
   maxTokens: 4096,
   input: countermeasureInput,
   output: countermeasureOutput,
-  fallback: ({ rootCause }) => ({ countermeasures: fallbackCountermeasures(rootCause) }),
+  fallback: countermeasureFallback,
   sample: {
     problem: "Two of the last three releases were rolled back the same day.",
     rootCause: "Migrations are only tested on a small, seeded database.",
