@@ -10,6 +10,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { ResetButton } from "@/components/shared/reset-button";
 import { SectionCard } from "@/components/shared/section-card";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { Button } from "@/components/ui/button";
 import {
   ExampleNotice,
@@ -638,12 +639,16 @@ export function RefinementClient() {
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
           <div className="min-w-0 space-y-6">
             {session.total === 0 ? (
-              hydrated && (
+              hydrated ? (
                 <EmptyState icon={ListChecks} action={<LoadExampleButton onLoad={loadExample} />}>
                   The session lists the backlog stories that aren&rsquo;t ready. Add stories in
                   Sprint Planning or send them to the backlog from another tool, or load an example
                   to see one.
                 </EmptyState>
+              ) : (
+                // Holds the column until the saved backlog loads, so the lg
+                // grid's left side isn't blank and the swap shifts little.
+                <WorkspaceLoading>Loading the backlog…</WorkspaceLoading>
               )
             ) : (
               <SectionCard

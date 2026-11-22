@@ -7,10 +7,12 @@
  *   - While a live room is open, a visitor gets no AI at all; the owner still can.
  *   - A visitor's answer updates the chat panel's count.
  *   - Every error comes back in plain words, with the task's fallback ready.
+ *   - A lazy ref (lib/ai/task-ref) loads its def on the first run, never on
+ *     mount, and its no-AI answer never waits for it.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 
 const h = vi.hoisted(() => ({
   auth: null as { status: string; user: { id: string } | null; error?: string } | null,
@@ -21,6 +23,8 @@ vi.mock("@/lib/auth/auth-provider", () => ({
 }));
 
 import { TOOL_AI_ERROR_TEXT } from "@/lib/ai/contract";
+import { lazyAiTask } from "@/lib/ai/task-ref";
+import type { AiTaskDef } from "@/lib/ai/task-types";
 import { fallbackOptions, suggestOptionsTask } from "@/lib/ai/tasks/_example";
 import { TOOL_AI_UNAVAILABLE_TEXT, useToolAi } from "@/lib/ai/use-tool-ai";
 import { useAgentStore } from "@/lib/agent/store";
@@ -337,5 +341,224 @@ describe("errors", () => {
     expect(out).toEqual({ status: "cancelled" });
     expect(result.current.status).toBe("idle");
     expect(result.current.error).toBeNull();
+  });
+});
+
+// ── Lazy refs ──────────────────────────────────────────────────────────────
+
+type Def = AiTaskDef<{ question: string }, { options: string[] }>;
+
+let lazyCount = 0;
+
+/**
+ * A ref to a copy of the example task under a fresh id, so its def is not
+ * loaded until the ref loads it (a def made with defineAiTask is loaded as
+ * soon as its module runs). `load` stands in for the dynamic import.
+ */
+function lazyRef(load?: (def: Def) => Promise<Def>, { ownerOnly }: { ownerOnly?: true } = {}) {
+  const id = `ai.lazy_${++lazyCount}` as const;
+  const def: Def = { ...suggestOptionsTask, id, ...(ownerOnly ? { ownerOnly } : {}) };
+  const loader = vi.fn(() => (load ? load(def) : Promise.resolve(def)));
+  const ref = lazyAiTask(
+    {
+      id,
+      toolId: "ai",
+      fallback: suggestOptionsTask.fallback,
+      ...(ownerOnly ? { ownerOnly } : {}),
+    },
+    loader
+  );
+  return { id, def, ref, loader };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+describe("a lazy ref", () => {
+  beforeEach(() => {
+    h.auth = OWNER;
+  });
+
+  it("loads its def on the first run, not on mount, and once", async () => {
+    const { id, ref, loader } = lazyRef();
+    const { result } = renderHook(() => useToolAi(ref));
+    expect(result.current).toMatchObject({ available: true, path: "owner" });
+    expect(loader).not.toHaveBeenCalled();
+    expect(ref.peek()).toBeNull();
+    let out: unknown;
+    await act(async () => {
+      out = await result.current.run(INPUT);
+    });
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(out).toEqual({ status: "done", data: { options: ["Yes", "No"] }, source: "ai" });
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ task: id, input: INPUT });
+    expect(ref.peek()).not.toBeNull();
+    await act(async () => {
+      await result.current.run(INPUT);
+    });
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("checks the input against the loaded schema before sending", async () => {
+    const { ref } = lazyRef();
+    const { result } = renderHook(() => useToolAi(ref));
+    let out: unknown;
+    await act(async () => {
+      out = await result.current.run({ question: "" });
+    });
+    expect(out).toMatchObject({ status: "error", error: { code: "bad_input" }, fallback: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("preloads while AI is available, sharing the load with the run", async () => {
+    const { ref, loader } = lazyRef();
+    const { result } = renderHook(() => useToolAi(ref));
+    act(() => result.current.preload());
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await result.current.run(INPUT);
+    });
+    expect(loader).toHaveBeenCalledTimes(1);
+  });
+
+  it("never preloads while AI is unavailable", async () => {
+    h.auth = null;
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "");
+    const { ref, loader } = lazyRef();
+    const { result } = renderHook(() => useToolAi(ref));
+    expect(result.current.available).toBe(false);
+    await act(async () => {
+      result.current.preload();
+      await Promise.resolve();
+    });
+    expect(loader).not.toHaveBeenCalled();
+  });
+
+  it("says running while the def loads, and cancel gives up the run", async () => {
+    const gate = deferred<Def>();
+    const { def, ref } = lazyRef(() => gate.promise);
+    const { result } = renderHook(() => useToolAi(ref));
+    let pending: Promise<unknown> = Promise.resolve();
+    act(() => {
+      pending = result.current.run(INPUT);
+    });
+    expect(result.current.status).toBe("running");
+    let out: unknown;
+    await act(async () => {
+      result.current.cancel();
+      out = await pending;
+    });
+    expect(out).toEqual({ status: "cancelled" });
+    expect(result.current.status).toBe("idle");
+    // The load finishing later sends nothing.
+    await act(async () => {
+      gate.resolve(def);
+      await gate.promise;
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result.current.status).toBe("idle");
+  });
+
+  it("answers load_failed when the def won't load, with the ref's fallback, and retries", async () => {
+    const { def, ref, loader } = lazyRef(() => Promise.reject(new Error("chunk failed")));
+    const { result } = renderHook(() => useToolAi(ref));
+    let out: unknown;
+    await act(async () => {
+      out = await result.current.run(INPUT);
+    });
+    expect(out).toEqual({
+      status: "error",
+      error: { code: "load_failed", message: TOOL_AI_ERROR_TEXT.load_failed },
+      fallback: { options: fallbackOptions(QUESTION) },
+    });
+    expect(TOOL_AI_ERROR_TEXT.load_failed).toBe(
+      "Couldn't load Amr's help. Check your connection and try again. The tool still works without AI."
+    );
+    expect(result.current.status).toBe("error");
+    expect(fetchMock).not.toHaveBeenCalled();
+    // A failed load is forgotten: the next run loads again.
+    loader.mockImplementation(() => Promise.resolve(def));
+    await act(async () => {
+      out = await result.current.run(INPUT);
+    });
+    expect(loader).toHaveBeenCalledTimes(2);
+    expect(out).toMatchObject({ status: "done" });
+  });
+
+  it("shares one load between two runs at once", async () => {
+    const gate = deferred<Def>();
+    const { def, ref, loader } = lazyRef(() => gate.promise);
+    const a = renderHook(() => useToolAi(ref));
+    const b = renderHook(() => useToolAi(ref));
+    let first: Promise<unknown> = Promise.resolve();
+    let second: Promise<unknown> = Promise.resolve();
+    act(() => {
+      first = a.result.current.run(INPUT);
+      second = b.result.current.run(INPUT);
+    });
+    let outs: unknown[] = [];
+    await act(async () => {
+      gate.resolve(def);
+      outs = await Promise.all([first, second]);
+    });
+    expect(loader).toHaveBeenCalledTimes(1);
+    expect(outs).toEqual([
+      expect.objectContaining({ status: "done" }),
+      expect.objectContaining({ status: "done" }),
+    ]);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("hides an owner-only ref from a visitor before anything loads", async () => {
+    h.auth = null;
+    window.localStorage.removeItem(VISITOR_AI_CONSENT_KEY);
+    const { ref, loader } = lazyRef(undefined, { ownerOnly: true });
+    const { result } = renderHook(() => useToolAi(ref));
+    expect(result.current).toMatchObject({ available: false, reason: "owner_only", path: null });
+    let out: unknown;
+    await act(async () => {
+      out = await result.current.run(INPUT);
+      result.current.preload();
+    });
+    expect(out).toEqual({ status: "unavailable", reason: "owner_only" });
+    expect(loader).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("answers without AI at once, before its def loads", () => {
+    const { ref, loader } = lazyRef();
+    const { result } = renderHook(() => useToolAi(ref));
+    expect(result.current.fallback(INPUT)).toEqual({ options: fallbackOptions(QUESTION) });
+    expect(loader).not.toHaveBeenCalled();
+  });
+
+  it("keeps a visitor's input for the consent card, then sends it with the loaded def", async () => {
+    h.auth = null;
+    window.localStorage.removeItem(VISITOR_AI_CONSENT_KEY);
+    const { id, ref, loader } = lazyRef();
+    const { result } = renderHook(() => useToolAi(ref));
+    let out: unknown;
+    await act(async () => {
+      out = await result.current.run(INPUT);
+    });
+    expect(out).toEqual({ status: "needs_consent" });
+    expect(fetchMock).not.toHaveBeenCalled();
+    await act(async () => {
+      out = await result.current.agree();
+    });
+    expect(out).toMatchObject({ status: "done" });
+    expect(loader).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/ai/tool/visitor");
+    expect(JSON.parse(init.body as string)).toEqual({ task: id, input: INPUT });
   });
 });

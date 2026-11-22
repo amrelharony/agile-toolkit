@@ -179,6 +179,57 @@ describe("stampStoryWrite (agents' writes)", () => {
   });
 });
 
+describe("stampStoryWrite: blocked spells", () => {
+  it("opens a spell when an agent flags a story and closes it when it clears the flag", () => {
+    const prev = story({ status: "in_progress", startedAt: T1 });
+    const blocked = stampStoryWrite({ ...prev, blocked: true }, prev, T2);
+    expect(blocked.blockLog).toEqual([{ from: T2 }]);
+    const cleared = stampStoryWrite({ ...blocked, blocked: false }, blocked, T3);
+    expect(cleared.blockLog).toEqual([{ from: T2, to: T3 }]);
+  });
+
+  it("closes the spell on a move to done, which clears the flag", () => {
+    const prev = story({ status: "review", blocked: true, blockLog: [{ from: T1 }] });
+    const done = stampStoryWrite({ ...prev, status: "done" }, prev, T2);
+    expect(done.blocked).toBeUndefined();
+    expect(done.blockLog).toEqual([{ from: T1, to: T2 }]);
+    expect(done.doneAt).toBe(T2);
+  });
+
+  it("opens one for a story created blocked, and keeps a log the write set itself", () => {
+    expect(stampStoryWrite(story({ blocked: true }), undefined, T1).blockLog).toEqual([
+      { from: T1 },
+    ]);
+    const prev = story({ blocked: true, blockLog: [{ from: T1 }] });
+    const backfill = [{ from: T1, to: T2, cause: "Waiting on legal" }];
+    expect(
+      stampStoryWrite({ ...prev, blocked: false, blockLog: backfill }, prev, T3).blockLog
+    ).toEqual(backfill);
+  });
+
+  it("never stamps an example story", () => {
+    const prev = story({ id: "example-st1" });
+    expect(stampStoryWrite({ ...prev, blocked: true }, prev, T1).blockLog).toBeUndefined();
+  });
+
+  it("stamps a story an agent creates blocked, on both transports", async () => {
+    useWorkspaceStore.setState({ stories: [] });
+    await registry
+      .get("workspace.story.create")!
+      .handler({ entity: { id: "b1", title: "Pay", status: "todo", blocked: true } }, ctx());
+    const local = useWorkspaceStore.getState().stories.find((s) => s.id === "b1");
+    expect(local?.blockLog).toEqual([{ from: expect.any(String) }]);
+    rows.clear();
+    await registry.get("workspace.story.create")!.mcpHandler!(
+      { entity: { id: "b2", title: "Refund", status: "todo", blocked: true } },
+      ctx()
+    );
+    expect((rows.get("workspace:story/b2") as Story).blockLog).toEqual([
+      { from: expect.any(String) },
+    ]);
+  });
+});
+
 describe("stampRefinedWrite (what the story says)", () => {
   it("stamps refinedAt when the title, points, notes or criteria change", () => {
     const prev = story({ refinedAt: T1 });

@@ -14,7 +14,7 @@ import Link from "next/link";
 import { Play, Shuffle, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AiButton } from "@/components/ai";
-import { surprisePlanTask } from "@/lib/ai/tasks/retro";
+import { surprisePlanTask } from "@/lib/ai/tasks/retro.lite";
 import type { AiSource } from "@/lib/ai/task-types";
 import type { RetroFormat } from "@/lib/constants/retro-formats";
 import {

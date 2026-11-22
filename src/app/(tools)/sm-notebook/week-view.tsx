@@ -24,7 +24,7 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Textarea } from "@/components/ui/textarea";
 import type { AiSource } from "@/lib/ai/task-types";
-import { notebookWeeklySummaryTask } from "@/lib/ai/tasks/sm-notebook";
+import { notebookWeeklySummaryTask } from "@/lib/ai/tasks/sm-notebook.lite";
 import { useToolAi } from "@/lib/ai/use-tool-ai";
 import { cn } from "@/lib/utils";
 import {

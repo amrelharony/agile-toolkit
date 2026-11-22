@@ -113,7 +113,7 @@ export function LobbyScreen({
                 maxLength={SESSION_NAME_MAX}
                 onChange={(e) => update({ sessionName: e.target.value })}
                 placeholder="e.g. Sprint 42 Planning"
-                className="bg-surface-deep border-border text-text"
+                className="border-border text-text"
               />
             )}
           </Field>
@@ -130,7 +130,7 @@ export function LobbyScreen({
                   onClick={() => update({ scaleType: s })}
                   aria-pressed={draft.scaleType === s}
                   className={cn(
-                    "flex-1 rounded-lg border py-2 px-3 text-sm font-medium transition-colors",
+                    "flex-1 rounded-lg border py-2 px-3 text-sm font-medium transition-colors pointer-coarse:min-h-11",
                     draft.scaleType === s
                       ? "border-accent/60 bg-accent/10 text-accent"
                       : "border-border bg-surface-deep text-sub hover:text-text"
@@ -152,7 +152,7 @@ export function LobbyScreen({
                     value={draft.customInput}
                     onChange={(e) => update({ customInput: e.target.value })}
                     placeholder="e.g. 1, 2, 4, 8"
-                    className="bg-surface-deep border-border text-text text-sm"
+                    className="border-border text-text"
                   />
                 )}
               </Field>
@@ -177,7 +177,7 @@ export function LobbyScreen({
                 maxLength={DISPLAY_NAME_MAX}
                 onChange={(e) => update({ displayName: e.target.value })}
                 placeholder="e.g. Alice"
-                className="bg-surface-deep border-border text-text"
+                className="border-border text-text"
               />
             )}
           </Field>

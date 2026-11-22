@@ -21,7 +21,7 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup } from "@/components/ui/toggle-group";
 import type { AiSource } from "@/lib/ai/task-types";
-import { THEME_TEXT_CHARS, themeNamesTask } from "@/lib/ai/tasks/picker";
+import { THEME_TEXT_CHARS, themeNamesTask } from "@/lib/ai/tasks/picker.lite";
 import { PICKER_LIMITS } from "@/lib/picker/model";
 import { pollLinkHref } from "@/lib/quick-vote/link";
 import {

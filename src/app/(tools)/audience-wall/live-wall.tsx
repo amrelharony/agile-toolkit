@@ -29,7 +29,7 @@ import {
   cleanMerges,
   mergeQuestionsTask,
   type MergeOutput,
-} from "@/lib/ai/tasks/audience-wall";
+} from "@/lib/ai/tasks/audience-wall.lite";
 import { registerLiveWall } from "@/lib/audience-wall/live";
 import type { WallKind } from "@/lib/audience-wall/model";
 import { AUDIENCE_WALL_ACTIONS } from "@/lib/history/event-actions";

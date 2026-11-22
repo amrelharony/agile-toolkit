@@ -11,7 +11,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { ResetButton } from "@/components/shared/reset-button";
 import { SectionCard } from "@/components/shared/section-card";
-import { agendaTask } from "@/lib/ai/tasks/facilitator-timers";
+import { agendaTask } from "@/lib/ai/tasks/facilitator-timers.lite";
 import type { AiSource } from "@/lib/ai/task-types";
 import { fitToTotal, type AgendaSegmentDraft } from "@/lib/facilitator-timers/agenda";
 import {

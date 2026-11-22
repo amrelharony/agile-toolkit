@@ -1,6 +1,6 @@
 /**
- * Retro Actions' AI task, the browser-safe half (prompt in
- * retro-actions.server.ts):
+ * Retro Actions' AI task, the def (prompt in retro-actions.server.ts; pages
+ * import `retro-actions.lite.ts`, which holds the fallback):
  *
  *   retro-actions.themes  the past retros' cards (text only, each with its
  *                         retro's number and date) → up to 10 themes that
@@ -17,10 +17,12 @@ import {
   RECURRING_THEMES_MAX,
   THEME_CARDS_MAX,
   THEME_CARD_TEXT_MAX,
-  keywordRecurring,
 } from "@/lib/retro/recurring-themes";
 import { RETRO_ARCHIVE_LIMIT } from "@/app/(tools)/retro/archive";
 import { defineAiTask } from "../define-task";
+import { retroActionsThemesFallback } from "./retro-actions.lite";
+
+export { fallbackThemes, retroActionsThemesFallback } from "./retro-actions.lite";
 
 const Line = (max: number) => z.string().trim().max(max);
 
@@ -58,16 +60,8 @@ const output = z.object({
     .max(RECURRING_THEMES_MAX),
 });
 
-/** Without AI: the words cards in three or more retros share. */
-export function fallbackThemes(cards: readonly { id: string; r: number; text: string }[]): {
-  name: string;
-  cardIds: string[];
-  count: number;
-}[] {
-  return keywordRecurring(cards.map((c) => ({ id: c.id, retro: String(c.r), text: c.text }))).map(
-    (g) => ({ name: g.name, cardIds: g.cardIds.slice(0, 100), count: g.cardIds.length })
-  );
-}
+export type RecurringThemesInput = z.infer<typeof input>;
+export type RecurringThemesOutput = z.infer<typeof output>;
 
 export const retroActionsThemesTask = defineAiTask({
   id: "retro-actions.themes",
@@ -77,7 +71,7 @@ export const retroActionsThemesTask = defineAiTask({
   maxTokens: 8192,
   input,
   output,
-  fallback: ({ cards }) => ({ themes: fallbackThemes(cards) }),
+  fallback: retroActionsThemesFallback,
   sample: {
     retros: [
       { n: 1, date: "2026-09-18" },

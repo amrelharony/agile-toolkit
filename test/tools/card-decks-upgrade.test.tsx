@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -664,13 +664,15 @@ describe("Ask Amr: a card for the mood", () => {
       click(button("Ask Amr for a card"));
     });
     await flush();
+    // The page holds the task's lazy ref: its def loads before the request goes.
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     const body = JSON.parse(
       (fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body as string
     );
     expect(body.task).toBe("card-decks.for_mood");
     expect(body.input.mood).toEqual({ average: null, checkIns: 0, trend: "unknown", lowDays: 0 });
     expect(body.input.cards).toHaveLength(retro.cards.length);
-    const panel = screen.getByTestId("ai-suggestions");
+    const panel = await screen.findByTestId("ai-suggestions");
     expect(panel.textContent).toContain("Suggested without AI");
     expect(panel.textContent).not.toContain("Because.");
   });

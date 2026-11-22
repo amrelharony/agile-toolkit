@@ -16,7 +16,7 @@ import { AiButton } from "@/components/ai";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
-import { retroActionsThemesTask } from "@/lib/ai/tasks/retro-actions";
+import { retroActionsThemesTask } from "@/lib/ai/tasks/retro-actions.lite";
 import type { AiSource } from "@/lib/ai/task-types";
 import type { RetroBoard } from "@/lib/stores/workspace-types";
 import {
