@@ -56,6 +56,8 @@ export const SECTIONS: ToolSection[] = [
       "dependency-map",
       "product-goal",
       "backlog-health",
+      "example-mapping",
+      "relative-sizing",
     ],
   },
   {
@@ -76,6 +78,7 @@ export const SECTIONS: ToolSection[] = [
       "parking-lot",
       "facilitator-timers",
       "interrupt-buffer",
+      "notes-to-actions",
     ],
   },
   {
@@ -93,6 +96,7 @@ export const SECTIONS: ToolSection[] = [
       "design-sprint",
       "root-cause",
       "card-decks",
+      "improve",
     ],
   },
   {
@@ -112,6 +116,8 @@ export const SECTIONS: ToolSection[] = [
       "value-stream",
       "release-readiness",
       "feature-flag-tracker",
+      "hill-chart",
+      "flow-insights",
     ],
   },
   {
@@ -138,6 +144,8 @@ export const SECTIONS: ToolSection[] = [
       "team-mixer",
       "sm-notebook",
       "meeting-audit",
+      "kickoff",
+      "team-time",
     ],
   },
   {
@@ -179,6 +187,13 @@ export const SECTIONS: ToolSection[] = [
       "opportunity-tree",
       "riskiest-assumption",
       "wardley-map",
+      "product-canvas",
+      "impact-map",
+      "strategy-tree",
+      "persona-library",
+      "product-metrics",
+      "ab-calculator",
+      "ebm-dashboard",
     ],
   },
   {
@@ -202,6 +217,8 @@ export const SECTIONS: ToolSection[] = [
       "vuln-burndown",
       "control-map",
       "a11y-tracker",
+      "bug-triage",
+      "test-sessions",
     ],
   },
   {
