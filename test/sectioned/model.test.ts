@@ -4,9 +4,11 @@
  * (caps, with a tool's extra item fields kept), room, placeholders, gaps,
  * the Markdown with and without a credit, the drafted-line filter, adding
  * accepted lines with the ids Undo needs, and the server half's prompt
- * text.
+ * text. Also: the kit stays free of zod and of "use client" imports.
  */
 
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { TOOL_LIST_MAX, TOOL_TEXT_MAX, type SectionItem } from "@/lib/stores/workspace-types";
 import {
@@ -645,5 +647,36 @@ describe("the server half's prompt text", () => {
     expect(rules).toMatch(/never invent names, dates or numbers/i);
     expect(rules).toMatch(/leave a section out rather than pad it/i);
     for (const rule of SECTIONED_RULES) expect(rule).toMatch(/^[A-Z].*\.$/);
+  });
+});
+
+describe("the kit's files", () => {
+  const root = process.cwd();
+  const walk = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)]
+    );
+  const kit = [
+    ...walk(path.join(root, "src/lib/sectioned")),
+    ...walk(path.join(root, "src/components/sectioned")),
+    path.join(root, "src/lib/ai/tasks/_sectioned.server.ts"),
+  ].map((full) => ({
+    rel: path.relative(root, full).replace(/\\/g, "/"),
+    text: readFileSync(full, "utf8"),
+  }));
+
+  it("never import zod", () => {
+    expect(kit.length).toBeGreaterThanOrEqual(4);
+    for (const { rel, text } of kit)
+      expect(text, rel).not.toMatch(/from\s+["']zod["']|import\(\s*["']zod["']/);
+  });
+
+  it("keep the model and the server half free of browser-only code", () => {
+    for (const { rel, text } of kit.filter(({ rel }) => !rel.startsWith("src/components/"))) {
+      expect(text, rel).not.toMatch(/^["']use client["']/m);
+      expect(text, rel).not.toMatch(/from\s+["']react["']/);
+    }
+    const server = kit.find(({ rel }) => rel.endsWith("_sectioned.server.ts"));
+    expect(server?.text.split("\n")[0]).toBe('import "server-only";');
   });
 });
