@@ -140,6 +140,10 @@ import type {
   // Phase 43 — the tools plan's phase 2
   ExampleMap,
   PokerAsyncRound,
+  BugReport,
+  HillChart,
+  TestSession,
+  MeetingNote,
 } from "./workspace-types";
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -397,6 +401,14 @@ interface WorkspaceActions {
   removeExampleMap: (id: string) => void;
   upsertPokerAsyncRound: (x: PokerAsyncRound) => void;
   removePokerAsyncRound: (id: string) => void;
+  upsertBugReport: (x: BugReport) => void;
+  removeBugReport: (id: string) => void;
+  upsertHillChart: (x: HillChart) => void;
+  removeHillChart: (id: string) => void;
+  upsertTestSession: (x: TestSession) => void;
+  removeTestSession: (id: string) => void;
+  upsertMeetingNote: (x: MeetingNote) => void;
+  removeMeetingNote: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert, stamped and cleaned as `upsertStory` does each one. Use
@@ -1629,6 +1641,20 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ pokerAsyncRounds: replaceById(_st.pokerAsyncRounds ?? [], x) })),
       removePokerAsyncRound: (id) =>
         set((s) => ({ pokerAsyncRounds: (s.pokerAsyncRounds ?? []).filter((y) => y.id !== id) })),
+      upsertBugReport: (x) => set((_st) => ({ bugReports: replaceById(_st.bugReports ?? [], x) })),
+      removeBugReport: (id) =>
+        set((s) => ({ bugReports: (s.bugReports ?? []).filter((y) => y.id !== id) })),
+      upsertHillChart: (x) => set((_st) => ({ hillCharts: replaceById(_st.hillCharts ?? [], x) })),
+      removeHillChart: (id) =>
+        set((s) => ({ hillCharts: (s.hillCharts ?? []).filter((y) => y.id !== id) })),
+      upsertTestSession: (x) =>
+        set((_st) => ({ testSessions: replaceById(_st.testSessions ?? [], x) })),
+      removeTestSession: (id) =>
+        set((s) => ({ testSessions: (s.testSessions ?? []).filter((y) => y.id !== id) })),
+      upsertMeetingNote: (x) =>
+        set((_st) => ({ meetingNotes: replaceById(_st.meetingNotes ?? [], x) })),
+      removeMeetingNote: (id) =>
+        set((s) => ({ meetingNotes: (s.meetingNotes ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1747,6 +1773,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           // Phase 43 — the tools plan's phase 2
           exampleMaps: s.exampleMaps,
           pokerAsyncRounds: s.pokerAsyncRounds,
+          bugReports: s.bugReports,
+          hillCharts: s.hillCharts,
+          testSessions: s.testSessions,
+          meetingNotes: s.meetingNotes,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1899,6 +1929,10 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           // Phase 43 — the tools plan's phase 2
           exampleMaps: arr("exampleMaps"),
           pokerAsyncRounds: arr("pokerAsyncRounds"),
+          bugReports: arr("bugReports"),
+          hillCharts: arr("hillCharts"),
+          testSessions: arr("testSessions"),
+          meetingNotes: arr("meetingNotes"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -2270,6 +2304,10 @@ if (typeof window !== "undefined") {
     // (pokerAsyncRound has no CRUD; it names POKER_ASYNC_ROUND_KIND).
     registerCollection("exampleMap", "exampleMaps");
     registerCollection("pokerAsyncRound", "pokerAsyncRounds");
+    registerCollection("bugReport", "bugReports");
+    registerCollection("hillChart", "hillCharts");
+    registerCollection("testSession", "testSessions");
+    registerCollection("meetingNote", "meetingNotes");
     // Kudos wall — was localStorage-only + ephemeral realtime broadcast; now
     // also a per-entity synced collection so the agent (tool.kudos.*) can read
     // + post and the wall cloud-persists cross-device. The realtime broadcast
@@ -2450,6 +2488,10 @@ export function getWorkspaceSnapshot(): Workspace {
     meetingAudits: state.meetingAudits,
     exampleMaps: state.exampleMaps,
     pokerAsyncRounds: state.pokerAsyncRounds,
+    bugReports: state.bugReports,
+    hillCharts: state.hillCharts,
+    testSessions: state.testSessions,
+    meetingNotes: state.meetingNotes,
   };
 }
 

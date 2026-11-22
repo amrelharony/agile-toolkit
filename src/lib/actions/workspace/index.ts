@@ -19,6 +19,11 @@ import {
   ADKAR_DOC_ID,
   ADKAR_ELEMENTS,
   ALLOCATION_ROUND_TOOLS,
+  BUG_CLOSE_REASONS,
+  BUG_PRIORITIES,
+  BUG_REACH,
+  BUG_SEVERITIES,
+  BUG_STATUSES,
   BUY_A_FEATURE_ID,
   CEREMONY_CADENCE_ID,
   CYNEFIN_ANSWERS,
@@ -35,6 +40,8 @@ import {
   INTERRUPT_KINDS,
   KR_CHECK_IN_CAP,
   MEETING_CADENCES,
+  MEETING_NOTE_ITEM_KINDS,
+  MEETING_NOTE_ITEM_STATUSES,
   MEETING_VERDICTS,
   MOOD_TRACKER_ID,
   NPS_TAG_LIMIT,
@@ -44,6 +51,9 @@ import {
   RACI_ID,
   REACH_PERIODS,
   ROOT_CAUSE_METHODS,
+  TEST_NOTE_KINDS,
+  TEST_SESSION_COVERAGE,
+  TEST_SESSION_STATUSES,
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
   WEIGHTED_CRITERION_KIND,
@@ -224,6 +234,10 @@ import type {
   RootCauseAnalysis,
   // Phase 43 — the tools plan's phase 2
   ExampleMap,
+  BugReport,
+  HillChart,
+  TestSession,
+  MeetingNote,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -2532,6 +2546,14 @@ const ReleaseSchema = z.object({
   rolledBackAt: z.string().optional(),
   previousShips: z.array(ReleaseShipSchema).optional(),
   storyIds: z.array(z.string()).optional(),
+  releaseNotes: z
+    .object({
+      audience: z.enum(["customers", "team"]),
+      text: z.string().max(TOOL_TEXT_MAX.releaseNotes),
+      updatedAt: z.string(),
+    })
+    .optional()
+    .describe("Its release notes, for customers or for the team."),
 });
 
 const ReleaseGateDefSchema = z.object({
@@ -4293,6 +4315,9 @@ const InterruptItemSchema = z.object({
     .array(HandoffLinkSchema)
     .optional()
     .describe("Where it was sent (the backlog, the Impediment Tracker)."),
+  sourceRef: HandoffRefSchema.optional().describe(
+    "The item it was sent from (a bug fixed now, from Bug Triage)."
+  ),
 }) as unknown as z.ZodType<InterruptItem>;
 
 /**
@@ -4539,5 +4564,217 @@ defineCrudActions<ExampleMap>({
   upsert: (x) => ws().upsertExampleMap(x),
   remove: (id) => ws().removeExampleMap(id),
   generateId: () => `exmap_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.2 — Bug Triage, Hill Chart, Test Sessions and Notes to Actions. */
+
+const BugReportSchema = z.object({
+  id: z.string(),
+  title: Filled(TOOL_TEXT_MAX.short).describe("The bug in one line."),
+  steps: z.string().max(TOOL_TEXT_MAX.text).optional().describe("How to make it happen."),
+  expected: z.string().max(TOOL_TEXT_MAX.text).optional().describe("What should have happened."),
+  actual: z.string().max(TOOL_TEXT_MAX.text).optional().describe("What happened instead."),
+  environment: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  area: z.string().max(TOOL_TEXT_MAX.short).optional().describe("The product area."),
+  reportedBy: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  severity: z.enum(BUG_SEVERITIES).optional().describe("How bad it is."),
+  priority: z.enum(BUG_PRIORITIES).optional().describe("How soon it needs fixing."),
+  checks: z
+    .object({
+      dataLoss: z.boolean().optional(),
+      security: z.boolean().optional(),
+      workaround: z.boolean().optional(),
+      blocksRelease: z.boolean().optional(),
+      reach: z.enum(BUG_REACH).optional(),
+    })
+    .optional()
+    .describe("The quick checks answered before it is placed on the grid."),
+  status: z.enum(BUG_STATUSES),
+  closeReason: z.enum(BUG_CLOSE_REASONS).optional().describe('Why it was closed ("closed").'),
+  duplicateOf: z
+    .string()
+    .max(TOOL_TEXT_MAX.short)
+    .optional()
+    .describe('The bug it repeats (closed as "duplicate").'),
+  triagedAt: IsoTime.optional(),
+  closedAt: IsoTime.optional(),
+  sourceRef: HandoffRefSchema.optional(),
+  sentTo: SentTo.describe("Where it was sent: the backlog or an interrupt in the sprint."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<BugReport>;
+
+defineCrudActions<BugReport>({
+  toolId: "workspace.bug_report",
+  entityName: "bug report (Bug Triage)",
+  schema: BugReportSchema,
+  selectAll: () => ws().bugReports ?? [],
+  upsert: (x) => ws().upsertBugReport(x),
+  remove: (id) => ws().removeBugReport(id),
+  generateId: () => `bug_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/** A spot on the hill: a whole number from 0 (just started) to 100 (done); 50 is the top. */
+const HillPosition = z.number().int().min(0).max(100);
+
+const HillChartSchema = z.object({
+  id: z.string(),
+  title: Filled(TOOL_TEXT_MAX.short),
+  about: z.string().max(TOOL_TEXT_MAX.text).optional().describe("What it covers."),
+  sprintId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  epicId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  scopes: z
+    .array(
+      z.object({
+        id: ItemId,
+        title: z.string().max(TOOL_TEXT_MAX.short),
+        position: HillPosition.describe(
+          "Uphill (below 50) while it is being worked out, downhill after; 100 is done."
+        ),
+        storyId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        epicId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        note: z.string().max(TOOL_TEXT_MAX.capture).optional(),
+        movedAt: IsoTime.describe("When its position last changed."),
+        doneAt: IsoTime.optional(),
+        sentTo: SentTo.describe("Where it was sent (an impediment, when it is stuck)."),
+      })
+    )
+    .max(TOOL_LIST_MAX.hillScopes)
+    .describe("The pieces of work on the hill."),
+  checkIns: z
+    .array(
+      z.object({
+        id: ItemId,
+        at: IsoTime,
+        positions: z
+          .array(z.object({ scopeId: ItemId, position: HillPosition }))
+          .max(TOOL_LIST_MAX.hillScopes),
+        note: z.string().max(TOOL_TEXT_MAX.capture).optional(),
+      })
+    )
+    .max(TOOL_LIST_MAX.hillCheckIns)
+    .describe("Weekly check-ins, oldest first: every scope's position at the time."),
+  archived: z.boolean().optional(),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<HillChart>;
+
+defineCrudActions<HillChart>({
+  toolId: "workspace.hill_chart",
+  entityName: "hill chart (scopes uphill or downhill, with weekly check-ins)",
+  schema: HillChartSchema,
+  selectAll: () => ws().hillCharts ?? [],
+  upsert: (x) => ws().upsertHillChart(x),
+  remove: (id) => ws().removeHillChart(id),
+  generateId: () => `hill_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/** A whole percent. */
+const Percent = z.number().int().min(0).max(100);
+
+const TestSessionSchema = z
+  .object({
+    id: z.string(),
+    charter: z
+      .object({
+        target: Filled(TOOL_TEXT_MAX.short).describe("What to explore."),
+        using: z.string().max(TOOL_TEXT_MAX.short).optional().describe("With what."),
+        toLearn: z.string().max(TOOL_TEXT_MAX.text).describe("What you want to learn."),
+      })
+      .describe("What the session explores, with what, and what it wants to learn."),
+    tester: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    storyId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    area: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    minutes: z.number().int().min(15).max(240).describe("Its length in minutes."),
+    status: z.enum(TEST_SESSION_STATUSES),
+    startedAt: IsoTime.optional(),
+    endedAt: IsoTime.optional(),
+    coverage: z
+      .enum(TEST_SESSION_COVERAGE)
+      .optional()
+      .describe("How much of the charter it covered."),
+    split: z
+      .object({ testing: Percent, bugs: Percent, setup: Percent })
+      .refine((s) => s.testing + s.bugs + s.setup === 100, {
+        message: "the time split adds up to 100",
+      })
+      .optional()
+      .describe("How the time split between testing, bugs and setup, in whole percents (sum 100)."),
+    notes: z
+      .array(
+        z.object({
+          id: ItemId,
+          at: IsoTime,
+          kind: z.enum(TEST_NOTE_KINDS),
+          text: z.string().max(TOOL_TEXT_MAX.capture),
+          sentTo: SentTo.describe("Where it was sent (a bug, to Bug Triage)."),
+        })
+      )
+      .max(TOOL_LIST_MAX.sessionNotes)
+      .describe("Notes, bugs, questions and ideas, one line each."),
+    debrief: z.string().max(TOOL_TEXT_MAX.text).optional(),
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("test session")) as unknown as z.ZodType<TestSession>;
+
+defineCrudActions<TestSession>({
+  toolId: "workspace.test_session",
+  entityName: "exploratory test session (a charter, notes and a debrief)",
+  schema: TestSessionSchema,
+  selectAll: () => ws().testSessions ?? [],
+  upsert: (x) => ws().upsertTestSession(x),
+  remove: (id) => ws().removeTestSession(id),
+  generateId: () => `tsess_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+const MeetingNoteSchema = z
+  .object({
+    id: z.string(),
+    meeting: z.string().max(TOOL_TEXT_MAX.short).optional().describe("The meeting's name."),
+    date: IsoDay.describe("The day of the meeting."),
+    text: z
+      .string()
+      .max(TOOL_TEXT_MAX.paste)
+      .describe('The pasted notes; "" once they are forgotten.'),
+    forgottenAt: IsoTime.optional().describe("When the pasted text was forgotten."),
+    items: z
+      .array(
+        z.object({
+          id: ItemId,
+          kind: z.enum(MEETING_NOTE_ITEM_KINDS),
+          text: z.string().max(TOOL_TEXT_MAX.short),
+          detail: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          owner: z.string().max(TOOL_TEXT_MAX.short).optional(),
+          due: IsoDay.optional(),
+          quote: z
+            .string()
+            .max(TOOL_TEXT_MAX.short)
+            .optional()
+            .describe("The line of the notes it came from."),
+          status: z.enum(MEETING_NOTE_ITEM_STATUSES),
+          keptAt: IsoTime,
+          sentTo: SentTo.describe("Where it was sent: one link per route."),
+        })
+      )
+      .max(TOOL_LIST_MAX.noteItems)
+      .describe("The actions, decisions, blockers, stories, bugs and questions kept."),
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("meeting note")) as unknown as z.ZodType<MeetingNote>;
+
+defineCrudActions<MeetingNote>({
+  toolId: "workspace.meeting_note",
+  entityName: "meeting note (pasted notes and the items kept from them)",
+  schema: MeetingNoteSchema,
+  selectAll: () => ws().meetingNotes ?? [],
+  upsert: (x) => ws().upsertMeetingNote(x),
+  remove: (id) => ws().removeMeetingNote(id),
+  generateId: () => `mnote_${nanoid(8)}`,
   prepare: (next, current) => stampedTimes(next, current),
 });

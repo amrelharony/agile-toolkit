@@ -1387,6 +1387,8 @@ export interface Release {
   previousShips?: ReleaseShip[];
   /** Stories it ships, for an exact DORA lead time. */
   storyIds?: string[];
+  /** Its release notes, for customers or for the team (text at most TOOL_TEXT_MAX.releaseNotes). */
+  releaseNotes?: { audience: "customers" | "team"; text: string; updatedAt: string };
 }
 
 /** release-readiness singleton: launch gates + ship/rollback tracking. */
@@ -3350,8 +3352,18 @@ export interface PokerRound {
  * cap text and lists at TOOL_TEXT_MAX and TOOL_LIST_MAX; the pages' forms use
  * the same caps, so a record a page saved is always one an agent can update. */
 
-/** Text caps for the Phase 42 records: a label, a sentence or two, notes. */
-export const TOOL_TEXT_MAX = { short: 200, text: 1000, long: 5000 } as const;
+/** Text caps for the Phase 42 and Phase 43 records: a label, a sentence or two, notes. */
+export const TOOL_TEXT_MAX = {
+  short: 200,
+  text: 1000,
+  long: 5000,
+  /** A note typed on the go: a hill scope's or check-in's note, a test session note. */
+  capture: 500,
+  /** Pasted meeting notes (Notes to Actions). */
+  paste: 12000,
+  /** A release's notes (Release Readiness). */
+  releaseNotes: 3000,
+} as const;
 
 /** List caps for the Phase 42 and Phase 43 records. */
 export const TOOL_LIST_MAX = {
@@ -3383,6 +3395,14 @@ export const TOOL_LIST_MAX = {
   mapExamples: 60,
   /** An example map's open questions. */
   mapQuestions: 20,
+  /** A hill chart's scopes. */
+  hillScopes: 30,
+  /** A hill chart's saved check-ins (the oldest go first). */
+  hillCheckIns: 52,
+  /** A test session's notes. */
+  sessionNotes: 200,
+  /** Items found in one set of meeting notes. */
+  noteItems: 50,
 } as const;
 
 export const PARKING_LOT_STATUSES = ["open", "discussed", "sent", "dropped"] as const;
@@ -3525,6 +3545,8 @@ export interface InterruptItem {
   resolvedAt?: ISODateString;
   /** Where it was sent (the backlog, the Impediment Tracker). */
   sentTo?: HandoffLink[];
+  /** The item it was sent from (a bug fixed now, from Bug Triage). */
+  sourceRef?: HandoffRef;
 }
 
 export const INTERRUPT_ITEM_KIND = "workspace:interruptItem";
@@ -3762,6 +3784,238 @@ export interface PokerAsyncRound {
 }
 
 export const POKER_ASYNC_ROUND_KIND = "workspace:pokerAsyncRound";
+
+/* P2.2, the bug flow (Bug Triage, Test Sessions), Hill Chart and Notes to
+ * Actions. Release notes ride `Release.releaseNotes`; an interrupt sent
+ * from another tool records it in `InterruptItem.sourceRef`. */
+
+/** How bad a bug is. */
+export const BUG_SEVERITIES = ["critical", "major", "minor", "cosmetic"] as const;
+export type BugSeverity = (typeof BUG_SEVERITIES)[number];
+
+/** How soon a bug needs fixing. */
+export const BUG_PRIORITIES = ["now", "next", "later", "someday"] as const;
+export type BugPriority = (typeof BUG_PRIORITIES)[number];
+
+export const BUG_STATUSES = ["new", "triaged", "closed"] as const;
+export type BugStatus = (typeof BUG_STATUSES)[number];
+
+export const BUG_CLOSE_REASONS = [
+  "fixed",
+  "duplicate",
+  "cant-reproduce",
+  "wont-fix",
+  "not-a-bug",
+] as const;
+export type BugCloseReason = (typeof BUG_CLOSE_REASONS)[number];
+
+/** How many people a bug reaches. */
+export const BUG_REACH = ["one", "some", "many", "all"] as const;
+export type BugReach = (typeof BUG_REACH)[number];
+
+/** The quick checks Bug Triage asks before a bug is placed on the grid. */
+export interface BugChecks {
+  dataLoss?: boolean;
+  security?: boolean;
+  workaround?: boolean;
+  blocksRelease?: boolean;
+  reach?: BugReach;
+}
+
+/** A bug logged for triage (Bug Triage). */
+export interface BugReport {
+  id: string;
+  /** One line (at most "short"). */
+  title: string;
+  /** The steps, what was expected and what happened (each at most "text"). */
+  steps?: string;
+  expected?: string;
+  actual?: string;
+  /** Each at most "short". */
+  environment?: string;
+  /** The product area. */
+  area?: string;
+  /** Who reported it: the roster's spelling when they're on the team. */
+  reportedBy?: string;
+  severity?: BugSeverity;
+  priority?: BugPriority;
+  checks?: BugChecks;
+  status: BugStatus;
+  /** Why it was closed ("closed" status). */
+  closeReason?: BugCloseReason;
+  /** The bug it repeats (closed as "duplicate"). */
+  duplicateOf?: string;
+  triagedAt?: ISODateString;
+  closedAt?: ISODateString;
+  /** The item it was sent from (a test session note, meeting notes). */
+  sourceRef?: HandoffRef;
+  /** Where it was sent: the backlog or an interrupt in the running sprint. */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const BUG_REPORT_KIND = "workspace:bugReport";
+
+/** One piece of work on a hill chart: uphill (0–50) while it is being worked out, downhill after. */
+export interface HillScope {
+  id: string;
+  /** At most "short". */
+  title: string;
+  /** Where it stands, a whole number 0–100: 50 is the top of the hill. */
+  position: number;
+  /** The story or epic it follows. */
+  storyId?: string;
+  epicId?: string;
+  /** At most "capture". */
+  note?: string;
+  /** When its position last changed. */
+  movedAt: ISODateString;
+  /** When it reached the bottom on the right (done). */
+  doneAt?: ISODateString;
+  /** Where it was sent (an impediment, when it is stuck). */
+  sentTo?: HandoffLink[];
+}
+
+/** A weekly check-in: every scope's position at the time. */
+export interface HillCheckIn {
+  id: string;
+  at: ISODateString;
+  /** At most TOOL_LIST_MAX.hillScopes, each position a whole number 0–100. */
+  positions: { scopeId: string; position: number }[];
+  /** At most "capture". */
+  note?: string;
+}
+
+/** A hill chart (Hill Chart) for a sprint or an epic. */
+export interface HillChart {
+  id: string;
+  /** At most "short". */
+  title: string;
+  /** What it covers (at most "text"). */
+  about?: string;
+  sprintId?: string;
+  epicId?: string;
+  /** At most TOOL_LIST_MAX.hillScopes. */
+  scopes: HillScope[];
+  /** At most TOOL_LIST_MAX.hillCheckIns; the oldest go first. */
+  checkIns: HillCheckIn[];
+  archived?: boolean;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const HILL_CHART_KIND = "workspace:hillChart";
+
+export const TEST_SESSION_STATUSES = ["planned", "running", "done"] as const;
+export type TestSessionStatus = (typeof TEST_SESSION_STATUSES)[number];
+
+/** How much of its charter a session covered. */
+export const TEST_SESSION_COVERAGE = ["all", "most", "some", "little"] as const;
+export type TestSessionCoverage = (typeof TEST_SESSION_COVERAGE)[number];
+
+export const TEST_NOTE_KINDS = ["note", "bug", "question", "idea"] as const;
+export type TestNoteKind = (typeof TEST_NOTE_KINDS)[number];
+
+/** What a test session explores, with what, and what it wants to learn. */
+export interface TestCharter {
+  /** At most "short". */
+  target: string;
+  /** At most "short". */
+  using?: string;
+  /** At most "text". */
+  toLearn: string;
+}
+
+/** One line noted during a session. */
+export interface TestSessionNote {
+  id: string;
+  at: ISODateString;
+  kind: TestNoteKind;
+  /** At most "capture". */
+  text: string;
+  /** Where it was sent (a bug, to Bug Triage). */
+  sentTo?: HandoffLink[];
+}
+
+/** A timed exploratory test session (Test Sessions). */
+export interface TestSession {
+  id: string;
+  charter: TestCharter;
+  /** Who tests (at most "short"). */
+  tester?: string;
+  storyId?: string;
+  /** At most "short". */
+  area?: string;
+  /** Its length, a whole number of minutes from 15 to 240. */
+  minutes: number;
+  status: TestSessionStatus;
+  startedAt?: ISODateString;
+  endedAt?: ISODateString;
+  coverage?: TestSessionCoverage;
+  /** How the time split, in whole percents that add up to 100. */
+  split?: { testing: number; bugs: number; setup: number };
+  /** At most TOOL_LIST_MAX.sessionNotes. */
+  notes: TestSessionNote[];
+  /** At most "text". */
+  debrief?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const TEST_SESSION_KIND = "workspace:testSession";
+
+export const MEETING_NOTE_ITEM_KINDS = [
+  "action",
+  "decision",
+  "impediment",
+  "story",
+  "bug",
+  "question",
+] as const;
+export type MeetingNoteItemKind = (typeof MEETING_NOTE_ITEM_KINDS)[number];
+
+export const MEETING_NOTE_ITEM_STATUSES = ["open", "sent", "dropped", "answered"] as const;
+export type MeetingNoteItemStatus = (typeof MEETING_NOTE_ITEM_STATUSES)[number];
+
+/** One item kept from a meeting's notes. */
+export interface MeetingNoteItem {
+  id: string;
+  kind: MeetingNoteItemKind;
+  /** At most "short". */
+  text: string;
+  /** At most "text". */
+  detail?: string;
+  /** At most "short": the roster's spelling when they're on the team. */
+  owner?: string;
+  /** The day it is due (YYYY-MM-DD). */
+  due?: string;
+  /** The line of the notes it came from (at most 200 characters). */
+  quote?: string;
+  status: MeetingNoteItemStatus;
+  keptAt: ISODateString;
+  /** Where it was sent: one link per route. */
+  sentTo?: HandoffLink[];
+}
+
+/** One meeting's notes and the items kept from them (Notes to Actions). */
+export interface MeetingNote {
+  id: string;
+  /** The meeting's name (at most "short"). */
+  meeting?: string;
+  /** The day of the meeting (YYYY-MM-DD). */
+  date: string;
+  /** The pasted notes (at most "paste"); "" once forgotten. */
+  text: string;
+  /** When the pasted text was forgotten, keeping only the items. */
+  forgottenAt?: ISODateString;
+  /** At most TOOL_LIST_MAX.noteItems. */
+  items: MeetingNoteItem[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const MEETING_NOTE_KIND = "workspace:meetingNote";
 
 /* P2.6, Flow Insights and the Definition of Workflow: work types, blocked
  * spells (`Story`, `KanbanCard` and `Impediment` carry the fields) and the
@@ -4075,6 +4329,10 @@ export interface Workspace {
   exampleMaps?: ExampleMap[];
   /** Planning Poker's estimates without a meeting (store only, no CRUD). */
   pokerAsyncRounds?: PokerAsyncRound[];
+  bugReports?: BugReport[];
+  hillCharts?: HillChart[];
+  testSessions?: TestSession[];
+  meetingNotes?: MeetingNote[];
 }
 
 /**
@@ -4360,6 +4618,10 @@ export const emptyWorkspace = {
   // Phase 43 — the tools plan's phase 2
   exampleMaps: [],
   pokerAsyncRounds: [],
+  bugReports: [],
+  hillCharts: [],
+  testSessions: [],
+  meetingNotes: [],
 } satisfies Workspace;
 
 /**

@@ -31,12 +31,25 @@ vi.mock("@/lib/sync/register", () => ({
 import { getWorkspaceSnapshot, useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { kindFromToolId } from "@/lib/actions/server-store";
 import {
+  BUG_REPORT_KIND,
   EXAMPLE_MAP_KIND,
+  HILL_CHART_KIND,
+  MEETING_NOTE_KIND,
   POKER_ASYNC_ROUND_KIND,
+  TEST_SESSION_KIND,
   emptyWorkspace,
   type Workspace,
 } from "@/lib/stores/workspace-types";
-import { EXAMPLE_MAP, POKER_ASYNC_ROUND } from "./phase43-fixtures";
+import {
+  BUG_REPORT,
+  EXAMPLE_MAP,
+  HILL_CHART,
+  INTERRUPT_FROM_BUG,
+  MEETING_NOTE,
+  POKER_ASYNC_ROUND,
+  RELEASES_WITH_NOTES,
+  TEST_SESSION,
+} from "./phase43-fixtures";
 
 type Doc = { id: string };
 
@@ -68,6 +81,62 @@ const COLLECTIONS: {
     upsert: (x) => ws().upsertPokerAsyncRound(x),
     remove: (id) => ws().removePokerAsyncRound(id),
     kind: POKER_ASYNC_ROUND_KIND,
+  },
+  {
+    slice: "bugReports",
+    doc: BUG_REPORT,
+    upsert: (x) => ws().upsertBugReport(x),
+    remove: (id) => ws().removeBugReport(id),
+    toolId: "workspace.bug_report",
+    kind: BUG_REPORT_KIND,
+  },
+  {
+    slice: "hillCharts",
+    doc: HILL_CHART,
+    upsert: (x) => ws().upsertHillChart(x),
+    remove: (id) => ws().removeHillChart(id),
+    toolId: "workspace.hill_chart",
+    kind: HILL_CHART_KIND,
+  },
+  {
+    slice: "testSessions",
+    doc: TEST_SESSION,
+    upsert: (x) => ws().upsertTestSession(x),
+    remove: (id) => ws().removeTestSession(id),
+    toolId: "workspace.test_session",
+    kind: TEST_SESSION_KIND,
+  },
+  {
+    slice: "meetingNotes",
+    doc: MEETING_NOTE,
+    upsert: (x) => ws().upsertMeetingNote(x),
+    remove: (id) => ws().removeMeetingNote(id),
+    toolId: "workspace.meeting_note",
+    kind: MEETING_NOTE_KIND,
+  },
+];
+
+/**
+ * The fields Phase 43 adds to existing records: each record with them set,
+ * how the store writes it and the slice it lands in.
+ */
+const EXTENDED: {
+  name: string;
+  slice: keyof Workspace;
+  doc: Doc;
+  upsert: (x: never) => void;
+}[] = [
+  {
+    name: "a release's notes (P2.2)",
+    slice: "releaseReadinesses",
+    doc: RELEASES_WITH_NOTES,
+    upsert: (x) => ws().upsertReleaseReadiness(x),
+  },
+  {
+    name: "an interrupt's sourceRef (P2.2)",
+    slice: "interruptItems",
+    doc: INTERRUPT_FROM_BUG,
+    upsert: (x) => ws().upsertInterruptItem(x),
   },
 ];
 
@@ -142,6 +211,22 @@ describe("the Phase 43 collections", () => {
       expect(target[0].getEntities()).toEqual([c.doc]);
       target[0].setEntities([]);
       expect(slice(c.slice)).toEqual([]);
+    }
+  );
+});
+
+describe("the fields Phase 43 adds to existing records", () => {
+  it.each(EXTENDED.map((e) => [e.name, e] as const))(
+    "%s survives upsert, export and import",
+    (_, e) => {
+      e.upsert(e.doc as never);
+      const stored = () => slice(e.slice)?.find((d) => d.id === e.doc.id);
+      expect(stored()).toEqual(e.doc);
+      const json = ws().exportJSON();
+      ws().resetWorkspace();
+      expect(stored()).toBeUndefined();
+      ws().importJSON(json);
+      expect(stored()).toEqual(e.doc);
     }
   );
 });

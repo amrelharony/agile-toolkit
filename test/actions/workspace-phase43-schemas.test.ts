@@ -27,15 +27,27 @@ import { makeContext } from "@/lib/actions/context";
 import * as serverStore from "@/lib/actions/server-store";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
+  BUG_REPORT_KIND,
   ENTITY_ROW_MAX_BYTES,
   EXAMPLE_MAP_KIND,
+  HILL_CHART_KIND,
+  MEETING_NOTE_KIND,
+  TEST_SESSION_KIND,
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
   type ExampleMap,
   type Workspace,
 } from "@/lib/stores/workspace-types";
 import "@/lib/actions/workspace";
-import { EXAMPLE_MAP } from "../stores/phase43-fixtures";
+import {
+  BUG_REPORT,
+  EXAMPLE_MAP,
+  HILL_CHART,
+  INTERRUPT_FROM_BUG,
+  MEETING_NOTE,
+  RELEASES_WITH_NOTES,
+  TEST_SESSION,
+} from "../stores/phase43-fixtures";
 
 const upsertEntity = vi.mocked(serverStore.serverUpsertEntity);
 const listEntities = vi.mocked(serverStore.serverListEntities);
@@ -91,6 +103,26 @@ const wide = (n: number) => "界".repeat(n);
 
 const COLLECTIONS: [toolId: string, slice: keyof Workspace, doc: Doc, kind: string][] = [
   ["workspace.example_map", "exampleMaps", EXAMPLE_MAP, EXAMPLE_MAP_KIND],
+  ["workspace.bug_report", "bugReports", BUG_REPORT, BUG_REPORT_KIND],
+  ["workspace.hill_chart", "hillCharts", HILL_CHART, HILL_CHART_KIND],
+  ["workspace.test_session", "testSessions", TEST_SESSION, TEST_SESSION_KIND],
+  ["workspace.meeting_note", "meetingNotes", MEETING_NOTE, MEETING_NOTE_KIND],
+];
+
+/** The fields Phase 43 adds to existing records: the CRUD, its slice and a record with them set. */
+const EXTENDED: [name: string, toolId: string, slice: keyof Workspace, doc: Doc][] = [
+  [
+    "a release's notes (P2.2)",
+    "workspace.release_readiness",
+    "releaseReadinesses",
+    RELEASES_WITH_NOTES,
+  ],
+  [
+    "an interrupt's sourceRef (P2.2)",
+    "workspace.interrupt_item",
+    "interruptItems",
+    INTERRUPT_FROM_BUG,
+  ],
 ];
 
 /** Everything but the times the CRUD stamps. */
@@ -305,5 +337,195 @@ describe("P2.1 example maps", () => {
     expect(upsertEntity).not.toHaveBeenCalled();
     // Half of them fits.
     accepts(T, { ...big, examples: examples.slice(0, 30) });
+  });
+});
+
+describe("the fields Phase 43 adds to existing records", () => {
+  it.each(EXTENDED)("%s parses and survives update", async (_name, toolId, slice, doc) => {
+    const parsed = parseCreate(toolId, doc);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
+    expect((parsed.data as { entity: Doc }).entity).toEqual(doc);
+    expect(await update(toolId, slice, doc)).toEqual(doc);
+  });
+
+  it("cap a release's notes", () => {
+    const [release] = RELEASES_WITH_NOTES.releases;
+    const withNotes = (releaseNotes: unknown) => ({
+      ...RELEASES_WITH_NOTES,
+      releases: [{ ...release, releaseNotes }],
+    });
+    rejects(
+      "workspace.release_readiness",
+      withNotes({ ...release.releaseNotes, text: "x".repeat(TOOL_TEXT_MAX.releaseNotes + 1) })
+    );
+    rejects("workspace.release_readiness", withNotes({ ...release.releaseNotes, audience: "all" }));
+    accepts(
+      "workspace.release_readiness",
+      withNotes({ ...release.releaseNotes, text: "x".repeat(TOOL_TEXT_MAX.releaseNotes) })
+    );
+  });
+});
+
+describe("P2.2 bug reports", () => {
+  const T = "workspace.bug_report";
+
+  it("mint bug_ ids", async () => {
+    const { id } = (await create(T, { title: "Crash on start", status: "new" })) as { id: string };
+    expect(id).toMatch(/^bug_/);
+  });
+
+  it("hold every cap and set", () => {
+    rejects(T, { ...BUG_REPORT, title: "" });
+    rejects(T, { ...BUG_REPORT, title: "x".repeat(TOOL_TEXT_MAX.short + 1) });
+    for (const key of ["steps", "expected", "actual"]) {
+      rejects(T, { ...BUG_REPORT, [key]: "x".repeat(TOOL_TEXT_MAX.text + 1) });
+    }
+    for (const key of ["environment", "area", "reportedBy", "duplicateOf"]) {
+      rejects(T, { ...BUG_REPORT, [key]: "x".repeat(TOOL_TEXT_MAX.short + 1) });
+    }
+    rejects(T, { ...BUG_REPORT, severity: "blocker" });
+    rejects(T, { ...BUG_REPORT, priority: "asap" });
+    rejects(T, { ...BUG_REPORT, status: "open" });
+    rejects(T, { ...BUG_REPORT, closeReason: "fixed-it" });
+    rejects(T, { ...BUG_REPORT, checks: { reach: "everyone" } });
+    rejects(T, { ...BUG_REPORT, triagedAt: "today" });
+    rejects(T, { ...BUG_REPORT, closedAt: "2026-11-12" });
+  });
+});
+
+describe("P2.2 hill charts", () => {
+  const T = "workspace.hill_chart";
+  const scope = (i: number) => ({ id: `sc${i}`, title: "scope", position: 10, movedAt: NOW });
+
+  it("mint hill_ ids", async () => {
+    const { id } = (await create(T, { ...HILL_CHART, id: undefined })) as { id: string };
+    expect(id).toMatch(/^hill_/);
+  });
+
+  it("hold every cap", () => {
+    rejects(T, { ...HILL_CHART, title: " " });
+    rejects(T, { ...HILL_CHART, about: "x".repeat(TOOL_TEXT_MAX.text + 1) });
+    rejects(T, {
+      ...HILL_CHART,
+      scopes: Array.from({ length: TOOL_LIST_MAX.hillScopes + 1 }, (_, i) => scope(i)),
+    });
+    accepts(T, {
+      ...HILL_CHART,
+      scopes: Array.from({ length: TOOL_LIST_MAX.hillScopes }, (_, i) => scope(i)),
+    });
+    rejects(T, {
+      ...HILL_CHART,
+      checkIns: Array.from({ length: TOOL_LIST_MAX.hillCheckIns + 1 }, (_, i) => ({
+        id: `c${i}`,
+        at: NOW,
+        positions: [],
+      })),
+    });
+    rejects(T, {
+      ...HILL_CHART,
+      scopes: [{ ...scope(1), note: "x".repeat(TOOL_TEXT_MAX.capture + 1) }],
+    });
+    rejects(T, {
+      ...HILL_CHART,
+      checkIns: [{ id: "c", at: NOW, positions: [], note: "x".repeat(TOOL_TEXT_MAX.capture + 1) }],
+    });
+  });
+
+  it("place scopes only at whole positions from 0 to 100, at ISO times", () => {
+    for (const position of [-1, 101, 50.5]) {
+      rejects(T, { ...HILL_CHART, scopes: [{ ...scope(1), position }] });
+      rejects(T, {
+        ...HILL_CHART,
+        checkIns: [{ id: "c", at: NOW, positions: [{ scopeId: "sc1", position }] }],
+      });
+    }
+    accepts(T, { ...HILL_CHART, scopes: [{ ...scope(1), position: 0 }] });
+    accepts(T, { ...HILL_CHART, scopes: [{ ...scope(1), position: 100 }] });
+    rejects(T, { ...HILL_CHART, scopes: [{ ...scope(1), movedAt: "last week" }] });
+    rejects(T, { ...HILL_CHART, checkIns: [{ id: "c", at: "Monday", positions: [] }] });
+  });
+});
+
+describe("P2.2 test sessions", () => {
+  const T = "workspace.test_session";
+  const note = (i: number) => ({ id: `n${i}`, at: NOW, kind: "note", text: "note" });
+
+  it("mint tsess_ ids", async () => {
+    const { id } = (await create(T, { ...TEST_SESSION, id: undefined })) as { id: string };
+    expect(id).toMatch(/^tsess_/);
+  });
+
+  it("hold every cap and range", () => {
+    rejects(T, { ...TEST_SESSION, charter: { ...TEST_SESSION.charter, target: "" } });
+    rejects(T, {
+      ...TEST_SESSION,
+      charter: { ...TEST_SESSION.charter, toLearn: "x".repeat(TOOL_TEXT_MAX.text + 1) },
+    });
+    rejects(T, {
+      ...TEST_SESSION,
+      charter: { ...TEST_SESSION.charter, using: "x".repeat(TOOL_TEXT_MAX.short + 1) },
+    });
+    for (const minutes of [14, 241, 30.5]) rejects(T, { ...TEST_SESSION, minutes });
+    accepts(T, { ...TEST_SESSION, minutes: 15 });
+    accepts(T, { ...TEST_SESSION, minutes: 240 });
+    rejects(T, { ...TEST_SESSION, status: "paused" });
+    rejects(T, { ...TEST_SESSION, coverage: "none" });
+    rejects(T, {
+      ...TEST_SESSION,
+      notes: Array.from({ length: TOOL_LIST_MAX.sessionNotes + 1 }, (_, i) => note(i)),
+    });
+    rejects(T, {
+      ...TEST_SESSION,
+      notes: [{ ...note(1), text: "x".repeat(TOOL_TEXT_MAX.capture + 1) }],
+    });
+    rejects(T, { ...TEST_SESSION, notes: [{ ...note(1), kind: "todo" }] });
+    rejects(T, { ...TEST_SESSION, debrief: "x".repeat(TOOL_TEXT_MAX.text + 1) });
+  });
+
+  it("take a time split that adds up to 100, on both transports", async () => {
+    rejects(T, { ...TEST_SESSION, split: { testing: 50, bugs: 30, setup: 10 } });
+    rejects(T, { ...TEST_SESSION, split: { testing: 60.5, bugs: 29.5, setup: 10 } });
+    accepts(T, { ...TEST_SESSION, split: { testing: 100, bugs: 0, setup: 0 } });
+    const off = { split: { testing: 90, bugs: 30, setup: 10 } };
+    await expect(update(T, "testSessions", TEST_SESSION, off)).rejects.toThrow(/adds up to 100/);
+    await expect(updateOverMcp(T, TEST_SESSION, off)).rejects.toThrow(/adds up to 100/);
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
+});
+
+describe("P2.2 meeting notes", () => {
+  const T = "workspace.meeting_note";
+  const item = (i: number) => ({
+    id: `i${i}`,
+    kind: "action",
+    text: "act",
+    status: "open",
+    keptAt: NOW,
+  });
+
+  it("mint mnote_ ids", async () => {
+    const { id } = (await create(T, { ...MEETING_NOTE, id: undefined })) as { id: string };
+    expect(id).toMatch(/^mnote_/);
+  });
+
+  it("hold every cap and set", () => {
+    accepts(T, { ...MEETING_NOTE, text: "" });
+    accepts(T, { ...MEETING_NOTE, text: "x".repeat(TOOL_TEXT_MAX.paste) });
+    rejects(T, { ...MEETING_NOTE, text: "x".repeat(TOOL_TEXT_MAX.paste + 1) });
+    rejects(T, { ...MEETING_NOTE, meeting: "x".repeat(TOOL_TEXT_MAX.short + 1) });
+    rejects(T, { ...MEETING_NOTE, date: "Thursday" });
+    rejects(T, { ...MEETING_NOTE, forgottenAt: "2026-11-12" });
+    rejects(T, {
+      ...MEETING_NOTE,
+      items: Array.from({ length: TOOL_LIST_MAX.noteItems + 1 }, (_, i) => item(i)),
+    });
+    rejects(T, { ...MEETING_NOTE, items: [{ ...item(1), kind: "todo" }] });
+    rejects(T, { ...MEETING_NOTE, items: [{ ...item(1), status: "done" }] });
+    rejects(T, { ...MEETING_NOTE, items: [{ ...item(1), due: "Friday" }] });
+    rejects(T, { ...MEETING_NOTE, items: [{ ...item(1), quote: "x".repeat(201) }] });
+    rejects(T, {
+      ...MEETING_NOTE,
+      items: [{ ...item(1), detail: "x".repeat(TOOL_TEXT_MAX.text + 1) }],
+    });
   });
 });
