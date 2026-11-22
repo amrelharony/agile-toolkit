@@ -147,6 +147,24 @@ describe("stampStoryWrite (agents' writes)", () => {
     expect(next.statusHistory).toEqual([{ status: "in_progress", from: "todo", at: T1 }]);
   });
 
+  it("stamps a status change when the stored history lists its keys in another order", () => {
+    // jsonb reads keys back sorted by length, then name; zod writes them in
+    // schema order. The same history must still count as not set by the write.
+    const prev = story({
+      status: "in_progress",
+      startedAt: T1,
+      statusHistory: [{ at: T1, from: "todo", status: "in_progress" }] as never,
+    });
+    const next = stampStoryWrite(
+      { ...prev, status: "done", statusHistory: [{ status: "in_progress", from: "todo", at: T1 }] },
+      prev,
+      T2
+    );
+    expect(next.doneAt).toBe(T2);
+    expect(next.statusHistory).toHaveLength(2);
+    expect(next.statusHistory?.[1]).toEqual({ status: "done", from: "in_progress", at: T2 });
+  });
+
   it("keeps a stamp the write set itself (a backfill)", () => {
     const prev = story({ status: "in_progress", startedAt: T1 });
     const next = stampStoryWrite({ ...prev, status: "done", doneAt: T2 }, prev, T3);

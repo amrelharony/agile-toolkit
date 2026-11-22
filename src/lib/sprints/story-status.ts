@@ -178,9 +178,23 @@ export function stampStoryMembership(
 
 const STAMPS = ["startedAt", "doneAt", "blocked", "statusHistory"] as const;
 
-/** Equal by value (a validated copy of the history is a new array). */
+/**
+ * Equal by value, whatever order an object's keys are in: a validated copy
+ * of the history is a new array, and a row read back from jsonb lists its
+ * keys in another order than the one zod or the page wrote.
+ */
 function same(a: unknown, b: unknown): boolean {
-  return a === b || JSON.stringify(a) === JSON.stringify(b);
+  return a === b || canonJson(a) === canonJson(b);
+}
+
+/** JSON with every object's keys sorted (undefined values left out, as JSON does). */
+function canonJson(value: unknown): string | undefined {
+  return JSON.stringify(value, (_key, v: unknown) => {
+    if (!v || typeof v !== "object" || Array.isArray(v)) return v;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(v).sort()) out[k] = (v as Record<string, unknown>)[k];
+    return out;
+  });
 }
 
 const REFINED_FIELDS = ["title", "points", "notes", "acceptanceCriteria", "gwt"] as const;
