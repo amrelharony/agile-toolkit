@@ -204,7 +204,7 @@ export const KANBAN_ACTIONS = {
   WORKFLOW_VERSION_SAVED: "workflow_version_saved", // milestone
   /** Payload: the STATIK step saved. */
   STATIK_STEP_SAVED: "statik_step_saved",
-  /** A blocked spell got a cluster or a side. Payload: cardId, cluster and side; never the cause's text. */
+  /** A blocked spell got a cluster or a side. Payload: cardId, whether the cluster is a default one (and its index in DEFAULT_BLOCKER_CLUSTERS) or custom, and side; never the cluster's or the cause's text. */
   BLOCK_NOTED: "block_noted",
 } as const;
 

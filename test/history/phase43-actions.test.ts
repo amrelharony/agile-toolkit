@@ -402,4 +402,17 @@ describe("the tools plan's phase 2 history actions", () => {
       }
     }
   });
+
+  it("logs a blocked spell's cluster as default or custom, never its words", () => {
+    // A custom cluster is a label someone typed, so the payload says which
+    // default it is (or that it is custom), as it never holds the cause.
+    const lines = readFileSync(
+      join(process.cwd(), "src/lib/history/event-actions.ts"),
+      "utf8"
+    ).split("\n");
+    const at = lines.findIndex((l) => l.startsWith('  BLOCK_NOTED: "block_noted",'));
+    expect(at).toBeGreaterThan(0);
+    expect(lines[at - 1]).toMatch(/default one \(and its index in DEFAULT_BLOCKER_CLUSTERS\)/);
+    expect(lines[at - 1]).toMatch(/never the cluster's or the cause's text/);
+  });
 });
