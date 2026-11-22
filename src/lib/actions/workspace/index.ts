@@ -47,7 +47,14 @@ import {
   NPS_TAG_LIMIT,
   NPS_TAG_MAX_LENGTH,
   PARKING_LOT_STATUSES,
+  PRODUCT_BET_STATUSES,
+  PRODUCT_CANVAS_EVIDENCE,
+  PRODUCT_CANVAS_FORMATS,
+  PRODUCT_CANVAS_MAX,
+  PRODUCT_CASE_VERDICTS,
   PRODUCT_GOAL_STATUSES,
+  PRODUCT_IDEA_SOURCES,
+  PRODUCT_IDEA_STATUSES,
   RACI_ID,
   REACH_PERIODS,
   ROOT_CAUSE_METHODS,
@@ -97,6 +104,7 @@ import {
   withPendingTechDebt,
 } from "@/lib/tech-debt/legacy";
 import { readLegacyBlob } from "../user-state-blob";
+import { sectionsSchema } from "./sectioned-schema";
 import { RESPONDENT_MAX, VERBATIM_MAX, normalizeTags, tagsProblem } from "@/lib/nps/score";
 import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import { targetClashes } from "@/lib/opportunity-tree/model";
@@ -238,6 +246,7 @@ import type {
   HillChart,
   TestSession,
   MeetingNote,
+  ProductCanvas,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -4776,5 +4785,97 @@ defineCrudActions<MeetingNote>({
   upsert: (x) => ws().upsertMeetingNote(x),
   remove: (id) => ws().removeMeetingNote(id),
   generateId: () => `mnote_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.3 — Product Canvas. Its items are the sectioned kit's, keyed by the
+ * format's section ids (sectionsSchema). The CRUD can't tell a list box
+ * from a long one without the format catalog, so every item takes up to
+ * TOOL_TEXT_MAX.text; the page's own per-kind caps are its write guard. */
+
+const ProductCanvasSchema = z
+  .object({
+    id: z.string(),
+    format: z.enum(PRODUCT_CANVAS_FORMATS),
+    title: Filled(TOOL_TEXT_MAX.short),
+    sections: sectionsSchema({
+      itemMax: TOOL_TEXT_MAX.text,
+      itemExtra: {
+        detail: z.string().max(TOOL_TEXT_MAX.text).optional(),
+        evidence: z
+          .enum(PRODUCT_CANVAS_EVIDENCE)
+          .optional()
+          .describe("A known fact, or an assumption still to test."),
+        links: z.array(z.string().max(40)).max(TOOL_LIST_MAX.itemLinks).optional(),
+        promptId: z
+          .string()
+          .max(TOOL_TEXT_MAX.short)
+          .optional()
+          .describe("The hard question it answers."),
+        niceToHave: z.boolean().optional(),
+      },
+      totalMax: TOOL_LIST_MAX.canvasItems,
+    }).describe("The items by the format's section id."),
+    appetiteWeeks: z
+      .number()
+      .int()
+      .min(1)
+      .max(PRODUCT_CANVAS_MAX.weeks)
+      .optional()
+      .describe("A Shape Up pitch's appetite, in weeks."),
+    intake: z
+      .object({
+        requesters: z.array(z.string().max(TOOL_TEXT_MAX.short)).max(TOOL_LIST_MAX.requesters),
+        source: z.enum(PRODUCT_IDEA_SOURCES),
+        demand: z
+          .number()
+          .int()
+          .min(1)
+          .max(PRODUCT_CANVAS_MAX.demand)
+          .describe("How many asked for it."),
+        status: z.enum(PRODUCT_IDEA_STATUSES),
+        mergedInto: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      })
+      .optional()
+      .describe("The idea inbox's fields: who asked, where from, how many, and its status."),
+    decision: z
+      .object({
+        verdict: z.enum(PRODUCT_CASE_VERDICTS),
+        note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+        decidedAt: IsoTime.optional(),
+      })
+      .optional()
+      .describe("A business case's decision."),
+    bet: z
+      .object({
+        status: z.enum(PRODUCT_BET_STATUSES),
+        cycle: z.number().int().min(1).max(PRODUCT_CANVAS_MAX.cycle).optional(),
+        start: IsoDay.optional(),
+        weeks: z.number().int().min(1).max(PRODUCT_CANVAS_MAX.weeks).optional(),
+        decidedAt: IsoTime.optional(),
+      })
+      .optional()
+      .describe("A Shape Up pitch's place on the betting table."),
+    productGoalId: z
+      .string()
+      .max(TOOL_TEXT_MAX.short)
+      .optional()
+      .describe("The Product Goal it was drafted from."),
+    sentTo: SentTo,
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("product canvas")) as unknown as z.ZodType<ProductCanvas>;
+
+defineCrudActions<ProductCanvas>({
+  toolId: "workspace.product_canvas",
+  entityName:
+    "product canvas (a product vision, value proposition, idea in the inbox, Lean UX canvas, PR/FAQ, lean business case or Shape Up pitch)",
+  schema: ProductCanvasSchema,
+  selectAll: () => ws().productCanvases ?? [],
+  upsert: (x) => ws().upsertProductCanvas(x),
+  remove: (id) => ws().removeProductCanvas(id),
+  generateId: () => `pcanvas_${nanoid(8)}`,
   prepare: (next, current) => stampedTimes(next, current),
 });

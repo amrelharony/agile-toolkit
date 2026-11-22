@@ -9,6 +9,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
@@ -32,19 +33,23 @@ import {
   EXAMPLE_MAP_KIND,
   HILL_CHART_KIND,
   MEETING_NOTE_KIND,
+  PRODUCT_CANVAS_KIND,
   TEST_SESSION_KIND,
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
   type ExampleMap,
+  type ProductCanvas,
   type Workspace,
 } from "@/lib/stores/workspace-types";
 import "@/lib/actions/workspace";
+import { SECTION_KEY_PATTERN, sectionsSchema } from "@/lib/actions/workspace/sectioned-schema";
 import {
   BUG_REPORT,
   EXAMPLE_MAP,
   HILL_CHART,
   INTERRUPT_FROM_BUG,
   MEETING_NOTE,
+  PRODUCT_CANVAS,
   RELEASES_WITH_NOTES,
   TEST_SESSION,
 } from "../stores/phase43-fixtures";
@@ -101,12 +106,16 @@ async function updateOverMcp(toolId: string, doc: Doc, patch = {}) {
 /** Text of `n` characters that costs 3 bytes each in UTF-8 (the most a capped character of real text costs). */
 const wide = (n: number) => "界".repeat(n);
 
+/** Text of `n` characters that JSON-escapes to 6 bytes each (a control character). */
+const escaped = (n: number) => String.fromCharCode(7).repeat(n);
+
 const COLLECTIONS: [toolId: string, slice: keyof Workspace, doc: Doc, kind: string][] = [
   ["workspace.example_map", "exampleMaps", EXAMPLE_MAP, EXAMPLE_MAP_KIND],
   ["workspace.bug_report", "bugReports", BUG_REPORT, BUG_REPORT_KIND],
   ["workspace.hill_chart", "hillCharts", HILL_CHART, HILL_CHART_KIND],
   ["workspace.test_session", "testSessions", TEST_SESSION, TEST_SESSION_KIND],
   ["workspace.meeting_note", "meetingNotes", MEETING_NOTE, MEETING_NOTE_KIND],
+  ["workspace.product_canvas", "productCanvases", PRODUCT_CANVAS, PRODUCT_CANVAS_KIND],
 ];
 
 /** The fields Phase 43 adds to existing records: the CRUD, its slice and a record with them set. */
@@ -527,5 +536,153 @@ describe("P2.2 meeting notes", () => {
       ...MEETING_NOTE,
       items: [{ ...item(1), detail: "x".repeat(TOOL_TEXT_MAX.text + 1) }],
     });
+  });
+});
+
+describe("the sectioned kit's schema factory", () => {
+  const schema = sectionsSchema({
+    itemMax: 20,
+    itemExtra: { likelihood: z.number().int().min(1).max(5).optional() },
+    sectionsMax: 3,
+    perSectionMax: 2,
+    totalMax: 4,
+  });
+  const item = (id: string, extra = {}) => ({ id, text: "line", ...extra });
+  const ok = (v: unknown) => expect(schema.safeParse(v).success, JSON.stringify(v)).toBe(true);
+  const no = (v: unknown) => expect(schema.safeParse(v).success, JSON.stringify(v)).toBe(false);
+
+  it("keys sections by the kit's section id rule", () => {
+    expect(SECTION_KEY_PATTERN.source).toBe("^[a-z][a-z0-9-]{0,31}$");
+    ok({ goal: [item("a")], "open-questions": [item("b")] });
+    for (const key of ["Goal", "1goal", "-goal", "goal_x", "", "g".repeat(33)]) {
+      no({ [key]: [item("a")] });
+    }
+    ok({ ["g".repeat(32)]: [item("a")] });
+  });
+
+  it("keeps every item field, the tool's own extras included", () => {
+    const sections = {
+      goal: [
+        {
+          id: "a",
+          text: "line",
+          owner: "Ana",
+          sentTo: [{ route: "risk", targetId: "r1", at: NOW }],
+          likelihood: 3,
+        },
+      ],
+    };
+    expect(schema.parse(sections)).toEqual(sections);
+  });
+
+  it("caps the text, the owner, the extras, each section, the sections and the total", () => {
+    no({ goal: [item("a", { text: "x".repeat(21) })] });
+    no({ goal: [item("a", { owner: "x".repeat(TOOL_TEXT_MAX.short + 1) })] });
+    no({ goal: [item("a", { likelihood: 6 })] });
+    no({ goal: [item("")] });
+    no({ goal: [item("a"), item("b"), item("c")] });
+    no({ a: [], b: [], c: [], d: [] });
+    no({ a: [item("1"), item("2")], b: [item("3"), item("4")], c: [item("5")] });
+    ok({ a: [item("1"), item("2")], b: [item("3"), item("4")], c: [] });
+  });
+
+  it("defaults to the kit's caps", () => {
+    const plain = sectionsSchema({ itemMax: 10 });
+    const many = Object.fromEntries(
+      Array.from({ length: TOOL_LIST_MAX.sections + 1 }, (_, i) => [`s${i}`, []])
+    );
+    expect(plain.safeParse(many).success).toBe(false);
+    expect(
+      plain.safeParse({
+        s: Array.from({ length: TOOL_LIST_MAX.sectionItems + 1 }, (_, i) => item(`i${i}`)),
+      }).success
+    ).toBe(false);
+    expect(
+      plain.safeParse({
+        s: Array.from({ length: TOOL_LIST_MAX.sectionItems }, (_, i) => item(`i${i}`)),
+      }).success
+    ).toBe(true);
+  });
+});
+
+describe("P2.3 product canvases", () => {
+  const T = "workspace.product_canvas";
+  const item = (i: number) => ({ id: `i${i}`, text: "line" });
+
+  it("mint pcanvas_ ids", async () => {
+    const { id } = (await create(T, { ...PRODUCT_CANVAS, id: undefined })) as { id: string };
+    expect(id).toMatch(/^pcanvas_/);
+  });
+
+  it("hold every cap and set", () => {
+    rejects(T, { ...PRODUCT_CANVAS, format: "lean-canvas" });
+    rejects(T, { ...PRODUCT_CANVAS, title: "" });
+    rejects(T, { ...PRODUCT_CANVAS, sections: { Problem: [item(1)] } });
+    rejects(T, {
+      ...PRODUCT_CANVAS,
+      sections: { problem: [{ ...item(1), text: "x".repeat(TOOL_TEXT_MAX.text + 1) }] },
+    });
+    accepts(T, {
+      ...PRODUCT_CANVAS,
+      sections: { problem: [{ ...item(1), text: "x".repeat(TOOL_TEXT_MAX.text) }] },
+    });
+    rejects(T, { ...PRODUCT_CANVAS, sections: { problem: [{ ...item(1), evidence: "hunch" }] } });
+    rejects(T, {
+      ...PRODUCT_CANVAS,
+      sections: {
+        problem: [
+          {
+            ...item(1),
+            links: Array.from({ length: TOOL_LIST_MAX.itemLinks + 1 }, (_, i) => `l${i}`),
+          },
+        ],
+      },
+    });
+    rejects(T, {
+      ...PRODUCT_CANVAS,
+      sections: { problem: [{ ...item(1), links: ["x".repeat(41)] }] },
+    });
+    // canvasItems over all sections, though each section is within its own cap.
+    const half = Array.from({ length: TOOL_LIST_MAX.canvasItems / 2 }, (_, i) => item(i));
+    accepts(T, { ...PRODUCT_CANVAS, sections: { a: half, b: half } });
+    rejects(T, { ...PRODUCT_CANVAS, sections: { a: half, b: half, c: [item(99)] } });
+    for (const appetiteWeeks of [0, 13, 2.5]) rejects(T, { ...PRODUCT_CANVAS, appetiteWeeks });
+    rejects(T, { ...PRODUCT_CANVAS, intake: { ...PRODUCT_CANVAS.intake, demand: 0 } });
+    rejects(T, { ...PRODUCT_CANVAS, intake: { ...PRODUCT_CANVAS.intake, demand: 10000 } });
+    rejects(T, { ...PRODUCT_CANVAS, intake: { ...PRODUCT_CANVAS.intake, source: "press" } });
+    rejects(T, {
+      ...PRODUCT_CANVAS,
+      intake: {
+        ...PRODUCT_CANVAS.intake,
+        requesters: Array.from({ length: TOOL_LIST_MAX.requesters + 1 }, (_, i) => `r${i}`),
+      },
+    });
+    rejects(T, { ...PRODUCT_CANVAS, decision: { verdict: "maybe" } });
+    rejects(T, { ...PRODUCT_CANVAS, bet: { ...PRODUCT_CANVAS.bet, cycle: 61 } });
+    rejects(T, { ...PRODUCT_CANVAS, bet: { ...PRODUCT_CANVAS.bet, weeks: 13 } });
+    rejects(T, { ...PRODUCT_CANVAS, bet: { ...PRODUCT_CANVAS.bet, start: "December" } });
+    rejects(T, { ...PRODUCT_CANVAS, bet: { ...PRODUCT_CANVAS.bet, status: "won" } });
+  });
+
+  it("refuse a canvas too big for one row, on both transports", async () => {
+    // 60 items with text and detail at the CRUD's caps: in 3-byte text a
+    // canvas stays just under the limit, so the details are text that
+    // JSON-escapes to 6 bytes a character.
+    const items = Array.from({ length: TOOL_LIST_MAX.canvasItems }, (_, i) => ({
+      id: `i${i}`,
+      text: wide(TOOL_TEXT_MAX.text),
+      detail: escaped(TOOL_TEXT_MAX.text),
+    }));
+    const sections = { a: items.slice(0, 30), b: items.slice(30) };
+    const big: ProductCanvas = { ...PRODUCT_CANVAS, sections };
+    expect(new TextEncoder().encode(JSON.stringify(big)).length).toBeGreaterThan(
+      ENTITY_ROW_MAX_BYTES
+    );
+    await expect(create(T, { ...big, id: undefined })).rejects.toThrow(
+      /This product canvas is too big to save/
+    );
+    await expect(create(T, { ...big, id: undefined }, true)).rejects.toThrow(/too big to save/);
+    await expect(updateOverMcp(T, PRODUCT_CANVAS, { sections })).rejects.toThrow(/too big to save/);
+    expect(upsertEntity).not.toHaveBeenCalled();
   });
 });

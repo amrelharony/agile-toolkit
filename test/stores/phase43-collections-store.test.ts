@@ -36,6 +36,7 @@ import {
   HILL_CHART_KIND,
   MEETING_NOTE_KIND,
   POKER_ASYNC_ROUND_KIND,
+  PRODUCT_CANVAS_KIND,
   TEST_SESSION_KIND,
   emptyWorkspace,
   type Workspace,
@@ -47,6 +48,7 @@ import {
   INTERRUPT_FROM_BUG,
   MEETING_NOTE,
   POKER_ASYNC_ROUND,
+  PRODUCT_CANVAS,
   RELEASES_WITH_NOTES,
   TEST_SESSION,
 } from "./phase43-fixtures";
@@ -113,6 +115,14 @@ const COLLECTIONS: {
     remove: (id) => ws().removeMeetingNote(id),
     toolId: "workspace.meeting_note",
     kind: MEETING_NOTE_KIND,
+  },
+  {
+    slice: "productCanvases",
+    doc: PRODUCT_CANVAS,
+    upsert: (x) => ws().upsertProductCanvas(x),
+    remove: (id) => ws().removeProductCanvas(id),
+    toolId: "workspace.product_canvas",
+    kind: PRODUCT_CANVAS_KIND,
   },
 ];
 

@@ -3403,6 +3403,12 @@ export const TOOL_LIST_MAX = {
   sessionNotes: 200,
   /** Items found in one set of meeting notes. */
   noteItems: 50,
+  /** A product canvas's items, all sections together. */
+  canvasItems: 60,
+  /** Links on one product canvas item. */
+  itemLinks: 10,
+  /** Who asked for an idea in the idea inbox. */
+  requesters: 20,
 } as const;
 
 export const PARKING_LOT_STATUSES = ["open", "discussed", "sent", "dropped"] as const;
@@ -4017,6 +4023,121 @@ export interface MeetingNote {
 
 export const MEETING_NOTE_KIND = "workspace:meetingNote";
 
+/* P2.3, Product Canvas: a product idea on one page, in one of seven formats
+ * built on the sectioned kit. Product names carry the Product/PRODUCT_
+ * prefix, so nothing is ambiguous beside Kickoff's. */
+
+export const PRODUCT_CANVAS_FORMATS = [
+  "vision-board",
+  "value-proposition",
+  "idea",
+  "lean-ux",
+  "pr-faq",
+  "business-case",
+  "shape-up",
+] as const;
+export type ProductCanvasFormat = (typeof PRODUCT_CANVAS_FORMATS)[number];
+
+/** Whether a canvas item is a known fact or a guess still to test. */
+export const PRODUCT_CANVAS_EVIDENCE = ["fact", "assumption"] as const;
+export type ProductCanvasEvidence = (typeof PRODUCT_CANVAS_EVIDENCE)[number];
+
+export const PRODUCT_IDEA_SOURCES = ["customer", "stakeholder", "team", "data", "other"] as const;
+export type ProductIdeaSource = (typeof PRODUCT_IDEA_SOURCES)[number];
+
+export const PRODUCT_IDEA_STATUSES = [
+  "new",
+  "assessing",
+  "accepted",
+  "declined",
+  "merged",
+] as const;
+export type ProductIdeaStatus = (typeof PRODUCT_IDEA_STATUSES)[number];
+
+export const PRODUCT_CASE_VERDICTS = ["pending", "go", "no-go", "change"] as const;
+export type ProductCaseVerdict = (typeof PRODUCT_CASE_VERDICTS)[number];
+
+export const PRODUCT_BET_STATUSES = ["table", "bet", "passed", "shipped", "cut"] as const;
+export type ProductBetStatus = (typeof PRODUCT_BET_STATUSES)[number];
+
+/** Number caps on a product canvas: a Shape Up cycle, weeks of appetite, an idea's demand. */
+export const PRODUCT_CANVAS_MAX = { cycle: 60, weeks: 12, demand: 9999 } as const;
+
+/** One line on a product canvas (the sectioned kit's item, with Product Canvas's fields). */
+export interface ProductCanvasItem extends SectionItem {
+  /** More about it (at most "text"). */
+  detail?: string;
+  evidence?: ProductCanvasEvidence;
+  /** At most TOOL_LIST_MAX.itemLinks, each at most 40 characters. */
+  links?: string[];
+  /** The hard question it answers (at most "short"). */
+  promptId?: string;
+  /** A nice-to-have in a Shape Up pitch. */
+  niceToHave?: boolean;
+}
+
+/** An idea in the idea inbox: who asked, where it came from and how many want it. */
+export interface ProductIdeaIntake {
+  /** At most TOOL_LIST_MAX.requesters, each at most "short". */
+  requesters: string[];
+  source: ProductIdeaSource;
+  /** How many asked for it, 1 to PRODUCT_CANVAS_MAX.demand. */
+  demand: number;
+  status: ProductIdeaStatus;
+  /** The idea it was merged into ("merged"). */
+  mergedInto?: string;
+  /** At most "text". */
+  note?: string;
+}
+
+/** A lean business case's decision. */
+export interface ProductCaseDecision {
+  verdict: ProductCaseVerdict;
+  note?: string;
+  decidedAt?: ISODateString;
+}
+
+/** A Shape Up pitch on the betting table. */
+export interface ProductPitchBet {
+  status: ProductBetStatus;
+  /** The cycle it is bet on, 1 to PRODUCT_CANVAS_MAX.cycle. */
+  cycle?: number;
+  /** The day the cycle starts (YYYY-MM-DD). */
+  start?: string;
+  /** 1 to PRODUCT_CANVAS_MAX.weeks. */
+  weeks?: number;
+  decidedAt?: ISODateString;
+}
+
+/**
+ * A product idea on one page (Product Canvas): its format's sections hold
+ * the items, keyed by the format's section ids (lib/sectioned). At most
+ * TOOL_LIST_MAX.sections sections and TOOL_LIST_MAX.canvasItems items.
+ */
+export interface ProductCanvas {
+  id: string;
+  format: ProductCanvasFormat;
+  /** At most "short". */
+  title: string;
+  sections: Record<string, ProductCanvasItem[]>;
+  /** A Shape Up pitch's appetite, 1 to PRODUCT_CANVAS_MAX.weeks. */
+  appetiteWeeks?: number;
+  /** The idea format's inbox fields. */
+  intake?: ProductIdeaIntake;
+  /** The business case format's decision. */
+  decision?: ProductCaseDecision;
+  /** The Shape Up format's bet. */
+  bet?: ProductPitchBet;
+  /** The Product Goal it was drafted from. */
+  productGoalId?: string;
+  /** Where it was sent: one link per route. */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const PRODUCT_CANVAS_KIND = "workspace:productCanvas";
+
 /* P2.6, Flow Insights and the Definition of Workflow: work types, blocked
  * spells (`Story`, `KanbanCard` and `Impediment` carry the fields) and the
  * workflow definition. */
@@ -4333,6 +4454,7 @@ export interface Workspace {
   hillCharts?: HillChart[];
   testSessions?: TestSession[];
   meetingNotes?: MeetingNote[];
+  productCanvases?: ProductCanvas[];
 }
 
 /**
@@ -4622,6 +4744,7 @@ export const emptyWorkspace = {
   hillCharts: [],
   testSessions: [],
   meetingNotes: [],
+  productCanvases: [],
 } satisfies Workspace;
 
 /**

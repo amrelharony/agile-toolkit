@@ -10,6 +10,7 @@ import type {
   InterruptItem,
   MeetingNote,
   PokerAsyncRound,
+  ProductCanvas,
   ReleaseReadiness,
   TestSession,
 } from "@/lib/stores/workspace-types";
@@ -231,4 +232,49 @@ export const INTERRUPT_FROM_BUG: InterruptItem = {
   emergency: false,
   loggedAt: AT,
   sourceRef: { tool: "bug-triage", id: "bug_1" },
+};
+
+/* P2.3 */
+
+export const PRODUCT_CANVAS: ProductCanvas = {
+  id: "pcanvas_1",
+  format: "shape-up",
+  title: "Refunds without a call",
+  sections: {
+    problem: [
+      {
+        id: "p1",
+        text: "Shop owners phone us to refund a payment.",
+        detail: "About 40 calls a week.",
+        evidence: "fact",
+        links: ["story_7"],
+        owner: "Ana",
+      },
+    ],
+    "no-gos": [
+      {
+        id: "n1",
+        text: "No partial refunds this cycle",
+        evidence: "assumption",
+        promptId: "rabbit-holes",
+        niceToHave: true,
+        sentTo: [{ route: "decision", targetId: "dec_1", at: LATER }],
+      },
+    ],
+  },
+  appetiteWeeks: 6,
+  intake: {
+    requesters: ["Shop owners", "Support"],
+    source: "customer",
+    demand: 40,
+    status: "merged",
+    mergedInto: "pcanvas_0",
+    note: "Asked for since spring.",
+  },
+  decision: { verdict: "go", note: "Worth six weeks.", decidedAt: LATER },
+  bet: { status: "bet", cycle: 4, start: "2026-12-01", weeks: 6, decidedAt: LATER },
+  productGoalId: "goal_1",
+  sentTo: [{ route: "hypothesis", targetId: "hyp_1", at: LATER }],
+  createdAt: AT,
+  updatedAt: LATER,
 };
