@@ -651,13 +651,14 @@ To change the owner's caps, edit `v_daily_max`, `v_weekly_max` and `v_monthly_ma
 
 ### Adding a task
 
-1. `src/lib/ai/tasks/<toolId>.ts` (browser-safe): `defineAiTask({ id: "<toolId>.<name>", toolId, tier, effort, maxTokens, input, output, fallback, sample })`. Cap every string (`.max()`) and array (`.max()`); `maxTokens` at least 4096 when the output holds a list, else 2048.
-2. `src/lib/ai/tasks/<toolId>.server.ts` (starts with `import "server-only"`): `defineAiPrompt(task, { system, user })`. `user(input)` returns the data as labelled text; the runner sanitises it and wraps it in `<user_content>`, and adds the scope rule, the guardrail and the JSON shape line.
-3. Add the task to `src/lib/ai/tasks/index.ts` and the prompt to `src/lib/ai/tasks/index.server.ts`.
-4. In the tool: `<AiButton task={…} input={…} onResult={…} />` (or `useToolAi(task)`), then `<AiSuggestions>` so the person accepts items into the tool's own store, with Undo.
-5. `test/ai/task-contract.test.ts` checks every task's caps, token minimum, fallback and prompt; add a golden test for the task's own fallback and a sample answer.
+1. `src/lib/ai/tasks/<toolId>.lite.ts` (no zod, what pages import): the values a page uses (caps, labels, pure helpers), each task's fallback as a named function, and one ref per task with the def's export name: `lazyAiTask({ id, toolId, ownerOnly?, fallback }, () => import("./<toolId>").then((m) => m.<name>Task))`. It imports its def by `import type` only.
+2. `src/lib/ai/tasks/<toolId>.ts` (browser-safe, the def): `defineAiTask({ id: "<toolId>.<name>", toolId, tier, effort, maxTokens, input, output, fallback, sample })`, with `fallback` imported from the lite module (the same function). Cap every string (`.max()`) and array (`.max()`); `maxTokens` at least 4096 when the output holds a list, else 2048. Size inputs with `TOOL_AI_BODY_BUDGET` (`src/lib/ai/contract.ts`) and `jsonBytes`: a task whose capped input can pass the budget in 3-byte text ships a fitter and a test that the fitted largest input fits. A fallback throws on input its schema refuses rather than answer with output the schema refuses.
+3. `src/lib/ai/tasks/<toolId>.server.ts` (starts with `import "server-only"`): `defineAiPrompt(task, { system, user })`. `user(input)` returns the data as labelled text; the runner sanitises it and wraps it in `<user_content>`, and adds the scope rule, the guardrail and the JSON shape line.
+4. Add the def to `src/lib/ai/tasks/index.ts` and the prompt to `src/lib/ai/tasks/index.server.ts`, in alphabetical order by tool id.
+5. In the tool, import the ref from `@/lib/ai/tasks/<toolId>.lite` only: `<AiButton task={…} input={…} onResult={…} />` (or `useToolAi(task)`), then `<AiSuggestions>` so the person accepts items into the tool's own store, with Undo.
+6. `test/ai/task-contract.test.ts` checks every task's caps, token minimum, fallback and prompt, that each task has one ref in its lite module carrying the def's own fallback, and that pages import lite modules only (no zod on a tool page). Add a golden test for the task's own fallback and a sample answer.
 
-The example task `ai.suggest_options` (`src/lib/ai/tasks/_example.ts`) shows the whole pattern.
+The example task `ai.suggest_options` (`src/lib/ai/tasks/_example.lite.ts`, `_example.ts`, `_example.server.ts`) shows the whole pattern.
 
 ### The probe
 

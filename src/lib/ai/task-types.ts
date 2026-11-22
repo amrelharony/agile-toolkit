@@ -2,10 +2,17 @@
  * The shape of one tool AI task: what a tool asks Amr's AI to do, with what
  * input, and what comes back. Browser-safe: no server code, no prompt text.
  *
- * Every task comes in two modules (see lib/ai/tasks/_example.ts):
+ * Every task comes in three modules (see lib/ai/tasks/_example.lite.ts and
+ * lib/ai/task-ref):
+ *   - `tasks/<toolId>.lite.ts`, no zod: the values pages use (caps, labels,
+ *     pure helpers), each task's fallback as a named function, and one lazy
+ *     ref per task (lazyAiTask), with the def's export name. The tool page
+ *     imports this module only and passes the ref to the Ask Amr button; the
+ *     fallback runs in the browser when there is no AI.
  *   - `tasks/<toolId>.ts`, browser-safe: the AiTaskDef below, made with
- *     defineAiTask. The tool page imports it for the Ask Amr button, and its
- *     `fallback` runs in the browser when there is no AI.
+ *     defineAiTask, with its zod schemas and the same fallback function,
+ *     imported from the lite module. The routes, the registry and the tests
+ *     read it; a page loads it only on the first AI use.
  *   - `tasks/<toolId>.server.ts`, server-only: the AiTaskPrompt, made with
  *     defineAiPrompt. Only the routes read it, so a prompt never reaches the
  *     browser and the browser never sends one.

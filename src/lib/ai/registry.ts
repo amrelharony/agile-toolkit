@@ -1,10 +1,10 @@
 /**
  * Look up a tool AI task by id. Browser-safe (schemas and fallbacks only).
  *
- * The routes use it to find the task a request names. A tool page should
- * import its own task module directly (`@/lib/ai/tasks/<toolId>`) and pass the
- * def to useToolAi / <AiButton>, so a page bundles only its own tasks, not
- * this whole list.
+ * The routes use it to find the task a request names. A tool page imports
+ * its task's lazy ref from `@/lib/ai/tasks/<toolId>.lite` (lib/ai/task-ref)
+ * and passes it to useToolAi / <AiButton>, so a page bundles neither this
+ * list nor any schema.
  */
 
 import type { AiTaskDef } from "./task-types";
