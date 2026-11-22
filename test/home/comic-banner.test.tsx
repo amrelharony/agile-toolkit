@@ -91,7 +91,7 @@ describe("the home page's comic card", () => {
     render(await Home());
     expect(h.limits).toEqual([1]);
     expect(card()).toHaveAccessibleName(STORY.title);
-    expect(revalidate).toBe(600);
+    expect(revalidate).toBe(86400);
   });
 
   it("shows the book, not an error, when the stories can't be read", async () => {

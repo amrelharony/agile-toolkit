@@ -4,8 +4,11 @@ import { listReleasedWeekly } from "@/lib/comics/store";
 import { SECTION_ART } from "@/lib/ink/drawings/sections";
 import type { StorySummary } from "@/lib/comics/types";
 
-/** About every 10 minutes, like /comics, so a Sunday's story reaches home too. */
-export const revalidate = 600;
+/**
+ * Once a day, like /comics, and at once when a story comes out or is saved
+ * (lib/comics/revalidate), so a Sunday's story reaches home too.
+ */
+export const revalidate = 86400;
 
 /**
  * The home page never fails for the comic's sake: if the stories can't be read

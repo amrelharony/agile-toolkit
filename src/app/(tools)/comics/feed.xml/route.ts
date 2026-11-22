@@ -2,7 +2,7 @@ import { renderFeed, FEED_ITEM_LIMIT } from "@/lib/comics/feed";
 import { listReleasedWeekly } from "@/lib/comics/store";
 
 /** Static like the pages, and it keeps its last good copy the same way. */
-export const revalidate = 600;
+export const revalidate = 86400;
 
 export async function GET() {
   const stories = await listReleasedWeekly(FEED_ITEM_LIMIT);
