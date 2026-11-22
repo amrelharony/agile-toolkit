@@ -24,6 +24,8 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 import FlashcardsPage, { metadata, revalidate } from "@/app/(tools)/comics/flashcards/page";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
 import { POSTER_ART } from "@/lib/comics/poster-panels.generated";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { useMascotStore } from "@/lib/agent/mascot/store";
 
 const STORAGE = "https://ref.supabase.co/storage/v1/object/public/comic-panels/";
 
@@ -99,6 +101,50 @@ describe("the flashcards", () => {
     expect(within(deck()).getByText(BOOK_EPISODES[0].question)).toBeTruthy();
     fireEvent.click(within(deck()).getByRole("button", { name: "Back to the title" }));
     expect(within(deck()).queryByText(BOOK_EPISODES[0].lesson)).toBeNull();
+  });
+
+  it("have Amr think before he flips his own card, the first time a lesson shows on a visit", async () => {
+    useMascotStore.setState({ ready: true, reactionQueue: [] });
+    const { unmount } = render(await FlashcardsPage());
+    const turn = () =>
+      fireEvent.click(
+        within(deck()).getByRole("button", { name: /Show the lesson|Back to the title/ })
+      );
+    turn();
+    expect(useMascotStore.getState().reactionQueue).toEqual([`scene:${EVENT_SCENES.flashcard}`]);
+    // Back to the title is nothing to mark, and a second lesson this visit plays nothing.
+    turn();
+    turn();
+    fireEvent.click(within(deck()).getByRole("button", { name: /^Next/ }));
+    turn();
+    expect(useMascotStore.getState().reactionQueue).toHaveLength(1);
+    // The next visit to the page starts afresh.
+    unmount();
+    useMascotStore.setState({ reactionQueue: [] });
+    render(await FlashcardsPage());
+    turn();
+    expect(useMascotStore.getState().reactionQueue).toEqual([`scene:${EVENT_SCENES.flashcard}`]);
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
+  });
+
+  it("leave Amr alone while he isn't on screen", async () => {
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
+    render(await FlashcardsPage());
+    fireEvent.click(within(deck()).getByRole("button", { name: "Show the lesson" }));
+    expect(useMascotStore.getState().reactionQueue).toEqual([]);
+  });
+
+  it("never play for turning back to the title, even while the visit's lesson is still to come", async () => {
+    // Turned to the lesson before he's on screen: nothing plays, and the once stays unspent.
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
+    render(await FlashcardsPage());
+    fireEvent.click(within(deck()).getByRole("button", { name: "Show the lesson" }));
+    useMascotStore.setState({ ready: true });
+    fireEvent.click(within(deck()).getByRole("button", { name: "Back to the title" }));
+    expect(useMascotStore.getState().reactionQueue).toEqual([]);
+    fireEvent.click(within(deck()).getByRole("button", { name: "Show the lesson" }));
+    expect(useMascotStore.getState().reactionQueue).toEqual([`scene:${EVENT_SCENES.flashcard}`]);
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
   });
 
   it("move card by card, each starting on its title, with the weekly stories after the book", async () => {

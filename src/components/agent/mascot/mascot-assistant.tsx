@@ -44,16 +44,20 @@ import {
   type RefObject,
 } from "react";
 import dynamic from "next/dynamic";
-import { X, Plus, History, Sparkles, Smartphone } from "lucide-react";
+import { X, Plus, History, Sparkles, Smartphone, Clapperboard } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAgentStore } from "@/lib/agent/store";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { ChatVisibleContext } from "../chat-visibility";
 import { visitorAiEnabled } from "@/lib/visitor-ai/contract";
 import { did, feel, getMind, recentlyDid } from "@/lib/agent/mascot/mind";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
 import { useMascotChatReactions } from "@/lib/agent/mascot/use-chat-reactions";
 import { useMascotToolReactions } from "@/lib/agent/mascot/use-tool-reactions";
 import { useMascotCelebrationReactions } from "@/lib/agent/mascot/use-celebration-reactions";
+import { useQuietCompanion } from "@/lib/agent/mascot/use-quiet-companion";
+import { useMuteScene } from "@/lib/agent/mascot/use-mute-scene";
+import { playEventScene } from "@/lib/agent/mascot/event-scenes";
 import { createClickInteraction } from "./engine/interactions/clicks";
 import { createTouchInteraction, zoneAt, type TouchPoint } from "./engine/interactions/touch";
 import {
@@ -64,7 +68,7 @@ import {
 } from "./engine/interactions/sensors";
 import { installKonami } from "./engine/customization/commands";
 import { followUp, sceneOfShot } from "./engine/scene-taps";
-import { sceneReaction } from "./engine/scenes";
+import { EVENT_SCENES, sceneReaction } from "./engine/scenes";
 import { MascotBubble } from "./mascot-bubble";
 import { inviteMotion } from "./motion-invite";
 import { playMascotSound } from "./engine/audio/mascot-audio";
@@ -610,12 +614,20 @@ const OwnerAgentPanel = dynamic(() => import("./owner-agent-panel"), {
   ssr: false,
   loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
 });
+// Amr's scenes: its titles and thumbnail atlas load only when the view first opens.
+const ScenesTab = dynamic(() => import("./scenes-tab"), {
+  ssr: false,
+  loading: () => <div className="min-h-0 flex-1" aria-busy="true" />,
+});
 
 export function MascotAssistant() {
   const open = useAgentStore((s) => s.open);
   const toggleSheet = useAgentStore((s) => s.toggleSheet);
   const closeSheet = useAgentStore((s) => s.closeSheet);
   const [showHistory, setShowHistory] = useState(false);
+  const [showScenes, setShowScenes] = useState(false);
+  // A write waiting for a yes: its card has to be seen (scenesOpen, below).
+  const confirmPending = useAgentStore((s) => s.pendingToolUse !== null);
   // `settled` keeps the owner from seeing the visitor notice flash while
   // auth is still loading; no chat component mounts until it's settled.
   const { isOwner, settled, visitor } = useOwnerState();
@@ -637,6 +649,25 @@ export function MascotAssistant() {
   const [figureFailed, setFigureFailed] = useState(false);
   const mountFigure = loadFigure && !figureFailed;
   const showFigure = mountFigure && figureReady;
+
+  // Amr's scenes cover the chat or the guide, which stays mounted under them so a
+  // turn in flight goes on. They give way to a confirmation card the moment one
+  // arrives (hidden, the card would still take Escape as a deny, and the turn would
+  // wait on a card nobody sees), and with no figure there is no one to act them out.
+  const scenesOpen = showScenes && !confirmPending && !figureFailed;
+  // The panel opens on the chat or the guide again, not on the scenes it closed on,
+  // and the scenes don't come back once the confirmation that pushed them aside is answered.
+  useEffect(() => {
+    if (!open || confirmPending || figureFailed) setShowScenes(false);
+  }, [open, confirmPending, figureFailed]);
+  // A tapped scene plays with the panel closed, so he's in view. While a turn is
+  // still running, closing the panel would stop it: back to the chat instead, with
+  // him beside the panel.
+  const onScenePlayed = () => {
+    const { streaming, pendingToolUse } = useAgentStore.getState();
+    if (streaming || pendingToolUse) setShowScenes(false);
+    else closeSheet();
+  };
 
   // Owner signed out mid-session: drop the conversation from memory. (The
   // chat panel unmounts at the same moment, which aborts any in-flight turn.)
@@ -766,6 +797,20 @@ export function MascotAssistant() {
   // drag, or on unmount) so they never leak past an in-progress drag.
   const dragCleanupRef = useRef<(() => void) | null>(null);
   useEffect(() => () => dragCleanupRef.current?.(), []);
+  // Moved from the bottom right to the bottom left: once he has landed, he shows
+  // the corner chosen and holds it (X108), once a page. The sheet draws that one
+  // move (its marker leaves the lower-right cup for the lower-left), so any other
+  // drop would hold a corner the visitor didn't pick. Nothing keeps the corner
+  // past this visit, so nothing in the scene says it was saved.
+  const cornerScene = useRef<{ pending: boolean; playedOn: string | null }>({
+    pending: false,
+    playedOn: null,
+  });
+  const playCornerScene = () => {
+    const page = window.location.pathname;
+    if (cornerScene.current.playedOn === page) return;
+    if (playEventScene(EVENT_SCENES.corner)) cornerScene.current.playedOn = page;
+  };
   // Dropped or thrown: he flies from where he was let go to his corner, then lands.
   const flightRef = useRef<{ left: number; top: number; thrown: boolean } | null>(null);
   useIsomorphicLayoutEffect(() => {
@@ -780,6 +825,11 @@ export function MascotAssistant() {
       landed = true;
       mascot.setHold(hold, false);
       mascot.playNow("land");
+      // After the landing, never over it.
+      if (cornerScene.current.pending) {
+        cornerScene.current.pending = false;
+        playCornerScene();
+      }
     };
     const el = buttonRef.current;
     if (!el || typeof el.animate !== "function") return land();
@@ -884,6 +934,13 @@ export function MascotAssistant() {
           cx < window.innerWidth / 2 ? "Left" : "Right"
         }` as Corner;
         setCorner(next);
+        // A real change, and the one X108 draws: from the bottom right where he
+        // stood (where a step aside had put him counts) to the bottom left. With
+        // reduced motion there's no landing to wait for.
+        if (placed === "bottomRight" && next === "bottomLeft") {
+          if (flightRef.current) cornerScene.current.pending = true;
+          else playCornerScene();
+        }
         // Dropped where the visitor wants him: that corner, not where he'd
         // stepped aside to, and he keeps to that side from now on.
         resetNudge();
@@ -971,6 +1028,10 @@ export function MascotAssistant() {
   useMascotToolReactions(sceneShipped);
   // Cheer once when a rare moment plays (lib/notify/moment-scheduler.ts).
   useMascotCelebrationReactions();
+  // Turned down to Quiet by the visitor: he covers his bell and settles while it lasts.
+  useQuietCompanion();
+  // The visitor switches the sounds off: he sleeves his tuning fork (X109), once a page.
+  useMuteScene();
 
   // Cmd/Ctrl+J toggles — the de-facto AI-chat shortcut (moved from agent-sheet).
   // Skip when typing in an editable element so it can't steal focus mid-edit.
@@ -1024,10 +1085,11 @@ export function MascotAssistant() {
           style={panelPos(placed, showFigure, box.h, isPhone, nudge.lift)}
           className="fixed z-50 flex h-[min(68vh,560px)] w-[min(92vw,380px)] flex-col overflow-hidden panel bg-surface-deep shadow-xl"
         >
-          <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
-            <div>
+          <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+            {/* On a narrow phone the buttons keep their room and this stays one line. */}
+            <div className="min-w-0">
               <p className="text-sm font-semibold text-text">✦ Amr</p>
-              <p className="text-xs text-sub">
+              <p className="truncate text-xs text-sub">
                 {isOwner
                   ? "Drive every tool"
                   : visitorAi
@@ -1037,7 +1099,7 @@ export function MascotAssistant() {
                 <span className="pointer-coarse:hidden"> · Cmd/Ctrl+J</span>
               </p>
             </div>
-            <div className="flex items-center gap-0.5">
+            <div className="flex shrink-0 items-center gap-0.5">
               {isOwner && (
                 <>
                   <button
@@ -1045,6 +1107,7 @@ export function MascotAssistant() {
                     onClick={() => {
                       useAgentStore.getState().reset();
                       setShowHistory(false);
+                      setShowScenes(false);
                     }}
                     aria-label="New chat"
                     title="New chat"
@@ -1054,7 +1117,10 @@ export function MascotAssistant() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => setShowHistory((v) => !v)}
+                    onClick={() => {
+                      setShowHistory((v) => !v);
+                      setShowScenes(false);
+                    }}
                     aria-label="Conversation history"
                     title="History"
                     aria-pressed={showHistory}
@@ -1065,6 +1131,27 @@ export function MascotAssistant() {
                     <History className="h-4 w-4" aria-hidden="true" />
                   </button>
                 </>
+              )}
+              {/* No figure, no one to act a scene out; a confirmation waiting comes first. */}
+              {!figureFailed && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowScenes(!scenesOpen);
+                    setShowHistory(false);
+                  }}
+                  disabled={confirmPending}
+                  aria-label="Amr's scenes"
+                  title={
+                    confirmPending ? "Scenes, once the action is confirmed or denied" : "Scenes"
+                  }
+                  aria-pressed={scenesOpen}
+                  className={`min-touch-coarse inline-flex items-center justify-center rounded-md p-1 transition-colors hover:bg-accent/10 hover:text-text disabled:pointer-events-none disabled:opacity-50 ${
+                    scenesOpen ? "text-accent" : "text-sub"
+                  }`}
+                >
+                  <Clapperboard className="h-4 w-4" aria-hidden="true" />
+                </button>
               )}
               {motionAvailable && (
                 <button
@@ -1094,21 +1181,28 @@ export function MascotAssistant() {
               </button>
             </div>
           </div>
-          {!isOwner ? (
-            <div className="min-h-0 flex-1" aria-busy={!settled}>
-              {settled &&
-                (visitorAi ? (
-                  <VisitorPanel onNavigate={closeSheet} />
-                ) : (
-                  <VisitorGuide onNavigate={closeSheet} />
-                ))}
+          {scenesOpen && <ScenesTab onPlay={onScenePlayed} />}
+          {/* Under the scenes the chat or guide stays mounted (a turn in flight goes on),
+              hidden, and knows it; otherwise `contents` keeps its layout exactly as before. */}
+          <ChatVisibleContext.Provider value={!scenesOpen}>
+            <div hidden={scenesOpen} className={scenesOpen ? "hidden" : "contents"}>
+              {!isOwner ? (
+                <div className="min-h-0 flex-1" aria-busy={!settled}>
+                  {settled &&
+                    (visitorAi ? (
+                      <VisitorPanel onNavigate={closeSheet} />
+                    ) : (
+                      <VisitorGuide onNavigate={closeSheet} />
+                    ))}
+                </div>
+              ) : (
+                <OwnerAgentPanel
+                  showHistory={showHistory}
+                  onCloseHistory={() => setShowHistory(false)}
+                />
+              )}
             </div>
-          ) : (
-            <OwnerAgentPanel
-              showHistory={showHistory}
-              onCloseHistory={() => setShowHistory(false)}
-            />
-          )}
+          </ChatVisibleContext.Provider>
         </div>
       )}
 

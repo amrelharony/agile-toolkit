@@ -27,6 +27,8 @@ import {
 } from "@/app/(tools)/comics/components/love-button";
 import { StoryStats } from "@/app/(tools)/comics/components/story-stats";
 import { COUNTED_KEY, isLoveCounted, isLoved, markRead, totalSeconds } from "@/lib/comics/reading";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { useMascotStore } from "@/lib/agent/mascot/store";
 
 const fetchMock = vi.fn();
 const beacon = vi.fn(() => true);
@@ -406,6 +408,59 @@ describe("LoveButton", () => {
     render(<LoveButton ep={31} initialLoves={3} />);
     await act(async () => fireEvent.click(heart()));
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  describe("and Amr", () => {
+    const queue = () => useMascotStore.getState().reactionQueue;
+    const card = `scene:${EVENT_SCENES.feedback}`;
+    beforeEach(() => useMascotStore.setState({ ready: true, reactionQueue: [] }));
+    afterEach(() => useMascotStore.setState({ ready: false, reactionQueue: [] }));
+
+    it("holds his feedback card at the slot for a love given, once a visit", async () => {
+      fetchMock.mockResolvedValue(answer(25));
+      render(<LoveButton ep={30} initialLoves={24} />);
+      await act(async () => fireEvent.click(heart()));
+      expect(queue()).toEqual([card]);
+      // Taken back, then given again: still the same visit's feedback.
+      await act(async () => fireEvent.click(heart()));
+      await act(async () => fireEvent.click(heart()));
+      expect(queue()).toEqual([card]);
+    });
+
+    it("never for a love taken back, or one only caught up from another tab", async () => {
+      localStorage.setItem(
+        "agile-toolkit:comics:reading",
+        JSON.stringify({ loved: { 30: "2026-11-08T08:00:00Z" } })
+      );
+      const first = render(<LoveButton ep={30} initialLoves={2} />);
+      await act(async () => fireEvent.click(heart()));
+      expect(heart().getAttribute("aria-pressed")).toBe("false");
+      expect(queue()).toEqual([]);
+      first.unmount();
+      render(<LoveButton ep={30} initialLoves={2} />);
+      // Another tab loved it meanwhile: this press only catches up ("unchanged").
+      localStorage.setItem(
+        "agile-toolkit:comics:reading",
+        JSON.stringify({ loved: { 30: "2026-11-08T08:00:00Z" } })
+      );
+      await act(async () => fireEvent.click(heart()));
+      expect(heart().getAttribute("aria-pressed")).toBe("true");
+      expect(queue()).toEqual([]);
+    });
+
+    it("nor one this browser couldn't keep", async () => {
+      const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+      try {
+        render(<LoveButton ep={30} initialLoves={2} />);
+        await act(async () => fireEvent.click(heart()));
+        expect(heart().getAttribute("aria-pressed")).toBe("true");
+        expect(queue()).toEqual([]);
+      } finally {
+        setItem.mockRestore();
+      }
+    });
   });
 });
 

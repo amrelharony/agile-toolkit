@@ -16,6 +16,7 @@ import { ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { VISITOR_AI_CONSENT_TEXT, VISITOR_AI_DAILY_MESSAGES } from "@/lib/site/disclosures";
 import { storeVisitorAiConsent } from "@/lib/visitor-ai/consent";
+import { awaitDecision } from "@/lib/agent/mascot/companion";
 
 // The key, its version and the storage helpers live in lib/visitor-ai/consent.ts,
 // which the tools' compact card uses too; re-exported here for the panel and
@@ -47,6 +48,12 @@ export function VisitorAiConsent({
   const cardRef = useRef<HTMLElement>(null);
   useEffect(() => {
     cardRef.current?.focus();
+  }, []);
+  // Two answers, Agree and Not now: Amr holds out the two options and waits for
+  // the visitor's, for as long as the card is up (every way out unmounts it).
+  useEffect(() => {
+    awaitDecision("consent", true);
+    return () => awaitDecision("consent", false);
   }, []);
 
   return (

@@ -12,7 +12,13 @@
  *
  * Most of these scenes come from the tool sheets (docs/mascot/context-sheets.json,
  * S65 on). A scene plays only once its sheet has been drawn and built into a pack
- * (shippedScene), so rows can name scenes before their art exists. Pure data.
+ * (shippedScene), so rows can name scenes before their art exists. The More tools
+ * shelf's come from the expansion's tool lab (docs/mascot/expansion-sheets.json,
+ * X025–X056), each bound only where docs/mascot/expansion-triggers.md says. Nine
+ * cast encounters (X085–X104) play on the very action their trigger names, and
+ * never greet: six beside the scene that action already plays, one picked at
+ * random, and three (X097, X103, X104) as the only scene of an action no other
+ * scene answers. Pure data.
  */
 
 export interface ToolScenes {
@@ -109,7 +115,7 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   {
     toolId: "retro-actions",
     open: ["todo"],
-    actions: { action_done: ["todo.done"], action_added: ["todo.take"] },
+    actions: { action_done: ["todo.done", "x100"], action_added: ["todo.take"] },
   },
   {
     toolId: "premortem",
@@ -183,7 +189,7 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   {
     toolId: "dod-builder",
     open: ["done"],
-    actions: { criterion_toggled: ["done.stamp"], criterion_added: ["done.tick"] },
+    actions: { criterion_toggled: ["done.stamp"], criterion_added: ["done.tick", "x085"] },
   },
   {
     toolId: "skills-matrix",
@@ -273,10 +279,18 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: ["nps"],
     actions: { responses_imported: ["nps.read"], survey_added: ["nps.card"] },
   },
+  // A measured result committed against the target is X097's evidence check; it claims no
+  // verdict (validated and invalidated are moments of their own). A result cleared from the
+  // field is logged apart (result_cleared), which nothing here answers.
   {
     toolId: "hypothesis-tracker",
     open: ["lab"],
-    actions: { hypothesis_added: ["lab.pour"], validated: ["lab.yes"], invalidated: ["lab.no"] },
+    actions: {
+      hypothesis_added: ["lab.pour"],
+      result_recorded: ["x097"],
+      validated: ["lab.yes"],
+      invalidated: ["lab.no"],
+    },
   },
   {
     toolId: "user-interviews",
@@ -288,10 +302,12 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: ["tree"],
     actions: { node_added: ["tree.grow"], experiment_sent: ["tree.share"] },
   },
+  // A test created hasn't run: X095 stops before its cart crosses. test_generated, logged in
+  // the same handler, stays unbound, so the test created is what he answers.
   {
     toolId: "riskiest-assumption",
     open: ["assume"],
-    actions: { assumption_added: ["assume.doubt"], test_created: ["assume.test"] },
+    actions: { assumption_added: ["assume.doubt"], test_created: ["assume.test", "x095.setup"] },
   },
   // Quality and risk
   {
@@ -302,12 +318,17 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   {
     toolId: "tech-debt",
     open: ["debt"],
-    actions: { item_added: ["debt.pile"], item_resolved: ["debt.clean"] },
+    actions: { item_added: ["debt.pile"], item_resolved: ["debt.clean", "x099"] },
   },
+  // A test the visitor marks fixed (X090, the repair) or quarantined (X103, set aside safely).
   {
     toolId: "flaky-tests",
     open: ["flaky"],
-    actions: { test_added: ["flaky.wobble"], test_fixed: ["flaky.fixed"] },
+    actions: {
+      test_added: ["flaky.wobble"],
+      test_fixed: ["flaky.fixed", "x090"],
+      test_quarantined: ["x103"],
+    },
   },
 
   // ── Tools that borrow a tool sheet's scenes ──
@@ -338,7 +359,7 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: ["gavel"],
     actions: { decision_added: ["gavel.record"], decision_decided: ["gavel.bang"] },
   },
-  { toolId: "async-standup", open: [], actions: { update_posted: ["timer.standup"] } },
+  { toolId: "async-standup", open: [], actions: { update_posted: ["timer.standup", "x094"] } },
   // wall_saved has no scene: the same tick cheers ("audience-wall", "result").
   { toolId: "audience-wall", open: [], actions: { themes_accepted: ["sticky.think"] } },
   // Amr thinks along while the team asks why or lays out causes.
@@ -361,6 +382,94 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: [],
     actions: { card_dealt: ["poker.reveal"], deck_shuffled: ["poker"] },
   },
+
+  // ── The expansion's tool lab (X025–X056) ──
+  // One sheet per tool on the More tools shelf. Opening the tool plays its sheet as the
+  // catalog's illustrative preview; an action plays it only where the tool logs the very
+  // event its trigger names (docs/mascot/expansion-triggers.md). A `.preview` stops
+  // before an outcome the trigger keeps for an event the tool doesn't record.
+  // The ring a new blip lands in, and which way a move goes, are only in the payload: a
+  // blip added or moved to any ring, Hold included, plays the peg lifted, never seated inward.
+  {
+    toolId: "tech-radar",
+    open: ["x025"],
+    actions: { blip_added: ["x025.lift"], blip_moved: ["x025.lift"] },
+  },
+  // "Enters review" is rfc_updated, shared with reviewer and comment edits; a new RFC is
+  // a draft, and rfc_decided is a decision, not the review offer the scene ends on.
+  { toolId: "rfc-tracker", open: ["x026"], actions: {} },
+  { toolId: "space-pulse", open: ["x027"], actions: { score_logged: ["x027"] } },
+  { toolId: "devex-survey", open: ["x028"], actions: { response_logged: ["x028"] } },
+  { toolId: "slo-builder", open: ["x029"], actions: { burn_logged: ["x029"] } },
+  { toolId: "platform-maturity", open: ["x030"], actions: { assessment_saved: ["x030"] } },
+  { toolId: "incident-commander", open: ["x031"], actions: { timeline_logged: ["x031"] } },
+  {
+    toolId: "post-mortem",
+    open: ["x032"],
+    actions: { postmortem_added: ["x032"], postmortem_published: ["x032"] },
+  },
+  {
+    toolId: "oncall-roster",
+    open: ["x033"],
+    actions: { shift_added: ["x033"], page_logged: ["x033"] },
+  },
+  // runbook_scored is any field edit, the tested switch on or off alike: no test entry.
+  { toolId: "runbook-scorer", open: ["x034"], actions: {} },
+  { toolId: "threat-model", open: ["x035"], actions: { threat_added: ["x035"] } },
+  // No recheck is recorded, so a resolved vulnerability gets the procedure up to it.
+  {
+    toolId: "vuln-burndown",
+    open: ["x036.preview"],
+    actions: { vuln_resolved: ["x036.preview"] },
+  },
+  { toolId: "control-map", open: ["x037"], actions: { evidence_added: ["x037"] } },
+  // No keyboard retest is recorded: a resolved issue gets the fix, not the retested path.
+  {
+    toolId: "a11y-tracker",
+    open: ["x038.preview"],
+    actions: { issue_resolved: ["x038.preview"] },
+  },
+  {
+    toolId: "wardley-map",
+    open: ["x039"],
+    actions: { component_added: ["x039"], link_added: ["x039"] },
+  },
+  // eval_logged is one score, not a comparison or a regression.
+  { toolId: "llm-eval-tracker", open: ["x040.preview"], actions: {} },
+  { toolId: "prompt-registry", open: ["x041"], actions: { prompt_drafted: ["x041"] } },
+  // section_updated is logged whenever a field loses focus, changed or not.
+  { toolId: "ai-feature-spec", open: ["x042"], actions: {} },
+  // Marking one resolved attaches no source and records no correction.
+  { toolId: "hallucination-log", open: ["x043.preview"], actions: {} },
+  { toolId: "token-cost-tracker", open: ["x044"], actions: { spend_logged: ["x044"] } },
+  // model_added is also logged when Run all starts a live compare, before any result.
+  { toolId: "model-comparison", open: ["x045"], actions: {} },
+  // A checklist update, ticked or unticked alike (which one is only in the payload, which
+  // Amr never hears): the scene keeps a check open, never closes one.
+  { toolId: "ai-safety-checklist", open: ["x046"], actions: { item_toggled: ["x046"] } },
+  // step_toggled carries only the step's id, not whether it's now done, and Amr hears no
+  // payload anyway.
+  { toolId: "model-migration", open: ["x047"], actions: {} },
+  { toolId: "agentic-workflow", open: ["x048"], actions: { workflow_added: ["x048"] } },
+  // No rerun of the attack is recorded: a resolved finding gets the procedure up to it.
+  {
+    toolId: "ai-red-team",
+    open: ["x049.preview"],
+    actions: { finding_resolved: ["x049.preview"] },
+  },
+  // A disagreement or a low rating is only in the payload, which Amr never sees.
+  { toolId: "hitl-quality", open: ["x050"], actions: {} },
+  // A tie is logged the same way: the pair compared, no preference kept.
+  { toolId: "rlhf-log", open: ["x051"], actions: { pair_logged: ["x051.compare"] } },
+  {
+    toolId: "vector-store-inventory",
+    open: ["x052"],
+    actions: { collection_added: ["x052"] },
+  },
+  { toolId: "model-card", open: ["x053"], actions: { card_saved: ["x053"] } },
+  { toolId: "ooda-loop", open: ["x054"], actions: { cycle_completed: ["x054"] } },
+  { toolId: "stacey-matrix", open: ["x055"], actions: { item_added: ["x055"] } },
+  { toolId: "polarity-map", open: ["x056"], actions: { polarity_added: ["x056"] } },
 
   // ── Tools with the toolkit moments (S54–S59): no greeting, but their packs
   // load when the page opens, so the first reaction plays whole ──
@@ -423,7 +532,12 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   },
   { toolId: "velocity", open: [], actions: { sprint_closed: ["ship"] } },
   { toolId: "sprint", open: [], actions: { sprint_closed: ["ship"] } },
-  { toolId: "sprint-planning", open: [], actions: { sprint_committed: ["ship.rocket"] } },
+  // A closed sprint's leftovers sent back to the backlog: off the carry-over loop (X104).
+  {
+    toolId: "sprint-planning",
+    open: [],
+    actions: { sprint_committed: ["ship.rocket"], stories_returned: ["x104"] },
+  },
   { toolId: "kudos", open: [], actions: { kudos_sent: ["kudos"] } },
 ];
 

@@ -1,0 +1,432 @@
+{
+  "about": "Amr's companion scenes N01-N10: short stories, most with a small colleague beside him, drawn whole (sheets 1536 x 1024, eight 384 x 512 slots, slot 1 Amr alone as calibration). They are a separate, additive group: scripts/build-mascot-scenes.py builds them as baked scenes (one uniform scale per sheet from slot 1, Amr-only feet anchor, no head, skin, clothes or hair correction, so a cameo's own colours are never read as his), and scripts/build-mascot-packs.py keeps their packs as they are. The N ids are the art package's names (AMR_Sprites.zip, 2026-11-10); since 2026-11-15 the sheets are the refined release's (Amr_Refined_Original_124.zip, every Amr redrawn whole from the approved standing master; docs/mascot/refined-original-release.json); they take no S number. `slots` are slots 2-8. `segments` and `gate` say when each part may truthfully play (engine/companion-scenes.ts).",
+  "group": "baked-scene",
+  "sheets": [
+    {
+      "id": "N01",
+      "pack": "reviewer",
+      "title": "AI Reviewer",
+      "file": "N01-ai-reviewer.png",
+      "sha256": "707a87d775469f250b180e065dba4ed0222cc843fc72e62f4dc1cfb422037d28",
+      "cast": "a small helper robot",
+      "slots": [
+        {
+          "id": "reviewer.offer",
+          "pose": "Robot offers a result"
+        },
+        {
+          "id": "reviewer.book",
+          "pose": "Open the reference book"
+        },
+        {
+          "id": "reviewer.compare",
+          "pose": "Compare result and reference"
+        },
+        {
+          "id": "reviewer.correct",
+          "pose": "Correct the result card"
+        },
+        {
+          "id": "reviewer.show",
+          "pose": "Show the correction"
+        },
+        {
+          "id": "reviewer.approve",
+          "pose": "Approve after review"
+        },
+        {
+          "id": "reviewer.present",
+          "pose": "Present the checked result"
+        }
+      ],
+      "segments": {
+        "entry": [2, 3, 4, 5, 6],
+        "hold": [6],
+        "affirmative": [7, 8],
+        "illustration": [2, 3, 4, 5, 6, 7, 8],
+        "note": "With no real review to wait on, the hold and the approval (7-8) are never bound to anything: the whole story plays only as an illustration."
+      },
+      "gate": "Illustration only. No review service exists, so the approval beat is never bound to an answer or a tool result: it plays only when the visitor asks for it (/play reviewer in Amr's chat)."
+    },
+    {
+      "id": "N02",
+      "pack": "dino",
+      "title": "Dinosaur Priorities",
+      "file": "N02-dinosaur-priorities.png",
+      "sha256": "e930260c16e2242b7869e460d8560d42c9bb7615acd6466f6ff33c368aace194",
+      "cast": "Dinosaur",
+      "slots": [
+        {
+          "id": "dino.offer",
+          "pose": "Dinosaur offers the stack"
+        },
+        {
+          "id": "dino.take",
+          "pose": "Amr takes the stack"
+        },
+        {
+          "id": "dino.consider",
+          "pose": "Consider the priorities"
+        },
+        {
+          "id": "dino.choose",
+          "pose": "Choose one card"
+        },
+        {
+          "id": "dino.return",
+          "pose": "Return the remaining stack"
+        },
+        {
+          "id": "dino.keep",
+          "pose": "Keep one clear next item"
+        },
+        {
+          "id": "dino.present",
+          "pose": "Present the next priority"
+        }
+      ],
+      "segments": {
+        "entry": [2, 3, 4, 5, 6, 7, 8]
+      },
+      "gate": "Now and then as an idle pastime on the prioritisation tools (moments.ts PAGE_PASTIMES), or on request (/play). An illustration of keeping one next item: it never stands for a change in the visitor's backlog."
+    },
+    {
+      "id": "N03",
+      "pack": "rabbit",
+      "title": "Deadline Rabbit Rush",
+      "file": "N03-deadline-rabbit-rush.png",
+      "sha256": "e646d96754c6251aceab96cab03b192e18afea5433a730e5250955b88a93c1ab",
+      "cast": "Deadline Rabbit",
+      "slots": [
+        {
+          "id": "rabbit.arrive",
+          "pose": "Rabbit arrives anxious"
+        },
+        {
+          "id": "rabbit.pause",
+          "pose": "Pause gently"
+        },
+        {
+          "id": "rabbit.reassure",
+          "pose": "Reassure Rabbit"
+        },
+        {
+          "id": "rabbit.card",
+          "pose": "Show one next-step card"
+        },
+        {
+          "id": "rabbit.present",
+          "pose": "Present the next step"
+        },
+        {
+          "id": "rabbit.encourage",
+          "pose": "Encourage calmly"
+        },
+        {
+          "id": "rabbit.relax",
+          "pose": "Rabbit relaxes"
+        }
+      ],
+      "segments": {
+        "entry": [2, 3, 4, 5, 6, 7, 8]
+      },
+      "gate": "The stuck offer (three quick taps on one spot, or a form refused twice; once per page per visit): the \"Need a hand?\" offer shows at once, and the story starts beside it. The rabbit is the one who's anxious, never the visitor. Also on request (/play)."
+    },
+    {
+      "id": "N04",
+      "pack": "octopus",
+      "title": "Octopus Overload",
+      "file": "N04-octopus-overload.png",
+      "sha256": "5239a9d74b7a3b612104936b59c0de633247bd9a183c27719b8e5d41fb830700",
+      "cast": "Overengineering Octopus",
+      "slots": [
+        {
+          "id": "octopus.offer",
+          "pose": "Octopus offers simultaneous tasks"
+        },
+        {
+          "id": "octopus.pause",
+          "pose": "Pause the stream"
+        },
+        {
+          "id": "octopus.collect",
+          "pose": "Collect the task cards"
+        },
+        {
+          "id": "octopus.organise",
+          "pose": "Organise the cards"
+        },
+        {
+          "id": "octopus.focus",
+          "pose": "Focus on one card"
+        },
+        {
+          "id": "octopus.park",
+          "pose": "Park the remaining tasks"
+        },
+        {
+          "id": "octopus.handle",
+          "pose": "Handle one calmly"
+        }
+      ],
+      "segments": {
+        "entry": [2, 3, 4, 5, 6, 7, 8]
+      },
+      "gate": "Now and then as an idle pastime on the flow tools (kanban, cumulative flow, cycle time, value stream), or on request (/play). An illustration of one thing at a time: it never reads the visitor's queue."
+    },
+    {
+      "id": "N05",
+      "pack": "ahwa",
+      "title": "Ahwa Debrief",
+      "file": "N05-ahwa-debrief.png",
+      "sha256": "5d2aa5a981bb4d6ae662cc6da182371db5ee3271d2dbac0387c35aca131feb2b",
+      "cast": "Ahwa Cup",
+      "slots": [
+        {
+          "id": "ahwa.after",
+          "pose": "A difficult moment passes"
+        },
+        {
+          "id": "ahwa.glance",
+          "pose": "Exchange a glance"
+        },
+        {
+          "id": "ahwa.look",
+          "pose": "A knowing look"
+        },
+        {
+          "id": "ahwa.chuckle",
+          "pose": "Share a quiet chuckle"
+        },
+        {
+          "id": "ahwa.relax",
+          "pose": "Relax the shoulders"
+        },
+        {
+          "id": "ahwa.settle",
+          "pose": "Settle together"
+        },
+        {
+          "id": "ahwa.calm",
+          "pose": "Calm companionship"
+        }
+      ],
+      "segments": {
+        "entry": [2, 3, 4, 5, 6, 7, 8]
+      },
+      "gate": "Now and then as an idle pastime on the retrospectives (retro, retro actions), never within five minutes of something going wrong (a failed answer or action, a spent allowance, someone stuck, the connection dropping), and never while his panel is open. Also on request (/play)."
+    },
+    {
+      "id": "N06",
+      "pack": "escape",
+      "title": "Sticky Escape",
+      "file": "N06-sticky-escape.png",
+      "sha256": "d966f802f121bf8e6282d59e696e0171930cecc7159ed113d45c389b919521e1",
+      "cast": "Agile Sticky",
+      "slots": [
+        {
+          "id": "escape.slip",
+          "pose": "Sticky slips away"
+        },
+        {
+          "id": "escape.reach",
+          "pose": "Amr reaches gently"
+        },
+        {
+          "id": "escape.catch",
+          "pose": "Catch Sticky safely"
+        },
+        {
+          "id": "escape.examine",
+          "pose": "Examine the note"
+        },
+        {
+          "id": "escape.place",
+          "pose": "Place Sticky on the small board"
+        },
+        {
+          "id": "escape.pin",
+          "pose": "Pin the paper margin"
+        },
+        {
+          "id": "escape.show",
+          "pose": "Show Sticky safely back in place"
+        }
+      ],
+      "segments": {
+        "entry": [2, 3, 4, 5, 6, 7, 8]
+      },
+      "gate": "Now and then as an idle pastime on the boards (kanban, canvas, retro, story mapper), or on request (/play). Comic acting, never a sign that a card was saved or moved."
+    },
+    {
+      "id": "N07",
+      "pack": "comic",
+      "title": "Comic to Action",
+      "file": "N07-comic-to-action.png",
+      "sha256": "95f87de001bf4bff34f24ad29d5d59a84f541ad482abcc044a5a069e2ce85995",
+      "cast": "Amr alone",
+      "slots": [
+        {
+          "id": "comic.hold",
+          "pose": "Hold the square comic"
+        },
+        {
+          "id": "comic.read",
+          "pose": "Read a page"
+        },
+        {
+          "id": "comic.idea",
+          "pose": "Discover an idea"
+        },
+        {
+          "id": "comic.take",
+          "pose": "Take the idea card"
+        },
+        {
+          "id": "comic.close",
+          "pose": "Close the book"
+        },
+        {
+          "id": "comic.offer",
+          "pose": "Offer something to try"
+        },
+        {
+          "id": "comic.encourage",
+          "pose": "Encourage one small improvement"
+        }
+      ],
+      "segments": {
+        "entry": [2, 3, 4, 5, 6, 7, 8]
+      },
+      "gate": "When a story is read to its end for the first time in this browser (the comics ReadTracker), in place of the jump that used to play, so the read is celebrated once. He offers an idea to try and creates nothing. Its pack loads ahead on the comics pages."
+    },
+    {
+      "id": "N08",
+      "pack": "retry",
+      "title": "Graceful Retry",
+      "file": "N08-graceful-retry.png",
+      "sha256": "0b5e7e7839251746fa50658daee127b6b1b1810d3ec518a87c84d4adb153b8d8",
+      "cast": "Amr alone",
+      "slots": [
+        {
+          "id": "retry.notice",
+          "pose": "Notice the crumpled card"
+        },
+        {
+          "id": "retry.sympathy",
+          "pose": "Respond sympathetically"
+        },
+        {
+          "id": "retry.unfold",
+          "pose": "Unfold the card"
+        },
+        {
+          "id": "retry.smooth",
+          "pose": "Smooth it carefully"
+        },
+        {
+          "id": "retry.show",
+          "pose": "Show the flattened card"
+        },
+        {
+          "id": "retry.offer",
+          "pose": "Offer another attempt"
+        },
+        {
+          "id": "retry.encourage",
+          "pose": "Encourage warmly"
+        }
+      ],
+      "segments": {
+        "entry": [2, 3, 4, 5, 6, 7, 8]
+      },
+      "gate": "On request only (/play retry): the chat has no Try again to bind it to, and the scene never means a retry worked. Deny, Cancel and a declined consent never play it."
+    },
+    {
+      "id": "N09",
+      "pack": "decide",
+      "title": "Your Decision",
+      "file": "N09-your-decision.png",
+      "sha256": "7198870dd9a3b0079210a31f6232773c8a0c660e5ba354000e2611fbe7e0a950",
+      "cast": "Amr alone",
+      "slots": [
+        {
+          "id": "decide.present",
+          "pose": "Present two options"
+        },
+        {
+          "id": "decide.blue",
+          "pose": "Consider blue"
+        },
+        {
+          "id": "decide.purple",
+          "pose": "Consider purple"
+        },
+        {
+          "id": "decide.both",
+          "pose": "Hold both equally"
+        },
+        {
+          "id": "decide.step",
+          "pose": "Step back in place"
+        },
+        {
+          "id": "decide.wait-a",
+          "pose": "Wait attentively"
+        },
+        {
+          "id": "decide.wait-b",
+          "pose": "Continue waiting"
+        }
+      ],
+      "segments": {
+        "entry": [2, 3, 4, 5, 6],
+        "hold": [7, 8]
+      },
+      "gate": "Held while a real two-choice card waits for the visitor: the visitor chat's Approve or Deny card, and the consent card before their first AI message (the owner's card has a third choice, so it isn't used there). The offer plays once, then he waits until they choose, cancel or leave. No timer, no default; their answer gets the usual nod."
+    },
+    {
+      "id": "N10",
+      "pack": "quiet",
+      "title": "Quiet Companion",
+      "file": "N10-quiet-companion.png",
+      "sha256": "752d535016074e57acc985ff32ddc6200e5a09c82a7ee7163f8ce87200614ae6",
+      "cast": "Amr alone",
+      "slots": [
+        {
+          "id": "quiet.bell",
+          "pose": "Hold a small bell"
+        },
+        {
+          "id": "quiet.notice",
+          "pose": "Notice the visitor"
+        },
+        {
+          "id": "quiet.cover",
+          "pose": "Cover the bell gently"
+        },
+        {
+          "id": "quiet.hush",
+          "pose": "Keep it quiet"
+        },
+        {
+          "id": "quiet.away",
+          "pose": "Put the bell away"
+        },
+        {
+          "id": "quiet.settle-a",
+          "pose": "Settle calmly"
+        },
+        {
+          "id": "quiet.settle-b",
+          "pose": "Quiet attentive pose"
+        }
+      ],
+      "segments": {
+        "entry": [2, 3, 4, 5, 6],
+        "hold": [7, 8]
+      },
+      "gate": "Held after the visitor turns his talk down to Quiet themselves (Settings > Notifications > Celebrations), while Quiet is still the setting and they stay on that page; a tap or a drag ends it. Not on the setting stored at load, nor when an old silent mode is moved onto Quiet. The scene changes no setting. Also on request (/play bell)."
+    }
+  ]
+}

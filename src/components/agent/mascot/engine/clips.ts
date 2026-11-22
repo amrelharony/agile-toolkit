@@ -151,8 +151,11 @@ export const ACT_CLIPS = {
   stroll: STROLL_FROM_RIGHT,
 } satisfies Partial<Record<MascotReaction, Clip>>;
 
+/** A held pose drawn here; a held scene (`scene:<name>`) plays from engine/scenes.ts. */
+export type PoseHold = Exclude<MascotHold, `scene:${string}`>;
+
 /** Held poses. */
-export const HOLD_CLIPS: Record<MascotHold, Clip> = {
+export const HOLD_CLIPS: Record<PoseHold, Clip> = {
   highFive: clip("hold.highFive", "waving", [s("social.hi5-offer", 400)]),
   falling: clip("hold.falling", "jumping", [s("lifted.hang", 400)]),
   flying: clip("hold.flying", "jumping", [s("lifted.flail", 400)]),

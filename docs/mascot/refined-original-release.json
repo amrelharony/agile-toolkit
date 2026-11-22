@@ -1,0 +1,504 @@
+{
+  "release": "Amr_Refined_Original_124.zip",
+  "schema": "amr-complete-sprite-release-v1",
+  "created_at_utc": "2026-11-13T20:37:47.902985+00:00",
+  "status": "complete_refined_accepted_release",
+  "sheets": {
+    "S01": {
+      "file": "S01-faces.png",
+      "sha256": "befa17341a76a44da5ee1618c3e03af1a6ac84c46aa2bf42c7ad9a1acf01b988"
+    },
+    "S02": {
+      "file": "S02-explaining.png",
+      "sha256": "d42c0167e7b8fed3ca6e757f44ce4f837c595b616b4f3c7213cfc42311001013"
+    },
+    "S03": {
+      "file": "S03-pointing.png",
+      "sha256": "6b4676ef716692019da8ae580d3d067215631b03b23db140f7a18eb024abce8a"
+    },
+    "S04": {
+      "file": "S04-touch.png",
+      "sha256": "418beee40129c0321b213c1ff6e244d51ba9a58ef863547be26b357fce159e6e"
+    },
+    "S05": {
+      "file": "S05-lifted.png",
+      "sha256": "7b73441ae67ca583e6860946fde43175454ce4ad9c2d10ba42b75214f3f1e522"
+    },
+    "S06": {
+      "file": "S06-balance.png",
+      "sha256": "0e54fad7902c33c2ce206a5d24f783feaa454a67f9f7b0286da230ce6078af6a"
+    },
+    "S07": {
+      "file": "S07-rest.png",
+      "sha256": "f1c2f90d271c80436cdaf99b6393496ce32ec5183ccc43f115ca885ba83c0b8f"
+    },
+    "S08": {
+      "file": "S08-page.png",
+      "sha256": "2ad09cf193aef1bd7b769cb65596bd0073c85dfa52b15b7afeda8f74bdd4ed36"
+    },
+    "S09": {
+      "file": "S09-social.png",
+      "sha256": "f8b910eba77896b382d5a971688ba3972ad0891c0a5bdca1887fcef2ea2986aa"
+    },
+    "S10": {
+      "file": "S10-stroll.png",
+      "sha256": "e48cc9336f2bbe0ae6de56dccbd977c1067a781347ccbb49fbcb0ecc3c3d1b6e"
+    },
+    "S11": {
+      "file": "S11-sun.png",
+      "sha256": "76fd7b333ffe16b54bc13725b8f0a1185a9856895a3c9125b170c880bd4dc6f4"
+    },
+    "S12": {
+      "file": "S12-heat.png",
+      "sha256": "4d87dc235e28b75b8e004239137ce53d3c84f4a884ff24ba8a5ab1e0b488b402"
+    },
+    "S13": {
+      "file": "S13-scorch.png",
+      "sha256": "2f599f8e4ce437e3c7d713b00e5f92a016a02061edc58ea26cfd834463287a2f"
+    },
+    "S14": {
+      "file": "S14-cold.png",
+      "sha256": "a197f884a3c4778db6501b82e2a927793c6dca6bb0f89059cab5c4cf5728d0f0"
+    },
+    "S15": {
+      "file": "S15-cosy.png",
+      "sha256": "3a2f18599919def6a3b924dd0707dd93f8f42fd51e8a7846b87d2a347f1d1470"
+    },
+    "S16": {
+      "file": "S16-rain.png",
+      "sha256": "2689f681c5236a24cca1bac290d6a8f913dcde7ab7f9d140ed75d2850f7aee06"
+    },
+    "S17": {
+      "file": "S17-downpour.png",
+      "sha256": "5e9f45cfd951f630494aa148592ddcb5502962c45a460c3e28f05e9418cbf0b0"
+    },
+    "S18": {
+      "file": "S18-storm.png",
+      "sha256": "654b61bafb04b0c6e7a3f56981c6fc1a79df338f0969bdadc6d477e03aa166ba"
+    },
+    "S19": {
+      "file": "S19-snow.png",
+      "sha256": "327250a42bfa439a9d61c97051aeb9a26b929c153950d00285cc0dcd74fd2582"
+    },
+    "S20": {
+      "file": "S20-wind.png",
+      "sha256": "db9d253334fc752878a6319fefa9edb54e60f04aeb1d5186be80136ad3b4fee7"
+    },
+    "S21": {
+      "file": "S21-grey.png",
+      "sha256": "cb72377ff6a868a1c56011d49b10699b4f6a9e4a2b9bf0e6b1bbdf610bb79276"
+    },
+    "S22": {
+      "file": "S22-stars.png",
+      "sha256": "1e1c48952ce982545bb0ca8690fdf119fdb08d118b86357a86fd5f19c1c053aa"
+    },
+    "S23": {
+      "file": "S23-dust.png",
+      "sha256": "237d9044f65e603b369ea0c8133c287ab421ee00641542d7fd53663ec1571942"
+    },
+    "S24": {
+      "file": "S24-coffee.png",
+      "sha256": "5ef43122147c68a0a2fd61ef627b9ae262cc772b99dc6db2b67b093e79af9c83"
+    },
+    "S25": {
+      "file": "S25-breakfast.png",
+      "sha256": "33e83ab145289c8ce1000dbabea73299cee9896051461004f99d97b6fa8451cd"
+    },
+    "S26": {
+      "file": "S26-koshary.png",
+      "sha256": "4bc06ef9950994ede5632f18cc9fb3bc837ad5b1d6aef129ab95015ed3a2e6b2"
+    },
+    "S27": {
+      "file": "S27-evening.png",
+      "sha256": "fe0b4960923b837b1ade8847b50e64edbb8bec5e6afeef53e14870a41ac9b883"
+    },
+    "S28": {
+      "file": "S28-late.png",
+      "sha256": "42821da16bb96d04597dd369eb1770123c532375ab266a0d46fc90c775b63d39"
+    },
+    "S29": {
+      "file": "S29-weekend.png",
+      "sha256": "4396c8670dc708d10b0d9323e4323d801a6bb44e4ded176e0cc0c2c302bdd23c"
+    },
+    "S30": {
+      "file": "S30-fanous.png",
+      "sha256": "ec547a5f69f77d7b3618ed17afe09e2b6ea6ed6cbe9c4645d451b7c0937df15f"
+    },
+    "S31": {
+      "file": "S31-iftar.png",
+      "sha256": "de9788b00e4411f38cc11806d98ef72f841ebdc904cd5751b7c9763618d6d2ca"
+    },
+    "S32": {
+      "file": "S32-suhoor.png",
+      "sha256": "ecbf5a60f80da5cfd23de1e1eeccaf15d86ab21fb34715fd244da18a5047ceb8"
+    },
+    "S33": {
+      "file": "S33-sweets.png",
+      "sha256": "853b5bc5d26e822b30854e49c8d29e5f21170ce0a719bc3ea93456fae3908211"
+    },
+    "S34": {
+      "file": "S34-kahk.png",
+      "sha256": "6d04e7e97b58d849d072c1a9afb702c8bac3f330469a9063bfeb0f1a51ef1fc2"
+    },
+    "S35": {
+      "file": "S35-eid.png",
+      "sha256": "03123f2f76898c26dec3b1454679a12856ceea6cecb28a3112d8b031a0f1079b"
+    },
+    "S36": {
+      "file": "S36-adha.png",
+      "sha256": "0dd2875887e1ab0aab41f04995ccce46a21edada757973ab272d7baeb132249d"
+    },
+    "S37": {
+      "file": "S37-blessed.png",
+      "sha256": "e93a15c064b5829dffccc5f37764a9904b6e28dc6d9c3ec56d863cb72ca29c1f"
+    },
+    "S38": {
+      "file": "S38-mawlid.png",
+      "sha256": "676865d982fd8a9074b344fee926ebf2bf39d07cce6e3589d9dab496b71680f7"
+    },
+    "S39": {
+      "file": "S39-xmas.png",
+      "sha256": "02c327594f56192239affa8aa7b5adeb57a3e618b1fb1c619f7833951c5bc9a5"
+    },
+    "S40": {
+      "file": "S40-eggs.png",
+      "sha256": "b47c7fd009d00b7b3d62bd497296215871061dc9370304b172e050d4ed0d9918"
+    },
+    "S41": {
+      "file": "S41-picnic.png",
+      "sha256": "fbd5730540653241e4b931feeb9b62b46b6fb8e3e0f8585e2e349e7a223851e8"
+    },
+    "S42": {
+      "file": "S42-nayrouz.png",
+      "sha256": "7ca8aa88eb016b93a4a2e91cad38573e3e34f26cb6c437eba3652e908ed627f5"
+    },
+    "S43": {
+      "file": "S43-flag.png",
+      "sha256": "2fdeeb639ac6b16f8e58949017c00b285a5c9c6f84168209f66735c1fc238896"
+    },
+    "S44": {
+      "file": "S44-fireworks.png",
+      "sha256": "6c6880fcf2d350b42e5f41d15298c4a71b7ecbe7a44d59c2a4f5ab13045ba0fb"
+    },
+    "S45": {
+      "file": "S45-newyear.png",
+      "sha256": "c32f1ccc7f13620d12c488cd32c2c4b09ffbbd552d44e65f9cee3dfd1da10b3a"
+    },
+    "S46": {
+      "file": "S46-flowers.png",
+      "sha256": "8e6442a1c5dc4773be403b3f34b0c5a48f897f8376645da60789989f96c68953"
+    },
+    "S47": {
+      "file": "S47-green.png",
+      "sha256": "ee3a3b7cc647120806ae2096017c568542206703bf34657386c45b24a9479f54"
+    },
+    "S48": {
+      "file": "S48-spooky.png",
+      "sha256": "380d886d0cfa6c4641834d98a08914432feffae6464f5c9a06878c572461cee2"
+    },
+    "S49": {
+      "file": "S49-prank.png",
+      "sha256": "c93f78f6a8e51a17eae189991a057e123a1a0fdaa399c49e65467ab21aef0cec"
+    },
+    "S50": {
+      "file": "S50-work.png",
+      "sha256": "4e2f81f0c3924d354fe787492cbeebafa8cb7d2672811528eadefa97ee069695"
+    },
+    "S51": {
+      "file": "S51-summer.png",
+      "sha256": "33b551869d30ae2db8cc006d8ac7a1872720e27b5a1b5e0dca9c5de97ed4256d"
+    },
+    "S52": {
+      "file": "S52-school.png",
+      "sha256": "5698e052c5bb7b34cd7d1693f077b460cb2394d3464d19d63d7103f91d253df7"
+    },
+    "S53": {
+      "file": "S53-winter.png",
+      "sha256": "4a124ba77b4b125781403f4c5b55573f4ceedc6c9f6db72eeb2dc6fb129a2ac7"
+    },
+    "S54": {
+      "file": "S54-sticky.png",
+      "sha256": "c4ece599eca6d6f934b1f6debbfee5394ae240be2ba61f589a65e805a898c6e4"
+    },
+    "S55": {
+      "file": "S55-poker.png",
+      "sha256": "5b3f67eb7b70127490cd2de27f5f06794232687445d355da87dc5b35d62b76c0"
+    },
+    "S56": {
+      "file": "S56-timer.png",
+      "sha256": "b349efe68ccb3da59459ca4dcd7d98a5a58df7b21a6002e69f69c2f5242b43cc"
+    },
+    "S57": {
+      "file": "S57-ship.png",
+      "sha256": "1cc43bc9794a104b3cbb85fd0a17f87b40279185145c17622db3fc5d7aa7b85e"
+    },
+    "S58": {
+      "file": "S58-focus.png",
+      "sha256": "9f2c81998155bb8a0045ea0ade40236f4a7b8f30c0a195e855977b760fe244b4"
+    },
+    "S59": {
+      "file": "S59-kudos.png",
+      "sha256": "a3e22d59a572ffcd6f6f1efbcd2f8c6f110ae538215a09ba9c2e09384ff582eb"
+    },
+    "S60": {
+      "file": "S60-ball.png",
+      "sha256": "e85cc50920a2d1562f55831f9605457670df95f8b73499334a08ab322c1c9daf"
+    },
+    "S61": {
+      "file": "S61-reading.png",
+      "sha256": "db3bfaf092b6057d2aef15ad3a92a8e0c4c517cea7f0b4b7a9d54d0fb251b949"
+    },
+    "S62": {
+      "file": "S62-music.png",
+      "sha256": "db9248177f6fdb129d81f63c3e96c90177d3eba74eaae2059566269e1f7d9de3"
+    },
+    "S63": {
+      "file": "S63-phone.png",
+      "sha256": "89a427020a31596f2ca2d55eace464b76194d80953a01d40863cc2d7137d3135"
+    },
+    "S64": {
+      "file": "S64-lights.png",
+      "sha256": "7fbb4e98828bcf13eb471505446a0eb63c6138a61fd362cb8db493029ca40aff"
+    },
+    "S65": {
+      "file": "S65-capacity.png",
+      "sha256": "90cb297fbd6ddb763547f81af09e74f40c49923934cea7643f60f7a131192c31"
+    },
+    "S66": {
+      "file": "S66-goal.png",
+      "sha256": "a9da95f3596a44a9c2d44af706a0c032d93d957c1433a13fb49a814770fca8af"
+    },
+    "S67": {
+      "file": "S67-refine.png",
+      "sha256": "30984eaa6c8fb520c3e8172ce7c56738776d07fa529a36fb5bfc9b735a232f45"
+    },
+    "S68": {
+      "file": "S68-skeleton.png",
+      "sha256": "6e904f7dfb24c69f2341815985b486f1b2bf13ee0bc3ae09a2275a52f609e75f"
+    },
+    "S69": {
+      "file": "S69-forecast.png",
+      "sha256": "85f65c16b4a254487f2e3cc6097088914701835215df1c3d600079264d19a9cd"
+    },
+    "S70": {
+      "file": "S70-pi.png",
+      "sha256": "c6b05e521060a63e10914d53b69a155551d24cb3c4f414999272bb2419b0ff18"
+    },
+    "S71": {
+      "file": "S71-roadmap.png",
+      "sha256": "06fab8df865fa52b8bc574bf3292b6ab437a2e2c937f4cf98606054d1e410a14"
+    },
+    "S72": {
+      "file": "S72-radio.png",
+      "sha256": "2893393e02831b598cbad885cc11c07a56f32bcd84a13834ea051bea30f4cf80"
+    },
+    "S73": {
+      "file": "S73-links.png",
+      "sha256": "1aebb774913f1030f73bc364308cc03219a87397e2cdc623b23f16e2ec657daa"
+    },
+    "S74": {
+      "file": "S74-blocker.png",
+      "sha256": "c7432978909f0cb0608dfd9dc8f891d36044e3b7524ef1833140671683b96cf7"
+    },
+    "S75": {
+      "file": "S75-demo.png",
+      "sha256": "e5a9829eab87cee1f9a2d12647dced163f19d8db9769a79cd0e6e95dda972c65"
+    },
+    "S76": {
+      "file": "S76-todo.png",
+      "sha256": "e7dbd459860506b592ccc280271fa4f608f2c9c8c44727aeffe5e11d5842446f"
+    },
+    "S77": {
+      "file": "S77-crystal.png",
+      "sha256": "3ca0a47a79c0fa8238e437610eba3920c51b5e516bc71e5ae950b9b1d9f3cc9e"
+    },
+    "S78": {
+      "file": "S78-hats.png",
+      "sha256": "df5db80bf1bb2cec94496ed975e1c28339fc609d2ce0fc4e21423050487c8dec"
+    },
+    "S79": {
+      "file": "S79-canvas.png",
+      "sha256": "75c84a74b35c26516167f537e6ae84990ebce0d538db39c2da73ef04ab80aab4"
+    },
+    "S80": {
+      "file": "S80-burndown.png",
+      "sha256": "6fcf6625c42562745e45dafb1f7b168b06438e435c0ada34c42b7e6407987aae"
+    },
+    "S81": {
+      "file": "S81-bands.png",
+      "sha256": "68cb6da6626e0792f8b8559b5229c19f95a382e42ae2bf06aaf6867fd5e6dea9"
+    },
+    "S82": {
+      "file": "S82-cycle.png",
+      "sha256": "0b028c94874763d33ffae5fa71765226b908776fef11e1ecc1a3d6e79cd6678c"
+    },
+    "S83": {
+      "file": "S83-dora.png",
+      "sha256": "e58ec93d611dc7fa0772ddd3c1c90496f378968601fd020b0085b4ed572a99a5"
+    },
+    "S84": {
+      "file": "S84-conveyor.png",
+      "sha256": "e85910ae6381a8e3eb33f1bfd095bc8ddde3c5e9e0a0f0a9dc5196299088876f"
+    },
+    "S85": {
+      "file": "S85-toggles.png",
+      "sha256": "243d9cd4708b26b90d3029cd534d2017dfebb51727189067667f1daa4625caf8"
+    },
+    "S86": {
+      "file": "S86-health.png",
+      "sha256": "03aefff6f644cf83a308f6304c682e2a0d8c3fcd51e8a302fa7b48fcd2d09924"
+    },
+    "S87": {
+      "file": "S87-shield.png",
+      "sha256": "bd88932763cd9ba89b9c682ad39aa38a2189ae226aa5333b1a27fd45bfca92e9"
+    },
+    "S88": {
+      "file": "S88-mood.png",
+      "sha256": "a19c62db837317e0b3e8905976b0d918f0e939d4ebfd18e9930f6f02f16e75e5"
+    },
+    "S89": {
+      "file": "S89-charter.png",
+      "sha256": "893055fb768d05ba062c296e48559e1a68060f5c1b7fbe7b455bf3214f6724f0"
+    },
+    "S90": {
+      "file": "S90-done.png",
+      "sha256": "5cc453430ceadfc987cce617ecf1870e4e76a074a7221a163d854b9c39f32265"
+    },
+    "S91": {
+      "file": "S91-skills.png",
+      "sha256": "cd5a7c12ec1951c57e5d712614706a372ecdba0ac96880ce15d4ceeed7231914"
+    },
+    "S92": {
+      "file": "S92-raci.png",
+      "sha256": "be6762a3d29e9a57658d6d8924d9256993b4c6b1dcc0932516c6930d7c2c3fd2"
+    },
+    "S93": {
+      "file": "S93-chat.png",
+      "sha256": "5e56f4a300d5b2cf0e1548156f2d14babeb8682a3025d9f3d7ae7806c931d51f"
+    },
+    "S94": {
+      "file": "S94-stakeholders.png",
+      "sha256": "76c76eb713e561a36e5b79e71540ca6db3ed95e322ea9a037e261a310bd45f27"
+    },
+    "S95": {
+      "file": "S95-adkar.png",
+      "sha256": "5a05bb98d982e159b5a5af2ab0eed7df30e06171789a8f1b39cc19ef32f55917"
+    },
+    "S96": {
+      "file": "S96-rank.png",
+      "sha256": "863813a87357abe04bf6c5f1cab7c17d4ec3b64e610a43978d4206a13ed2a9c2"
+    },
+    "S97": {
+      "file": "S97-scale.png",
+      "sha256": "53f763fd74263a4afe8b108ec5887178a6e351f60570efdf9788496d649f7663"
+    },
+    "S98": {
+      "file": "S98-moscow.png",
+      "sha256": "5556de3cb482d8aab86d61eced906657dae3f5f707839b7956cfe0c6de9ac349"
+    },
+    "S99": {
+      "file": "S99-hourglass.png",
+      "sha256": "a2c6c581208737ac1901a08547d63c61e52b520db91f1ed40e1d10a7a0aae95d"
+    },
+    "S100": {
+      "file": "S100-effort.png",
+      "sha256": "bc3af1d1af1777d9330b3b1e81b59510ad045c549c95321c85c2bd58aab829f4"
+    },
+    "S101": {
+      "file": "S101-kano.png",
+      "sha256": "50688f2eb85ee7de145292e5b0e93b3cc7258e32c222c69106b26c93311c807a"
+    },
+    "S102": {
+      "file": "S102-buy.png",
+      "sha256": "97079b81e27781a5615a6576e74b684868310d041e5c5746d8618f4f0b8945c6"
+    },
+    "S103": {
+      "file": "S103-eisenhower.png",
+      "sha256": "d7c7ff80698dfe67044890d044e1d29e91cdb99185273498bbbf6d63aabcff71"
+    },
+    "S104": {
+      "file": "S104-gavel.png",
+      "sha256": "227501bbf45f24e428da05efaba85b9791cf7e7fe6436c436b202ca1c4cef95d"
+    },
+    "S105": {
+      "file": "S105-compass.png",
+      "sha256": "7e459fbdf605b052b72ce5603c1d1c69ad9bb68bc9a7ec5c4cb58b868130ded0"
+    },
+    "S106": {
+      "file": "S106-okr.png",
+      "sha256": "b440a86357f9242daaf6d77588cf0ff51d8277887bd5c35720c9ea5217ea0750"
+    },
+    "S107": {
+      "file": "S107-nps.png",
+      "sha256": "692044669e506d06facb15fc80f822665adad83de0fe3ed873e55316da71e1ca"
+    },
+    "S108": {
+      "file": "S108-lab.png",
+      "sha256": "a2eac8ca7cb682b2b716506202f7c3304452db864b6fcb4b3fb3ed579808caea"
+    },
+    "S109": {
+      "file": "S109-interview.png",
+      "sha256": "d27c6ea31edeb2b3b10ff08d2759f86658096fb4b527200e13afe2d9688d3e6d"
+    },
+    "S110": {
+      "file": "S110-tree.png",
+      "sha256": "8bee4e243f2d99fb900d0f8e4da6424dc53dfe78c598bc0905f2f75b01f12d14"
+    },
+    "S111": {
+      "file": "S111-assume.png",
+      "sha256": "1cea51090bb3b1d272e2daada1b88bd627cf4d8503ddf98e1ce39e4e3fd39af6"
+    },
+    "S112": {
+      "file": "S112-risk.png",
+      "sha256": "1414c7fd28bbf3b8c59a0f75153dce697af583d703750aab19f32160534f7f27"
+    },
+    "S113": {
+      "file": "S113-debt.png",
+      "sha256": "5fa4b3a150316d4f9db2c5d363618f2c9ef0ab93b7d776a0e80dace8e668ceb8"
+    },
+    "S114": {
+      "file": "S114-flaky.png",
+      "sha256": "3d636c1b28d5353a0178fbe78b4cf9325f95a94cd3ccc6c32470a1cea0065a32"
+    },
+    "N01": {
+      "file": "N01-ai-reviewer.png",
+      "sha256": "707a87d775469f250b180e065dba4ed0222cc843fc72e62f4dc1cfb422037d28"
+    },
+    "N02": {
+      "file": "N02-dinosaur-priorities.png",
+      "sha256": "e930260c16e2242b7869e460d8560d42c9bb7615acd6466f6ff33c368aace194"
+    },
+    "N03": {
+      "file": "N03-deadline-rabbit-rush.png",
+      "sha256": "e646d96754c6251aceab96cab03b192e18afea5433a730e5250955b88a93c1ab"
+    },
+    "N04": {
+      "file": "N04-octopus-overload.png",
+      "sha256": "5239a9d74b7a3b612104936b59c0de633247bd9a183c27719b8e5d41fb830700"
+    },
+    "N05": {
+      "file": "N05-ahwa-debrief.png",
+      "sha256": "5d2aa5a981bb4d6ae662cc6da182371db5ee3271d2dbac0387c35aca131feb2b"
+    },
+    "N06": {
+      "file": "N06-sticky-escape.png",
+      "sha256": "d966f802f121bf8e6282d59e696e0171930cecc7159ed113d45c389b919521e1"
+    },
+    "N07": {
+      "file": "N07-comic-to-action.png",
+      "sha256": "95f87de001bf4bff34f24ad29d5d59a84f541ad482abcc044a5a069e2ce85995"
+    },
+    "N08": {
+      "file": "N08-graceful-retry.png",
+      "sha256": "0b5e7e7839251746fa50658daee127b6b1b1810d3ec518a87c84d4adb153b8d8"
+    },
+    "N09": {
+      "file": "N09-your-decision.png",
+      "sha256": "7198870dd9a3b0079210a31f6232773c8a0c660e5ba354000e2611fbe7e0a950"
+    },
+    "N10": {
+      "file": "N10-quiet-companion.png",
+      "sha256": "752d535016074e57acc985ff32ddc6200e5a09c82a7ee7163f8ce87200614ae6"
+    }
+  }
+}

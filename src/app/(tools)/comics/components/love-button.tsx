@@ -3,6 +3,8 @@
 import { Heart } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { playEventScene, storyFeedbackKey, useVisitOnce } from "@/lib/agent/mascot/event-scenes";
 import { isLoveCounted, isLoved, setLoveCounted, setLoved } from "@/lib/comics/reading";
 import { SHOW_READERS_AT } from "@/lib/comics/stats";
 import { sendStats } from "@/lib/comics/stats-client";
@@ -116,6 +118,8 @@ export function LoveButton({
   // Once the browser couldn't keep the heart, this visit works from memory.
   const memoryOnly = useRef(false);
   const inFlight = useRef(false);
+  // Shared with Seen this at work: the story's first feedback of the visit.
+  const feedbackOnce = useVisitOnce(storyFeedbackKey(ep));
 
   useEffect(() => {
     setLovedState(isLoved(ep));
@@ -203,6 +207,10 @@ export function LoveButton({
     }
     if (kept === "unavailable") memoryOnly.current = true;
     setLovedState(next);
+    // A love given and kept on this device (not taken back, not another tab's): Amr
+    // folds his card and holds it at the slot (x017.card), never dropping it in, since
+    // whether it's counted isn't known yet. Once a visit, with Seen this at work.
+    if (kept === "changed" && next) feedbackOnce(() => playEventScene(EVENT_SCENES.feedback));
     if (counting && !memoryOnly.current) {
       sync();
       return;

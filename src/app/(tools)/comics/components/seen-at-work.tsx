@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { playEventScene, storyFeedbackKey, useVisitOnce } from "@/lib/agent/mascot/event-scenes";
 import { SEEN_OPTIONS, SHOW_SHARES_AT } from "@/lib/comics/guess";
 import { markSeen, seenFor } from "@/lib/comics/reading";
 import { readTaps, sendTap, type TapResult } from "@/lib/comics/taps-client";
@@ -23,6 +25,8 @@ export function SeenAtWork({ ep }: { ep: number }) {
   const [result, setResult] = useState<TapResult | null>(null);
   const status = useRef<HTMLParagraphElement>(null);
   const moved = useRef(false);
+  // Shared with the love: the story's first feedback of the visit.
+  const feedbackOnce = useVisitOnce(storyFeedbackKey(ep));
 
   useEffect(() => {
     const before = seenFor(ep);
@@ -48,7 +52,9 @@ export function SeenAtWork({ ep }: { ep: number }) {
     moved.current = true;
     const first = seenFor(ep) === null;
     setAnswer(choice);
-    markSeen(ep, choice);
+    // The reader's first answer, kept on this device: Amr folds his card and holds
+    // it at the slot (x017.card), never claiming it was sent. Once a visit, with the love.
+    if (markSeen(ep, choice)) feedbackOnce(() => playEventScene(EVENT_SCENES.feedback));
     void (first && counting ? sendTap(ep, "seen", choice, SIZE) : readTaps(ep, "seen", SIZE)).then(
       setResult
     );

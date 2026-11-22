@@ -40,6 +40,7 @@ vi.mock("@/lib/agent/client", () => ({
 
 import { ConversationList, DELETE_UNDO_MS } from "@/components/agent/conversation-list";
 import { AgentConversation } from "@/components/agent/agent-conversation";
+import { ChatVisibleContext } from "@/components/agent/chat-visibility";
 import { useAgentStore } from "@/lib/agent/store";
 import { listConversations } from "@/lib/agent/persist";
 
@@ -312,5 +313,48 @@ describe("AgentConversation composer hints", () => {
     expect(note).not.toHaveClass("pointer-coarse:hidden");
     expect(note).toContainElement(hint);
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Message" })).toHaveFocus());
+  });
+});
+
+describe("AgentConversation hidden under Amr's scenes", () => {
+  // jsdom has no element scrollTo: the chat may still scroll after a test, so a no-op stays.
+  const original = Element.prototype.scrollTo ?? (() => {});
+  const scrollTo = vi.fn();
+
+  beforeEach(() => {
+    h.conversations = [];
+    Element.prototype.scrollTo = scrollTo;
+    scrollTo.mockClear();
+  });
+
+  afterEach(() => {
+    Element.prototype.scrollTo = original;
+    useAgentStore.getState().reset();
+  });
+
+  const chat = (visible: boolean) => (
+    <ChatVisibleContext.Provider value={visible}>
+      <AgentConversation />
+    </ChatVisibleContext.Provider>
+  );
+
+  it("focuses the composer and scrolls to the latest message once it shows again", async () => {
+    // Mounted under the scenes (History to Scenes): it can't focus or scroll yet.
+    const { rerender } = render(chat(false));
+    const composer = screen.getByRole("textbox", { name: "Message" });
+    act(() =>
+      useAgentStore.getState().appendMessage({
+        id: "m1",
+        role: "assistant",
+        content: [{ type: "text", text: "Sprint 47 is set up." }],
+        createdAt: "2026-11-16T08:00:00Z",
+      })
+    );
+    expect(composer).not.toHaveFocus();
+    expect(scrollTo).not.toHaveBeenCalled();
+
+    rerender(chat(true));
+    await waitFor(() => expect(composer).toHaveFocus());
+    expect(scrollTo).toHaveBeenCalled();
   });
 });

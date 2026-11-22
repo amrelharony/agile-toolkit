@@ -1,0 +1,303 @@
+{
+  "about": "Amr's live sheet redrawn in the refined style: ten eight-slot sheets L01-L10 (1536 x 1024, eight 384 x 512 slots, the refined release's format and references) whose frames scripts/build-mascot-live.py places, as drawn, into the live sheet's grid (public/mascot/amr.*.webp: 8 columns x 11 rows of 192 x 208 cells, rows and stills as engine/sprite-poses.ts POSES and the look rows). Every slot is a real frame (no calibration slot); each sheet keeps the release's standing scale (435 px, crown about y45, soles about y480). A sheet with `register: slots` puts each slot on his own feet line (horizontally) rather than reusing slot 1's place, so a frame drawn a few px aside doesn't slide him; `still_slots` names the slots drawn to stand alone as reduced-motion stills; `feet_x` fixes his line where his hems can't (a run cycle hangs from its hips). The brief is docs/mascot/AMR-LIVE-SHEET-BRIEF.md. `sha256` is filled in by `build-mascot-live.py --record` when the sheets come back.",
+  "grid": {
+    "columns": 8,
+    "rows": 11,
+    "cellW": 192,
+    "cellH": 208
+  },
+  "sheets": [
+    {
+      "id": "L01",
+      "file": "L01-idle.png",
+      "title": "IDLE",
+      "intro": "His resting loop: the standard stance of IMAGE 1, standing straight, facing us, both hands in his trouser pockets, feet slightly apart, the warm smile showing his upper teeth.",
+      "slots": [
+        "The standard stance, exactly as in IMAGE 1.",
+        "Breathing in: the same stance, chest and shoulders lifted very slightly, the same smile.",
+        "Full breath: shoulders at their highest, about 4 px above slot 1, head a hair higher, the same smile.",
+        "Breathing out: halfway back down, as in slot 2.",
+        "A natural blink: exactly slot 1 with both eyes gently closed, the smile unchanged.",
+        "Settled: exactly slot 1 again.",
+        "A small contented look: the same stance, eyebrows lifted a little, a closed-lip smile.",
+        "Weight shifted onto his anatomical left leg (the viewer's right), hips tilting a touch, still smiling."
+      ],
+      "precision": "Slots 1-6 form one seamless breathing loop that repeats every four seconds: hands, feet, legs, lanyard, badge, head size and head position stay the same in all six; only the chest and shoulders rise and fall (slots 2-4) and the eyelids close (slot 5). No head tilt, no gaze shift, no change of expression in slots 1-6. Slots 7 and 8 are separate small variants of the same stance.",
+      "cells": [
+        [0, 0, 1],
+        [0, 1, 2],
+        [0, 2, 3],
+        [0, 3, 2],
+        [0, 4, 5],
+        [0, 5, 6],
+        [4, 4, 1]
+      ],
+      "sha256": "f95cfec4f3665cc97add809229d981e3d9683be4a917c4aea310b021bdb66ff0",
+      "still_slots": [1]
+    },
+    {
+      "id": "L02",
+      "file": "L02-run-right.png",
+      "title": "RUN RIGHT",
+      "intro": "A light, cheerful jog toward the viewer's right, in place, in the three-quarter view of the stroll sheet: body turned about 60 degrees toward the right, his anatomical right side (black band) nearer to us, both hands out of his pockets, arms bent about 90 degrees and swinging, a happy open smile. Eight evenly spaced frames of one complete running cycle that loops from slot 8 back to slot 1.",
+      "slots": [
+        "Contact: his left foot reaching forward, heel touching down, right arm forward.",
+        "Down: weight landing on the left foot, knee bent, body at its lowest.",
+        "Passing: the right leg swinging under his body, standing tall on the left foot.",
+        "Up: pushing off the left foot, both feet just off the ground, at most 20 px.",
+        "Contact: his right foot reaching forward, heel touching down, left arm forward.",
+        "Down: weight landing on the right foot, knee bent, body at its lowest.",
+        "Passing: the left leg swinging under his body, standing tall on the right foot.",
+        "Up: pushing off the right foot, both feet just off the ground, at most 20 px."
+      ],
+      "precision": "One continuous, evenly timed running cycle toward the viewer's right, drawn in place: the hips stay over the same spot, the feet move under him. Natural contralateral arm swing; arms bent, fists loose. Both shoes complete and correctly oriented, no skating feet. Airborne frames lift at most 20 px above the ground line, so the head never rises more than 20 px. Never a mirror of the leftward sheet.",
+      "cells": [
+        [1, 0, 1],
+        [1, 1, 2],
+        [1, 2, 3],
+        [1, 3, 4],
+        [1, 4, 5],
+        [1, 5, 6],
+        [1, 6, 7],
+        [1, 7, 8]
+      ],
+      "sha256": "9442608a724525f728fc418a91e8fbfc41c342046513259704c7a51aa0e2cfba",
+      "feet_x": 192,
+      "feet_x_why": "a run cycle drawn in place with his hips at the slot's centre (x 192); mid-stride his hems sit between his feet, so they would place him off the line",
+      "still_slots": [2]
+    },
+    {
+      "id": "L03",
+      "file": "L03-run-left.png",
+      "title": "RUN LEFT",
+      "intro": "The same light, cheerful jog toward the viewer's LEFT, in place: body turned about 60 degrees toward the left, his anatomical left side (silver watch) nearer to us, both hands out of his pockets, arms bent about 90 degrees and swinging, a happy open smile. Eight evenly spaced frames of one complete running cycle that loops from slot 8 back to slot 1.",
+      "slots": [
+        "Contact: his right foot reaching forward, heel touching down, left arm forward.",
+        "Down: weight landing on the right foot, knee bent, body at its lowest.",
+        "Passing: the left leg swinging under his body, standing tall on the right foot.",
+        "Up: pushing off the right foot, both feet just off the ground, at most 20 px.",
+        "Contact: his left foot reaching forward, heel touching down, right arm forward.",
+        "Down: weight landing on the left foot, knee bent, body at its lowest.",
+        "Passing: the right leg swinging under his body, standing tall on the left foot.",
+        "Up: pushing off the left foot, both feet just off the ground, at most 20 px."
+      ],
+      "precision": "Drawn separately, NEVER a mirror of the rightward sheet: the silver watch stays on his anatomical left wrist (nearer to us), the black band on his right. One continuous, evenly timed cycle drawn in place, hips over the same spot. Natural contralateral arm swing, both shoes complete and correctly oriented. Airborne frames lift at most 20 px above the ground line.",
+      "cells": [
+        [2, 0, 1],
+        [2, 1, 2],
+        [2, 2, 3],
+        [2, 3, 4],
+        [2, 4, 5],
+        [2, 5, 6],
+        [2, 6, 7],
+        [2, 7, 8]
+      ],
+      "sha256": "4064b35470b62a333a34995e00536a74d0724163e1eb3faeb462e331f868add0",
+      "feet_x": 192,
+      "feet_x_why": "a run cycle drawn in place with his hips at the slot's centre (x 192); mid-stride his hems sit between his feet, so they would place him off the line",
+      "still_slots": [2]
+    },
+    {
+      "id": "L04",
+      "file": "L04-wave-jump.png",
+      "title": "WAVE AND JUMP",
+      "intro": "Two short actions from the standard stance: a friendly wave hello (slots 1-4), then a small happy jump (slots 5-8).",
+      "slots": [
+        "Starting a wave: the standard stance, his right hand (the viewer's left, black band) coming out of his pocket.",
+        "Waving hello: that hand raised beside his head at ear height, palm toward us, fingers together, a warm smile; the other hand stays in its pocket.",
+        "Waving: the same hand tilted the other way at the wrist, mid-wave, the smile a little wider.",
+        "Finishing the wave: the hand lowering back toward the pocket, still smiling.",
+        "Getting ready to jump: knees bent, arms swung down and back, an excited grin.",
+        "Jumping up: both feet leaving the ground, fists raised to shoulder height in celebration, legs tucked a little, soles about 20 px above the ground line.",
+        "Top of the jump: both fists at head height, elbows out, a big open-mouthed grin, soles about 28 px above the ground line.",
+        "Landing: both feet back on the ground, knees bent to absorb it, arms coming down, still grinning."
+      ],
+      "precision": "Hands never rise above the top of his head, so every frame fits the live cell: the wave hand stays at ear height and the jump's fists at shoulder or head height. The jump lifts him at most 28 px (soles above the ground line); his head size never changes. The waving hand is his anatomical right (black band) in slots 1-4; the other hand stays in its pocket.",
+      "cells": [
+        [3, 0, 1],
+        [3, 1, 2],
+        [3, 2, 3],
+        [3, 3, 4],
+        [4, 0, 5],
+        [4, 1, 6],
+        [4, 2, 7],
+        [4, 3, 8]
+      ],
+      "sha256": "1bea53dd806b04e1a8a591253d984258b3e602734609b1e58d3f501c06c626ea",
+      "still_slots": [2, 7],
+      "register": "slots"
+    },
+    {
+      "id": "L05",
+      "file": "L05-puzzled.png",
+      "title": "PUZZLED",
+      "intro": "Something didn't work as expected: a good-natured puzzled moment and a gentle head shake, never upset or embarrassed.",
+      "slots": [
+        "The standard stance with a small puzzled closed-lip smile.",
+        "His right hand (black band) rising from the pocket toward his head, eyebrows drawn together a little.",
+        "A small head shake: head turned a little toward the viewer's left, apologetic closed-lip smile, the hand at shoulder height.",
+        "Scratching the back of his head with that hand, eyes glancing up and to the side, puzzled but kind: the clearest frame of the sheet.",
+        "The head shake the other way: head turned a little toward the viewer's right, the hand still at the back of his head.",
+        "A small shrug: both shoulders up a little, palms of both hands turned up at waist height.",
+        "The hands lowering, a sheepish smile.",
+        "Back to the standard stance with a small rueful smile."
+      ],
+      "precision": "Good-natured, never angry, sad or embarrassed. Head turns stay small (about 15 degrees). The hand at his head never covers his face or eyes. Slot 4 is the still shown when motion is reduced, so it must read clearly as puzzled on its own.",
+      "cells": [
+        [5, 0, 1],
+        [5, 1, 2],
+        [5, 2, 3],
+        [5, 3, 4],
+        [5, 4, 5],
+        [5, 5, 6],
+        [5, 6, 7],
+        [5, 7, 8]
+      ],
+      "sha256": "2002c749eca393273213e6abc28fe80dfd3f4be750299ca58f0df597d698843b",
+      "still_slots": [4],
+      "register": "slots"
+    },
+    {
+      "id": "L06",
+      "file": "L06-listening.png",
+      "title": "LISTENING",
+      "intro": "He listens to the visitor with warm attention.",
+      "slots": [
+        "The standard stance with an attentive closed-lip smile.",
+        "Leaning very slightly forward, head tilted a little toward the viewer's right, listening.",
+        "A small nod: head dipped forward, eyes still on us.",
+        "Listening with his right hand (black band) lightly at his chin, attentive and friendly: the clearest frame of the sheet.",
+        "Head tilted a little toward the viewer's left, eyebrows raised in interest.",
+        "Back toward the standard stance, an attentive closed-lip smile.",
+        "A second small nod, head dipped, smiling.",
+        "A quiet 'mm-hm': lips closed, eyebrows lifted, a small nod."
+      ],
+      "precision": "Calm and attentive; small movements only (head tilts about 10 degrees, nods small). Eyes stay on the viewer. Slot 4 is the still shown when motion is reduced.",
+      "cells": [
+        [6, 0, 1],
+        [6, 1, 2],
+        [6, 2, 3],
+        [6, 3, 8],
+        [6, 4, 5],
+        [6, 5, 6]
+      ],
+      "sha256": "0cf0857d73f0d8c36a4e1086c1d19c4c8667587d52a644c5be29cb50420b293d",
+      "still_slots": [8],
+      "register": "slots"
+    },
+    {
+      "id": "L07",
+      "file": "L07-thinking.png",
+      "title": "THINKING",
+      "intro": "He thinks a question over before he answers.",
+      "slots": [
+        "The standard stance with a thoughtful closed-lip expression.",
+        "His right hand (black band) rising toward his chin, eyes turning up.",
+        "Thinking: right thumb and index finger at his chin, eyes looking up toward the viewer's left, the other hand in its pocket: the clearest frame of the sheet.",
+        "Still thinking, eyes looking up toward the viewer's right.",
+        "Tapping his chin with his index finger, eyebrows slightly raised.",
+        "An idea dawning: the hand leaving his chin, a small smile beginning.",
+        "Eyes closed for a moment, considering, hand at his chin.",
+        "Index finger raised beside his face: got it, a bright smile."
+      ],
+      "precision": "Thoughtful and pleasant, never troubled. The hand at his chin never hides his mouth. Slot 3 is the still shown when motion is reduced.",
+      "cells": [
+        [7, 0, 2],
+        [7, 1, 2],
+        [7, 2, 4],
+        [7, 3, 4],
+        [7, 4, 7],
+        [7, 5, 4]
+      ],
+      "sha256": "9db1e3f1e6bc48c06ff39fa3d063942b97b2b94ade0fb48df04862eb4d05a95e",
+      "still_slots": [4],
+      "register": "slots"
+    },
+    {
+      "id": "L08",
+      "file": "L08-talking.png",
+      "title": "TALKING AND NODDING",
+      "intro": "He answers and agrees: friendly explaining gestures, nods and a thumbs-up.",
+      "slots": [
+        "The standard stance, mid-word, mouth slightly open.",
+        "Explaining: his right hand (black band) out of the pocket, open palm up at waist height, talking.",
+        "Nodding: head dipped forward, a closed-lip smile.",
+        "Explaining with both hands open at waist height, friendly.",
+        "A thumbs-up with his right hand (black band) at chest height, the warm smile showing his upper teeth, the other hand in its pocket: the clearest frame of the sheet.",
+        "Nodding back up, smiling, the hand lowering.",
+        "Listening while someone else speaks: a closed-lip smile, both hands in his pockets.",
+        "A small nod with eyebrows raised, agreeing."
+      ],
+      "precision": "Warm and conversational; gestures at waist or chest height. The thumbs-up in slot 5 is the still shown when motion is reduced, so it must be clear on its own.",
+      "cells": [
+        [8, 0, 1],
+        [8, 1, 2],
+        [8, 2, 3],
+        [8, 3, 4],
+        [8, 4, 5],
+        [8, 5, 6]
+      ],
+      "sha256": "79447e921d95449c578fece210b9f62a5c44e3a1b74f320dae9ba87144d72ef4",
+      "still_slots": [5],
+      "register": "slots"
+    },
+    {
+      "id": "L09",
+      "file": "L09-look-a.png",
+      "title": "LOOKING AROUND (1 OF 2)",
+      "intro": "He follows the visitor's cursor with his eyes and head. In all eight slots he keeps the standard stance of IMAGE 1, body facing us, both hands in his pockets, feet still, and a warm smile; only his head and eyes turn toward the direction named, going clockwise from straight up. 'The viewer's right' means he turns his head to his own left.",
+      "slots": [
+        "Looking straight up.",
+        "Looking up and a little to the viewer's right (about 22 degrees from straight up).",
+        "Looking up and to the viewer's right, at 45 degrees.",
+        "Looking to the viewer's right and a little up (about 67 degrees from straight up).",
+        "Looking straight to the viewer's right.",
+        "Looking to the viewer's right and a little down (about 112 degrees from straight up).",
+        "Looking down and to the viewer's right, at 45 degrees.",
+        "Looking down and a little to the viewer's right (about 157 degrees from straight up)."
+      ],
+      "precision": "Only the head and eyes move: body, hands, feet, lanyard and badge are identical in all eight. Head turns sideways at most about 60 degrees, so his face stays recognisable; looking up tilts the head back about 20 degrees, looking down tilts it forward about 20 degrees. The head keeps its size and stays inside the cell. Eyes look the same way as the head.",
+      "cells": [
+        [9, 0, 1],
+        [9, 1, 2],
+        [9, 2, 3],
+        [9, 3, 4],
+        [9, 4, 5],
+        [9, 5, 6],
+        [9, 6, 7],
+        [9, 7, 8]
+      ],
+      "sha256": "2a42993dceb61c066b5cbef47fc297cf979b2ae7a0d809a28592068c6f885df2",
+      "register": "slots"
+    },
+    {
+      "id": "L10",
+      "file": "L10-look-b.png",
+      "title": "LOOKING AROUND (2 OF 2)",
+      "intro": "The other half of the circle, the same way: the standard stance in all eight slots, body facing us, hands in his pockets, feet still, a warm smile; only his head and eyes turn, continuing clockwise from straight down. 'The viewer's left' means he turns his head to his own right.",
+      "slots": [
+        "Looking straight down, at his feet.",
+        "Looking down and a little to the viewer's left (about 202 degrees from straight up).",
+        "Looking down and to the viewer's left, at 45 degrees.",
+        "Looking to the viewer's left and a little down (about 247 degrees from straight up).",
+        "Looking straight to the viewer's left.",
+        "Looking to the viewer's left and a little up (about 292 degrees from straight up).",
+        "Looking up and to the viewer's left, at 45 degrees.",
+        "Looking up and a little to the viewer's left (about 337 degrees from straight up)."
+      ],
+      "precision": "Only the head and eyes move: body, hands, feet, lanyard and badge are identical in all eight, and match the looking-around sheet L09. Head turns sideways at most about 60 degrees; looking up tilts the head back about 20 degrees, looking down tilts it forward about 20 degrees. The head keeps its size and stays inside the cell. Never a mirror of L09: the watch and band stay on their own wrists.",
+      "cells": [
+        [10, 0, 1],
+        [10, 1, 2],
+        [10, 2, 3],
+        [10, 3, 4],
+        [10, 4, 5],
+        [10, 5, 6],
+        [10, 6, 7],
+        [10, 7, 8]
+      ],
+      "sha256": "e25a14ed596cf617d4d5d802df1fcdfc3941a6716c483f0f6702a11decca6023",
+      "register": "slots"
+    }
+  ]
+}

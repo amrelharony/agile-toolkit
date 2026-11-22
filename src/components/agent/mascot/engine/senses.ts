@@ -18,7 +18,10 @@ import { HELP_OFFER, STRETCH_OFFER, WELCOME_BACK, streakLine } from "@/lib/agent
 import { did, feel, getMind, recentlyDid, takeArrival } from "@/lib/agent/mascot/mind";
 import { say } from "@/lib/agent/mascot/say";
 import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
+import { noteTrouble } from "@/lib/agent/mascot/companion";
 import type { PackId } from "../mascot-packs";
+import { COMPANION_SCENES, sceneReaction } from "./scenes";
+import { clipPacks, shippedScene } from "./sprite-poses";
 import { createDirector } from "./director";
 import { createIdleLadder, firstMorningVisit, type IdleLadder } from "./idle";
 import { installContextSenses } from "./interactions/context";
@@ -82,7 +85,10 @@ export function installSenses(opts: SensesOptions): () => void {
     mascot().setHold(h, on);
 
   const disposePage = installPageSenses({
-    act: (r) => mascot().queueReaction(r),
+    act: (r) => {
+      if (r === "downcast") noteTrouble(); // the connection dropped
+      mascot().queueReaction(r);
+    },
     hold,
     allow: director.allow,
     isPhone,
@@ -127,7 +133,14 @@ export function installSenses(opts: SensesOptions): () => void {
 
   const busy = () => {
     const m = mascot();
-    return useAgentStore.getState().open || m.talking || m.drag !== null;
+    return (
+      useAgentStore.getState().open ||
+      m.talking ||
+      m.drag !== null ||
+      // Waiting on the visitor's decision, or settled because they chose Quiet:
+      // nothing unprompted (a pastime, a yawn) takes that moment over.
+      m.holds.some((h) => h.startsWith("scene:"))
+    );
   };
 
   // How the visit is going: stuck, reading, or at it for a long while.
@@ -142,6 +155,13 @@ export function installSenses(opts: SensesOptions): () => void {
         text: HELP_OFFER,
         onTap: () => useAgentStore.getState().openSheet(),
       }),
+    stuckScene: () => {
+      const c = shippedScene(COMPANION_SCENES.stuck);
+      if (!c) return null;
+      opts.want(clipPacks(c));
+      return sceneReaction(COMPANION_SCENES.stuck);
+    },
+    trouble: () => noteTrouble(),
     suggestStretch: () => {
       opts.want(["rest"]);
       say("stretch", { id: "stretch", text: STRETCH_OFFER });

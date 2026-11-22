@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { playEventScene } from "@/lib/agent/mascot/event-scenes";
 import { SHOW_SHARES_AT, type StoryGuess } from "@/lib/comics/guess";
 import { SKIPPED, guessFor, markGuessed } from "@/lib/comics/reading";
 import { readTaps, sendTap, type TapResult } from "@/lib/comics/taps-client";
@@ -58,6 +60,10 @@ export function useStoryGuess(ep: number, guess: StoryGuess | null): GuessState 
       setBusy(true);
       setPicked(option);
       setRevealed(true);
+      // The reader's own prediction (not "Just show me"): Amr predicts and opens his
+      // envelope too (X018). The same scene whichever option, so it says nothing of
+      // whether the guess was right. Once a story: the panel stays out after.
+      playEventScene(EVENT_SCENES.guess);
       const first = guessFor(ep) === null;
       markGuessed(ep, option);
       // The signed-in owner's guess is shown, never counted.

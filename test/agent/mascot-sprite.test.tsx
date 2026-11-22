@@ -452,6 +452,58 @@ describe("<MascotSprite /> with the packs", () => {
     expect(clipLayer(container).style.backgroundImage).toMatch(/amr-lifted\./);
   });
 
+  it("plays a scene whose pack came in late all the way through, not what's left of its time", () => {
+    const { container, images } = mountLoaded();
+    act(() => useMascotStore.getState().playNow("scene:rabbit"));
+    expect(shotOf(container)).not.toBe("clip:scene:rabbit"); // its pack is still coming
+    act(() => vi.advanceTimersByTime(2000)); // of a 3.1 s story
+    act(() => images.find((i) => /amr-rabbit\./.test(i.src))?.onload?.());
+    expect(shotOf(container)).toBe("clip:scene:rabbit");
+    act(() => vi.advanceTimersByTime(3000));
+    expect(shotOf(container)).toBe("clip:scene:rabbit");
+    act(() => vi.advanceTimersByTime(200));
+    expect(shotOf(container)).toMatch(/^idle/);
+  });
+
+  it("holds a decision for as long as it lasts, a reaction over it not replaying its way in", () => {
+    const { container, images } = mountLoaded();
+    act(() => useMascotStore.getState().setHold("scene:decide", true));
+    act(() => images.find((i) => /amr-decide\./.test(i.src))?.onload?.());
+    expect(shotOf(container)).toBe("hold:scene:decide");
+    // No timer ends a wait for the visitor, and no default is chosen.
+    act(() => vi.advanceTimersByTime(10 * 60_000));
+    expect(shotOf(container)).toBe("hold:scene:decide");
+    // A tap shows over it; then he's waiting again, not offering the options anew.
+    act(() => useMascotStore.getState().playNow("poke"));
+    expect(shotOf(container)).toBe("clip:poke");
+    act(() => vi.advanceTimersByTime(1200));
+    expect(shotOf(container)).toBe("hold:scene:decide");
+    const cell = Math.round(
+      (-parseFloat(clipLayer(container).style.backgroundPosition) /
+        parseFloat(clipLayer(container).style.backgroundSize)) *
+        8
+    );
+    expect([5, 6]).toContain(cell); // decide.wait-a or decide.wait-b, not decide.present
+    act(() => useMascotStore.getState().setHold("scene:decide", false));
+    expect(shotOf(container)).toMatch(/^idle/);
+  });
+
+  it("plays a held scene asked for as a story from its start, not from the hold's clock", () => {
+    const { container, images } = mountLoaded();
+    act(() => useMascotStore.getState().setHold("scene:quiet", true));
+    act(() => images.find((i) => /amr-quiet\./.test(i.src))?.onload?.());
+    act(() => vi.advanceTimersByTime(20_000)); // long settled
+    expect(shotOf(container)).toBe("hold:scene:quiet");
+    act(() => useMascotStore.getState().playNow("scene:quiet")); // /play bell
+    expect(shotOf(container)).toBe("clip:scene:quiet");
+    const cell = Math.round(
+      (-parseFloat(clipLayer(container).style.backgroundPosition) /
+        parseFloat(clipLayer(container).style.backgroundSize)) *
+        8
+    );
+    expect(Math.abs(cell)).toBe(0); // quiet.bell, the story's first frame
+  });
+
   it("lets a held pose go and shows the Zzz while he dozes", () => {
     const { container, images } = mountLoaded();
     act(() => useMascotStore.getState().setHold("dozing", true));

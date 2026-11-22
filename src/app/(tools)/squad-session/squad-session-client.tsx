@@ -34,6 +34,8 @@ import { RightsNotice } from "@/app/(tools)/comics/components/rights-notice";
 import { durationText } from "@/app/(tools)/ceremony-timer/agenda";
 import { StepTimerPanel } from "@/app/(tools)/liberating-structures/components/step-timer-panel";
 import { useReturnFocus } from "@/hooks/use-return-focus";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { playEventScene, useVisitOnce } from "@/lib/agent/mascot/event-scenes";
 import type { BookEpisode } from "@/lib/comics/book-episodes";
 import { liveLink } from "@/lib/handoffs/registry";
 import { sendHandoffBatch } from "@/lib/handoffs/send";
@@ -155,6 +157,7 @@ export function SquadSessionClient({
   }, [runReady, live, ep, runEp, router]);
 
   const pick = (next: string) => router.push(`${SQUAD_SESSION_PATH}?ep=${next}`);
+  const startOnce = useVisitOnce("squad-session-start");
 
   const book = episodes.find((e) => e.ep === ep) ?? null;
   const episode: SessionEpisode | null = book
@@ -176,6 +179,8 @@ export function SquadSessionClient({
     const step = currentStep(claim.run);
     announce(`Session started. Step 1 of 3: ${step?.label}, ${durationText(step?.seconds ?? 0)}.`);
     returnTo("timer:controls");
+    // The clock is running: Amr opens his conversation kit (X021), once a visit.
+    startOnce(() => playEventScene(EVENT_SCENES.squadKit));
   };
 
   const next = () => {

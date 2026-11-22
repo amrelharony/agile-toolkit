@@ -11,4 +11,4 @@
  * (test/agent/mascot-asset.test.ts checks the name matches the bytes). Never add
  * the pack's photo boards, decoded rows or QA files to public/.
  */
-export const MASCOT_SPRITE_URL = "/mascot/amr.7d281181.webp";
+export const MASCOT_SPRITE_URL = "/mascot/amr.91fc1db8.webp";

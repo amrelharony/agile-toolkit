@@ -21,6 +21,7 @@ import { toolIdForPath } from "@/lib/agent/page-tool";
 import { inLiveVisitorRoom, subscribeLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { VISITOR_LIMITS } from "@/lib/visitor-ai/contract";
 import { formatPeakTime, peakWindow } from "@/lib/visitor-ai/peak";
+import { useChatVisible } from "../chat-visibility";
 import { ConfirmAction } from "../confirm-action";
 import { MessageBubble } from "../message-bubble";
 import { handleMascotCommand } from "./engine/customization/commands";
@@ -116,6 +117,8 @@ export default function VisitorAgentPanel({
   const now = useNow(CLOCK_TICK_MS);
   // In a visitor live room Amr gets no tools; the footer says so.
   const inLiveRoom = useSyncExternalStore(subscribeLiveVisitorRoom, inLiveVisitorRoom, () => false);
+  // False while Amr's Scenes view covers the chat (mounted, hidden).
+  const visible = useChatVisible();
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const mountedRef = useRef(false);
@@ -125,7 +128,7 @@ export default function VisitorAgentPanel({
   const send = async (raw: string) => {
     const text = raw.trim().slice(0, VISITOR_LIMITS.userChars);
     if (!text || sendingRef.current || useAgentStore.getState().streaming) return;
-    // Mascot commands (/dance, /mascot-aura) run locally, never through the AI.
+    // Mascot commands (/dance, /mascot-aura, /play) run locally, never through the AI.
     if (handleMascotCommand(text)) {
       setInput("");
       return;
@@ -152,7 +155,6 @@ export default function VisitorAgentPanel({
   // straight away, and that must not cancel the question sent on mount.
   useEffect(() => {
     mountedRef.current = true;
-    composerRef.current?.focus();
     return () => {
       mountedRef.current = false;
       queueMicrotask(() => {
@@ -160,6 +162,12 @@ export default function VisitorAgentPanel({
       });
     };
   }, []);
+
+  // The message box takes focus on mount, and again when the chat comes back
+  // from under the Scenes view.
+  useEffect(() => {
+    if (visible) composerRef.current?.focus();
+  }, [visible]);
 
   // The question the visitor asked from the guide or the consent card.
   useEffect(() => {
@@ -173,14 +181,15 @@ export default function VisitorAgentPanel({
   const busy = streaming || loading;
   useEffect(() => {
     const log = scrollRef.current;
-    if (!log) return;
+    // A hidden log can't scroll: it catches up when it's in view again.
+    if (!log || !visible) return;
     log.scrollTo?.({ top: log.scrollHeight, behavior: "smooth" });
     // In a short panel the root scrolls too, and the message box's focus
     // leaves the log above the view: bring the log back when there is
     // something new in it. In a tall panel the log is in view, so this moves
     // nothing. An empty chat stays on the message box.
     if (messages.length > 0 || busy) log.scrollIntoView?.({ block: "nearest" });
-  }, [messages.length, streaming, busy]);
+  }, [messages.length, streaming, busy, visible]);
 
   // "Thinking…" until the reply's first words arrive (or between tool rounds).
   const last = messages[messages.length - 1];

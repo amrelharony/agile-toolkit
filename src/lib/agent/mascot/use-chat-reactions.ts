@@ -6,9 +6,12 @@
  *   • plays a "thinking" reaction when a turn starts,
  *   • shifts mood to the reply's sentiment when the turn ends (and beams at a
  *     warm reply),
- *   • nods on a successful tool result, head-shakes on a tool error,
+ *   • nods on a successful tool result, head-shakes on a tool error, and nods
+ *     too when the visitor said no (Deny, a closed card): a choice, not a failure,
  *   • looks concerned when the turn fails or a limit is reached (the owner's
  *     rate limit, or a visitor's daily allowance / the visitor AI's fallback),
+ *   • holds out the two options and waits while a visitor's Approve or Deny card
+ *     waits for them (companion.ts; the owner's card has a third choice),
  *   • bows when he's thanked.
  *
  * A reply and a thank-you also move his mood. The owner's are counted in what he
@@ -20,6 +23,7 @@
 
 import { useEffect, useRef } from "react";
 import { useAgentStore } from "@/lib/agent/store";
+import { awaitDecision, isDeclined, noteTrouble } from "./companion";
 import { feel, getMind } from "./mind";
 import { useMascotStore } from "./store";
 import { analyzeSentiment } from "./sentiment";
@@ -51,9 +55,17 @@ export function useMascotChatReactions(): void {
     (s) =>
       s.rateLimit?.limited === true || s.visitorFallback !== null || s.visitorQuota?.remaining === 0
   );
+  // A visitor's card has exactly two answers, Approve and Deny.
+  const choosing = useAgentStore((s) => s.pendingToolUse !== null && s.chatProfile === "visitor");
   const wasStreaming = useRef(false);
   const toolCount = useRef(0);
   const userCount = useRef(0);
+
+  // A card waiting for the visitor: the two options, then he waits, until they answer.
+  useEffect(() => {
+    awaitDecision("approve", choosing);
+  }, [choosing]);
+  useEffect(() => () => awaitDecision("approve", false), []);
 
   // Talk while streaming; think on start; mood-from-reply on end.
   useEffect(() => {
@@ -87,16 +99,20 @@ export function useMascotChatReactions(): void {
 
   // A failed turn or a spent rate limit: a concerned look.
   useEffect(() => {
-    if (error || limited) useMascotStore.getState().queueReaction("concerned");
+    if (!error && !limited) return;
+    noteTrouble();
+    useMascotStore.getState().queueReaction("concerned");
   }, [error, limited]);
 
-  // Nod on a successful tool result, head-shake on an error.
+  // Nod on a successful tool result or a no from the visitor, head-shake on an error.
   useEffect(() => {
     const toolMsgs = messages.filter((m) => m.role === "tool");
     if (toolMsgs.length > toolCount.current) {
       const newest = toolMsgs[toolMsgs.length - 1];
-      const isError = newest.content.some((c) => c.type === "tool_result" && c.is_error);
-      useMascotStore.getState().queueReaction(isError ? "headShake" : "nod");
+      const results = newest.content.filter((c) => c.type === "tool_result");
+      const failed = results.some((c) => c.is_error && !isDeclined(c));
+      if (failed) noteTrouble();
+      useMascotStore.getState().queueReaction(failed ? "headShake" : "nod");
     }
     toolCount.current = toolMsgs.length;
   }, [messages]);

@@ -5,8 +5,24 @@ import Link from "next/link";
 import { Check, MessagesSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useMascotStore } from "@/lib/agent/mascot/store";
+import {
+  COMPANION_SCENES,
+  EVENT_SCENES,
+  sceneReaction,
+} from "@/components/agent/mascot/engine/scenes";
+import { shippedScene } from "@/components/agent/mascot/engine/sprite-poses";
+import { playEventScene } from "@/lib/agent/mascot/event-scenes";
 import { FIRST_WEEKLY_EP } from "@/lib/comics/entry";
-import { READ_EVENT, markAsked, markRead, sentLinks, setSentLinks } from "@/lib/comics/reading";
+import {
+  READ_EVENT,
+  markAsked,
+  markRead,
+  reachedMilestone,
+  readStories,
+  sentLinks,
+  setSentLinks,
+  weekStreak,
+} from "@/lib/comics/reading";
 import { beaconStats } from "@/lib/comics/stats-client";
 import { dispatch } from "@/lib/gamification/engine";
 import { recordOutcome } from "@/lib/gamification/ledger";
@@ -134,14 +150,20 @@ export function DiscussInRetro({ ep, question }: { ep: number; question: string 
  * with the page open and in view for a few seconds: a page that opens with its
  * end already in view (a short story on a tall screen) still waits for the
  * dwell, and so does one opened in a background tab. Then the reading trophies
- * get their event and Amr jumps.
+ * get their event and Amr takes an idea from it, or marks the milestone it reached.
  */
 export function ReadTracker({ ep }: { ep: number }) {
   const end = useRef<HTMLDivElement>(null);
   const counting = useCounting();
 
   const finish = useCallback(() => {
-    const first = markRead(ep);
+    const now = new Date();
+    // The week streak just before this read, so a milestone is this read's own.
+    const streakBefore = weekStreak(
+      readStories().map((r) => r.at),
+      now
+    );
+    const first = markRead(ep, now);
     if (!first) return;
     if (counting && ep >= FIRST_WEEKLY_EP) beaconStats(ep, ["reader"]);
     window.dispatchEvent(new CustomEvent(READ_EVENT, { detail: first }));
@@ -152,8 +174,14 @@ export function ReadTracker({ ep }: { ep: number }) {
     // Reading pays once per story, at most two a day.
     recordOutcome("story-read", { key: `story:${ep}`, meta: { ep } });
     const mascot = useMascotStore.getState();
-    // Nobody plays the queue while he isn't on screen.
-    if (mascot.ready) mascot.queueReaction("excited");
+    // Nobody plays the queue while he isn't on screen. A read that reaches a
+    // milestone itself (the tenth story, the fourth week running) slides one bead
+    // along (X015) in place of Comic to Action; nothing else moves a bead.
+    if (reachedMilestone(first, streakBefore) && playEventScene(EVENT_SCENES.milestone)) return;
+    // A story read to its end for the first time: he takes an idea from it and
+    // offers it to try (Comic to Action), in place of the jump. He creates nothing.
+    const story = COMPANION_SCENES.storyRead;
+    if (mascot.ready) mascot.queueReaction(shippedScene(story) ? sceneReaction(story) : "excited");
   }, [ep, counting]);
 
   useEffect(() => {
