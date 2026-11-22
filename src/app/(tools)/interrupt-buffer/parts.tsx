@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { INTERRUPT_KINDS, TOOL_TEXT_MAX, type Sprint } from "@/lib/stores/workspace-types";
-import { interruptClassifyTask } from "@/lib/ai/tasks/interrupt-buffer";
+import { interruptClassifyTask } from "@/lib/ai/tasks/interrupt-buffer.lite";
 import {
   BUFFER_FORM_TEXT,
   BUFFER_PCT_MAX,

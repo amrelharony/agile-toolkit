@@ -39,7 +39,7 @@ import { Coffee, Play, SkipForward, ThumbsDown, ThumbsUp, TimerReset } from "luc
 import { Button } from "@/components/ui/button";
 import { AiButton, AiSuggestions } from "@/components/ai";
 import { useAnnounce } from "@/components/a11y/live-announcer";
-import { groupTopicsTask } from "@/lib/ai/tasks/retro";
+import { groupTopicsTask } from "@/lib/ai/tasks/retro.lite";
 import type { AiSource } from "@/lib/ai/task-types";
 import {
   LEAN_COFFEE_EXTEND_CHOICES,

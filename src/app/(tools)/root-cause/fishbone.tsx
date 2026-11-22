@@ -32,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import { AiButton, AiSuggestions } from "@/components/ai";
-import { categoriesTask } from "@/lib/ai/tasks/root-cause";
+import { categoriesTask } from "@/lib/ai/tasks/root-cause.lite";
 import type { AiSource } from "@/lib/ai/task-types";
 import {
   TOOL_LIST_MAX,
