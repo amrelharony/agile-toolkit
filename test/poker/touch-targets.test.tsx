@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { StoryQueueItem } from "@/app/(tools)/planning-poker/story-queue-item";
 import { AcceptEstimate } from "@/app/(tools)/planning-poker/accept-estimate";
 import { AddStoryForm } from "@/app/(tools)/planning-poker/add-story-form";
+import { LobbyScreen } from "@/app/(tools)/planning-poker/lobby-screen";
 import type { Story } from "@/app/(tools)/planning-poker/types";
 
 /**
@@ -84,6 +85,35 @@ describe("accept estimate", () => {
     }
 
     expectTouchTarget(screen.getByRole("button", { name: "Accept 8" }), ["h"]);
+  });
+});
+
+describe("lobby", () => {
+  it("makes each estimation scale 44px on touch and keeps it a pressed toggle", () => {
+    render(<LobbyScreen onStart={noop} isOwner />);
+    const group = screen.getByRole("group", { name: "Estimation scale" });
+    const scales = within(group).getAllByRole("button");
+    expect(scales).toHaveLength(3);
+    for (const scale of scales) {
+      expectTouchTarget(scale, ["h"]);
+      expect(scale).toHaveAttribute("aria-pressed");
+    }
+  });
+
+  it("leaves the fields at the primitive's 16px phone text on its own card paper", () => {
+    render(<LobbyScreen onStart={noop} isOwner />);
+    // Pick Custom so the Card values field shows too.
+    const scales = within(screen.getByRole("group", { name: "Estimation scale" }));
+    fireEvent.click(scales.getAllByRole("button")[2]);
+    const fields = ["Session name", "Card values", "Your display name"].map((name) =>
+      screen.getByRole("textbox", { name })
+    );
+    for (const field of fields) {
+      // text-sm under 16px makes iOS zoom on focus; the primitive's text-base stays.
+      expect(field, field.className).toHaveClass("text-base", "bg-card");
+      expect(field, field.className).not.toHaveClass("text-sm");
+      expect(field, field.className).not.toHaveClass("bg-surface-deep");
+    }
   });
 });
 
