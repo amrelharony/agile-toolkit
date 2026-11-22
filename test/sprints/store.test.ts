@@ -1,13 +1,22 @@
 /**
  * Removing a sprint from a sprint tool, then Undo, puts back everything the
  * removal took: the sprint, its series, and the story and canvas links that
- * `removeSprint` cleared.
+ * `removeSprint` cleared. The story writers return the story as the store
+ * saved it, after its own stamps and cleaning.
  */
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Sprint } from "@/lib/stores/workspace-types";
-import { removeSprintWithSeries, updateSeries, updateSprint } from "@/lib/sprints/store";
+import {
+  removeSprintWithSeries,
+  setStoryBlocked,
+  setStoryDodCheck,
+  setStorySprint,
+  setStoryStatus,
+  updateSeries,
+  updateSprint,
+} from "@/lib/sprints/store";
 import { withDay } from "@/lib/sprints/series";
 import { cardFixture } from "../canvas/object-fixtures";
 
@@ -69,5 +78,44 @@ describe("updateSprint", () => {
     expect(updateSprint("sprint_1", { pointsCompleted: 31 })?.pointsCompleted).toBe(31);
     expect(useWorkspaceStore.getState().sprints[0].pointsCompleted).toBe(31);
     expect(updateSprint("nope", { name: "x" })).toBeNull();
+  });
+});
+
+describe("the story writers return the story as saved", () => {
+  // Set straight into the state, so the store's cleaning hasn't run on it:
+  // the next write through `upsertStory` trims the notes.
+  beforeEach(() => {
+    useWorkspaceStore.setState({
+      stories: [
+        { id: "st1", title: "Login", status: "todo", sprintId: "sprint_1", notes: "  Use SSO  " },
+      ],
+    });
+  });
+
+  const stored = () => useWorkspaceStore.getState().stories.find((s) => s.id === "st1");
+
+  it("setStoryStatus re-reads the row after the write", () => {
+    const saved = setStoryStatus("st1", "in_progress", "2026-11-23T09:00:00.000Z");
+    expect(saved).toBe(stored());
+    expect(saved).toMatchObject({ status: "in_progress", notes: "Use SSO" });
+  });
+
+  it("setStoryBlocked re-reads the row after the write", () => {
+    const saved = setStoryBlocked("st1", true);
+    expect(saved).toBe(stored());
+    expect(saved).toMatchObject({ blocked: true, notes: "Use SSO" });
+  });
+
+  it("setStorySprint and setStoryDodCheck do too", () => {
+    expect(setStorySprint("st1", undefined)).toBe(stored());
+    expect(stored()?.notes).toBe("Use SSO");
+    expect(setStoryDodCheck("st1", "tests", true)).toBe(stored());
+  });
+
+  it("writes nothing and gives the stored row back when nothing changes", () => {
+    const before = useWorkspaceStore.getState().stories;
+    expect(setStoryStatus("st1", "todo")).toBe(before[0]);
+    expect(setStoryBlocked("st1", false)).toBe(before[0]);
+    expect(useWorkspaceStore.getState().stories).toBe(before);
   });
 });
