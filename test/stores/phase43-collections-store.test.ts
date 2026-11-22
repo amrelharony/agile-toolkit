@@ -44,6 +44,9 @@ import {
   PRODUCT_CANVAS_KIND,
   PRODUCT_METRIC_KIND,
   STRATEGY_MAP_KIND,
+  TEAM_TIME_PERSON_KIND,
+  TEAM_TIME_POLL_KIND,
+  TEAM_TIME_ROTATION_KIND,
   TEST_SESSION_KIND,
   WORKFLOW_DEFINITION_KIND,
   emptyWorkspace,
@@ -69,7 +72,11 @@ import {
   RELEASES_WITH_NOTES,
   RETRO_WITH_DAYS,
   ROADMAP_WITH_HORIZON,
+  STANDUP_PPP,
   STORY_WITH_FLOW,
+  TEAM_TIME_PERSON,
+  TEAM_TIME_POLL,
+  TEAM_TIME_ROTATION,
   TEST_SESSION,
   TRACKER_WITH_VALUE_CHECK,
   WORKFLOW_DEFINITION,
@@ -210,6 +217,30 @@ const COLLECTIONS: {
     toolId: "workspace.kickoff",
     kind: KICKOFF_KIND,
   },
+  {
+    slice: "teamTimePeople",
+    doc: TEAM_TIME_PERSON,
+    upsert: (x) => ws().upsertTeamTimePerson(x),
+    remove: (id) => ws().removeTeamTimePerson(id),
+    toolId: "workspace.team_time_person",
+    kind: TEAM_TIME_PERSON_KIND,
+  },
+  {
+    slice: "teamTimePolls",
+    doc: TEAM_TIME_POLL,
+    upsert: (x) => ws().upsertTeamTimePoll(x),
+    remove: (id) => ws().removeTeamTimePoll(id),
+    toolId: "workspace.team_time_poll",
+    kind: TEAM_TIME_POLL_KIND,
+  },
+  {
+    slice: "teamTimeRotations",
+    doc: TEAM_TIME_ROTATION,
+    upsert: (x) => ws().upsertTeamTimeRotation(x),
+    remove: (id) => ws().removeTeamTimeRotation(id),
+    toolId: "workspace.team_time_rotation",
+    kind: TEAM_TIME_ROTATION_KIND,
+  },
 ];
 
 /**
@@ -263,6 +294,12 @@ const EXTENDED: {
     slice: "retroBoards",
     doc: RETRO_WITH_DAYS,
     upsert: (x) => ws().upsertRetroBoard(x),
+  },
+  {
+    name: "a standup entry's format, DRI and hand-over (P2.9)",
+    slice: "standupEntries",
+    doc: STANDUP_PPP,
+    upsert: (x) => ws().upsertStandupEntry(x),
   },
 ];
 

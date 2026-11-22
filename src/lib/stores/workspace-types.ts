@@ -1096,6 +1096,8 @@ export interface CharterRule {
   consent?: CharterConsent[];
   /** The item it was sent from (a kickoff's rule). */
   sourceRef?: HandoffRef;
+  /** The charter template that wrote it, and which of its lines (slot, at most 40 characters). */
+  template?: { id: CharterTemplateId; slot: string };
 }
 
 export interface CharterMeta {
@@ -1148,6 +1150,8 @@ export interface WorkingAgreement {
   checkIns?: CharterCheckIn[];
   /** Published versions, oldest first (the latest 20 are kept). */
   versions?: CharterVersion[];
+  /** The charter templates applied (the tools plan's phase 2, P2.9; see `CharterTemplates`). */
+  templates?: CharterTemplates;
 }
 
 export interface LsFavorite {
@@ -2399,7 +2403,21 @@ export interface StandupEntry {
   mode?: StandupMode;
   /** Anything else the person added (async posts). */
   description?: string;
+  /*
+   * The tools plan's phase 2 (P2.9): Progress/Plans/Problems, a DRI per
+   * blocker and a hand-over between time zones.
+   */
+  /** Absent: classic (yesterday, today, blockers). */
+  format?: StandupFormat;
+  /** Who is directly responsible for the blocker (at most 120 characters). */
+  blockerDri?: string;
+  /** A hand-over to the next time zone (at most 4,000 characters). */
+  handoff?: string;
 }
+
+/** A standup's format: classic (yesterday, today, blockers) or Progress/Plans/Problems. */
+export const STANDUP_FORMATS = ["classic", "ppp"] as const;
+export type StandupFormat = (typeof STANDUP_FORMATS)[number];
 
 /** A demo item in a sprint review's demo script. */
 export interface DemoFeature {
@@ -4889,6 +4907,241 @@ export interface Kickoff {
 
 export const KICKOFF_KIND = "workspace:kickoff";
 
+/* P2.9, Team Time (people, meeting-time polls and rotations), the Async
+ * Standup's formats (`StandupEntry.format`, `blockerDri`, `handoff`) and the
+ * Working Agreement's charter templates (`WorkingAgreement.templates`,
+ * `CharterRule.template`). */
+
+export const TEAM_TIME_PERSON_KIND = "workspace:teamTimePerson";
+export const TEAM_TIME_POLL_KIND = "workspace:teamTimePoll";
+export const TEAM_TIME_ROTATION_KIND = "workspace:teamTimeRotation";
+
+export const TEAM_TIME_ANSWERS = ["yes", "maybe", "no"] as const;
+export type TeamTimeAnswer = (typeof TEAM_TIME_ANSWERS)[number];
+
+export const TEAM_TIME_POLL_STATUSES = ["open", "closed"] as const;
+export type TeamTimePollStatus = (typeof TEAM_TIME_POLL_STATUSES)[number];
+
+/** A rotation moves the meeting's time in turn, or to whoever has had it worst. */
+export const TEAM_TIME_ROTATION_MODES = ["in-turn", "fairest"] as const;
+export type TeamTimeRotationMode = (typeof TEAM_TIME_ROTATION_MODES)[number];
+
+/** Team Time's caps: people, poll slots and answers, rotation options and held meetings, and text lengths. */
+export const TEAM_TIME_MAX = {
+  people: 50,
+  slots: 20,
+  answers: 50,
+  options: 4,
+  held: 52,
+  attendees: 50,
+  zone: 64,
+  site: 60,
+  label: 60,
+} as const;
+
+/** One person's time zone, hours and days (Team Time). */
+export interface TeamTimePerson {
+  id: string;
+  /** The roster member it is. */
+  teamMemberId?: string;
+  /** At most "short". */
+  name: string;
+  /** An IANA time zone in its canonical spelling, such as "Africa/Cairo". */
+  timeZone: string;
+  /** Working hours, "HH:MM" in their zone. */
+  start: string;
+  end: string;
+  /** 0 Sunday to 6 Saturday. */
+  workingDays: number[];
+  /** Days in the office, within the working days. */
+  officeDays?: number[];
+  /** Their office (at most TEAM_TIME_MAX.site). */
+  site?: string;
+  /** At most "text". */
+  note?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+/** One time a poll offers: a UTC instant. */
+export interface TeamTimeSlot {
+  id: string;
+  start: ISODateString;
+}
+
+/** One person's answers to a poll, by slot id. */
+export interface TeamTimePollAnswer {
+  /** At most "short". */
+  name: string;
+  picks: Record<string, TeamTimeAnswer>;
+}
+
+/** A poll for a meeting time (Team Time), answered by the facilitator. */
+export interface TeamTimePoll {
+  id: string;
+  /** At most "short". */
+  title: string;
+  /** The meeting's length in minutes. */
+  minutes: number;
+  /** At most TEAM_TIME_MAX.slots. */
+  slots: TeamTimeSlot[];
+  /** At most TEAM_TIME_MAX.answers. */
+  answers: TeamTimePollAnswer[];
+  status: TeamTimePollStatus;
+  chosenSlotId?: string;
+  /** At most "text". */
+  note?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+/** One time a rotating meeting can be held: a weekday and time in a zone. */
+export interface TeamTimeRotationOption {
+  id: string;
+  /** At most TEAM_TIME_MAX.label. */
+  label?: string;
+  /** 0 Sunday to 6 Saturday. */
+  weekday: number;
+  /** "HH:MM". */
+  time: string;
+  timeZone: string;
+}
+
+/** A held (or skipped) meeting of a rotation. */
+export interface TeamTimeHeld {
+  /** YYYY-MM-DD in the option's zone. */
+  date: string;
+  optionId: string;
+  skipped?: true;
+}
+
+/** A meeting that rotates between times, so the same people don't always take the late call. */
+export interface TeamTimeRotation {
+  id: string;
+  /** At most "short". */
+  meeting: string;
+  minutes: number;
+  everyWeeks: 1 | 2 | 3 | 4;
+  /** YYYY-MM-DD. */
+  startDate: string;
+  mode: TeamTimeRotationMode;
+  /** 2 to TEAM_TIME_MAX.options. */
+  options: TeamTimeRotationOption[];
+  /** TeamTimePerson ids, at most TEAM_TIME_MAX.attendees. */
+  attendees?: string[];
+  /** At most TEAM_TIME_MAX.held. */
+  held: TeamTimeHeld[];
+  /** The Meeting Audit row of the same meeting. */
+  meetingAuditId?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+/** The Working Agreement's charter templates. */
+export const CHARTER_TEMPLATE_IDS = [
+  "urgency-ladder",
+  "core-hours",
+  "focus-time",
+  "ai-use",
+] as const;
+export type CharterTemplateId = (typeof CHARTER_TEMPLATE_IDS)[number];
+
+/** The caps of the charter templates' fields. */
+export const CHARTER_TEMPLATE_MAX = {
+  slot: 40,
+  levelsMin: 2,
+  levels: 6,
+  levelLabel: 40,
+  levelWhen: 160,
+  levelChannel: 80,
+  levelReplyWithin: 40,
+  anchorDays: 4,
+  site: 60,
+  weeklyMinHoursMin: 1,
+  weeklyMinHours: 40,
+  aiTools: 5,
+  aiTool: 60,
+  aiNote: 120,
+} as const;
+
+/** One rung of an urgency ladder: when to use it, where, and how fast a reply comes. */
+export interface UrgencyLevel {
+  id: string;
+  /** At most CHARTER_TEMPLATE_MAX.levelLabel. */
+  label: string;
+  /** At most CHARTER_TEMPLATE_MAX.levelWhen. */
+  when: string;
+  /** At most CHARTER_TEMPLATE_MAX.levelChannel. */
+  channel: string;
+  /** Free text, at most CHARTER_TEMPLATE_MAX.levelReplyWithin. */
+  replyWithin: string;
+}
+
+export interface UrgencyLadderTemplate {
+  /** 2 to CHARTER_TEMPLATE_MAX.levels. */
+  levels: UrgencyLevel[];
+  /** Whether the ladder holds after hours. */
+  afterHours: boolean;
+  appliedAt: ISODateString;
+}
+
+export const CORE_HOURS_PURPOSES = ["meetings", "quick-replies", "pairing"] as const;
+export type CoreHoursPurpose = (typeof CORE_HOURS_PURPOSES)[number];
+
+export interface CoreHoursTemplate {
+  /** "HH:MM". */
+  start: string;
+  end: string;
+  timeZone: string;
+  /** 0 Sunday to 6 Saturday. */
+  days: number[];
+  /** At least one. */
+  purposes: CoreHoursPurpose[];
+  /** Office anchor days by site, at most CHARTER_TEMPLATE_MAX.anchorDays. */
+  anchorDays?: { site: string; days: number[] }[];
+  appliedAt: ISODateString;
+}
+
+export interface FocusTimeTemplate {
+  days: number[];
+  start: string;
+  end: string;
+  /** null: each person's own clock. */
+  timeZone: string | null;
+  /** 1 to CHARTER_TEMPLATE_MAX.weeklyMinHours. */
+  weeklyMinHours?: number;
+  appliedAt: ISODateString;
+}
+
+/** Where AI is never used. */
+export const AI_USE_NEVER_IN = ["customer-data", "secrets", "confidential"] as const;
+export type AiUseNeverIn = (typeof AI_USE_NEVER_IN)[number];
+
+/** How AI-made work is reviewed. */
+export const AI_USE_REVIEW = ["as-any-work", "closer-look", "not-production"] as const;
+export type AiUseReview = (typeof AI_USE_REVIEW)[number];
+
+export interface AiUseTemplate {
+  /** At most CHARTER_TEMPLATE_MAX.aiTools, each at most CHARTER_TEMPLATE_MAX.aiTool. */
+  tools: string[];
+  neverIn: AiUseNeverIn[];
+  /** At most CHARTER_TEMPLATE_MAX.aiNote. */
+  neverInOther?: string;
+  review: AiUseReview;
+  customerFacing: boolean;
+  /** At most CHARTER_TEMPLATE_MAX.aiNote. */
+  shareWhere?: string;
+  appliedAt: ISODateString;
+}
+
+/** The templates a Working Agreement has applied. */
+export interface CharterTemplates {
+  urgencyLadder?: UrgencyLadderTemplate;
+  coreHours?: CoreHoursTemplate;
+  focusTime?: FocusTimeTemplate;
+  aiUse?: AiUseTemplate;
+}
+
 export interface Workspace {
   teamMembers: TeamMember[];
   sprints: Sprint[];
@@ -5055,6 +5308,9 @@ export interface Workspace {
   workflowDefinitions?: WorkflowDefinition[];
   improvements?: Improvement[];
   kickoffs?: Kickoff[];
+  teamTimePeople?: TeamTimePerson[];
+  teamTimePolls?: TeamTimePoll[];
+  teamTimeRotations?: TeamTimeRotation[];
 }
 
 /**
@@ -5353,6 +5609,9 @@ export const emptyWorkspace = {
   workflowDefinitions: [],
   improvements: [],
   kickoffs: [],
+  teamTimePeople: [],
+  teamTimePolls: [],
+  teamTimeRotations: [],
 } satisfies Workspace;
 
 /**

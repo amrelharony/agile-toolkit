@@ -141,7 +141,64 @@ export const AGREEMENT: WorkingAgreement = {
       consent: [],
       sourceRef: { tool: "kickoff", id: "item-4", doc: "kickoff_1" },
     },
+    // A rule a charter template wrote (P2.9).
+    {
+      id: "rule-3",
+      category: "communication",
+      text: "Urgent: call; normal: chat within a day",
+      agreedBy: ["Ana"],
+      template: { id: "urgency-ladder", slot: "levels" },
+    },
   ],
+  // The charter templates applied (the tools plan's phase 2, P2.9).
+  templates: {
+    urgencyLadder: {
+      levels: [
+        {
+          id: "l1",
+          label: "Urgent",
+          when: "Production is down",
+          channel: "Phone",
+          replyWithin: "15 minutes",
+        },
+        {
+          id: "l2",
+          label: "Normal",
+          when: "Anything else",
+          channel: "Team chat",
+          replyWithin: "A day",
+        },
+      ],
+      afterHours: false,
+      appliedAt: "2026-10-03T09:00:00.000Z",
+    },
+    coreHours: {
+      start: "10:00",
+      end: "15:00",
+      timeZone: "Europe/London",
+      days: [1, 2, 3, 4, 5],
+      purposes: ["meetings", "pairing"],
+      anchorDays: [{ site: "London", days: [2] }],
+      appliedAt: "2026-10-03T09:00:00.000Z",
+    },
+    focusTime: {
+      days: [3],
+      start: "09:00",
+      end: "12:00",
+      timeZone: null,
+      weeklyMinHours: 6,
+      appliedAt: "2026-10-03T09:00:00.000Z",
+    },
+    aiUse: {
+      tools: ["A chat assistant"],
+      neverIn: ["customer-data", "secrets"],
+      neverInOther: "Salary data",
+      review: "closer-look",
+      customerFacing: false,
+      shareWhere: "The team wiki",
+      appliedAt: "2026-10-03T09:00:00.000Z",
+    },
+  },
   meta: { teamName: "Falcons", version: 2, publishedAt: "2026-10-02", description: "Our rules" },
   checkIns: [
     {

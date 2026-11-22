@@ -23,8 +23,12 @@ import type {
   ReleaseReadiness,
   RetroBoard,
   RootCauseAnalysis,
+  StandupEntry,
   Story,
   StrategyMap,
+  TeamTimePerson,
+  TeamTimePoll,
+  TeamTimeRotation,
   TestSession,
   WorkflowDefinition,
 } from "@/lib/stores/workspace-types";
@@ -726,4 +730,76 @@ export const KICKOFF: Kickoff = {
   sentTo: [{ route: "decision", targetId: "dec_2", at: LATER }],
   createdAt: AT,
   updatedAt: LATER,
+};
+
+/* P2.9 */
+
+export const TEAM_TIME_PERSON: TeamTimePerson = {
+  id: "ttp_1",
+  teamMemberId: "member_ana",
+  name: "Ana",
+  timeZone: "Europe/London",
+  start: "09:00",
+  end: "17:30",
+  workingDays: [1, 2, 3, 4, 5],
+  officeDays: [2, 4],
+  site: "London",
+  note: "Picks up her son at four on Fridays.",
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+export const TEAM_TIME_POLL: TeamTimePoll = {
+  id: "ttpoll_1",
+  title: "Quarterly planning",
+  minutes: 90,
+  slots: [
+    { id: "s1", start: "2026-11-24T14:00:00.000Z" },
+    { id: "s2", start: "2026-11-25T08:00:00.000Z" },
+  ],
+  answers: [
+    { name: "Ana", picks: { s1: "yes", s2: "maybe" } },
+    { name: "Kenji", picks: { s1: "no", s2: "yes" } },
+  ],
+  status: "closed",
+  chosenSlotId: "s2",
+  note: "Kenji can't do evenings.",
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+export const TEAM_TIME_ROTATION: TeamTimeRotation = {
+  id: "ttrot_1",
+  meeting: "Sprint Review",
+  minutes: 60,
+  everyWeeks: 2,
+  startDate: "2026-11-05",
+  mode: "fairest",
+  options: [
+    { id: "o1", label: "London afternoon", weekday: 4, time: "15:00", timeZone: "Europe/London" },
+    { id: "o2", weekday: 5, time: "09:00", timeZone: "Asia/Tokyo" },
+  ],
+  attendees: ["ttp_1", "ttp_2"],
+  held: [
+    { date: "2026-11-05", optionId: "o1" },
+    { date: "2026-11-20", optionId: "o2", skipped: true },
+  ],
+  meetingAuditId: "meeting_1",
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+/** A standup entry in Progress/Plans/Problems, with a DRI and a hand-over (P2.9's fields). */
+export const STANDUP_PPP: StandupEntry = {
+  id: "standup_ppp",
+  member: "Ana",
+  date: "2026-11-12",
+  yesterday: "Refund screen done",
+  today: "Refund tests",
+  blockers: "Bank sandbox down",
+  timestamp: 1731398400000,
+  mode: "async",
+  format: "ppp",
+  blockerDri: "Bo",
+  handoff: "Kenji: the sandbox may be back by your morning.",
 };

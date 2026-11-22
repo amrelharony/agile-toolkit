@@ -45,6 +45,9 @@ import {
   PRODUCT_METRIC_KIND,
   RETRO_CARD_DAY_MAX,
   STRATEGY_MAP_KIND,
+  TEAM_TIME_PERSON_KIND,
+  TEAM_TIME_POLL_KIND,
+  TEAM_TIME_ROTATION_KIND,
   TEST_SESSION_KIND,
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
@@ -76,12 +79,17 @@ import {
   RELEASES_WITH_NOTES,
   RETRO_WITH_DAYS,
   ROADMAP_WITH_HORIZON,
+  STANDUP_PPP,
   STRATEGY_TREE,
   STORY_WITH_FLOW,
+  TEAM_TIME_PERSON,
+  TEAM_TIME_POLL,
+  TEAM_TIME_ROTATION,
   TEST_SESSION,
   TRACKER_WITH_VALUE_CHECK,
   WORKFLOW_DEFINITION,
 } from "../stores/phase43-fixtures";
+import { AGREEMENT } from "../team/phase6-fixtures";
 
 const upsertEntity = vi.mocked(serverStore.serverUpsertEntity);
 const listEntities = vi.mocked(serverStore.serverListEntities);
@@ -158,6 +166,14 @@ const COLLECTIONS: [toolId: string, slice: keyof Workspace, doc: Doc, kind: stri
   ],
   ["workspace.improvement", "improvements", IMPROVEMENT, IMPROVEMENT_KIND],
   ["workspace.kickoff", "kickoffs", KICKOFF, KICKOFF_KIND],
+  ["workspace.team_time_person", "teamTimePeople", TEAM_TIME_PERSON, TEAM_TIME_PERSON_KIND],
+  ["workspace.team_time_poll", "teamTimePolls", TEAM_TIME_POLL, TEAM_TIME_POLL_KIND],
+  [
+    "workspace.team_time_rotation",
+    "teamTimeRotations",
+    TEAM_TIME_ROTATION,
+    TEAM_TIME_ROTATION_KIND,
+  ],
 ];
 
 /** The one-document collections: create keeps their fixed id. */
@@ -204,6 +220,18 @@ const EXTENDED: [name: string, toolId: string, slice: keyof Workspace, doc: Doc]
     "workspace.root_cause_analysis",
     "rootCauseAnalyses",
     ANALYSIS_WITH_LOOP,
+  ],
+  [
+    "a standup entry's format, DRI and hand-over (P2.9)",
+    "workspace.standup_entry",
+    "standupEntries",
+    STANDUP_PPP,
+  ],
+  [
+    "the charter templates and a rule's template and sourceRef (P2.8, P2.9)",
+    "workspace.working_agreement",
+    "workingAgreements",
+    AGREEMENT,
   ],
 ];
 
@@ -1454,5 +1482,220 @@ describe("P2.8 kickoffs", () => {
       /This kickoff is too big to save/
     );
     await expect(updateOverMcp(T, KICKOFF, { sections })).rejects.toThrow(/too big to save/);
+  });
+});
+
+describe("P2.9 Team Time people", () => {
+  const T = "workspace.team_time_person";
+  const person = (id: string, extra = {}) => ({
+    id,
+    name: id,
+    timeZone: "UTC",
+    start: "09:00",
+    end: "17:00",
+    workingDays: [1, 2, 3, 4, 5],
+    ...extra,
+  });
+
+  it("mint ttp_ ids", async () => {
+    const { id } = (await create(T, { ...TEAM_TIME_PERSON, id: undefined })) as { id: string };
+    expect(id).toMatch(/^ttp_/);
+  });
+
+  it("hold every cap and set", () => {
+    rejects(T, { ...TEAM_TIME_PERSON, name: "" });
+    rejects(T, { ...TEAM_TIME_PERSON, timeZone: "Mars/Olympus" });
+    rejects(T, { ...TEAM_TIME_PERSON, timeZone: "x".repeat(65) });
+    accepts(T, { ...TEAM_TIME_PERSON, timeZone: "America/New_York" });
+    for (const time of ["9:00", "24:00", "09:60", "nine"]) {
+      rejects(T, { ...TEAM_TIME_PERSON, start: time });
+    }
+    rejects(T, { ...TEAM_TIME_PERSON, workingDays: [] });
+    rejects(T, { ...TEAM_TIME_PERSON, workingDays: [7] });
+    rejects(T, { ...TEAM_TIME_PERSON, officeDays: [1.5] });
+    rejects(T, { ...TEAM_TIME_PERSON, site: "x".repeat(61) });
+  });
+
+  it("refuse hours that start and end together, and office days off the working days", async () => {
+    await expect(create(T, person("p", { start: "09:00", end: "09:00" }))).rejects.toThrow(
+      /start and end at the same time.*Nothing was saved\./
+    );
+    await expect(
+      create(T, person("p", { workingDays: [1, 2], officeDays: [2, 6] }), true)
+    ).rejects.toThrow(/Office days 6 aren't working days/);
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
+
+  it("refuse a second row for the same person, in the tab and over MCP", async () => {
+    const ana = person("ttp_ana", { name: "Ana", teamMemberId: "member_ana" });
+    useWorkspaceStore.setState({ teamTimePeople: [ana] as never });
+    listEntities.mockResolvedValue([ana]);
+    await expect(create(T, person("ttp_x", { name: " ana " }))).rejects.toThrow(
+      /Ana is already on Team Time \(ttp_ana\)/
+    );
+    await expect(
+      create(T, person("ttp_y", { name: "Anna", teamMemberId: "member_ana" }), true)
+    ).rejects.toThrow(/one row per person/);
+    // Another member with the same name is someone else.
+    await create(T, person("ttp_z", { name: "Ana", teamMemberId: "member_ana2" }));
+    // The row itself can be edited.
+    await update(T, "teamTimePeople", ana, { note: "Moved to Leeds" });
+  });
+});
+
+describe("P2.9 Team Time polls", () => {
+  const T = "workspace.team_time_poll";
+
+  it("mint ttpoll_ ids", async () => {
+    const { id } = (await create(T, { ...TEAM_TIME_POLL, id: undefined })) as { id: string };
+    expect(id).toMatch(/^ttpoll_/);
+  });
+
+  it("hold every cap and set", () => {
+    rejects(T, { ...TEAM_TIME_POLL, title: "" });
+    rejects(T, { ...TEAM_TIME_POLL, minutes: 0 });
+    rejects(T, { ...TEAM_TIME_POLL, status: "draft" });
+    rejects(T, { ...TEAM_TIME_POLL, slots: [{ id: "s1", start: "Tuesday 3pm" }] });
+    rejects(T, {
+      ...TEAM_TIME_POLL,
+      slots: Array.from({ length: 21 }, (_, i) => ({
+        id: `s${i}`,
+        start: new Date(Date.UTC(2026, 10, 1, i)).toISOString(),
+      })),
+      chosenSlotId: undefined,
+      answers: [],
+    });
+    rejects(T, { ...TEAM_TIME_POLL, answers: [{ name: "Ana", picks: { s1: "perhaps" } }] });
+  });
+
+  it("refuse repeated slots and a choice or pick of a slot it doesn't have, on both transports", async () => {
+    const twice = {
+      slots: [
+        { id: "s1", start: "2026-11-24T14:00:00.000Z" },
+        { id: "s2", start: "2026-11-24T16:00:00+02:00" },
+      ],
+    };
+    await expect(update(T, "teamTimePolls", TEAM_TIME_POLL, twice)).rejects.toThrow(
+      /repeat a time/
+    );
+    await expect(updateOverMcp(T, TEAM_TIME_POLL, { chosenSlotId: "s9" })).rejects.toThrow(
+      /chosen slot s9 isn't one of the poll's slots/
+    );
+    await expect(
+      update(T, "teamTimePolls", TEAM_TIME_POLL, {
+        answers: [{ name: "Ana", picks: { s1: "yes", s7: "no" } }],
+      })
+    ).rejects.toThrow(/Ana's answer picks slots the poll doesn't have \(s7\)/);
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
+});
+
+describe("P2.9 Team Time rotations", () => {
+  const T = "workspace.team_time_rotation";
+  const option = TEAM_TIME_ROTATION.options[0];
+
+  it("mint ttrot_ ids", async () => {
+    const { id } = (await create(T, { ...TEAM_TIME_ROTATION, id: undefined })) as { id: string };
+    expect(id).toMatch(/^ttrot_/);
+  });
+
+  it("hold every cap and set", () => {
+    rejects(T, { ...TEAM_TIME_ROTATION, meeting: "" });
+    rejects(T, { ...TEAM_TIME_ROTATION, everyWeeks: 5 });
+    rejects(T, { ...TEAM_TIME_ROTATION, mode: "random" });
+    rejects(T, { ...TEAM_TIME_ROTATION, startDate: "next week" });
+    rejects(T, { ...TEAM_TIME_ROTATION, options: [{ ...option, weekday: 7 }] });
+    rejects(T, { ...TEAM_TIME_ROTATION, options: [{ ...option, timeZone: "Nowhere/Land" }] });
+    rejects(T, {
+      ...TEAM_TIME_ROTATION,
+      options: Array.from({ length: 5 }, (_, i) => ({ ...option, id: `o${i}` })),
+    });
+    rejects(T, {
+      ...TEAM_TIME_ROTATION,
+      held: Array.from({ length: 53 }, () => ({ date: "2026-11-05", optionId: "o1" })),
+    });
+    rejects(T, {
+      ...TEAM_TIME_ROTATION,
+      held: [{ date: "2026-11-05", optionId: "o1", skipped: false }],
+    });
+  });
+
+  it("refuse fewer than 2 options and a start date the calendar lacks, on both transports", async () => {
+    await expect(
+      update(T, "teamTimeRotations", TEAM_TIME_ROTATION, { options: [option] })
+    ).rejects.toThrow(/between 2 and 4 times; this one has 1/);
+    await expect(updateOverMcp(T, TEAM_TIME_ROTATION, { startDate: "2026-02-30" })).rejects.toThrow(
+      /2026-02-30 isn't a day on the calendar/
+    );
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
+});
+
+describe("P2.9 standups and charter templates", () => {
+  it("cap a standup entry's format, DRI and hand-over", () => {
+    rejects("workspace.standup_entry", { ...STANDUP_PPP, format: "scrum" });
+    rejects("workspace.standup_entry", { ...STANDUP_PPP, blockerDri: "x".repeat(121) });
+    rejects("workspace.standup_entry", { ...STANDUP_PPP, handoff: "x".repeat(4001) });
+  });
+
+  it("cap every charter template field", () => {
+    const T = "workspace.working_agreement";
+    const templates = AGREEMENT.templates!;
+    const withTemplates = (patch: object) => ({
+      ...AGREEMENT,
+      templates: { ...templates, ...patch },
+    });
+    const ladder = templates.urgencyLadder!;
+    rejects(T, withTemplates({ urgencyLadder: { ...ladder, levels: ladder.levels.slice(0, 1) } }));
+    rejects(
+      T,
+      withTemplates({
+        urgencyLadder: {
+          ...ladder,
+          levels: Array.from({ length: 7 }, (_, i) => ({ ...ladder.levels[0], id: `l${i}` })),
+        },
+      })
+    );
+    rejects(
+      T,
+      withTemplates({
+        urgencyLadder: {
+          ...ladder,
+          levels: [{ ...ladder.levels[0], when: "x".repeat(161) }, ladder.levels[1]],
+        },
+      })
+    );
+    const core = templates.coreHours!;
+    rejects(T, withTemplates({ coreHours: { ...core, purposes: [] } }));
+    rejects(T, withTemplates({ coreHours: { ...core, timeZone: "Atlantis/Main" } }));
+    rejects(T, withTemplates({ coreHours: { ...core, start: "10am" } }));
+    rejects(
+      T,
+      withTemplates({
+        coreHours: {
+          ...core,
+          anchorDays: Array.from({ length: 5 }, () => ({ site: "s", days: [1] })),
+        },
+      })
+    );
+    const focus = templates.focusTime!;
+    rejects(T, withTemplates({ focusTime: { ...focus, weeklyMinHours: 41 } }));
+    accepts(T, withTemplates({ focusTime: { ...focus, timeZone: "Asia/Tokyo" } }));
+    const ai = templates.aiUse!;
+    rejects(
+      T,
+      withTemplates({ aiUse: { ...ai, tools: Array.from({ length: 6 }, (_, i) => `t${i}`) } })
+    );
+    rejects(T, withTemplates({ aiUse: { ...ai, neverIn: ["everything"] } }));
+    rejects(T, withTemplates({ aiUse: { ...ai, review: "never" } }));
+    rejects(T, withTemplates({ aiUse: { ...ai, shareWhere: "x".repeat(121) } }));
+    rejects(T, {
+      ...AGREEMENT,
+      rules: [{ ...AGREEMENT.rules[0], template: { id: "dress-code", slot: "s" } }],
+    });
+    rejects(T, {
+      ...AGREEMENT,
+      rules: [{ ...AGREEMENT.rules[0], template: { id: "core-hours", slot: "x".repeat(41) } }],
+    });
   });
 });

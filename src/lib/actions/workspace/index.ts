@@ -21,6 +21,8 @@ import {
   AB_TEST_STATUSES,
   ADKAR_DOC_ID,
   ADKAR_ELEMENTS,
+  AI_USE_NEVER_IN,
+  AI_USE_REVIEW,
   ALLOCATION_ROUND_TOOLS,
   BLOCKER_CLUSTER_MAX,
   BLOCK_SIDES,
@@ -31,6 +33,9 @@ import {
   BUG_STATUSES,
   BUY_A_FEATURE_ID,
   CEREMONY_CADENCE_ID,
+  CHARTER_TEMPLATE_IDS,
+  CHARTER_TEMPLATE_MAX,
+  CORE_HOURS_PURPOSES,
   CYNEFIN_ANSWERS,
   CYNEFIN_QUESTION_IDS,
   DECISION_STATUSES,
@@ -85,8 +90,13 @@ import {
   REACH_PERIODS,
   ROOT_CAUSE_METHODS,
   SHIPPED_KINDS,
+  STANDUP_FORMATS,
   STRATEGY_MAP_FORMATS,
   STRATEGY_NODE_STATUSES,
+  TEAM_TIME_ANSWERS,
+  TEAM_TIME_MAX,
+  TEAM_TIME_POLL_STATUSES,
+  TEAM_TIME_ROTATION_MODES,
   TEST_NOTE_KINDS,
   TEST_SESSION_COVERAGE,
   TEST_SESSION_STATUSES,
@@ -141,6 +151,8 @@ import { sectionsSchema } from "./sectioned-schema";
 import { strategyMapProblems } from "@/lib/strategy-map/rules";
 import { HYPOTHESIS_UNIT_MAX } from "@/lib/hypotheses/model";
 import { isExampleId } from "@/lib/utils/example-id";
+import { isTimeZone } from "@/lib/team-time/zones";
+import { personProblems, pollProblems, rotationProblems, samePerson } from "@/lib/team-time/rows";
 import { RESPONDENT_MAX, VERBATIM_MAX, normalizeTags, tagsProblem } from "@/lib/nps/score";
 import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import { targetClashes } from "@/lib/opportunity-tree/model";
@@ -291,6 +303,9 @@ import type {
   WorkflowDefinition,
   Improvement,
   Kickoff,
+  TeamTimePerson,
+  TeamTimePoll,
+  TeamTimeRotation,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -1961,6 +1976,91 @@ const CharterRuleSchema = z.object({
     .describe("The draft of the check-in in progress: true, false or 'partly'."),
   consent: z.array(CharterConsentSchema).optional().describe("Each person's answer to the rule."),
   sourceRef: HandoffRefSchema.optional().describe("The item it was sent from (a kickoff's rule)."),
+  template: z
+    .object({
+      id: z.enum(CHARTER_TEMPLATE_IDS),
+      slot: z.string().max(CHARTER_TEMPLATE_MAX.slot),
+    })
+    .optional()
+    .describe("The charter template that wrote it, and which of its lines."),
+});
+
+/* The Working Agreement's charter templates (P2.9), every field listed so an
+ * update keeps them. Times are plain strings here: IsoTime is defined
+ * further down. */
+
+/** A weekday, 0 Sunday to 6 Saturday. */
+const Weekday = z.number().int().min(0).max(6);
+
+/** An IANA time zone Intl knows, such as "Europe/Berlin". */
+const TimeZoneName = z
+  .string()
+  .max(TEAM_TIME_MAX.zone)
+  .refine(isTimeZone, { message: 'an IANA time zone, such as "Europe/Berlin"' });
+
+const CharterTemplatesSchema = z.object({
+  urgencyLadder: z
+    .object({
+      levels: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(64),
+            label: z.string().max(CHARTER_TEMPLATE_MAX.levelLabel),
+            when: z.string().max(CHARTER_TEMPLATE_MAX.levelWhen),
+            channel: z.string().max(CHARTER_TEMPLATE_MAX.levelChannel),
+            replyWithin: z.string().max(CHARTER_TEMPLATE_MAX.levelReplyWithin),
+          })
+        )
+        .min(CHARTER_TEMPLATE_MAX.levelsMin)
+        .max(CHARTER_TEMPLATE_MAX.levels),
+      afterHours: z.boolean(),
+      appliedAt: z.string(),
+    })
+    .optional(),
+  coreHours: z
+    .object({
+      start: TimeSchema,
+      end: TimeSchema,
+      timeZone: TimeZoneName,
+      days: z.array(Weekday).max(7),
+      purposes: z.array(z.enum(CORE_HOURS_PURPOSES)).min(1).max(CORE_HOURS_PURPOSES.length),
+      anchorDays: z
+        .array(
+          z.object({
+            site: z.string().max(CHARTER_TEMPLATE_MAX.site),
+            days: z.array(Weekday).max(7),
+          })
+        )
+        .max(CHARTER_TEMPLATE_MAX.anchorDays)
+        .optional(),
+      appliedAt: z.string(),
+    })
+    .optional(),
+  focusTime: z
+    .object({
+      days: z.array(Weekday).max(7),
+      start: TimeSchema,
+      end: TimeSchema,
+      timeZone: TimeZoneName.nullable().describe("null: each person's own clock."),
+      weeklyMinHours: z
+        .number()
+        .min(CHARTER_TEMPLATE_MAX.weeklyMinHoursMin)
+        .max(CHARTER_TEMPLATE_MAX.weeklyMinHours)
+        .optional(),
+      appliedAt: z.string(),
+    })
+    .optional(),
+  aiUse: z
+    .object({
+      tools: z.array(z.string().max(CHARTER_TEMPLATE_MAX.aiTool)).max(CHARTER_TEMPLATE_MAX.aiTools),
+      neverIn: z.array(z.enum(AI_USE_NEVER_IN)).max(AI_USE_NEVER_IN.length),
+      neverInOther: z.string().max(CHARTER_TEMPLATE_MAX.aiNote).optional(),
+      review: z.enum(AI_USE_REVIEW),
+      customerFacing: z.boolean(),
+      shareWhere: z.string().max(CHARTER_TEMPLATE_MAX.aiNote).optional(),
+      appliedAt: z.string(),
+    })
+    .optional(),
 });
 
 const CharterMetaSchema = z.object({
@@ -2009,6 +2109,9 @@ const WorkingAgreementSchema = z.object({
     .array(CharterVersionSchema)
     .optional()
     .describe("Published versions, oldest first (the latest 20 are kept)."),
+  templates: CharterTemplatesSchema.optional().describe(
+    "The charter templates applied: an urgency ladder, core hours, focus time and AI use."
+  ),
 }) as unknown as z.ZodType<WorkingAgreement>;
 
 const LsFavoriteSchema = z.object({
@@ -3335,6 +3438,18 @@ const StandupEntrySchema = z.object({
   sentTo: z.array(HandoffLinkSchema).optional(),
   mode: z.enum(["live", "async"]).optional(),
   description: z.string().optional(),
+  format: z
+    .enum(STANDUP_FORMATS)
+    .optional()
+    .describe(
+      "classic (yesterday, today, blockers) or ppp (Progress, Plans, Problems); absent: classic."
+    ),
+  blockerDri: z
+    .string()
+    .max(120)
+    .optional()
+    .describe("Who is directly responsible for the blocker."),
+  handoff: z.string().max(4000).optional().describe("A hand-over to the next time zone."),
 }) as unknown as z.ZodType<StandupEntry>;
 
 const SprintReviewSchema = z.object({
@@ -5704,4 +5819,168 @@ defineCrudActions<Kickoff>({
   remove: (id) => ws().removeKickoff(id),
   generateId: () => `kickoff_${nanoid(8)}`,
   prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.9 — Team Time: people, meeting-time polls and rotations. The rules a
+ * write is refused for live in lib/team-time/rows, which the page shares;
+ * none of them is "in the future". */
+
+/** A meeting's length in minutes: a whole number up to a day. */
+const MeetingMinutes = z
+  .number()
+  .int()
+  .min(1)
+  .max(24 * 60);
+
+const TeamTimePersonSchema = z.object({
+  id: z.string(),
+  teamMemberId: z
+    .string()
+    .max(TOOL_TEXT_MAX.short)
+    .optional()
+    .describe("The roster member it is (workspace.team_member id)."),
+  name: Filled(TOOL_TEXT_MAX.short),
+  timeZone: TimeZoneName.describe('Their IANA time zone, such as "Asia/Tokyo".'),
+  start: TimeSchema.describe("Working hours start, HH:MM in their zone."),
+  end: TimeSchema.describe("Working hours end, HH:MM in their zone."),
+  workingDays: z.array(Weekday).min(1).max(7).describe("Days they work, 0 Sunday to 6 Saturday."),
+  officeDays: z
+    .array(Weekday)
+    .max(7)
+    .optional()
+    .describe("Days in the office, among the working days."),
+  site: z.string().max(TEAM_TIME_MAX.site).optional().describe("Their office."),
+  note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<TeamTimePerson>;
+
+/**
+ * One row per person (the same roster member, or the same name when either
+ * has none), and at most TEAM_TIME_MAX.people of them.
+ */
+async function beforeTeamTimePersonWrite(
+  next: TeamTimePerson,
+  current: TeamTimePerson | undefined,
+  env: CrudEnv<TeamTimePerson>
+): Promise<void> {
+  const others = (await env.all()).filter((p) => p.id !== next.id);
+  const twin = others.find((p) => samePerson(p, next));
+  const problems: string[] = [];
+  if (twin) {
+    problems.push(
+      `${twin.name} is already on Team Time (${twin.id}). Edit that row instead: one row per person.`
+    );
+  }
+  if (!current && others.length >= TEAM_TIME_MAX.people) {
+    problems.push(
+      `Team Time already has ${others.length} people, the most it keeps. Remove one first.`
+    );
+  }
+  unlessRefused(next, problems);
+}
+
+defineCrudActions<TeamTimePerson>({
+  toolId: "workspace.team_time_person",
+  entityName: "Team Time person (their time zone, working hours and office days)",
+  schema: TeamTimePersonSchema,
+  selectAll: () => ws().teamTimePeople ?? [],
+  upsert: (x) => ws().upsertTeamTimePerson(x),
+  remove: (id) => ws().removeTeamTimePerson(id),
+  generateId: () => `ttp_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(unlessRefused(next, personProblems(next)), current),
+  beforeWrite: beforeTeamTimePersonWrite,
+});
+
+const TeamTimePollSchema = z.object({
+  id: z.string(),
+  title: Filled(TOOL_TEXT_MAX.short),
+  minutes: MeetingMinutes.describe("The meeting's length."),
+  slots: z
+    .array(z.object({ id: ItemId, start: IsoTime.describe("The time offered, an ISO instant.") }))
+    .max(TEAM_TIME_MAX.slots)
+    .describe("The times the poll offers."),
+  answers: z
+    .array(
+      z.object({
+        name: z.string().max(TOOL_TEXT_MAX.short),
+        picks: z
+          .record(z.string().max(64), z.enum(TEAM_TIME_ANSWERS))
+          .describe("Yes, maybe or no, by slot id."),
+      })
+    )
+    .max(TEAM_TIME_MAX.answers)
+    .describe("Who can make each time, recorded by the facilitator."),
+  status: z.enum(TEAM_TIME_POLL_STATUSES),
+  chosenSlotId: z.string().max(64).optional(),
+  note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<TeamTimePoll>;
+
+defineCrudActions<TeamTimePoll>({
+  toolId: "workspace.team_time_poll",
+  entityName: "Team Time poll for a meeting time",
+  schema: TeamTimePollSchema,
+  selectAll: () => ws().teamTimePolls ?? [],
+  upsert: (x) => ws().upsertTeamTimePoll(x),
+  remove: (id) => ws().removeTeamTimePoll(id),
+  generateId: () => `ttpoll_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(unlessRefused(next, pollProblems(next)), current),
+});
+
+const TeamTimeRotationSchema = z.object({
+  id: z.string(),
+  meeting: Filled(TOOL_TEXT_MAX.short).describe("The meeting that rotates."),
+  minutes: MeetingMinutes,
+  everyWeeks: z.literal([1, 2, 3, 4]).describe("How often it meets, in weeks."),
+  startDate: IsoDay,
+  mode: z
+    .enum(TEAM_TIME_ROTATION_MODES)
+    .describe("in-turn: each time in order; fairest: whoever has had it worst."),
+  options: z
+    .array(
+      z.object({
+        id: ItemId,
+        label: z.string().max(TEAM_TIME_MAX.label).optional(),
+        weekday: Weekday,
+        time: TimeSchema,
+        timeZone: TimeZoneName,
+      })
+    )
+    .max(TEAM_TIME_MAX.options)
+    .describe(`The times it moves between, 2 to ${TEAM_TIME_MAX.options}.`),
+  attendees: z
+    .array(z.string().max(TOOL_TEXT_MAX.short))
+    .max(TEAM_TIME_MAX.attendees)
+    .optional()
+    .describe("Who attends (workspace.team_time_person ids)."),
+  held: z
+    .array(
+      z.object({
+        date: IsoDay.describe("The day, in the option's zone."),
+        optionId: ItemId,
+        skipped: z.literal(true).optional(),
+      })
+    )
+    .max(TEAM_TIME_MAX.held)
+    .describe("Meetings held or skipped, oldest first."),
+  meetingAuditId: z
+    .string()
+    .max(TOOL_TEXT_MAX.short)
+    .optional()
+    .describe("The Meeting Audit row of the same meeting."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<TeamTimeRotation>;
+
+defineCrudActions<TeamTimeRotation>({
+  toolId: "workspace.team_time_rotation",
+  entityName: "Team Time meeting rotation (a meeting that moves between times)",
+  schema: TeamTimeRotationSchema,
+  selectAll: () => ws().teamTimeRotations ?? [],
+  upsert: (x) => ws().upsertTeamTimeRotation(x),
+  remove: (id) => ws().removeTeamTimeRotation(id),
+  generateId: () => `ttrot_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(unlessRefused(next, rotationProblems(next)), current),
 });
