@@ -32,8 +32,9 @@
  */
 
 import { useMemo, useState, type ReactNode } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import { Sparkles, ChevronDown, ChevronRight } from "lucide-react";
+import { usePrefersReducedMotion } from "@/hooks/use-media-query";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/lib/utils/example-id";
 import { KudosCard } from "./kudos-card";
@@ -147,7 +148,7 @@ export function KudosWall({
   replyFromProfileId,
   cardActions,
 }: Props) {
-  const reducedMotion = useReducedMotion();
+  const reducedMotion = usePrefersReducedMotion();
   const thread = useKudosThread();
 
   // Reverse-chrono — newest first. We feed-build BEFORE slicing so
