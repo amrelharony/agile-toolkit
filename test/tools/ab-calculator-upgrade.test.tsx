@@ -309,6 +309,27 @@ describe("saving a test", () => {
     expect(screen.getByLabelText(/^Test name/)).toHaveValue("");
     expect(screen.getByRole("button", { name: "Save test" })).toBeInTheDocument();
   });
+
+  it("keeps a status set on the card when the open test's changes are saved", () => {
+    seed([saved({ status: "planned" })]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Open Shorter form in the calculator" }));
+    fireEvent.click(within(card("Shorter form")).getByRole("radio", { name: "Running" }));
+    expect(find("t1")?.status).toBe("running");
+    // The Save section's own Status follows the card.
+    const form = screen
+      .getByRole("button", { name: "Save changes" })
+      .closest("form") as HTMLElement;
+    expect(
+      within(within(form).getByRole("radiogroup", { name: "Status" })).getByRole("radio", {
+        name: "Running",
+      })
+    ).toHaveAttribute("aria-checked", "true");
+    type("B visitors", "4100");
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(find("t1")).toMatchObject({ status: "running", startedOn: TODAY });
+    expect(find("t1")?.variants[1].visitors).toBe(4100);
+  });
 });
 
 /* ── A saved test's card ─────────────────────────────────────────────── */

@@ -310,6 +310,9 @@ export function AbCalculatorClient() {
     if (t.status === status) return;
     const next = update(t, (cur) => stampDays({ ...cur, status }, today));
     if (!next) return;
+    // The calculator's form follows when it holds this test, so "Save
+    // changes" keeps the status the card set rather than the one it opened with.
+    if (t.id === editingId) details.update({ status });
     record(t.id, AB_CALCULATOR_ACTIONS.TEST_UPDATED, { testId: t.id });
     announce(`“${t.name}” is now ${status}`);
   };
