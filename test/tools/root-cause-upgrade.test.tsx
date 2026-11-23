@@ -5,12 +5,14 @@ import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
+  ENTITY_ROW_MAX_BYTES,
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
   type RootCauseAnalysis,
   type RootCauseLoop,
 } from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/lib/utils/example-id";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 /**
  * Root Cause: a problem taken back to its causes with 5 Whys (a ladder
@@ -1243,6 +1245,56 @@ describe("Causal loop", () => {
       { analysisId: "rca_1", count: 1 },
       { analysisId: "rca_1", count: 2 },
     ]);
+  });
+
+  it("shows under its row why a thing's new words weren't saved, until it's edited again", async () => {
+    ws().upsertRootCauseAnalysis(
+      loopAnalysis({
+        loop: {
+          nodes: [
+            { id: "t", text: "Support tickets" },
+            { id: "a", text: "Alerts" },
+          ],
+          links: [],
+        },
+      })
+    );
+    renderPage();
+    await openLoop();
+    fireEvent.click(screen.getByRole("button", { name: "Alerts. Edit" }));
+    const field = screen.getByLabelText("Thing that goes up or down");
+    fireEvent.change(field, { target: { value: "support tickets" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(loopNow()?.nodes.map((n) => n.text)).toEqual(["Support tickets", "Alerts"]);
+    const row = screen.getByRole("button", { name: "Alerts. Edit" });
+    expect(screen.getByText("That's on the loop already.")).toBeVisible();
+    expect(row).toHaveAccessibleDescription("That's on the loop already.");
+    expect(logs.some((l) => l.action === ROOT_CAUSE_ACTIONS.ANALYSIS_UPDATED)).toBe(false);
+    // Editing again clears it; new words are saved.
+    fireEvent.click(row);
+    expect(screen.queryByText("That's on the loop already.")).not.toBeInTheDocument();
+    const again = screen.getByLabelText("Thing that goes up or down");
+    fireEvent.change(again, { target: { value: "Alert volume" } });
+    fireEvent.keyDown(again, { key: "Enter" });
+    expect(loopNow()?.nodes.map((n) => n.text)).toEqual(["Support tickets", "Alert volume"]);
+    expect(screen.queryByText("That's on the loop already.")).not.toBeInTheDocument();
+  });
+
+  it("shows under the field a thing the store refused as too big, keeping the words typed", async () => {
+    const base = loopAnalysis({
+      loop: { nodes: [{ id: "t", text: "Support tickets" }], links: [] },
+    });
+    const pad = "x".repeat(ENTITY_ROW_MAX_BYTES - jsonBytes({ ...base, pad: "" }) - 5);
+    ws().upsertRootCauseAnalysis({ ...base, pad } as RootCauseAnalysis);
+    renderPage();
+    await openLoop();
+    addThing("Alert volume");
+    expect(loopNow()?.nodes.map((n) => n.text)).toEqual(["Support tickets"]);
+    const input = screen.getByPlaceholderText("Support tickets");
+    expect(input).toHaveValue("Alert volume");
+    expect(input).toHaveAccessibleDescription(
+      "This analysis is too big to save. Shorten or remove some lines. Nothing was saved."
+    );
   });
 
   it("draws arrows, refusing a self-link and a duplicate, and names the loop they close", async () => {

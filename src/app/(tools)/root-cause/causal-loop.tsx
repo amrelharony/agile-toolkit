@@ -154,6 +154,9 @@ function NodeRow({
   index,
   count,
   isRoot,
+  error,
+  errorId,
+  onEditStart,
   onEdit,
   onMove,
   onRemove,
@@ -165,6 +168,10 @@ function NodeRow({
   index: number;
   count: number;
   isRoot: boolean;
+  /** Why the last edit of this thing wasn't saved, shown under it. */
+  error: string | null;
+  errorId: string;
+  onEditStart: () => void;
   onEdit: (text: string) => void;
   onMove: (by: -1 | 1) => void;
   onRemove: () => void;
@@ -198,12 +205,21 @@ function NodeRow({
             textRef(el);
           }}
           type="button"
-          onClick={edit.start}
+          onClick={() => {
+            onEditStart();
+            edit.start();
+          }}
           aria-label={`${node.text}. Edit`}
+          aria-describedby={error ? errorId : undefined}
           className="block w-full break-words text-left text-sm text-text hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent pointer-coarse:min-h-11 pointer-coarse:py-2"
         >
           {node.text}
         </button>
+      )}
+      {error && !edit.editing && (
+        <p id={errorId} className="text-xs text-danger">
+          {error}
+        </p>
       )}
       <div className="flex flex-wrap items-center gap-1.5">
         <Button
@@ -282,6 +298,7 @@ export function CausalLoop({
 
   const [nodeDraft, setNodeDraft] = useState("");
   const [nodeError, setNodeError] = useState<string | null>(null);
+  const [rowError, setRowError] = useState<{ nodeId: string; text: string } | null>(null);
   const [linkDraft, setLinkDraft] = useState<LoopLinkDraft>({
     from: "",
     to: "",
@@ -325,12 +342,18 @@ export function CausalLoop({
 
   /* ── Things ── */
 
-  const addNode = (words: string, from?: "why" | "cause"): boolean => {
+  /**
+   * A thing added through the store: null, or why it wasn't, which is
+   * announced and shown under the add field (where focus goes next).
+   */
+  const addNode = (words: string, from?: "why" | "cause"): string | null => {
     const nodeId = nanoid(8);
     const result = change((a, now) => withLoopNode(a, words, nodeId, now));
     if (!result.ok) {
-      announce(LOOP_REFUSAL_TEXT[result.reason]);
-      return false;
+      const refusal = LOOP_REFUSAL_TEXT[result.reason];
+      setNodeError(refusal);
+      announce(refusal);
+      return refusal;
     }
     const count = result.analysis.loop?.nodes.length ?? 0;
     onLog(ROOT_CAUSE_ACTIONS.LOOP_NODE_ADDED, {
@@ -339,7 +362,7 @@ export function CausalLoop({
       ...(from ? { from } : {}),
     });
     announce(`Added “${short(words)}” to the loop.`);
-    return true;
+    return null;
   };
 
   const submitNode = (e: FormEvent) => {
@@ -350,19 +373,23 @@ export function CausalLoop({
       nodeInputRef.current?.focus();
       return;
     }
-    if (addNode(nodeDraft)) {
+    if (!addNode(nodeDraft)) {
       setNodeDraft("");
       setNodeError(null);
     }
     nodeInputRef.current?.focus();
   };
 
+  /** A thing's new words; a refusal shows under its row (the editor has closed). */
   const editNode = (nodeId: string, words: string) => {
     const result = change((a, now) => withLoopNodeText(a, nodeId, words, now));
     if (!result.ok) {
-      announce(LOOP_REFUSAL_TEXT[result.reason]);
+      const refusal = LOOP_REFUSAL_TEXT[result.reason];
+      setRowError({ nodeId, text: refusal });
+      announce(refusal);
       return;
     }
+    setRowError(null);
     logUpdate();
   };
 
@@ -663,6 +690,9 @@ export function CausalLoop({
                 index={i}
                 count={loop.nodes.length}
                 isRoot={root !== "" && n.text.trim() === root}
+                error={rowError?.nodeId === n.id ? rowError.text : null}
+                errorId={`loop-thing-error-${id}-${n.id}`}
+                onEditStart={() => setRowError((e) => (e?.nodeId === n.id ? null : e))}
                 onEdit={(words) => editNode(n.id, words)}
                 onMove={(by) => moveNode(n, by)}
                 onRemove={() => removeNode(n, i)}
