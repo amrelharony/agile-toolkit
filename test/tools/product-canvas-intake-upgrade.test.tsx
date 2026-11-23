@@ -277,6 +277,25 @@ describe("the idea inbox", () => {
     ).toBeInTheDocument();
   });
 
+  it("keeps the filter shown pressed when its last idea moves out of it", async () => {
+    seed(
+      idea("pcanvas_a", "Receipts"),
+      idea("pcanvas_b", "Tips", { status: "declined", note: "Card rules forbid it" })
+    );
+    useProductCanvasPrefs.setState({ lastFormat: "idea", inboxFilter: "declined" });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Back to new" }));
+    expect(byId("pcanvas_b")!.intake?.status).toBe("new");
+    const chips = screen.getByRole("group", { name: "Ideas to show" });
+    expect(within(chips).getByRole("button", { name: /^Declined 0/ })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByText("No declined ideas.")).toBeInTheDocument();
+    // Another status with none stays out of the chips.
+    expect(within(chips).queryByRole("button", { name: /^Merged/ })).toBeNull();
+  });
+
   it("counts another ask, with who asked, and logs it without the name", async () => {
     seed(idea("pcanvas_a", "Tips", { requesters: ["Support inbox"] }));
     useProductCanvasPrefs.setState({ lastFormat: "idea" });

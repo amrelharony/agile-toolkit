@@ -121,7 +121,10 @@ export function InboxPanel({
       </div>
 
       <div role="group" aria-label="Ideas to show" className="flex flex-wrap gap-1.5">
-        {INBOX_FILTERS.filter((f) => f === "open" || f === "all" || counts[f] > 0).map((f) => (
+        {/* A status with no ideas has no chip, unless it is the one shown. */}
+        {INBOX_FILTERS.filter(
+          (f) => f === "open" || f === "all" || f === filter || counts[f] > 0
+        ).map((f) => (
           <Button
             key={f}
             type="button"
