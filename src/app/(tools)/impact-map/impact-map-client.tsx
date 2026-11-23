@@ -522,10 +522,10 @@ export function ImpactMapClient() {
         example={example}
         validate={(d, level) => validateNode(d, { format: FORMAT, level })}
         onSave={(n, v) => saveNode(map, n, v)}
-        onAdd={(p, v) => {
-          addNode(map, p, v);
-          setAddDraft(null);
-        }}
+        onAdd={(p, v) => addNode(map, p, v)}
+        // Added or cancelled, a used idea is spent: kept, it would open the form
+        // again each time this card is drawn anew (Paths and back, another map).
+        onAddClose={() => setAddDraft((d) => (d?.nodeId === node.id ? null : d))}
         onDelete={(n) => askDelete(map, n)}
         highlight={node.focus}
         addDraft={draftHere}

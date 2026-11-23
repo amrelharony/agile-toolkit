@@ -637,6 +637,27 @@ describe("checks and ideas without AI", () => {
     });
     expect(screen.getAllByRole("button", { name: /^Use: / })).toHaveLength(2);
   });
+
+  it("keeps a cancelled idea closed when the card is drawn again, and a new Use still opens it", async () => {
+    seed([map()]);
+    renderPage();
+    const addForm = () => screen.queryByRole("group", { name: /^New deliverable under/ });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Suggest deliverables for Reorder in two taps" })
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /^Use: / })[0]);
+    fireEvent.click(within(addForm()!).getByRole("button", { name: "Cancel" }));
+    expect(addForm()).toBeNull();
+    // Paths and back draws every card anew.
+    fireEvent.click(screen.getByRole("radio", { name: "Paths" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Tree" }));
+    expect(addForm()).toBeNull();
+    expect(stored()!.nodes).toHaveLength(5);
+    fireEvent.click(screen.getAllByRole("button", { name: /^Use: / })[1]);
+    expect(screen.getByLabelText(/^Deliverable/)).toHaveValue(
+      "A message, guide or training that shows busy parents how"
+    );
+  });
 });
 
 describe("sends, each with Undo", () => {

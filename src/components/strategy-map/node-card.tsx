@@ -71,6 +71,13 @@ export interface NodeCardProps {
    * suggested deliverable); `n` changes on each use. Nothing is saved until Add.
    */
   addDraft?: { text: string; n: number } | null;
+  /**
+   * The add form closed (added or cancelled). A page that passes `addDraft`
+   * drops it here: the card opens its form from a draft on mount too, so a
+   * draft kept after Cancel would open the form again when the card is
+   * drawn again (another view, another map and back).
+   */
+  onAddClose?: () => void;
 }
 
 type Mode = "view" | "edit" | "add";
@@ -91,6 +98,7 @@ export function NodeCard({
   highlight,
   addLabel,
   addDraft,
+  onAddClose,
 }: NodeCardProps) {
   const [mode, setMode] = useState<Mode>("view");
   const [prefill, setPrefill] = useState<{ text: string; n: number } | null>(null);
@@ -126,6 +134,7 @@ export function NodeCard({
     returnTo.current = to;
     setPrefill(null);
     setMode("view");
+    if (to === "add") onAddClose?.();
   };
 
   if (mode === "edit") {
