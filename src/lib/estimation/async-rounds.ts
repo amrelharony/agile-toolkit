@@ -9,7 +9,8 @@
  *   votes. A round nobody closes is closed the same way `keepDays` (14)
  *   days after its due date, or after the day it was made without one.
  *   Every read goes through `readAsyncRound`, so an expired round never
- *   shows a name, and the page writes the dropped copy when it loads.
+ *   shows a name, and the workspace store writes the dropped copy on
+ *   whichever page loads or syncs the rounds (./async-expiry).
  * - The next step: a round to reveal.
  * - Reading a stored list (./async-read): the slice has no CRUD, so the
  *   lists these helpers take are read through `readAsyncRounds` first, and

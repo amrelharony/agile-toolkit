@@ -2214,6 +2214,21 @@ if (typeof window !== "undefined") {
     /* corrupt persisted state — keep emptyWorkspace defaults */
   });
 
+  // Planning Poker's rounds without a meeting: a round past its 14 days is
+  // closed in storage, with its names and notes dropped, on whichever page
+  // loads or syncs the workspace (lib/estimation/async-expiry). Loaded on
+  // its own so the shared bundle doesn't carry it; one watcher across HMR.
+  type WindowWithExpiry = Window & { __agileToolkitAsyncExpiry?: () => void };
+  void import("@/lib/estimation/async-expiry")
+    .then(({ watchAsyncRoundExpiry }) => {
+      const w = window as WindowWithExpiry;
+      w.__agileToolkitAsyncExpiry?.();
+      w.__agileToolkitAsyncExpiry = watchAsyncRoundExpiry(useWorkspaceStore);
+    })
+    .catch(() => {
+      /* chunk failed to load: the readers still show an expired round closed */
+    });
+
   // R11-fix: cross-tab synchronisation. Two tabs of the same browser
   // each load + mutate the workspace independently; the LAST tab to
   // persist wins, silently clobbering the OTHER tab's work on the

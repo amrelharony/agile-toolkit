@@ -58,13 +58,11 @@ import { toMarkdown } from "./markdown";
 import { pokerCsv, sessionTicketKeys } from "./csv";
 import { generateRoomCode } from "./room-code";
 import { signalGamification } from "@/lib/gamification/signal";
-import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import {
   heldQueueCount,
   heldStoryIds,
   readAsyncRound,
   readAsyncRounds,
-  readPokerAsyncRound,
   withStoryEstimate,
 } from "@/lib/estimation/async-rounds";
 import { agreeTypedStory, saveRound } from "./async/round-store";
@@ -285,38 +283,15 @@ export function PlanningPokerClient() {
   // ─── Estimate without a meeting ───
   // Open and revealed rounds hold their queue stories: a session never pulls
   // them in, so each round's write-back still finds its queue item. Every
-  // read closes a round past its 14 days (names and notes dropped), and the
-  // dropped copy is written whenever rounds load: from this browser once the
-  // workspace has loaded, by sync from another device later on, or when the
-  // page comes back into view after a while. A round that hasn't expired
-  // reads back as the same object, so this writes only the ones that have.
-  // A malformed row (an imported file's) is read into shape first
-  // (readPokerAsyncRound): repaired, and written back repaired, or left out.
+  // read closes a round past its 14 days (names and notes dropped). The
+  // workspace store writes the dropped copy, and a malformed row's repaired
+  // one, on whichever page loads or syncs the rounds, and again when a page
+  // comes back into view (lib/estimation/async-expiry).
   const storedRounds = useWorkspaceStore((s) => s.pokerAsyncRounds);
   const held = useMemo(
     () => heldStoryIds(readAsyncRounds(storedRounds).map((r) => readAsyncRound(r))),
     [storedRounds]
   );
-  const hydrated = useWorkspaceHydrated();
-  const [shownAt, setShownAt] = useState(0);
-  useEffect(() => {
-    const onShow = () => {
-      if (document.visibilityState === "visible") setShownAt(Date.now());
-    };
-    document.addEventListener("visibilitychange", onShow);
-    return () => document.removeEventListener("visibilitychange", onShow);
-  }, []);
-  useEffect(() => {
-    if (!hydrated) return;
-    const { upsertPokerAsyncRound } = useWorkspaceStore.getState();
-    const now = new Date();
-    for (const stored of storedRounds ?? []) {
-      const round = readPokerAsyncRound(stored);
-      if (!round) continue;
-      const read = readAsyncRound(round, now);
-      if (read !== stored) upsertPokerAsyncRound(read);
-    }
-  }, [hydrated, storedRounds, shownAt]);
   const heldCount = useMemo(() => heldQueueCount(queue, storedRounds), [queue, storedRounds]);
 
   const queuedCount = useMemo(
