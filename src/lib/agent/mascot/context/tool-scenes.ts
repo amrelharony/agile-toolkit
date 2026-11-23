@@ -402,6 +402,23 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: [],
     actions: { round_saved: ["poker.reveal"], sent_to_poker: ["todo.take"] },
   },
+  // A bug logged is written on a sticky; one sent on is a to-do taken. triage_done
+  // cheers ("bug-triage", "done") in the same tick as the last placement: no scene.
+  {
+    toolId: "bug-triage",
+    open: [],
+    actions: { bug_logged: ["sticky"], bug_sent: ["todo.take"] },
+  },
+  // A note taken in a session goes on a sticky; its bugs sent on are a to-do taken.
+  // session_debriefed cheers in the same tick: no scene. Hill Chart's scope_done
+  // cheers ("hill-chart", "milestone") too, so it has no row.
+  {
+    toolId: "test-sessions",
+    open: [],
+    actions: { note_added: ["sticky"], bugs_sent: ["todo.take"] },
+  },
+  // Items sent from the notes are a to-do taken, as in the Parking Lot.
+  { toolId: "notes-to-actions", open: [], actions: { items_sent: ["todo.take"] } },
 
   // ── The expansion's tool lab (X025–X056) ──
   // One sheet per tool on the More tools shelf. Opening the tool plays its sheet as the
