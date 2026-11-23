@@ -105,8 +105,10 @@ describe("native selects styled to match <Input>", () => {
   const FILES = [
     "src/app/(tools)/dependency-map/fields.tsx",
     "src/app/(tools)/feature-flag-tracker/flag-fields.tsx",
+    "src/app/(tools)/hill-chart/fields.tsx",
     "src/app/(tools)/hypothesis-tracker/hypothesis-fields.tsx",
     "src/app/(tools)/impediments/components/impediment-fields.tsx",
+    "src/app/(tools)/notes-to-actions/item-row.tsx",
     "src/app/(tools)/riskiest-assumption/assumption-card.tsx",
     "src/app/(tools)/user-interviews/quote-card.tsx",
     "src/app/(tools)/epic-roadmap/epic-stories.tsx",
