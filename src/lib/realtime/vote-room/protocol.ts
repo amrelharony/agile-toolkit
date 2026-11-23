@@ -17,8 +17,9 @@
  * kind; Quick Vote may run several, one per round. Pair and allocation
  * states are v2 (`KIND_STATE_VERSION`); choice, rank and number states are
  * v3 (`PER_ROUND_STATE_VERSION`); scale states, ballots, kicks and ends
- * stay v1 byte for byte, so a client from before reads what it always read
- * and ignores the rest. Nothing else crosses the wire:
+ * stay v1 byte for byte (a ballot adds only an optional sealed `tab`, which
+ * a host from before drops), so a client from before reads what it always
+ * read and ignores the rest. Nothing else crosses the wire:
  *
  *   host → everyone      "vote:state"   Signed<VoteStateBody>  (throttled
  *                                       500 ms, 500 ms after a join, 30 s
@@ -41,6 +42,15 @@
  *    AES-GCM-256), bound to the round, the sender and the ballot id. Other
  *    members see who sent a ballot, never what it says, and every ballot is
  *    the same size;
+ *  - the sender's id (`by`) is self-declared, so a ballot also carries a
+ *    secret only the sender's tab holds (`tab`, kept for the tab's session),
+ *    sealed to the same round key under its own AAD, which also binds it to
+ *    the answers' ciphertext (`ballotTabAad`). The host ties a member id to
+ *    the first secret it sees for it, for the whole room, and refuses that
+ *    id's ballots with any other secret, or without one (and an id tied to
+ *    a ballot without one, from an older build, refuses one with):
+ *    once someone has answered, nobody else can answer under their id
+ *    (`sender-tie.ts`). An older host drops `tab` and counts as before;
  *  - the host folds each ballot into counts and drops it. Before Reveal it
  *    shows and sends only how many ballots arrived: no distribution, and no
  *    per-question counts (which would show who skipped what);
@@ -52,9 +62,13 @@
  * What it doesn't cover: a host who opens their browser's developer tools
  * sees each ballot with its sender for an instant before folding it; a
  * member can answer again from a new tab (bounded by the seat and ballot
- * caps, and the host is warned); and a member can spend another member's
- * ballot by claiming their id, which can single out one person's answers
- * (the victim's screen and the host are both warned: see `use-vote-room.ts`).
+ * caps, and the host is warned); and the tie is made on an id's first
+ * ballot in the room, so a member who answers under another member's id
+ * before that member does still takes the id, which can single out one
+ * person's answers. The victim isn't shut out in silence: their screen says
+ * someone answered under their name in this room, and once their own
+ * answers go unconfirmed it tells them to open the link in a new tab (a new
+ * identity and secret); the host is warned too (see `use-vote-room.ts`).
  *
  * Every reader treats its input as hostile: size first, then a strict shape,
  * rebuilt field by field so unknown fields are dropped. Who may send what is
@@ -454,6 +468,19 @@ export interface VoteEndBody {
 
 export type VoteStateMessage = Signed<VoteStateBody>;
 
+/**
+ * The sender's tab secret, sealed to the same round key as the answers but
+ * under its own AAD (`ballotTabAad`): what ties a member id to one tab.
+ */
+export interface BallotTab {
+  /** Its own ephemeral ECDH public key (87 characters). */
+  epk: string;
+  /** Its own AES-GCM nonce (16 characters). */
+  iv: string;
+  /** AES-GCM ciphertext plus tag of the 21-character secret: exactly `tabCiphertextChars()`. */
+  ct: string;
+}
+
 /** One participant's answers, encrypted to the host's round key. */
 export interface BallotEnvelope {
   v: 1;
@@ -468,6 +495,12 @@ export interface BallotEnvelope {
   iv: string;
   /** AES-GCM ciphertext plus tag of the `AnswerString`. */
   ct: string;
+  /**
+   * The sender's tab secret, sealed (absent from a participant on an older
+   * build). An older host rebuilds the envelope field by field, so it drops
+   * this and counts the ballot as before.
+   */
+  tab?: BallotTab;
 }
 
 /**
@@ -831,6 +864,19 @@ export function ballotCiphertextChars(questionCount: number): number {
   return b64urlChars(questionCount + 16);
 }
 
+/** A ballot's tab secret: nanoid(21), exactly this many URL-safe characters. */
+export const VOTE_TAB_SECRET_CHARS = 21;
+
+/**
+ * The exact ciphertext length (base64url) of a ballot's sealed tab secret:
+ * the 21 characters plus the 16-byte GCM tag (50 characters). It rides
+ * beside the answers, so the answers' own ciphertext and its 128-character
+ * limit are unchanged.
+ */
+export function tabCiphertextChars(): number {
+  return b64urlChars(VOTE_TAB_SECRET_CHARS + 16);
+}
+
 // ── Readers ──────────────────────────────────────────────────────────
 
 /** A questionnaire from the wire, or null. Accepts exactly what `toWireQuestionnaire` builds. */
@@ -1043,7 +1089,24 @@ export function readKindStateHead(
   };
 }
 
-/** A ballot's envelope, or null. Its contents are checked after decryption (`readAnswerString`). */
+/** A sealed tab secret off the wire, or null: its key, nonce and exact ciphertext length. */
+function readBallotTab(raw: unknown): BallotTab | null {
+  const t = obj(raw);
+  if (!t) return null;
+  if (typeof t.epk !== "string" || !KEY_RE.test(t.epk)) return null;
+  if (typeof t.iv !== "string" || !IV_RE.test(t.iv)) return null;
+  if (typeof t.ct !== "string" || t.ct.length !== tabCiphertextChars() || !B64URL_RE.test(t.ct)) {
+    return null;
+  }
+  return { epk: t.epk, iv: t.iv, ct: t.ct };
+}
+
+/**
+ * A ballot's envelope, or null. Its contents are checked after decryption
+ * (`readAnswerString`). A `tab` is kept only when well formed; one that is
+ * there but malformed refuses the whole envelope. Without one, the
+ * envelope reads exactly as v1 always did.
+ */
 export function readBallotEnvelope(raw: unknown): BallotEnvelope | null {
   if (!isWithinJsonSize(raw, VOTE_LIMITS.maxPayloadChars)) return null;
   const m = obj(raw);
@@ -1060,7 +1123,21 @@ export function readBallotEnvelope(raw: unknown): BallotEnvelope | null {
   ) {
     return null;
   }
-  return { v: 1, by: m.by, roundId: m.roundId, bid: m.bid, epk: m.epk, iv: m.iv, ct: m.ct };
+  const env: BallotEnvelope = {
+    v: 1,
+    by: m.by,
+    roundId: m.roundId,
+    bid: m.bid,
+    epk: m.epk,
+    iv: m.iv,
+    ct: m.ct,
+  };
+  if (m.tab !== undefined) {
+    const tab = readBallotTab(m.tab);
+    if (!tab) return null;
+    env.tab = tab;
+  }
+  return env;
 }
 
 /** A signed kick, or null. The signature is checked against the pinned key by the hook. */
