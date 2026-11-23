@@ -482,6 +482,34 @@ describe("Ask Amr, without AI", () => {
     expect(metrics()).toHaveLength(1);
   });
 
+  it("doesn't carry one view's suggestions into another", async () => {
+    seed([metric({ id: "metric_x", name: "Something" })]);
+    renderPage();
+    await screen.findByLabelText("What does your product do?");
+    type("What does your product do?", "A retro tool");
+    fireEvent.click(screen.getByRole("button", { name: "Suggest metrics" }));
+    expect(await screen.findByRole("region", { name: "Suggested metrics" })).toBeInTheDocument();
+    view("HEART");
+    expect(screen.queryByRole("region", { name: "Suggested metrics" })).toBeNull();
+    view("North Star");
+    expect(screen.getByRole("region", { name: "Suggested metrics" })).toBeInTheDocument();
+  });
+
+  it("files HEART suggestions under the feature they were asked for", async () => {
+    seed([metric({ id: "metric_x", name: "Something" })]);
+    renderPage();
+    view("HEART");
+    await screen.findByLabelText("What does your product do?");
+    type("What does your product do?", "A retro tool");
+    type(/^Feature/, "Action follow-up");
+    fireEvent.click(screen.getByRole("button", { name: "Suggest metrics" }));
+    const list = await screen.findByRole("region", { name: "Suggested metrics" });
+    type(/^Feature/, "Something else");
+    fireEvent.click(within(list).getAllByRole("button", { name: /^Add: / })[0]);
+    const added = metrics().find((m) => m.id !== "metric_x");
+    expect(added?.heart?.feature).toBe("Action follow-up");
+  });
+
   it("lists a suggestion that would break a rule as already set, and doesn't offer it", async () => {
     seed([metric({ id: "metric_ns", name: "Our star", role: "north-star" })]);
     renderPage();

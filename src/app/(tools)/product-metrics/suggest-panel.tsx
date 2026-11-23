@@ -90,25 +90,43 @@ export function SuggestPanel({
 }) {
   const [product, setProduct] = useState("");
   const [feature, setFeature] = useState("");
-  const [answer, setAnswer] = useState<{ items: SuggestedMetric[]; source: AiSource } | null>(null);
+  const [stored, setAnswer] = useState<{
+    items: SuggestedMetric[];
+    source: AiSource;
+    /** The view it was asked for: another view's answer isn't shown. */
+    framework: MetricFramework;
+    /** The feature it was asked for, which its HEART rows are filed under. */
+    feature: string;
+  } | null>(null);
   const [status, setStatus] = useState("");
   const buttonRef = useRef<HTMLDivElement>(null);
+  /** What the request in flight was made for, read when its answer comes. */
+  const asked = useRef<{ framework: MetricFramework; feature: string }>({ framework, feature: "" });
   const real = useMemo(() => metrics.filter((m) => !m.id.startsWith("example-")), [metrics]);
+  const answer = stored && stored.framework === framework ? stored : null;
 
-  const input = (): MetricsSuggestInput => ({
-    framework,
-    product: cut(product.trim(), SUGGEST_PRODUCT_MAX),
-    ...(productGoal ? { productGoal: cut(productGoal, 1000) } : {}),
-    ...(framework === "heart" && feature.trim()
-      ? { feature: cut(feature.trim(), SUGGEST_FEATURE_MAX) }
-      : {}),
-    existing: real.slice(0, SUGGEST_EXISTING_MAX).map((m) => cut(m.name, 200)),
-  });
+  const input = (): MetricsSuggestInput => {
+    asked.current = { framework, feature: feature.trim() };
+    return {
+      framework,
+      product: cut(product.trim(), SUGGEST_PRODUCT_MAX),
+      ...(productGoal ? { productGoal: cut(productGoal, 1000) } : {}),
+      ...(framework === "heart" && feature.trim()
+        ? { feature: cut(feature.trim(), SUGGEST_FEATURE_MAX) }
+        : {}),
+      existing: real.slice(0, SUGGEST_EXISTING_MAX).map((m) => cut(m.name, 200)),
+    };
+  };
 
   const blocked = (s: SuggestedMetric): string | null => {
     if (real.some((m) => nameKey(m.name) === nameKey(s.name)))
       return "already set: the name is in your list";
-    const row = rowFromSuggestion(s, "metric_check", new Date().toISOString(), feature);
+    const row = rowFromSuggestion(
+      s,
+      "metric_check",
+      new Date().toISOString(),
+      answer?.feature ?? feature
+    );
     return metricRuleProblems(row, real).length > 0 ? "already set" : null;
   };
   const open = answer ? answer.items.filter((s) => !blocked(s)) : [];
@@ -116,7 +134,8 @@ export function SuggestPanel({
 
   const add = (items: SuggestedMetric[]) => {
     const now = new Date().toISOString();
-    const n = onAdd(items.map((s) => rowFromSuggestion(s, newId(), now, feature)));
+    const asked = answer?.feature ?? feature;
+    const n = onAdd(items.map((s) => rowFromSuggestion(s, newId(), now, asked)));
     setStatus(
       n === items.length
         ? `Added ${n} ${n === 1 ? "metric" : "metrics"}.`
@@ -168,7 +187,7 @@ export function SuggestPanel({
           }
           onResult={(data, meta) => {
             setStatus("");
-            setAnswer({ items: data.metrics, source: meta.source });
+            setAnswer({ items: data.metrics, source: meta.source, ...asked.current });
           }}
         />
       </div>
