@@ -124,6 +124,10 @@ const UPGRADED_TOOLS = [
   "sm-notebook",
   // Tools plan, phase 2.
   "example-mapping",
+  "bug-triage",
+  "hill-chart",
+  "test-sessions",
+  "notes-to-actions",
   // Book readers: the Squad Session Kit. Meet the Cast and Which Colleague hold no
   // team data, so there's nothing to load, export or undo in them.
   "squad-session",
