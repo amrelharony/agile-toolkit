@@ -139,6 +139,31 @@ describe("test-sessions", () => {
     ).toEqual([expect.objectContaining({ id: "test-sessions-stuck" })]);
   });
 
+  it("counts a bug note whose bug was deleted as not sent", async () => {
+    const sent = session({
+      notes: [
+        {
+          id: "n1",
+          at: ago(1),
+          kind: "bug",
+          text: "The list jumps",
+          sentTo: [{ route: "bug", targetId: "bug_x", at: ago(1) }],
+        },
+      ],
+    });
+    expect(await steps("test-sessions", { testSessions: [sent] })).toEqual([
+      expect.objectContaining({ id: "test-sessions-bugs" }),
+    ]);
+    expect(
+      await steps("test-sessions", {
+        testSessions: [sent],
+        bugReports: [
+          { id: "bug_x", title: "x", status: "new", createdAt: ago(1), updatedAt: ago(1) },
+        ],
+      })
+    ).toEqual([]);
+  });
+
   it("leaves the example out", async () => {
     expect(await steps("test-sessions", { testSessions: [session({ id: "example-1" })] })).toEqual(
       []
