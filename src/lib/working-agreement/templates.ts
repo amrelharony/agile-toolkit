@@ -34,7 +34,7 @@ import {
 import { WEEKDAY_LABEL } from "@/lib/sprints/cadence";
 import { isoDayNumber, isoFromDayNumber, weekdayOf } from "@/lib/sprints/calendar";
 import { clockText, daysLabel, minuteOf } from "@/lib/team-time/format";
-import { anchorDaysBySite } from "@/lib/team-time/office";
+import { officeGroups, type OfficeGroup } from "@/lib/team-time/office";
 import { bestSharedWindow } from "@/lib/team-time/overlap";
 import { burden } from "@/lib/team-time/slots";
 import { canonicalZone, localClock, wallToUtc, zoneLabel } from "@/lib/team-time/zones";
@@ -650,10 +650,31 @@ export type SharedHoursFill =
     };
 
 /**
+ * Team Time's anchor days, one per office name (at most
+ * CHARTER_TEMPLATE_MAX.anchorDays). A site and a zone city can share a name
+ * (people at the "London" site, and people in London who name no site):
+ * the template lists an office once, so the named site wins.
+ */
+function anchorDaysByName(
+  people: readonly Pick<TeamTimePerson, "id" | "timeZone" | "workingDays" | "officeDays" | "site">[]
+): { site: string; days: number[] }[] {
+  const byName = new Map<string, OfficeGroup>();
+  for (const g of officeGroups(people)) {
+    if (g.anchorDays.length === 0) continue;
+    const key = g.label.trim().toLowerCase();
+    const had = byName.get(key);
+    if (!had || (had.site === null && g.site !== null)) byName.set(key, g);
+  }
+  return Array.from(byName.values())
+    .map((g) => ({ site: g.label, days: g.anchorDays }))
+    .slice(0, CHARTER_TEMPLATE_MAX.anchorDays);
+}
+
+/**
  * Core hours from Team Time: this week's window with everyone in, on a
  * clock in `zone`, else the all-but-one window (naming who is left out),
- * with the offices' anchor days. People are Team Time rows, example rows
- * already dropped, with the names the page shows.
+ * with the offices' anchor days (each office name once). People are Team
+ * Time rows, example rows already dropped, with the names the page shows.
  */
 export function coreHoursFromTeamTime(
   people: readonly (Person & Pick<TeamTimePerson, "officeDays" | "site">)[],
@@ -672,7 +693,7 @@ export function coreHoursFromTeamTime(
     days: best.days,
     timeZone: clock,
     leftOut: best.leftOut ? (people.find((p) => p.id === best.leftOut)?.name ?? null) : null,
-    anchorDays: anchorDaysBySite(people).slice(0, CHARTER_TEMPLATE_MAX.anchorDays),
+    anchorDays: anchorDaysByName(people),
   };
 }
 

@@ -643,10 +643,18 @@ export function CoreHoursForm({
               </section>
             )}
             {(draft.anchorDays ?? []).length > 0 && (
-              <fieldset className="space-y-2">
+              <fieldset
+                className="space-y-2"
+                aria-describedby={errors.anchorDays ? "core-anchor-days-error" : undefined}
+              >
                 <legend className="text-sm text-text">Office anchor days</legend>
+                <GroupError id="core-anchor-days-error" error={errors.anchorDays} />
                 {(draft.anchorDays ?? []).map((a, i) => (
-                  <div key={a.site} className="space-y-1 rounded-md border border-border p-2">
+                  <div
+                    // Two offices can share a name until one is left out.
+                    key={`${i}:${a.site}`}
+                    className="space-y-1 rounded-md border border-border p-2"
+                  >
                     <div className="flex items-center gap-2">
                       <span className="flex-1 break-words text-sm font-medium text-text">
                         {a.site}
@@ -660,6 +668,10 @@ export function CoreHoursForm({
                         }}
                       />
                     </div>
+                    <GroupError
+                      id={`core-anchor-${i}-site-error`}
+                      error={errors[`anchorDays.${i}.site`]}
+                    />
                     <DayPicker
                       legend={`${a.site}: in the office on`}
                       value={a.days}

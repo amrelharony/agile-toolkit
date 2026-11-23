@@ -626,6 +626,24 @@ describe("core hours on each person's clock", () => {
     expect(office.kind === "everyone" && office.anchorDays).toEqual([{ site: "HQ", days: [4] }]);
     expect(coreHoursFromTeamTime([], "UTC", Date.parse(AT))).toEqual({ kind: "no-people" });
   });
+
+  it("lists an office name once: a site wins over a zone city of the same name", () => {
+    // Two at the "London" site, two in London who name no site: both groups say "London".
+    const fill = coreHoursFromTeamTime(
+      [
+        { ...london, id: "z1", name: "Zed", officeDays: [1] },
+        { ...london, id: "z2", name: "Zoe", officeDays: [1] },
+        { ...london, id: "s1", name: "Sia", site: "London", officeDays: [3] },
+        { ...london, id: "s2", name: "Sol", site: "London", officeDays: [3] },
+      ],
+      "UTC",
+      Date.parse(AT)
+    );
+    const anchors = fill.kind === "everyone" ? fill.anchorDays : [];
+    expect(anchors).toEqual([{ site: "London", days: [3] }]);
+    // So the filled answers check out, and Apply isn't stopped by a hidden error.
+    expect(validateTemplate("core-hours", core({ anchorDays: anchors })).ok).toBe(true);
+  });
 });
 
 describe("the Markdown", () => {

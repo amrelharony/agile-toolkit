@@ -346,6 +346,33 @@ describe("core hours from Team Time", () => {
     expect(JSON.stringify(stored().templates?.coreHours)).not.toMatch(/Lou|Noor/);
   });
 
+  it("says why Apply stops when an office is listed twice", () => {
+    let n = 0;
+    seed(
+      applyTemplate(
+        emptyAgreement(),
+        "core-hours",
+        {
+          ...templateDefaults("core-hours", { timeZone: "UTC" }),
+          anchorDays: [
+            { site: "London", days: [1] },
+            { site: "london", days: [3] },
+          ],
+        },
+        () => `c${++n}`,
+        NOW
+      ).doc
+    );
+    renderPage();
+    fireEvent.click(templateButton(/^Core hours/));
+    expect(within(form()).getAllByText(/^london$/i)).toHaveLength(2);
+    fireEvent.click(within(form()).getByRole("button", { name: /^Update/ }));
+    expect(within(form()).getByRole("alert")).toHaveTextContent("This office is listed twice.");
+    // Leaving one out clears it.
+    fireEvent.click(within(form()).getByRole("button", { name: "Leave out london" }));
+    expect(within(form()).queryByText("This office is listed twice.")).toBeNull();
+  });
+
   it("opens from ?template=core-hours filled from Team Time, and leaves the address", () => {
     window.history.replaceState(null, "", "/working-agreement?template=core-hours&x=1");
     seed(null, { teamTimePeople: [london, newYork] });
