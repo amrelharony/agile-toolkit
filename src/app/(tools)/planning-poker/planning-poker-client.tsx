@@ -58,12 +58,24 @@ import { toMarkdown } from "./markdown";
 import { pokerCsv, sessionTicketKeys } from "./csv";
 import { generateRoomCode } from "./room-code";
 import { signalGamification } from "@/lib/gamification/signal";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { heldStoryIds, readAsyncRound, withStoryEstimate } from "@/lib/estimation/async-rounds";
+import type { AsyncLiveStart } from "./lobby-screen";
 
 // A visitor's live room only: the room's bar (its timer, big screen and
 // chip) and the reactions load when a room opens, not with the page.
 const PokerRoomBar = dynamic(() => import("./poker-room-bar").then((m) => m.PokerRoomBar), {
   ssr: false,
 });
+// A reply to a round without a meeting, opened from its link (#reply=).
+const ReplyImport = dynamic(() => import("./async/reply-import").then((m) => m.ReplyImport), {
+  ssr: false,
+});
+
+/** The reply code in a #reply= address, or null. */
+function replyCodeIn(hash: string): string | null {
+  return hash.startsWith("#reply=") && hash.length > 7 ? hash.slice(7) : null;
+}
 const RoomReactions = dynamic(
   () => import("@/components/collab/room-reactions").then((m) => m.RoomReactions),
   { ssr: false }
@@ -261,14 +273,44 @@ export function PlanningPokerClient() {
     useShallow((s) => (s.pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)?.queue)
   );
   const sessionStoryIds = useMemo(() => session?.stories.map((st) => st.id) ?? [], [session]);
+
+  // ─── Estimate without a meeting ───
+  // Open and revealed rounds hold their queue stories: a session never pulls
+  // them in, so each round's write-back still finds its queue item. Every
+  // read closes a round past its 14 days (names and notes dropped), and the
+  // dropped copy is written once the workspace has loaded.
+  const storedRounds = useWorkspaceStore((s) => s.pokerAsyncRounds);
+  const held = useMemo(
+    () => heldStoryIds((storedRounds ?? []).map((r) => readAsyncRound(r))),
+    [storedRounds]
+  );
+  const hydrated = useWorkspaceHydrated();
+  useEffect(() => {
+    if (!hydrated) return;
+    const { pokerAsyncRounds, upsertPokerAsyncRound } = useWorkspaceStore.getState();
+    const now = new Date();
+    for (const round of pokerAsyncRounds ?? []) {
+      const read = readAsyncRound(round, now);
+      if (read !== round) upsertPokerAsyncRound(read);
+    }
+  }, [hydrated]);
+  const heldCount = useMemo(() => {
+    const ids = new Set(held);
+    return (queue ?? []).filter((q) => q.sessionStoryId && ids.has(q.sessionStoryId)).length;
+  }, [queue, held]);
+
   const queuedCount = useMemo(
-    () => pendingQueueItems(queue, sessionStoryIds).length,
-    [queue, sessionStoryIds]
+    () => pendingQueueItems(queue, sessionStoryIds, held).length,
+    [queue, sessionStoryIds, held]
   );
 
   const addQueued = () => {
     if (!session) return;
-    const taken = takeQueuedStories(session.stories.map((st) => st.id));
+    const taken = takeQueuedStories(
+      session.stories.map((st) => st.id),
+      undefined,
+      held
+    );
     if (taken.length === 0) return;
     // A live room can't send a session over its size limit, and a queue of
     // stories with notes and acceptance criteria would pass it: their
@@ -367,7 +409,60 @@ export function PlanningPokerClient() {
         description: `“${shortName(item.title)}”`,
       });
     }
+    // A story a round without a meeting sent here ("Talk about it live")
+    // keeps the agreed card on that round too.
+    const { pokerAsyncRounds, upsertPokerAsyncRound } = useWorkspaceStore.getState();
+    const at = new Date().toISOString();
+    for (const round of pokerAsyncRounds ?? []) {
+      if (round.status === "closed") continue;
+      const story = round.stories.find((st) => st.id === storyId);
+      if (!story || story.finalEstimate) continue;
+      upsertPokerAsyncRound(withStoryEstimate(round, storyId, value, at));
+    }
   };
+
+  // "Talk about it live" on a revealed round: a session with the stories it
+  // flagged, each with the round's cards as its first round, under the same
+  // story ids (so a queue story's write-back still matches).
+  const handleTalkLive = ({
+    sessionName,
+    scale,
+    scaleType,
+    displayName,
+    stories,
+  }: AsyncLiveStart) => {
+    if (session || pendingInitial || stories.length === 0) return;
+    if (visitorRoom) clearVisitorIdentity(visitorRoom.code);
+    setVisitorRoom(null);
+    const code = generateRoomCode();
+    const queued = new Set((queue ?? []).map((q) => q.sessionStoryId).filter(Boolean));
+    addFromQueue(stories.filter((st) => queued.has(st.id)).map((st) => st.id));
+    setPendingInitial({
+      roomCode: code,
+      sessionName,
+      scale,
+      scaleType,
+      host: displayName,
+      hostId: userId,
+      participants: [{ id: userId, name: displayName, vote: null }],
+      stories,
+      currentStoryIdx: 0,
+      revealed: false,
+    });
+    setActiveRoomCode(code);
+  };
+
+  // ─── A reply link opened here (#reply=) ───
+  const [replyCode, setReplyCode] = useState<string | null>(null);
+  useEffect(() => {
+    const read = () => {
+      const code = replyCodeIn(window.location.hash);
+      if (code) setReplyCode(code);
+    };
+    read();
+    window.addEventListener("hashchange", read);
+    return () => window.removeEventListener("hashchange", read);
+  }, []);
 
   const handleStart = ({
     sessionName,
@@ -380,7 +475,7 @@ export function PlanningPokerClient() {
     if (visitorRoom) clearVisitorIdentity(visitorRoom.code);
     setVisitorRoom(null);
     const code = generateRoomCode();
-    const stories = withQueue ? takeQueuedStories() : [];
+    const stories = withQueue ? takeQueuedStories([], undefined, held) : [];
     addFromQueue(stories.map((st) => st.id));
     const initial: Session = {
       roomCode: code,
@@ -541,6 +636,7 @@ export function PlanningPokerClient() {
       description="Estimate user stories as a team using Fibonacci, T-shirt, or custom scales."
       category="Sprint Planning & Estimation"
     >
+      {replyCode !== null && <ReplyImport code={replyCode} onDone={() => setReplyCode(null)} />}
       <AnimatePresence mode="wait">
         {!session ? (
           <motion.div
@@ -565,9 +661,12 @@ export function PlanningPokerClient() {
               onLoadExample={visitor || isOwner ? loadExample : undefined}
               isOwner={isOwner}
               queuedCount={queuedCount}
+              heldCount={heldCount}
               onStartLive={liveRoomsOffered ? setConsentFor : undefined}
               liveRoomPending={visitorRoom !== null && pendingInitial !== null}
               onCancelLive={cancelLiveRoom}
+              sessionOpen={session !== null || pendingInitial !== null}
+              onTalkLive={handleTalkLive}
             />
           </motion.div>
         ) : (
