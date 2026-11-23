@@ -53,4 +53,8 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
     toolId: "kickoff",
     use: "Fills the Team Canvas with each person and their role, and offers teammates as owners.",
   },
+  {
+    toolId: "team-time",
+    use: "Gives each person a time zone, working hours and office days, to find the hours you share.",
+  },
 ];
