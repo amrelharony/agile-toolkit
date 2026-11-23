@@ -35,7 +35,7 @@
  */
 
 import { fromBase64Url, toBase64Url } from "@/lib/realtime/vote-room/crypto";
-import { cleanName, cleanText } from "@/lib/realtime/sanitize";
+import { cleanName, cleanText, shareableText } from "@/lib/realtime/sanitize";
 import { nameKey } from "@/lib/team/names";
 import {
   POKER_ASYNC_MAX,
@@ -102,6 +102,19 @@ export function wellFormed(s: string): string {
 /** One line of text cleaned for a pack or a round, cut to `max`. Null when nothing is left. */
 export function cleanLine(raw: unknown, max: number): string | null {
   return typeof raw === "string" ? cleanText(wellFormed(raw), max) : null;
+}
+
+/**
+ * Text a person typed or pasted on their own page: the host's round name,
+ * story titles (typed or queued), expected names and card meanings, or the
+ * estimator's name and notes. One line with hidden direction and control
+ * characters stripped, not refused (`shareableText`), cut to `max`. Pasted
+ * Arabic or Hebrew often holds an invisible mark the person can't see to
+ * take out. Null when nothing is left. What a link or a reply code carries
+ * in is still read with `cleanLine`/`cleanReplyName`, which refuse them.
+ */
+export function typedLine(raw: unknown, max: number = PASTE_MAX_CHARS): string | null {
+  return typeof raw === "string" ? shareableText(wellFormed(raw), max) || null : null;
 }
 
 /** A name cleaned for a reply (POKER_ASYNC_MAX.name). Null when nothing is left. */
@@ -209,8 +222,9 @@ export interface AsyncRoundInput {
 
 /** Why `input` can't become a round, or null. `today` is the local day. */
 export function asyncRoundProblem(input: AsyncRoundInput, today: string): string | null {
-  if (!cleanLine(input.title, POKER_ASYNC_MAX.title)) return "Name the round.";
-  if (input.title.trim().length > POKER_ASYNC_MAX.title) {
+  const title = typedLine(input.title);
+  if (!title) return "Name the round.";
+  if (title.length > POKER_ASYNC_MAX.title) {
     return `Keep the round's name to ${POKER_ASYNC_MAX.title} characters.`;
   }
   const deck = asyncDeckProblem(input.deck);
@@ -220,8 +234,9 @@ export function asyncRoundProblem(input: AsyncRoundInput, today: string): string
     return `A round takes up to ${POKER_ASYNC_MAX.stories} stories. Split them into two rounds.`;
   }
   for (const s of input.stories) {
-    if (!cleanLine(s.title, POKER_ASYNC_MAX.storyTitle)) return "Every story needs a title.";
-    if (s.title.trim().length > POKER_ASYNC_MAX.storyTitle) {
+    const story = typedLine(s.title);
+    if (!story) return "Every story needs a title.";
+    if (story.length > POKER_ASYNC_MAX.storyTitle) {
       return `Keep each story title to ${POKER_ASYNC_MAX.storyTitle} characters.`;
     }
   }
@@ -229,7 +244,8 @@ export function asyncRoundProblem(input: AsyncRoundInput, today: string): string
     return `Name up to ${POKER_ASYNC_MAX.expected} people.`;
   }
   for (const n of input.expected ?? []) {
-    if (!cleanReplyName(n) || n.trim().length > POKER_ASYNC_MAX.name) {
+    const name = typedLine(n);
+    if (!name || name.length > POKER_ASYNC_MAX.name) {
       return `Keep each name to ${POKER_ASYNC_MAX.name} characters.`;
     }
   }
@@ -245,17 +261,17 @@ export function newAsyncRound(input: AsyncRoundInput, id: string, now: string): 
   // Each person once, as first written.
   const expected: string[] = [];
   for (const raw of input.expected ?? []) {
-    const n = cleanReplyName(raw);
+    const n = typedLine(raw, POKER_ASYNC_MAX.name);
     if (n && !expected.some((e) => nameKey(e) === nameKey(n))) expected.push(n);
   }
   return {
     id,
-    title: cleanLine(input.title, POKER_ASYNC_MAX.title) ?? "Estimates",
+    title: typedLine(input.title, POKER_ASYNC_MAX.title) ?? "Estimates",
     scaleType: input.scaleType,
     deck: [...input.deck],
     stories: input.stories.map((s) => ({
       id: s.id,
-      title: cleanLine(s.title, POKER_ASYNC_MAX.storyTitle) ?? "Untitled story",
+      title: typedLine(s.title, POKER_ASYNC_MAX.storyTitle) ?? "Untitled story",
     })),
     ...(expected.length > 0 ? { expected } : {}),
     ...(input.dueDate ? { dueDate: input.dueDate } : {}),
@@ -294,10 +310,10 @@ export function packFor(
   round: PokerAsyncRound,
   opts: { host?: string; meanings?: readonly string[] } = {}
 ): AsyncPack {
-  const host = cleanReplyName(opts.host ?? "");
+  const host = typedLine(opts.host ?? "", POKER_ASYNC_MAX.name);
   const meanings =
     round.withMeanings && opts.meanings && opts.meanings.length === round.deck.length
-      ? opts.meanings.map((m) => cleanLine(m, MEANING_MAX) ?? "")
+      ? opts.meanings.map((m) => typedLine(m, MEANING_MAX) ?? "")
       : null;
   return {
     v: 1,
@@ -419,9 +435,9 @@ export function validateReply(
   draft: ReplyDraft
 ): ReplyValidation {
   const errors: Partial<Record<ReplyField, string>> = {};
-  const name = cleanReplyName(draft.name);
+  const name = typedLine(draft.name);
   if (!name) errors.name = "Enter your name, so the facilitator knows whose cards these are.";
-  else if (draft.name.trim().length > POKER_ASYNC_MAX.name) {
+  else if (name.length > POKER_ASYNC_MAX.name) {
     errors.name = `Keep your name to ${POKER_ASYNC_MAX.name} characters.`;
   }
   const picks = target.s.map((_, i) => draft.picks[i] ?? null);
@@ -435,7 +451,7 @@ export function validateReply(
   const byStory = new Map<number, string>();
   for (const n of draft.notes) {
     if (!Number.isInteger(n.story) || n.story < 0 || n.story >= target.s.length) continue;
-    const text = cleanLine(n.text, POKER_ASYNC_MAX.note);
+    const text = typedLine(n.text, POKER_ASYNC_MAX.note);
     if (text) byStory.set(n.story, text);
     else byStory.delete(n.story);
   }

@@ -32,6 +32,7 @@ import {
   replyClash,
   replyProblem,
   revealRound,
+  typedLine,
   validateReply,
   wellFormed,
   withStoryEstimate,
@@ -246,9 +247,21 @@ describe("the reply code", () => {
       notes: Array.from({ length: 6 }, (_, story) => ({ story, text: "x" })),
     });
     expect(six.ok ? null : six.errors.notes).toBeTruthy();
-    // A hidden direction character in a name is refused, not stored.
-    const bidi = validateReply(target(r), { name: "Lee‮", picks: ["1"], notes: [] });
-    expect(bidi.ok ? null : bidi.errors.name).toBeTruthy();
+    // A hidden direction character the estimator typed is stripped, never
+    // stored, and a note holding one isn't lost.
+    const bidi = validateReply(target(r), {
+      name: "Lee‮",
+      picks: ["1"],
+      notes: [{ story: 0, text: "‏مراجعة البنك" }],
+    });
+    expect(bidi.ok ? bidi.values.reply : null).toEqual({
+      roundId: r.id,
+      name: "Lee",
+      cards: "0--",
+      notes: [{ story: 0, text: "مراجعة البنك" }],
+    });
+    const onlyMarks = validateReply(target(r), { name: "‏؜", picks: ["1"], notes: [] });
+    expect(onlyMarks.ok ? null : onlyMarks.errors.name).toBeTruthy();
   });
 
   it("refuses junk, unknown keys and anything off its caps", () => {
@@ -527,6 +540,27 @@ describe("a new round", () => {
     expect(asyncDeckProblem(Array.from({ length: 17 }, (_, i) => String(i)))).toMatch(/16/);
     expect(asyncDeckProblem(asyncDeckFor("custom", "1, 2, 2"))).toMatch(/twice/);
     expect(asyncDeckProblem(asyncDeckFor("tshirt"))).toBeNull();
+  });
+
+  it("strips hidden direction marks from the host's own text instead of refusing it", () => {
+    const rtl = {
+      ...input,
+      title: "‏مراجعة",
+      stories: [{ id: "s1", title: "‏دفع بالهاتف؜" }],
+      expected: ["‎Lee"],
+    };
+    expect(asyncRoundProblem(rtl, "2026-11-20")).toBeNull();
+    const r = newAsyncRound(rtl, "async_new000001", NOW);
+    expect(r.title).toBe("مراجعة");
+    expect(r.stories).toEqual([{ id: "s1", title: "دفع بالهاتف" }]);
+    expect(r.expected).toEqual(["Lee"]);
+    // The link carries the clean text, and reads back.
+    const packed = encodePack(packFor(r, { host: "Priya‏" }));
+    const read = packed.ok ? readPack(`#estimate=${packed.code}`) : null;
+    expect(read && [read.t, read.h, read.s]).toEqual(["مراجعة", "Priya", ["دفع بالهاتف"]]);
+    // Nothing but marks is still nothing.
+    expect(asyncRoundProblem({ ...input, title: "‏" }, "2026-11-20")).toMatch(/Name/);
+    expect(typedLine("‮A b ", 2)).toBe("A");
   });
 
   it("starts open with no replies, each expected name once", () => {

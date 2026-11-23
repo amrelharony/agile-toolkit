@@ -31,13 +31,13 @@ import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { pendingQueueItems, takeQueuedStoriesById } from "@/lib/handoffs/poker-writeback";
 import { todayIso } from "@/lib/sprints/series";
 import {
-  cleanLine,
   encodePack,
   heldStoryIds,
   newAsyncRound,
   newAsyncRoundId,
   packFor,
   readAsyncRound,
+  typedLine,
   type AsyncRoundInput,
 } from "@/lib/estimation/async-pack";
 import { SCALE_LABELS, type ScaleType } from "../types";
@@ -183,7 +183,7 @@ function NewRoundForm({
     stories: [
       ...offered.filter((q) => v.queueIds.includes(q.id)),
       ...v.typedTitles.map((title, i) => ({ id: `typed-${i}`, title })),
-    ].map((s) => ({ id: s.id, title: cleanLine(s.title, POKER_ASYNC_MAX.storyTitle) ?? "" })),
+    ].map((s) => ({ id: s.id, title: typedLine(s.title, POKER_ASYNC_MAX.storyTitle) ?? "" })),
     expected: v.expected,
     dueDate: v.dueDate,
     withMeanings: v.withMeanings,

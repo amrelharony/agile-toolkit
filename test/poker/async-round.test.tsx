@@ -490,6 +490,25 @@ describe("a new round", () => {
     expect(within(article("Search work")).getByRole("button", { name: "Copy link" })).toBeTruthy();
   });
 
+  it("strips hidden direction marks from queued and typed titles, never “Untitled story”", () => {
+    const q1 = queueCard("c1", "‏بحث المنتجات");
+    render(<AsyncRoundsPanel hostName="Priya" />);
+    fireEvent.click(screen.getByRole("button", { name: "New round" }));
+    fireEvent.change(screen.getByLabelText(/Round name/), {
+      target: { value: "؜مراجعة" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "‏بحث المنتجات" }));
+    fireEvent.change(screen.getByLabelText(/Or type stories/), {
+      target: { value: "دفع بالهاتف‏\n‏" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Make the link" }));
+
+    const [made] = rounds();
+    expect(made.title).toBe("مراجعة");
+    expect(made.stories.map((s) => s.title)).toEqual(["بحث المنتجات", "دفع بالهاتف"]);
+    expect(made.stories[0].id).toBe(queue().find((q) => q.id === q1)!.sessionStoryId);
+  });
+
   it("says what's missing, and refuses a round too long for one link before stamping", () => {
     const q1 = queueCard("c1", "Search products");
     render(<AsyncRoundsPanel hostName="Priya" />);

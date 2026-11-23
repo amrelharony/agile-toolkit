@@ -7,13 +7,7 @@
 
 import type { Validation } from "@/lib/utils/form";
 import { POKER_ASYNC_MAX } from "@/lib/stores/workspace-types";
-import {
-  asyncDeckFor,
-  asyncDeckProblem,
-  cleanLine,
-  cleanReplyName,
-  isDay,
-} from "@/lib/estimation/async-pack";
+import { asyncDeckFor, asyncDeckProblem, isDay, typedLine } from "@/lib/estimation/async-pack";
 import { DEFAULT_CUSTOM_DECK, type ScaleType } from "../types";
 
 export interface AsyncRoundDraft {
@@ -72,8 +66,9 @@ export function validateAsyncRound(
   ctx: { today: string; queueIds: readonly string[] }
 ): Validation<AsyncRoundValues, AsyncRoundField> {
   const errors: Partial<Record<AsyncRoundField, string>> = {};
-  const title = d.title.trim();
-  if (!cleanLine(title, POKER_ASYNC_MAX.title)) errors.title = "Name the round.";
+  // The host's own text: hidden direction marks are stripped, not refused.
+  const title = typedLine(d.title) ?? "";
+  if (!title) errors.title = "Name the round.";
   else if (title.length > POKER_ASYNC_MAX.title) {
     errors.title = `Keep the name to ${POKER_ASYNC_MAX.title} characters.`;
   }
@@ -84,7 +79,9 @@ export function validateAsyncRound(
 
   const offered = new Set(ctx.queueIds);
   const queueIds = d.queueIds.filter((id) => offered.has(id));
-  const typed = typedTitles(d.typed);
+  const typed = typedTitles(d.typed)
+    .map((t) => typedLine(t) ?? "")
+    .filter(Boolean);
   const total = queueIds.length + typed.length;
   const long = typed.find((t) => t.length > POKER_ASYNC_MAX.storyTitle);
   if (total === 0) errors.stories = "Tick a queued story or type at least one title.";
@@ -92,13 +89,16 @@ export function validateAsyncRound(
     errors.stories = `A round takes up to ${POKER_ASYNC_MAX.stories} stories (${total} now). Split them into two rounds.`;
   } else if (long) {
     errors.stories = `Keep each title to ${POKER_ASYNC_MAX.storyTitle} characters (“${long.slice(0, 24)}…”).`;
-  } else if (typed.some((t) => !cleanLine(t, POKER_ASYNC_MAX.storyTitle))) {
-    errors.stories = "A title has a character that can't go in a link.";
   }
 
   if (d.expected.length > POKER_ASYNC_MAX.expected) {
     errors.expected = `Name up to ${POKER_ASYNC_MAX.expected} people.`;
-  } else if (d.expected.some((n) => !cleanReplyName(n) || n.trim().length > POKER_ASYNC_MAX.name)) {
+  } else if (
+    d.expected.some((n) => {
+      const name = typedLine(n);
+      return !name || name.length > POKER_ASYNC_MAX.name;
+    })
+  ) {
     errors.expected = `Keep each name to ${POKER_ASYNC_MAX.name} characters.`;
   }
 
@@ -116,7 +116,7 @@ export function validateAsyncRound(
       deck,
       queueIds,
       typedTitles: typed,
-      expected: d.expected.map((n) => n.trim()),
+      expected: d.expected.map((n) => typedLine(n) ?? ""),
       ...(d.dueDate ? { dueDate: d.dueDate } : {}),
       withMeanings: d.withMeanings,
     },
