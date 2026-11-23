@@ -34,12 +34,15 @@ vi.mock("@/lib/kudos/beacon/header-beacon", () => ({ KudosHeaderBeacon: () => nu
 
 import { VisitorGuide } from "@/components/agent/mascot/visitor-guide";
 import { Header } from "@/components/layout/header";
+import { getSectionForTool } from "@/lib/constants/sections";
 import { getToolById, tools } from "@/lib/constants/tools";
 import { isVipOnly } from "@/lib/tools/catalog";
 import { VIP_TITLE } from "@/lib/vip/constants";
 import { clearVipHint, setVipHint } from "@/lib/vip/hint";
 
 const VIP_TOOLS = tools.filter(isVipOnly);
+/** The book readers' section, which the bar never names (its tools' crumb stays generic). */
+const BOOK_READERS = "For book readers";
 const header = <Header onOpenSearch={() => {}} />;
 /** A category as it reads in HTML, where "&" is escaped. */
 const asHtml = (text: string) => text.replace(/&/g, "&amp;");
@@ -68,11 +71,13 @@ describe("the header on a VIP tool's address", () => {
       const html = renderToString(header);
       expect(html).not.toContain(tool.name);
       expect(html).not.toContain(asHtml(tool.category));
+      expect(html).not.toContain(BOOK_READERS);
       expect(html).toContain(VIP_TITLE);
 
       const { container } = render(header);
       expect(container.innerHTML).not.toContain(tool.name);
       expect(container.innerHTML).not.toContain(asHtml(tool.category));
+      expect(container.innerHTML).not.toContain(BOOK_READERS);
       expect(screen.getByText(VIP_TITLE)).toBeInTheDocument();
     }
   );
@@ -85,15 +90,19 @@ describe("the header on a VIP tool's address", () => {
       const { container } = render(header);
       expect(container.innerHTML).not.toContain(tool.name);
       expect(container.innerHTML).not.toContain(asHtml(tool.category));
+      expect(container.innerHTML).not.toContain(BOOK_READERS);
     }
   );
 
-  it("still names an ordinary tool, with its category", () => {
+  it("still names an ordinary tool, with its section as home and More in name it", () => {
     const retro = getToolById("retro")!;
     h.pathname = retro.path;
     render(header);
     expect(screen.getByText(retro.name)).toBeInTheDocument();
-    expect(screen.getByText(retro.category)).toBeInTheDocument();
+    // Decision D7: the section, not the category ("Ceremonies").
+    expect(getSectionForTool("retro")?.label).toBe("Retrospect & improve");
+    expect(screen.getByText("Retrospect & improve")).toBeInTheDocument();
+    expect(screen.queryByText(retro.category)).toBeNull();
     expect(screen.queryByText(VIP_TITLE)).toBeNull();
   });
 
