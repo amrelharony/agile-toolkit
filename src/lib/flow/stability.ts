@@ -77,6 +77,12 @@ export interface TeamStability {
   lastChange: StabilityRow | null;
 }
 
+/**
+ * The people a sprint's own plan names. Null without a plan of its own, or
+ * with one that names nobody (the Capacity Planner's "Start empty"): an
+ * empty plan says nothing about who was there, so the sprint falls back to
+ * its story owners rather than reading as everyone leaving.
+ */
 function capacityPeople(
   plans: readonly CapacityPlan[] | undefined,
   sprintId: string
@@ -84,8 +90,8 @@ function capacityPeople(
   const found = findCapacityPlan(plans, sprintId);
   if (!found || !found.perSprint) return null;
   const members: unknown = found.plan.members;
-  if (!Array.isArray(members)) return [];
-  return dedupe(
+  if (!Array.isArray(members)) return null;
+  const people = dedupe(
     members.flatMap((m) => {
       if (!m || typeof m !== "object") return [];
       const name = typeof m.name === "string" ? m.name.trim() : "";
@@ -96,6 +102,7 @@ function capacityPeople(
       return [{ name: name || "Someone", key, ...(memberId ? { memberId } : {}) }];
     })
   );
+  return people.length > 0 ? people : null;
 }
 
 function ownerPeople(

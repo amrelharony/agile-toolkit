@@ -98,6 +98,27 @@ describe("team stability", () => {
     });
   });
 
+  it("reads a sprint plan that names nobody as no plan, not as everyone leaving", () => {
+    const sprints = [sprintN(1), sprintN(2)];
+    const plans = [plan("s1", [["Ana"], ["Ben"], ["Cy"], ["Dee"], ["Eve"]]), plan("s2", [])];
+    // With owners on both sides, the pair falls back to them.
+    const stories = [owned("a", "s1", "Ana"), owned("b", "s2", "Ana")];
+    const { rows, lastChange } = teamStability(sprints, plans, stories);
+    expect(rows[1]).toMatchObject({
+      source: "owners",
+      people: 1,
+      stayed: 1,
+      joined: [],
+      left: [],
+      pct: 100,
+    });
+    expect(lastChange).toBeNull();
+    // With nobody owning a story either, the pair isn't compared.
+    const none = teamStability(sprints, plans, []);
+    expect(none.rows[1]).toMatchObject({ people: 0, left: [], pct: null });
+    expect(none.lastChange).toBeNull();
+  });
+
   it("compares nothing when one sprint's stories name nobody", () => {
     const sprints = [sprintN(1), sprintN(2)];
     const stories = [owned("a", "s2", "Ana")];
