@@ -8,6 +8,10 @@
  * estimate card on the deck is offered now, starting on the suggested one
  * (the middle of the votes by deck position, ./consensus); Accept commits
  * whichever card is picked.
+ *
+ * Given the round's votes on a numeric deck, it also offers the
+ * Three-point check (./three-point-check), whose "Use {card}" picks the
+ * card here: the pick is this component's own, so there's one accept path.
  */
 
 import { useState, type ReactNode } from "react";
@@ -15,12 +19,16 @@ import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ToggleGroup } from "@/components/ui/toggle-group";
 import { estimateCards } from "@/lib/estimation/consensus";
+import { threePointStart } from "@/lib/estimation/three-point";
+import { ThreePointCheck } from "./three-point-check";
 
 export function AcceptEstimate({
   deck,
   suggested,
   onAccept,
   children,
+  votes,
+  onThreePointUsed,
 }: {
   deck: readonly string[];
   /** The card to start on; null when nobody played an estimate card. */
@@ -28,12 +36,20 @@ export function AcceptEstimate({
   onAccept: (value: string) => void;
   /** Rendered under the controls with the picked card (the guide's notes for it). */
   children?: (pick: string | null) => ReactNode;
+  /**
+   * The revealed votes. With two or more estimates on a numeric deck, the
+   * Three-point check starts from them; without them there is no check.
+   */
+  votes?: readonly string[];
+  /** "Use {card}" in the Three-point check was pressed (the page logs it). */
+  onThreePointUsed?: (card: string, expected: number) => void;
 }) {
   const cards = estimateCards(deck);
   const [pick, setPick] = useState<string | null>(
     suggested !== null && cards.includes(suggested) ? suggested : null
   );
   const [error, setError] = useState<string | null>(null);
+  const start = votes ? threePointStart(votes, deck) : null;
 
   const accept = () => {
     if (pick === null) {
@@ -88,6 +104,19 @@ export function AcceptEstimate({
         <p className="text-xs text-danger" role="alert">
           {error}
         </p>
+      )}
+      {start && (
+        <ThreePointCheck
+          deck={deck}
+          start={start}
+          onUse={(card, expected) => {
+            if (cards.includes(card)) {
+              setPick(card);
+              setError(null);
+            }
+            onThreePointUsed?.(card, expected);
+          }}
+        />
       )}
       {children?.(pick)}
     </div>

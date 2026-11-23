@@ -988,6 +988,13 @@ export function SessionScreen({
                         deck={session.scale}
                         suggested={consensus?.suggested ?? null}
                         onAccept={saveEstimate}
+                        votes={castVotes(session.participants)}
+                        onThreePointUsed={(card, expected) =>
+                          log(PLANNING_POKER_ACTIONS.THREE_POINT_USED, {
+                            card,
+                            expected: Math.round(expected * 10) / 10,
+                          })
+                        }
                       >
                         {(pick) =>
                           references && (
