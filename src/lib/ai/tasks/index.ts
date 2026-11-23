@@ -10,6 +10,7 @@ import { clusterTask, mergeQuestionsTask, toBacklogTask } from "./audience-wall"
 import { backlogHealthReviewTask } from "./backlog-health";
 import { cardForMoodTask, generateCardsTask } from "./card-decks";
 import { agendaTask } from "./facilitator-timers";
+import { flowInsightsClassifyTask } from "./flow-insights";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { meetingAuditSuggestTask } from "./meeting-audit";
 import { parkingRouteTask } from "./parking-lot";
@@ -33,6 +34,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   generateCardsTask,
   cardForMoodTask,
   agendaTask,
+  flowInsightsClassifyTask,
   interruptClassifyTask,
   meetingAuditSuggestTask,
   parkingRouteTask,
