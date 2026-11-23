@@ -29,6 +29,15 @@
  *                          with their points, and the Estimation Guide's
  *                          reference stories (lib/estimation/similar). Words
  *                          only: an action runs no AI task.
+ *   8. list_async        — READ: rounds without a meeting, counts only, and
+ *                          each story's verdict and agreed card after Reveal.
+ *   9. create_async_round — a round of typed titles; returns the link path
+ *                          for the person to send (lib/estimation/async-pack).
+ *  10. reveal_async_round — reveal a round: the same counts and verdicts.
+ *
+ *  Replies hold other people's names, cards and notes, and Amr is a model:
+ *  no verb returns a name, a note or anyone's card, and none adds a reply
+ *  (a pasted code would carry other people's data into the model).
  *
  * The log is agent-managed: the realtime client deliberately does NOT write to
  * it (session-screen renders for guests/promoted-hosts too, whose workspace
@@ -46,12 +55,30 @@ import {
   serverListEntities,
   serverUpsertEntity,
 } from "../server-store";
-import type {
-  PokerEstimationLog,
-  PokerEstimate,
-  PokerRound,
-  Story,
+import {
+  ENTITY_ROW_MAX_BYTES,
+  POKER_ASYNC_MAX,
+  POKER_ASYNC_ROUND_KIND,
+  type PokerAsyncRound,
+  type PokerEstimationLog,
+  type PokerEstimate,
+  type PokerRound,
+  type Story,
 } from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
+import { todayIso } from "@/lib/sprints/series";
+import {
+  asyncDeckFor,
+  asyncRoundProblem,
+  asyncRoundSummary,
+  encodePack,
+  estimateLink,
+  newAsyncRound,
+  newAsyncRoundId,
+  packFor,
+  readAsyncRound,
+  revealAndFlag,
+} from "@/lib/estimation/async-pack";
 import { SCALES, SCALE_LABELS, type ScaleType } from "@/lib/estimation/decks";
 import {
   consensusLabel,
@@ -703,4 +730,171 @@ registry.register({
   handler: async () => clientApply(txCancel(browserRound())),
   mcpHandler: async (_params, ctx) =>
     serverApply(ctx.userId, txCancel(await serverRound(ctx.userId))),
+});
+
+/* ======================================================================== *
+ *  Estimate without a meeting (workspace PokerAsyncRound, no CRUD)
+ *
+ *  People estimate from a link and send a reply code back to the host, who
+ *  pastes it on the Poker page. Amr can list rounds, make one from typed
+ *  titles and reveal one, and sees counts and verdicts only: never a name,
+ *  a note or anyone's card. There is no verb to add a reply.
+ * ======================================================================== */
+
+const asyncRoundsIn = (rounds: readonly PokerAsyncRound[] | undefined) =>
+  (rounds ?? [])
+    .map((r) => readAsyncRound(r))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+function asyncList(rounds: readonly PokerAsyncRound[] | undefined) {
+  const all = asyncRoundsIn(rounds);
+  return { total: all.length, rounds: all.map(asyncRoundSummary) };
+}
+
+const CreateAsyncParams = z.object({
+  title: z.string().trim().min(1).max(POKER_ASYNC_MAX.title),
+  scale: z.enum(["fibonacci", "tshirt", "custom"]).default("fibonacci"),
+  deck: z
+    .array(z.string().trim().min(1).max(32))
+    .min(2)
+    .max(POKER_ASYNC_MAX.deck)
+    .optional()
+    .describe("The cards in order, lowest first; only for scale 'custom'."),
+  stories: z
+    .array(z.string().trim().min(1).max(POKER_ASYNC_MAX.storyTitle))
+    .min(1)
+    .max(POKER_ASYNC_MAX.stories),
+  dueDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe("The day replies are due, YYYY-MM-DD, from today to 90 days ahead."),
+  expected: z
+    .array(z.string().trim().min(1).max(POKER_ASYNC_MAX.name))
+    .max(POKER_ASYNC_MAX.expected)
+    .optional(),
+  host: z
+    .string()
+    .trim()
+    .min(1)
+    .max(POKER_ASYNC_MAX.name)
+    .optional()
+    .describe("The facilitator's name the estimators see."),
+});
+
+type CreateAsync =
+  | { created: false; problem: string }
+  | { created: true; id: string; path: string; chars: number; round: PokerAsyncRound };
+
+/** A new round from the params, or why not; the write is the caller's. */
+function planAsyncRound(p: z.infer<typeof CreateAsyncParams>): CreateAsync {
+  const input = {
+    title: p.title,
+    scaleType: p.scale,
+    deck: p.scale === "custom" ? (p.deck ?? []) : asyncDeckFor(p.scale),
+    stories: p.stories.map((title) => ({ id: crypto.randomUUID(), title })),
+    expected: p.expected,
+    dueDate: p.dueDate,
+  };
+  const problem = asyncRoundProblem(input, todayIso());
+  if (problem) return { created: false, problem };
+  const round = newAsyncRound(input, newAsyncRoundId(), now());
+  const packed = encodePack(packFor(round, { host: p.host }));
+  if (!packed.ok) return { created: false, problem: packed.problem };
+  if (jsonBytes(round) > ENTITY_ROW_MAX_BYTES) {
+    return { created: false, problem: "This round is too big to save." };
+  }
+  return {
+    created: true,
+    id: round.id,
+    path: estimateLink(packed.code),
+    chars: packed.chars,
+    round,
+  };
+}
+
+const createdView = (c: CreateAsync) =>
+  c.created ? { created: true, id: c.id, path: c.path, chars: c.chars } : c;
+
+type RevealAsync =
+  | { revealed: false; reason: "not_found" | "not_open" | "no_replies" }
+  | { revealed: true; round: PokerAsyncRound };
+
+function planAsyncReveal(stored: PokerAsyncRound | null | undefined): RevealAsync {
+  if (!stored) return { revealed: false, reason: "not_found" };
+  const round = readAsyncRound(stored);
+  if (round.status !== "open") return { revealed: false, reason: "not_open" };
+  if (round.replies.length === 0) return { revealed: false, reason: "no_replies" };
+  return { revealed: true, round: revealAndFlag(round, now()) };
+}
+
+const revealedView = (r: RevealAsync) =>
+  r.revealed ? { revealed: true, ...asyncRoundSummary(r.round) } : r;
+
+// ──────── tool.planning_poker.list_async ────────
+registry.register({
+  id: "tool.planning_poker.list_async",
+  toolId: "tool.planning_poker",
+  name: "list_async",
+  category: "read",
+  description:
+    "List Planning Poker's rounds without a meeting (people estimate from a link and send the host a reply code), newest first. Returns {total, rounds: {id, title, status ('open' | 'revealed' | 'closed'), scaleType, dueDate, replyCount, expectedCount, storyCount, stories (null until revealed, then per story {title, label, verdict, suggested, agreed, voteCount})}[]}. Never a name, a note or anyone's card: those stay on the host's page. A round is closed, with its names and notes dropped, 14 days after its due day.",
+  paramsSchema: z.object({}),
+  handler: async () => asyncList(ws().pokerAsyncRounds),
+  mcpHandler: async (_params, ctx) =>
+    asyncList(await serverListEntities<PokerAsyncRound>(ctx.userId, POKER_ASYNC_ROUND_KIND)),
+});
+
+// ──────── tool.planning_poker.create_async_round ────────
+registry.register({
+  id: "tool.planning_poker.create_async_round",
+  toolId: "tool.planning_poker",
+  name: "create_async_round",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Make a round without a meeting from typed story titles (1 to 20, up to 120 characters each; stories queued from other tools are picked on the page). scale is fibonacci (default), tshirt, or custom with deck (2 to 16 cards, lowest first). Optional dueDate (YYYY-MM-DD, from today to 90 days ahead), expected (the names of who should reply, up to 20) and host (the facilitator's name shown to estimators). Returns {created: true, id, path, chars}: path is the estimator's link, /planning-poker/estimate#estimate=…, for the person to send themselves; or {created: false, problem} (for example a round too long for one link: split it). Replies come back to the Poker page as codes the host pastes in.",
+  paramsSchema: CreateAsyncParams,
+  handler: async (params) => {
+    const plan = planAsyncRound(params);
+    if (plan.created) ws().upsertPokerAsyncRound(plan.round);
+    return createdView(plan);
+  },
+  mcpHandler: async (params, ctx) => {
+    const plan = planAsyncRound(params);
+    if (plan.created) {
+      await serverUpsertEntity<PokerAsyncRound>(ctx.userId, POKER_ASYNC_ROUND_KIND, plan.round);
+    }
+    return createdView(plan);
+  },
+});
+
+// ──────── tool.planning_poker.reveal_async_round ────────
+registry.register({
+  id: "tool.planning_poker.reveal_async_round",
+  toolId: "tool.planning_poker",
+  name: "reveal_async_round",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Reveal an open round without a meeting that has at least one reply, so the host's page shows everyone's cards and the stories far apart are ticked to talk about live. Returns {revealed: true, id, title, status, scaleType, dueDate, replyCount, expectedCount, storyCount, stories: {title, label, verdict, suggested, agreed, voteCount}[]}, or {revealed: false, reason: 'not_found' | 'not_open' | 'no_replies'}. Counts and verdicts only: never a name, a note or anyone's card. The host agrees each estimate on the page.",
+  paramsSchema: z.object({ id: z.string().min(1).max(64) }),
+  handler: async (params) => {
+    const found = (ws().pokerAsyncRounds ?? []).find((r) => r.id === params.id);
+    const plan = planAsyncReveal(found);
+    if (plan.revealed) ws().upsertPokerAsyncRound(plan.round);
+    return revealedView(plan);
+  },
+  mcpHandler: async (params, ctx) => {
+    const found = await serverGetEntity<PokerAsyncRound>(
+      ctx.userId,
+      POKER_ASYNC_ROUND_KIND,
+      params.id
+    );
+    const plan = planAsyncReveal(found);
+    if (plan.revealed) {
+      await serverUpsertEntity<PokerAsyncRound>(ctx.userId, POKER_ASYNC_ROUND_KIND, plan.round);
+    }
+    return revealedView(plan);
+  },
 });

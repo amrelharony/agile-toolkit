@@ -17,6 +17,7 @@ import {
   STORY_MAP_ID,
   pendingQueueItems,
   takeQueuedStories,
+  takeQueuedStoriesById,
   writeBackPokerEstimate,
 } from "@/lib/handoffs/poker-writeback";
 import { POKER_LOG_ID, pokerQueueRoute } from "@/lib/handoffs/targets/poker-queue";
@@ -88,6 +89,58 @@ describe("pulling queued stories into a session", () => {
     queueCard("c1", "Search products");
     queueCard("c2", "Filter by price");
     expect(takeQueuedStories(Array.from({ length: 499 }, (_, i) => `s${i}`))).toHaveLength(1);
+  });
+});
+
+describe("stories an async round holds", () => {
+  it("takes only the chosen items by id, in queue order, and stamps only those", () => {
+    const q1 = queueCard("c1", "Search products");
+    const q2 = queueCard("c2", "Filter by price");
+    const taken = takeQueuedStoriesById([q2, "unknown", q1]);
+    expect(taken.map((s) => s.title)).toEqual(["Search products", "Filter by price"]);
+    const queue = log()!.queue!;
+    expect(queue.find((q) => q.id === q1)!.sessionStoryId).toBe(taken[0].id);
+    expect(queue.find((q) => q.id === q2)!.sessionStoryId).toBe(taken[1].id);
+    expect(takeQueuedStoriesById([])).toEqual([]);
+  });
+
+  it("leaves the items it didn't choose unstamped and pending", () => {
+    const q1 = queueCard("c1", "Search products");
+    const q2 = queueCard("c2", "Filter by price");
+    takeQueuedStoriesById([q1]);
+    const queue = log()!.queue!;
+    expect(queue.find((q) => q.id === q2)!.sessionStoryId).toBeUndefined();
+    expect(pendingQueueItems(queue).map((q) => q.id)).toContain(q2);
+  });
+
+  it("doesn't count or pull in a held item, so its round's write-back still matches", () => {
+    const q1 = queueCard("c1", "Search products");
+    const q2 = queueCard("c2", "Filter by price");
+    const [held] = takeQueuedStoriesById([q1]);
+    const queue = log()!.queue!;
+    // Without the hold, a new session would take the stamped item again.
+    expect(pendingQueueItems(queue).map((q) => q.id)).toEqual([q1, q2]);
+    expect(pendingQueueItems(queue, [], [held.id]).map((q) => q.id)).toEqual([q2]);
+
+    const pulled = takeQueuedStories([], undefined, [held.id]);
+    expect(pulled.map((s) => s.title)).toEqual(["Filter by price"]);
+    // The held item keeps the id its round knows it by.
+    expect(log()!.queue!.find((q) => q.id === q1)!.sessionStoryId).toBe(held.id);
+
+    const { item, written } = writeBackPokerEstimate({
+      sessionStoryId: held.id,
+      value: "5",
+      scaleType: "fibonacci",
+    });
+    expect(item?.id).toBe(q1);
+    expect(written).toBe(true);
+    expect(card("c1")!.estimate).toBe("5");
+  });
+
+  it("keeps today's behaviour with the default, no items held", () => {
+    queueCard("c1", "Search products");
+    expect(takeQueuedStories([], undefined, [])).toHaveLength(1);
+    expect(pendingQueueItems(log()!.queue!, [], [])).toHaveLength(1);
   });
 });
 

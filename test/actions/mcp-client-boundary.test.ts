@@ -75,6 +75,7 @@ describe("what the MCP handlers call", () => {
         "src/app/(tools)/estimation-guide/references.ts",
         "src/lib/analytics/distributions.ts",
         "src/lib/bug-triage/model.ts",
+        "src/lib/estimation/async-pack.ts",
         "src/lib/estimation/similar.ts",
         "src/lib/estimation/three-point.ts",
         "src/lib/experiments/ab.ts",

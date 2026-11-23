@@ -25,6 +25,7 @@ import {
 } from "@/components/collab/visitor-room-consent";
 import { AiConsentCompact } from "@/components/ai/ai-consent-compact";
 import { CountDisclosure } from "@/components/visits/visit-recorder";
+import { estimatorNotice } from "@/app/(tools)/planning-poker/async/estimate-view";
 import * as disclosures from "@/lib/site/disclosures";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
 
@@ -96,6 +97,16 @@ describe("the disclosure wording", () => {
     expect(disclosures.STORY_COUNT_DISCLOSURE).toContain(
       "no cookies, no account and no IP address"
     );
+  });
+
+  it("is the notice at the top of the estimator's page, with the facilitator's name in it", () => {
+    expect(disclosures.ASYNC_ESTIMATE_NOTICE).toBe(
+      "Made in Planning Poker by {name}. Nothing you pick leaves this page until you copy your reply. If you send it, {name}'s toolkit keeps your name, cards and notes until the round closes, at most 14 days after it's due."
+    );
+    expect(estimatorNotice("Lee")).toBe(
+      disclosures.ASYNC_ESTIMATE_NOTICE.split("{name}").join("Lee")
+    );
+    expect(estimatorNotice(undefined)).toContain("If you send it, the facilitator's toolkit keeps");
   });
 
   it("opens the note under AI settings", () => {
