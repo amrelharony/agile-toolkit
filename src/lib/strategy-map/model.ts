@@ -281,9 +281,6 @@ export const rootOf = (map: Pick<StrategyMap, "nodes">): StrategyMapNode | undef
 export const childrenOf = (map: Pick<StrategyMap, "nodes">, id: string): StrategyMapNode[] =>
   map.nodes.filter((n) => n.parentId === id);
 
-export const nodesAt = (map: Pick<StrategyMap, "nodes">, level: number): StrategyMapNode[] =>
-  map.nodes.filter((n) => n.level === level);
-
 /** The level a child of `node` takes, or null under the last level. */
 export function childLevel(node: Pick<StrategyMapNode, "level">): 1 | 2 | 3 | null {
   return node.level >= LAST_LEVEL ? null : ((node.level + 1) as 1 | 2 | 3);

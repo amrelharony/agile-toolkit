@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { StrategyMap, StrategyMapNode } from "@/lib/stores/workspace-types";
+import type { HandoffLink, StrategyMap, StrategyMapNode } from "@/lib/stores/workspace-types";
 import { strategyMapProblems } from "@/lib/strategy-map/rules";
 import {
   MAP_FULL,
@@ -194,7 +194,7 @@ describe("readStrategyMap", () => {
           text: "x".repeat(300),
           detail: "y".repeat(1200),
           sentTo: [
-            { route: "nowhere", targetId: "t", at: AT },
+            { route: "nowhere" as HandoffLink["route"], targetId: "t", at: AT },
             { route: "epic", targetId: "e1", at: AT },
           ],
         },
