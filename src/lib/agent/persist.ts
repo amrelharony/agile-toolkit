@@ -42,82 +42,123 @@ export async function fetchChatUsage(): Promise<RateLimitInfo | null> {
  * reloading a thread on next open.
  */
 
-export async function listConversations(): Promise<ConversationMeta[]> {
-  const supabase = getAuthBrowserClient();
-  if (!supabase) return [];
-  const { data, error } = await supabase
-    .from("agent_conversations")
-    .select("id, title, tool_id, created_at, updated_at, last_message_at")
-    .order("last_message_at", { ascending: false })
-    .limit(100);
-  if (error) {
-    // eslint-disable-next-line no-console
-    console.warn("[agent] listConversations failed", error.message);
-    return [];
-  }
-  return (data ?? []).map((row) => ({
-    id: row.id as string,
-    title: row.title as string,
-    toolId: (row.tool_id as string | null) ?? null,
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
-    lastMessageAt: row.last_message_at as string,
-  }));
+/**
+ * What a read gave back. `ok` is false when Supabase couldn't be reached or
+ * refused the read, and `data` is then the empty value, so a caller can tell
+ * "no conversations" from "couldn't look" (History says which; the chat's
+ * own look for a thread to resume stays quiet either way).
+ */
+export interface Persisted<T> {
+  ok: boolean;
+  data: T;
 }
 
+export async function listConversations(): Promise<Persisted<ConversationMeta[]>> {
+  const supabase = getAuthBrowserClient();
+  if (!supabase) return { ok: false, data: [] };
+  try {
+    const { data, error } = await supabase
+      .from("agent_conversations")
+      .select("id, title, tool_id, created_at, updated_at, last_message_at")
+      .order("last_message_at", { ascending: false })
+      .limit(100);
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.warn("[agent] listConversations failed", error.message);
+      return { ok: false, data: [] };
+    }
+    return {
+      ok: true,
+      data: (data ?? []).map((row) => ({
+        id: row.id as string,
+        title: row.title as string,
+        toolId: (row.tool_id as string | null) ?? null,
+        createdAt: row.created_at as string,
+        updatedAt: row.updated_at as string,
+        lastMessageAt: row.last_message_at as string,
+      })),
+    };
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn("[agent] listConversations failed", err);
+    return { ok: false, data: [] };
+  }
+}
+
+/**
+ * Make a conversation for the chat's first message. Null when it couldn't be
+ * saved (no Supabase, a refusal, a throw): the chat goes on unsaved, says so
+ * ("Not saved yet", agent-conversation) and tries again with its next message.
+ * Never throws, so a failed save never keeps a message from being sent.
+ */
 export async function createConversation(opts: {
   title: string;
   toolId?: string | null;
 }): Promise<ConversationMeta | null> {
   const supabase = getAuthBrowserClient();
   if (!supabase) return null;
-  const { data, error } = await supabase
-    .from("agent_conversations")
-    .insert({
-      title: opts.title.slice(0, 200),
-      tool_id: opts.toolId ?? null,
-      // user_id is filled by the RLS-protected default via auth.uid()? Not by default — Supabase
-      // requires the client to supply user_id and matches it against the RLS check. We fetch
-      // session.user.id here to satisfy the insert policy.
-      user_id: (await supabase.auth.getUser()).data.user?.id,
-    })
-    .select("id, title, tool_id, created_at, updated_at, last_message_at")
-    .single();
-  if (error || !data) {
+  try {
+    const { data, error } = await supabase
+      .from("agent_conversations")
+      .insert({
+        title: opts.title.slice(0, 200),
+        tool_id: opts.toolId ?? null,
+        // user_id is filled by the RLS-protected default via auth.uid()? Not by default — Supabase
+        // requires the client to supply user_id and matches it against the RLS check. We fetch
+        // session.user.id here to satisfy the insert policy.
+        user_id: (await supabase.auth.getUser()).data.user?.id,
+      })
+      .select("id, title, tool_id, created_at, updated_at, last_message_at")
+      .single();
+    if (error || !data) {
+      // eslint-disable-next-line no-console
+      console.warn("[agent] createConversation failed", error?.message);
+      return null;
+    }
+    return {
+      id: data.id as string,
+      title: data.title as string,
+      toolId: (data.tool_id as string | null) ?? null,
+      createdAt: data.created_at as string,
+      updatedAt: data.updated_at as string,
+      lastMessageAt: data.last_message_at as string,
+    };
+  } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn("[agent] createConversation failed", error?.message);
+    console.warn("[agent] createConversation failed", err);
     return null;
   }
-  return {
-    id: data.id as string,
-    title: data.title as string,
-    toolId: (data.tool_id as string | null) ?? null,
-    createdAt: data.created_at as string,
-    updatedAt: data.updated_at as string,
-    lastMessageAt: data.last_message_at as string,
-  };
 }
 
-export async function loadMessages(conversationId: string): Promise<ChatMessage[]> {
+export async function loadMessages(conversationId: string): Promise<Persisted<ChatMessage[]>> {
   const supabase = getAuthBrowserClient();
-  if (!supabase) return [];
-  const { data, error } = await supabase
-    .from("agent_messages")
-    .select("id, role, content, created_at")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: true })
-    .limit(1000);
-  if (error) {
+  if (!supabase) return { ok: false, data: [] };
+  try {
+    const { data, error } = await supabase
+      .from("agent_messages")
+      .select("id, role, content, created_at")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true })
+      .limit(1000);
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.warn("[agent] loadMessages failed", error.message);
+      return { ok: false, data: [] };
+    }
+    return {
+      ok: true,
+      data: (data ?? []).map((row) => ({
+        id: row.id as string,
+        role: row.role as ChatMessage["role"],
+        content: row.content as ChatMessage["content"],
+        createdAt: row.created_at as string,
+      })),
+    };
+  } catch (err) {
     // eslint-disable-next-line no-console
-    console.warn("[agent] loadMessages failed", error.message);
-    return [];
+    console.warn("[agent] loadMessages failed", err);
+    return { ok: false, data: [] };
   }
-  return (data ?? []).map((row) => ({
-    id: row.id as string,
-    role: row.role as ChatMessage["role"],
-    content: row.content as ChatMessage["content"],
-    createdAt: row.created_at as string,
-  }));
 }
 
 /** Schema constraint on agent_messages.content: octet_length <= 262144.

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ConfirmPrompt, ConversationMeta } from "@/lib/agent/types";
 
 /**
@@ -38,8 +38,8 @@ vi.mock("@/lib/agent/client", () => ({
   canRetryLastTurn: vi.fn(() => false),
 }));
 vi.mock("@/lib/agent/persist", () => ({
-  listConversations: vi.fn(async () => h.conversations),
-  loadMessages: vi.fn(async () => []),
+  listConversations: vi.fn(async () => ({ ok: true, data: h.conversations })),
+  loadMessages: vi.fn(async () => ({ ok: true, data: [] })),
   deleteConversation: vi.fn(async () => {}),
   renameConversation: vi.fn(async () => {}),
   createConversation: vi.fn(async () => null),
@@ -58,6 +58,7 @@ vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({ RateLimitBar: () =>
 // Loaded here, so the owner's chunk is ready when the panel opens.
 import "@/components/agent/mascot/owner-agent-panel";
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
+import { rowAction } from "@/components/agent/conversation-list";
 import { VISITOR_BODY_LOADING } from "@/components/agent/mascot/lazy-visitor-body";
 import { AMR_PANEL_ID } from "@/components/agent/mascot/panel-ids";
 import { useAgentStore } from "@/lib/agent/store";
@@ -76,6 +77,7 @@ const ADD: ConfirmPrompt = {
 const amr = () => screen.getByRole("button", { name: "Ask Amr" });
 const plate = () => screen.getByRole("heading", { name: "Amr" });
 const dialog = () => screen.queryByRole("dialog", { name: "Amr" });
+const header = () => document.querySelector<HTMLElement>("[data-panel-header]")!;
 const isOpen = () => useAgentStore.getState().open;
 
 /** Escape on `el`; true when nothing prevented it (fireEvent's own return). */
@@ -212,7 +214,7 @@ describe("Escape, in order", () => {
   it("in History denies the card, then goes back to the chat, then closes, one step a key", async () => {
     await openOwnerChat();
     await openHistory();
-    const row = await screen.findByRole("button", { name: /Sprint plan/ });
+    const row = await screen.findByRole("button", { name: /^Sprint plan/ });
     row.focus();
     const answers = cardWaits();
 
@@ -238,18 +240,21 @@ describe("Escape, in order", () => {
   it("in History's rename field with a card waiting cancels only the rename", async () => {
     await openOwnerChat();
     await openHistory();
-    fireEvent.click(await screen.findByRole("button", { name: "Rename conversation" }));
-    const field = screen.getByRole("textbox", { name: "Rename conversation" });
+    fireEvent.click(
+      await screen.findByRole("button", { name: rowAction("Rename", "Sprint plan") })
+    );
+    const field = screen.getByRole("textbox", { name: rowAction("Rename", "Sprint plan") });
     expect(field).toHaveAttribute("data-agent-rename");
     fireEvent.change(field, { target: { value: "Sprint plan v2" } });
     const answers = cardWaits();
 
     // The field keeps its Escape (it prevents it), and nothing else moves.
     expect(escape(field)).toBe(false);
-    expect(screen.queryByRole("textbox", { name: "Rename conversation" })).toBeNull();
-    expect(screen.getByRole("button", { name: /Sprint plan/ })).toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: rowAction("Rename", "Sprint plan") })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Sprint plan/ })).toBeInTheDocument();
     expect(answers).toEqual([]);
-    expect(screen.getByRole("button", { name: "Back to chat" })).toBeInTheDocument();
+    // Still in History: the header's way back (the waiting caption has one too).
+    expect(within(header()).getByRole("button", { name: "Back to chat" })).toBeInTheDocument();
     expect(isOpen()).toBe(true);
 
     // The next Escape is the panel's again: the card first.
@@ -261,17 +266,21 @@ describe("Escape, in order", () => {
   it("leaves an input method's Escape in the rename field to it", async () => {
     await openOwnerChat();
     await openHistory();
-    fireEvent.click(await screen.findByRole("button", { name: "Rename conversation" }));
-    const field = screen.getByRole("textbox", { name: "Rename conversation" });
+    fireEvent.click(
+      await screen.findByRole("button", { name: rowAction("Rename", "Sprint plan") })
+    );
+    const field = screen.getByRole("textbox", { name: rowAction("Rename", "Sprint plan") });
     expect(escape(field, { isComposing: true })).toBe(true);
-    expect(screen.getByRole("textbox", { name: "Rename conversation" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("textbox", { name: rowAction("Rename", "Sprint plan") })
+    ).toBeInTheDocument();
     expect(isOpen()).toBe(true);
   });
 
   it("no longer stops on History's Rename buttons: Escape there goes back to the chat", async () => {
     await openOwnerChat();
     await openHistory();
-    const pencil = await screen.findByRole("button", { name: "Rename conversation" });
+    const pencil = await screen.findByRole("button", { name: rowAction("Rename", "Sprint plan") });
     pencil.focus();
     expect(escape(pencil)).toBe(false);
     expect(screen.getByRole("button", { name: "Conversation history" })).toHaveFocus();
@@ -383,14 +392,16 @@ describe("Ctrl/Cmd+J", () => {
   it("leaves History's rename field alone, so a name being typed isn't lost", async () => {
     await openOwnerChat();
     await openHistory();
-    fireEvent.click(await screen.findByRole("button", { name: "Rename conversation" }));
-    const field = screen.getByRole("textbox", { name: "Rename conversation" });
+    fireEvent.click(
+      await screen.findByRole("button", { name: rowAction("Rename", "Sprint plan") })
+    );
+    const field = screen.getByRole("textbox", { name: rowAction("Rename", "Sprint plan") });
     fireEvent.change(field, { target: { value: "Sprint plan v2" } });
 
     expect(ctrlJ(field)).toBe(true);
     expect(fireEvent.keyDown(field, { key: "j", metaKey: true })).toBe(true);
     expect(isOpen()).toBe(true);
-    expect(screen.getByRole("textbox", { name: "Rename conversation" })).toHaveValue(
+    expect(screen.getByRole("textbox", { name: rowAction("Rename", "Sprint plan") })).toHaveValue(
       "Sprint plan v2"
     );
   });

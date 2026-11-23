@@ -78,10 +78,21 @@ async function untilEnd(): Promise<HTMLElement> {
   return end!;
 }
 
-/** Ask Amr from the message box, as a visitor types and presses Send. */
+/**
+ * Ask Amr from the message box, as a visitor types and presses Send, and
+ * settle until it has gone out: the runtime, with the strip kit, loads on its
+ * own time.
+ */
 async function ask(text: string) {
+  const sent = h.sendVisitorMessage.mock.calls.length;
   fireEvent.change(screen.getByLabelText("Message"), { target: { value: text } });
   fireEvent.click(screen.getByRole("button", { name: "Send" }));
+  await settle();
+  for (let i = 0; i < 300 && h.sendVisitorMessage.mock.calls.length === sent; i++) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  }
   await settle();
 }
 
@@ -103,6 +114,9 @@ beforeEach(async () => {
     return importOriginal();
   });
   VisitorAgentPanel = (await import("@/components/agent/mascot/visitor-agent-panel")).default;
+  // The parts that draw messages, in this fresh module graph: a seeded chat
+  // draws at once, as the runtime that writes messages would have brought them.
+  await import("@/components/agent/chat/strip-kit");
   useAgentStore = (await import("@/lib/agent/store")).useAgentStore;
   useAgentStore.getState().reset();
   useAgentStore.setState({ visitorQuota: null });

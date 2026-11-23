@@ -21,6 +21,8 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { useRef, type ReactNode } from "react";
 import { ChatVisibleContext } from "@/components/agent/chat-visibility";
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import { ChatProvider } from "@/components/agent/chat/chat-context";
 import { ChatFrame } from "@/components/agent/chat/chat-frame";
 import { STICK_THRESHOLD, nearestTop } from "@/components/agent/chat/use-stick-to-bottom";
@@ -262,6 +264,34 @@ describe("the frame", () => {
     expect(log.top()).toBe(800);
     expect(log.scrollTo).toHaveBeenLastCalledWith({ top: 800, behavior: "instant" });
     expect(latest()).toBeNull();
+  });
+
+  it("is a keyboard stop of its own, ringed inside its edge, that nothing focuses by itself", async () => {
+    // A visitor's chat once the messages have run out ends on the refused
+    // question: no reply end, nothing in the strip to Tab to. The keys can
+    // still reach the log and scroll it (axe scrollable-region-focusable).
+    const { log } = await settled([...CHAT, you("u3", "Who picks the cards?")]);
+    const el = theLog();
+    expect(el).toHaveAttribute("tabindex", "0");
+    expect(el.querySelector("button, a[href], [tabindex='0']")).toBeNull();
+    expect(el).not.toHaveFocus();
+    // Inside its edge, high contrast's !important outline-offset included, so
+    // the frame's scrolling never cuts the ring off.
+    expect(el).toHaveClass("focus-visible:!outline-offset-[-3px]");
+    expect(el.className).not.toMatch(/outline-none/);
+    // ... and over the strip: the log is its own stack with its content at
+    // the bottom of it, so a balloon scrolled under an edge (balloons are
+    // positioned) never paints over the line.
+    expect(el).toHaveClass("isolate");
+    expect(el.querySelector("[data-chat-content]")).toHaveClass("relative", "-z-10");
+    // Focused, the keys that go up still count as the reader leaving the end.
+    act(() => el.focus());
+    expect(el).toHaveFocus();
+    fireEvent.keyDown(el, { key: "PageUp" });
+    log.readTo(500);
+    await frames();
+    expect(log.top()).toBe(500);
+    expect(latest()).toBeInTheDocument();
   });
 });
 

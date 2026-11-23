@@ -232,6 +232,18 @@ describe.each(THEMES)("%s theme", (_name, theme) => {
     }
   });
 
+  it("draws the usage meter's fill at 3:1 or better on its track", () => {
+    // mascot/rate-limit-bar: a --card track in a --border line, inside a
+    // narration caption (--surface-deep); the fill is the accent, or the
+    // danger colour near or at the cap.
+    for (const fill of ["accent", "destructive"]) {
+      expect(contrast(hex(theme, fill), hex(theme, "card"))).toBeGreaterThanOrEqual(NON_TEXT);
+    }
+    expect(contrast(hex(theme, "border"), hex(theme, "surface-deep"))).toBeGreaterThanOrEqual(
+      NON_TEXT
+    );
+  });
+
   it("draws the focus ring at 3:1 or better on everything it lands on", () => {
     for (const surface of [...SURFACES, "cardH"]) {
       expect(contrast(hex(theme, "ring"), hex(theme, surface))).toBeGreaterThanOrEqual(NON_TEXT);

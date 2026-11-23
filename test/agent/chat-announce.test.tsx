@@ -1,9 +1,10 @@
 /**
  * What the chat says out loud (src/components/agent/chat/use-turn-announcer.ts,
- * wired into chat-frame.tsx): one polite announcement per settled turn, with
- * the turn's own words as plain text, cut to a sensible length; nothing while
- * a reply streams; nothing for a waiting card that took focus, and "Amr needs
- * your OK: ..." for one that didn't; an error at once and assertively, with
+ * wired into chat-frame.tsx, with a turn's words from chat/spoken-text through
+ * the strip kit): one polite announcement per settled turn, with the turn's
+ * own words as plain text, cut to a sensible length; nothing while a reply
+ * streams; nothing for a waiting card that took focus, and "Amr needs your
+ * OK: ..." for one that didn't; an error at once and assertively, with
  * nothing more for its turn; nothing for a thread loaded or a chat swapped
  * under its turn.
  *
@@ -16,19 +17,21 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import { ChatProvider, useChat } from "@/components/agent/chat/chat-context";
 import { ChatFrame } from "@/components/agent/chat/chat-frame";
 import {
   ANNOUNCE_MAX,
   CODE_WORDS,
-  NEEDS_OK,
   REST_IN_LOG,
   SPEAKER,
   TABLE_WORDS,
   clipSpoken,
   spokenText,
   turnAnnouncement,
-} from "@/components/agent/chat/use-turn-announcer";
+} from "@/components/agent/chat/spoken-text";
+import { NEEDS_OK } from "@/components/agent/chat/use-turn-announcer";
 import { createChatView } from "@/lib/agent/chat-view";
 import { useAgentStore, type AgentNotice } from "@/lib/agent/store";
 import type {
@@ -430,6 +433,24 @@ describe("an error", () => {
     const ears = mount();
     await quiet();
     expect(ears.changes()).toBe(0);
+  });
+
+  it("marked quiet is left to what took its place: neither it nor its turn is said", async () => {
+    const ears = mount();
+    await ask("u1", "How do I run a retro?");
+    await settle({
+      tone: "error",
+      kind: "visitor_limit",
+      text: "You've used all of today's messages with Amr.",
+      quiet: true,
+    });
+    expect(ears.heard.assertive).toEqual([]);
+    expect(ears.heard.polite).toEqual([]);
+
+    // A quiet note with no turn under way says nothing either.
+    act(() => store().setNotice({ tone: "note", kind: "round_limit", text: "Hm.", quiet: true }));
+    await quiet();
+    expect(ears.heard.polite).toEqual([]);
   });
 });
 

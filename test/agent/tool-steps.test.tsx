@@ -12,6 +12,8 @@
 
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import { ChatProvider } from "@/components/agent/chat/chat-context";
 import { ChatItemView } from "@/components/agent/chat/chat-items";
 import { ChatLog } from "@/components/agent/chat/chat-log";

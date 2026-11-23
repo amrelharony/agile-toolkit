@@ -5,11 +5,12 @@
  *
  * The header belongs to the shell, but what it says depends on the view: the
  * owner's thread title and New chat, "Your chats" in History, the visitor's
- * step and a way back. A view renders
+ * step and a way back. A view renders <PanelFill slot> (or panel-fills.tsx's
+ * named wrappers) for
  *
- *   <PanelSubtitle>  the one-line context under the name plate
- *   <PanelBack>      a back control before the plate
- *   <PanelActions>   the view's own icons, before the shell's Enlarge and Close
+ *   subtitle  the one-line context under the name plate
+ *   back      a back control before the plate
+ *   actions   the view's own icons, before the shell's Enlarge and Close
  *
  * anywhere in its tree, and each one draws into the element the header exposes
  * for that slot (a portal), so the view keeps its own state and handlers. Until
@@ -19,6 +20,12 @@
  * header is mounted (no provider, or the header isn't there yet) or on the
  * server, and an empty fill (null, false or "") leaves the default in place.
  * One view fills a slot at a time; two fills of one slot both show.
+ *
+ * A view hidden under Amr's scenes (chat-visibility) fills nothing, so the
+ * header never names its step or offers its Back or Clear chat over the
+ * scenes; the shell's default subtitle shows instead. A fill marked
+ * `whileHidden` stays: the owner's New chat and History, which take turns
+ * with the scenes.
  *
  * Small on purpose: it ships in the mascot chunk on every page.
  */
@@ -37,6 +44,7 @@ import {
 import { createPortal } from "react-dom";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { useChatVisible } from "../chat-visibility";
 
 export type PanelSlot = "subtitle" | "back" | "actions";
 
@@ -91,10 +99,25 @@ export function usePanelHosts() {
   };
 }
 
-function PanelFill({ slot, children }: { slot: PanelSlot; children?: ReactNode }) {
+/**
+ * Fills one header slot from a view. Only the views (lazy chunks) render it,
+ * through panel-fills.tsx's wrappers, so no wrapper ships on every page.
+ * Under the scenes it draws nothing and leaves the slot unclaimed, unless
+ * `whileHidden` says it still belongs in the header there.
+ */
+export function PanelFill({
+  slot,
+  whileHidden = false,
+  children,
+}: {
+  slot: PanelSlot;
+  whileHidden?: boolean;
+  children?: ReactNode;
+}) {
   const chrome = useContext(PanelChromeContext);
   const claim = chrome?.claim;
-  const given = children != null && children !== false && children !== "";
+  const shown = useChatVisible() || whileHidden;
+  const given = shown && children != null && children !== false && children !== "";
   useIsomorphicLayoutEffect(() => (given && claim ? claim(slot) : undefined), [given, claim, slot]);
   const host = chrome?.hosts[slot];
   return given && host ? createPortal(children, host) : null;
@@ -102,42 +125,35 @@ function PanelFill({ slot, children }: { slot: PanelSlot; children?: ReactNode }
 
 /**
  * The subtitle at each step, in one place: the shell shows its default for
- * the step it knows (the owner's chat, or the tool finder), and a view fills
- * its own as it moves on (History, the visitor's consent card and chat). The
- * owner's open thread shows its own title instead of "New chat".
+ * the step it knows (the owner's chat, the tool finder, or the scenes over
+ * either), and a view fills its own as it moves on (History, the visitor's
+ * consent card and chat). The owner's open thread shows its own title
+ * instead of "New chat".
  */
 export const PANEL_SUBTITLE = {
   owner: "New chat",
   history: "Your chats",
+  // The shell's own while the scenes cover the view (its fill is held back).
+  scenes: "Scenes",
   guide: "Find the right tool",
   consent: "Before you chat",
   chat: "Chat · not saved",
 } as const;
 
-type FillProps = { children?: ReactNode };
-
-/** The one-line context under the name plate: a thread title, "Your chats", a step. */
-export function PanelSubtitle({ children }: FillProps) {
-  return <PanelFill slot="subtitle">{children}</PanelFill>;
-}
-
-/** A back control, drawn before the name plate. */
-export function PanelBack({ children }: FillProps) {
-  return <PanelFill slot="back">{children}</PanelFill>;
-}
-
-/** The view's own header icons, drawn before the shell's Enlarge and Close. */
-export function PanelActions({ children }: FillProps) {
-  return <PanelFill slot="actions">{children}</PanelFill>;
-}
-
 /**
  * A header icon's size: 36 px with a mouse and 44 px on a touch screen, at any
- * width (Button `sm`'s pointer-coarse:min-h-11 recipe; a landscape phone is wide
- * but still touch). A pressed toggle turns accent.
+ * width (Button `sm`'s pointer-coarse recipe; a landscape phone is wide but
+ * still touch). A pressed toggle turns accent.
+ *
+ * In px, not rem: a larger default font (200% text) grows the words, not the
+ * icon targets around them. In rem, five header icons grew to 72 px each at
+ * 200% (88 px on a phone), wider than the 380 px panel, so Close ran out of it
+ * and the name plate lay over the first icons. `md-fine:` repeats the size
+ * because Button's own icon size says md-fine:h-9, and twMerge keeps the last
+ * of the same variant.
  */
 export const PANEL_ICON =
-  "h-9 w-9 min-h-0 min-w-0 pointer-coarse:min-h-11 pointer-coarse:min-w-11 text-sub aria-pressed:text-accent";
+  "h-[36px] w-[36px] md-fine:h-[36px] md-fine:w-[36px] min-h-0 min-w-0 pointer-coarse:min-h-[44px] pointer-coarse:min-w-[44px] text-sub aria-pressed:text-accent";
 
 export interface PanelIconButtonProps extends Omit<ButtonProps, "aria-label" | "variant" | "size"> {
   /** What it does: its accessible name and, unless `title` says otherwise, its tooltip. */

@@ -51,6 +51,8 @@ export interface AgentNotice {
   tone: "note" | "error";
   kind: string;
   text: string;
+  /** Said by something else (the visitor's read-only footer): the turn announcer stays quiet. */
+  quiet?: boolean;
 }
 
 /**

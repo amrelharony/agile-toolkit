@@ -3,11 +3,13 @@
  * panel-chrome's slots): New chat and History in the actions slot, before the
  * shell's Close; under the name plate, the open thread's title or "New chat",
  * and "Your chats" in History. In History the History button is "Back to chat"
- * with an arrow: the same button, so focus stays on it when History opens,
- * with a dot while a confirm card waits in the chat behind it.
+ * with an arrow: the same button, so focus is never dropped as History opens
+ * or closes, with a dot while a confirm card waits in the chat behind it.
  *
  * The chat, History's list and the usage bar are markers here; the shell keeps
- * whether History shows, as MascotAssistant does.
+ * whether History shows, as MascotAssistant does. With the real list, focus
+ * moves on from the button into History's search on the way in
+ * (conversation-list.test.tsx pins that).
  */
 
 import { useState } from "react";

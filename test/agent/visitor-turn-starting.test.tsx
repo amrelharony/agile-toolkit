@@ -48,6 +48,19 @@ const settle = () =>
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 
+/**
+ * Settle until the gated turn has gone out, once the gate is open: the
+ * runtime, with the strip kit, loads on its own time.
+ */
+async function untilSent() {
+  for (let i = 0; i < 300 && h.sendVisitorMessage.mock.calls.length === 0; i++) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+  }
+  await settle();
+}
+
 beforeEach(async () => {
   h.sendVisitorMessage.mockClear();
   h.gate = new Promise<void>((resolve) => {
@@ -94,7 +107,7 @@ describe("a visitor's turn still starting when the chat opens again", () => {
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
 
     await act(async () => h.open());
-    await settle();
+    await untilSent();
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
     expect(h.sendVisitorMessage).toHaveBeenCalledWith("retro", { toolId: "retro" });
     expect(useAgentStore.getState().drafts.visitor).toBe("sprint goal");
@@ -114,7 +127,7 @@ describe("a visitor's turn still starting when the chat opens again", () => {
     expect(screen.getByLabelText("Message")).toHaveValue("");
 
     await act(async () => h.open());
-    await settle();
+    await untilSent();
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
     expect(h.sendVisitorMessage).toHaveBeenCalledWith("retro", { toolId: "retro" });
     expect(useAgentStore.getState().drafts.visitor).toBe("");
@@ -135,7 +148,7 @@ describe("a visitor's turn still starting when the chat opens again", () => {
     expect(useAgentStore.getState().drafts.visitor).toBe("and how long");
 
     await act(async () => h.open());
-    await settle();
+    await untilSent();
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
     expect(h.sendVisitorMessage).toHaveBeenCalledWith("retro", { toolId: "retro" });
     expect(useAgentStore.getState().drafts.visitor).toBe("and how long");

@@ -46,8 +46,8 @@ vi.mock("@/lib/agent/client", () => ({
   canRetryLastTurn: vi.fn(() => true),
 }));
 vi.mock("@/lib/agent/persist", () => ({
-  listConversations: vi.fn(async () => []),
-  loadMessages: vi.fn(async () => []),
+  listConversations: vi.fn(async () => ({ ok: true, data: [] })),
+  loadMessages: vi.fn(async () => ({ ok: true, data: [] })),
   deleteConversation: vi.fn(async () => {}),
   renameConversation: vi.fn(async () => {}),
   createConversation: vi.fn(async () => null),
@@ -202,7 +202,7 @@ describe("a streamed chunk", () => {
     await screen.findByTestId("mascot-visitor-guide", undefined, { timeout: 5000 });
     await waitFor(() => expect(screen.queryByText(VISITOR_BODY_LOADING)).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
 
     streamingTurn("visitor");
     // His first words: he starts talking, a change the shell may show once.
