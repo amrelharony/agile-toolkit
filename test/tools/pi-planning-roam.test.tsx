@@ -648,6 +648,48 @@ describe("example and Markdown", () => {
     );
   });
 
+  /** A vote or closed PI kept from a team the user removed. */
+  const keptVote = (i: number) => ({
+    id: `v${i}`,
+    at: `2026-10-${String(i).padStart(2, "0")}T09:00:00.000Z`,
+    scope: "gone",
+    scopeName: "Old team",
+    counts: [0, 0, 1, 2, 1],
+    ballots: 4,
+    source: "facilitator" as const,
+  });
+  const keptPi = (i: number) => ({
+    id: `h${i}`,
+    name: `PI h${i}`,
+    closedAt: "2026-06-01",
+    teams: [{ teamId: "gone", name: "Old team", plannedBv: 10, actualBv: 8 }],
+  });
+
+  it("loads the example behind full lists of the user's own, so the cap drops the example's", () => {
+    const votes = Array.from({ length: 20 }, (_, i) => keptVote(i + 1));
+    const closed = Array.from({ length: 12 }, (_, i) => keptPi(i + 1));
+    seedBoard(board({ teams: [], confidence: votes, history: closed }));
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(stored().teams).toHaveLength(3);
+    expect(stored().confidence?.map((v) => v.id)).toEqual(votes.map((v) => v.id));
+    expect(stored().history?.map((r) => r.id)).toEqual(closed.map((r) => r.id));
+
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(stored().confidence?.map((v) => v.id)).toEqual(votes.map((v) => v.id));
+    expect(stored().history?.map((r) => r.id)).toEqual(closed.map((r) => r.id));
+  });
+
+  it("keeps the user's own vote the latest when the example loads beside it", async () => {
+    seedBoard(board({ teams: [], confidence: [keptVote(1)], history: [keptPi(1)] }));
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(stored().confidence?.map((v) => v.id)).toEqual([expect.any(String), "v1"]);
+    expect(stored().history?.map((r) => r.id)).toEqual([expect.any(String), "h1"]);
+    const latest = (await screen.findByRole("heading", { name: "Latest vote" })).parentElement!;
+    expect(latest).toHaveTextContent(/^Latest voteOld team · /);
+  });
+
   it("exports ROAM, the vote and predictability, leaving the objectives table as it was", () => {
     const { state } = buildExample(new Date(2026, 9, 23));
     const md = toMarkdown(state, { nodes: [], edges: [] }, "2026-10-23");

@@ -34,6 +34,7 @@ import { generatePiPlanningPrompts } from "@/lib/ai-prompts/pi-planning";
 import { plural } from "@/lib/charts/chart-text";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PI_PLANNING_ACTIONS } from "@/lib/history/event-actions";
+import { CONFIDENCE_MAX, HISTORY_MAX } from "@/lib/pi-planning/model";
 import type { DependencyStatus } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { undoable } from "@/lib/utils/undoable";
@@ -536,8 +537,11 @@ export function PiPlanningClient() {
         teams: [...base.teams, ...ex.teams],
         items: [...base.items, ...items],
         objectives: [...(base.objectives ?? []), ...(ex.objectives ?? [])],
-        confidence: [...(base.confidence ?? []), ...(ex.confidence ?? [])],
-        history: [...(base.history ?? []), ...(ex.history ?? [])],
+        // The example's vote and closed PI go before the user's own (kept
+        // from teams they removed): a full list drops the example's first,
+        // and the user's latest vote stays the latest.
+        confidence: [...(ex.confidence ?? []), ...(base.confidence ?? [])].slice(-CONFIDENCE_MAX),
+        history: [...(ex.history ?? []), ...(base.history ?? [])].slice(-HISTORY_MAX),
       };
     });
   };
