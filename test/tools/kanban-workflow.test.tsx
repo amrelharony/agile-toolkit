@@ -722,6 +722,52 @@ describe("the block note", () => {
     );
   });
 
+  it("never offers or keeps a link to an example impediment", async () => {
+    const example: Impediment = {
+      id: "example-imp",
+      title: "Example build server down",
+      severity: "high",
+      raisedAt: "2026-11-01",
+      source: "manual",
+    };
+    const real: Impediment = {
+      id: "imp1",
+      title: "Sandbox keys from payments",
+      severity: "medium",
+      raisedAt: "2026-11-01",
+      source: "manual",
+    };
+    seed({
+      cards: [
+        card("w", "Wallet payments", {
+          blocked: true,
+          blockLog: [
+            {
+              from: ago(2),
+              sentTo: [{ route: "impediment", targetId: "example-imp", at: ago(1) }],
+            },
+          ],
+        }),
+      ],
+      impediments: [example, real],
+    });
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Add why: Wallet payments" }));
+    const dialog = await screen.findByRole("dialog");
+    const select = within(dialog).getByLabelText("Link an impediment");
+    expect(within(select).queryByRole("option", { name: /Example build/ })).toBeNull();
+    expect(within(select).getByRole("option", { name: real.title })).toBeInTheDocument();
+    expect(select).toHaveValue("");
+    fireEvent.change(within(dialog).getByLabelText("What blocks it"), {
+      target: { value: "No sandbox keys" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save why" }));
+    expect(boardCard("w").blockLog?.[0]).toEqual({
+      from: expect.any(String),
+      cause: "No sandbox keys",
+    });
+  });
+
   it("starts an earlier spell for a block from before tracking", async () => {
     seed({ cards: [card("w", "Wallet payments", { blocked: true })] });
     renderBoard();

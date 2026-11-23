@@ -171,11 +171,17 @@ function BlockNoteForm({
   const [choice, setChoice] = useState(initialChoice);
   const [newName, setNewName] = useState("");
   const [newSide, setNewSide] = useState<BlockSide>("internal");
-  const [linked, setLinked] = useState(linkOf(spell)?.targetId ?? NONE);
+  // An example impediment is never linked: a real block must not point at example data.
+  const [linked, setLinked] = useState(() => {
+    const id = linkOf(spell)?.targetId;
+    return id && !isExampleId(id) ? id : NONE;
+  });
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
 
-  const openImpediments = (impediments ?? []).filter((i) => !isResolved(i) || i.id === linked);
+  const openImpediments = (impediments ?? []).filter(
+    (i) => !isExampleId(i.id) && (!isResolved(i) || i.id === linked)
+  );
   const linkedImpediment = (impediments ?? []).find((i) => i.id === linked);
 
   /** The cluster and side the choice stands for. */
@@ -196,7 +202,7 @@ function BlockNoteForm({
   const links = (): HandoffLink[] => {
     const current = openSpell(fresh() ?? item)?.sentTo ?? [];
     const others = current.filter((l) => l.route !== "impediment");
-    if (!linked) return others;
+    if (!linked || isExampleId(linked)) return others;
     const had = current.find((l) => l.route === "impediment" && l.targetId === linked);
     return [
       ...others,
@@ -236,10 +242,13 @@ function BlockNoteForm({
   };
 
   const logImpediment = () => {
+    // A link to an example row doesn't count (and goes when the new one is written).
+    const realLinks = () =>
+      openSpell(fresh() ?? item)?.sentTo?.filter((l) => !isExampleId(l.targetId));
     const store: HandoffLinkStore = {
-      getLinks: () => openSpell(fresh() ?? item)?.sentTo,
+      getLinks: realLinks,
       setLinks: (update) => {
-        writeNote({ sentTo: update(openSpell(fresh() ?? item)?.sentTo) });
+        writeNote({ sentTo: update(realLinks()) });
       },
     };
     const link = sendHandoff(
