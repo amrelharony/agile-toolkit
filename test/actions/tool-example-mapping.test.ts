@@ -233,6 +233,41 @@ describe("answering and deciding", () => {
     ).toMatchObject({ updated: true, status: "dropped" });
   });
 
+  it("never leaves an answered question without its answer", async () => {
+    ws().upsertExampleMap(
+      map({ questions: [{ id: "q1", text: "Who?", status: "answered", answer: "The holder." }] })
+    );
+    // A blank answer (or spaces, trimmed to blank) with status answered keeps the answer.
+    for (const answer of ["", "   "]) {
+      expect(
+        await run("tool.example_mapping.answer_question", {
+          mapId: "exmap_a",
+          questionId: "q1",
+          status: "answered",
+          answer,
+        })
+      ).toMatchObject({ updated: true, status: "answered" });
+      expect(stored()!.questions[0]).toMatchObject({ status: "answered", answer: "The holder." });
+    }
+    // Opening it again with a blank answer clears it.
+    await run("tool.example_mapping.answer_question", {
+      mapId: "exmap_a",
+      questionId: "q1",
+      status: "open",
+      answer: "",
+    });
+    expect(stored()!.questions[0].answer).toBeUndefined();
+    // With no answer to keep, answered with a blank one is refused.
+    expect(
+      await run("tool.example_mapping.answer_question", {
+        mapId: "exmap_a",
+        questionId: "q1",
+        status: "answered",
+        answer: " ",
+      })
+    ).toMatchObject({ updated: false, reason: "refused" });
+  });
+
   it("sets and clears the verdict", async () => {
     await run("tool.example_mapping.set_verdict", { mapId: "exmap_a", verdict: "split" });
     expect(stored()!.verdict).toBe("split");

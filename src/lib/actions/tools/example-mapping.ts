@@ -347,7 +347,8 @@ async function answerQuestion(store: Store, p: z.infer<typeof AnswerParams>) {
   const q = map.questions.find((x) => x.id === p.questionId);
   if (!q)
     return { updated: false as const, reason: "not_found" as const, message: "No such question." };
-  const status = p.status ?? (p.answer ? "answered" : undefined);
+  const answer = p.answer?.trim();
+  const status = p.status ?? (answer ? "answered" : undefined);
   if (!status) {
     return {
       updated: false as const,
@@ -355,17 +356,20 @@ async function answerQuestion(store: Store, p: z.infer<typeof AnswerParams>) {
       message: "Give an answer or a status.",
     };
   }
-  if (status === "answered" && !(p.answer || q.answer)) {
+  if (status === "answered" && !(answer || q.answer)) {
     return {
       updated: false as const,
       reason: "refused" as const,
       message: "An answered question needs its answer.",
     };
   }
+  // A blank answer clears it, except on an answered question, which keeps
+  // the one it has: an answered question always has its answer.
+  const writesAnswer = answer !== undefined && (answer !== "" || status !== "answered");
   const next = withQuestionPatch(
     map,
     p.questionId,
-    { status, ...(p.answer !== undefined ? { answer: p.answer } : {}) },
+    { status, ...(writesAnswer ? { answer } : {}) },
     nowIso()
   );
   if (!next)
