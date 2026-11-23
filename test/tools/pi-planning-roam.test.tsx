@@ -638,6 +638,33 @@ describe("Predictability", () => {
     expect(stored()).toMatchObject({ name: "PI 2027.1", band: { low: 70, high: 90 } });
   });
 
+  it("keeps focus in the name and aim form when it saves, and says it saved", () => {
+    seedBoard(scoredBoard());
+    renderBoard();
+    const form = screen.getByRole("button", { name: "Save name and aim" }).closest("form")!;
+    const name = within(form).getByLabelText(/^PI name/);
+    name.focus();
+    fireEvent.change(name, { target: { value: " PI 2027.1 " } });
+    fireEvent.submit(form);
+    expect(stored().name).toBe("PI 2027.1");
+    // The same field, still focused (the form isn't remounted), showing what was kept.
+    expect(name).toBeInTheDocument();
+    expect(name).toHaveFocus();
+    expect(name).toHaveValue("PI 2027.1");
+    const status = within(form).getByRole("status");
+    expect(status).toHaveTextContent("Saved the PI's name and aim.");
+    fireEvent.change(name, { target: { value: "PI 2027.2" } });
+    expect(status).toHaveTextContent("");
+
+    // A cleared band saves as the common aim, and the fields say so.
+    fireEvent.change(within(form).getByLabelText(/^Aim from/), { target: { value: "" } });
+    fireEvent.change(within(form).getByLabelText(/^Aim to/), { target: { value: "" } });
+    fireEvent.submit(form);
+    expect(stored()).not.toHaveProperty("band");
+    expect(within(form).getByLabelText(/^Aim from/)).toHaveValue(80);
+    expect(within(form).getByLabelText(/^Aim to/)).toHaveValue(100);
+  });
+
   it("deletes a closed PI with Undo, and averages from three", () => {
     const rec = (id: string, actual: number) => ({
       id,

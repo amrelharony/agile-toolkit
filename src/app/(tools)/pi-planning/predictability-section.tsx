@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { Flag, Trash2 } from "lucide-react";
 import { ChartFigure } from "@/components/shared/chart-card";
@@ -95,17 +95,60 @@ export function validatePiSettings(
   };
 }
 
+/** The form's fields for a saved name and band (the common aim while none is set). */
+const draftOf = (name: string | undefined, band: PiBand): SettingsDraft => ({
+  name: name ?? "",
+  low: String(band.low),
+  high: String(band.high),
+});
+
+/**
+ * The PI's name and band. The form stays mounted when it saves, so focus
+ * stays on the field or button the user was on, and a status line says it
+ * saved; when the saved values change from elsewhere (another tab, an
+ * Undo), the fields follow them.
+ */
 function SettingsForm({ state, onSave }: { state: PiState; onSave: (v: SettingsValues) => void }) {
   const band = bandOf(state);
+  const [status, setStatus] = useState("");
   const form = useItemForm<SettingsDraft, SettingsValues, keyof SettingsDraft>({
-    initial: () => ({ name: state.name ?? "", low: String(band.low), high: String(band.high) }),
+    initial: () => draftOf(state.name, band),
     validate: validatePiSettings,
-    onSave,
+    onSave: (v) => {
+      onSave(v);
+      // The fields show what was kept: the name trimmed, a cleared band as the common aim.
+      form.reset(draftOf(v.name, v.band ?? DEFAULT_BAND));
+      setStatus("Saved the PI's name and aim.");
+    },
     resetOnSave: false,
   });
-  const { draft, update, errors } = form;
+  const { draft, errors, reset } = form;
+  const update = (patch: Partial<SettingsDraft>) => {
+    setStatus("");
+    form.update(patch);
+  };
+  const saved = `${state.name ?? ""}|${band.low}|${band.high}`;
+  const seen = useRef(saved);
+  useEffect(() => {
+    if (seen.current === saved) return;
+    seen.current = saved;
+    reset();
+  }, [saved, reset]);
   return (
-    <ItemForm form={form} submitLabel="Save name and aim" className="space-y-3">
+    <ItemForm
+      form={form}
+      submitLabel="Save name and aim"
+      className="space-y-3"
+      footer={
+        <p
+          role="status"
+          aria-live="polite"
+          className={cn("text-sm text-sub", !status && "sr-only")}
+        >
+          {status}
+        </p>
+      }
+    >
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_8rem_8rem]">
         <Field label="PI name" hint="Optional. Its closed record keeps it." error={errors.name}>
           {(props) => (
@@ -363,7 +406,6 @@ export function PredictabilitySection({
   const p = piPredictability(state);
   const scored = p.teams.filter((t) => t.pct !== null);
   const waiting = p.teams.filter((t) => t.pct === null && t.plannedBv > 0);
-  const band = bandOf(state);
 
   const scoreObjective = (o: PiObjective, raw: string) => {
     const actual = raw === "" ? undefined : Number(raw);
@@ -448,11 +490,7 @@ export function PredictabilitySection({
 
   return (
     <div className="space-y-5">
-      <SettingsForm
-        key={`${state.name ?? ""}|${band.low}|${band.high}`}
-        state={state}
-        onSave={saveSettings}
-      />
+      <SettingsForm state={state} onSave={saveSettings} />
 
       <div className="space-y-3 border-t border-border pt-4">
         <h3 className="text-sm font-semibold text-text">Actual value</h3>
