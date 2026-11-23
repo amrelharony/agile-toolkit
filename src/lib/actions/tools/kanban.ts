@@ -50,6 +50,7 @@ import {
 } from "@/lib/stores/workspace-types";
 import { cycleStats, KANBAN_HISTORY_CAP, movedCard, WORKING } from "@/lib/kanban/flow";
 import {
+  BOARD_NAME,
   CADENCE_ID_MAX,
   CADENCE_MINUTES,
   COMPARE_WEEKS,
@@ -66,11 +67,13 @@ import {
   describedBoard,
   mergeWorkflow,
   normalizeWorkflowDefinition,
+  policyStages,
   sleFromHistory,
   versionOf,
   withSavedVersion,
   workflowItems,
   type CompareWeeks,
+  type WorkflowBoard,
   type WorkflowPatch,
 } from "@/lib/kanban/workflow";
 import { stampBoardBlocks, withSpellNote } from "@/lib/flow/block-stamps";
@@ -333,6 +336,10 @@ const optText = (max: number = WORKFLOW_TEXT_MAX) => z.string().max(max).nullabl
 
 const SlePct = z.literal(WORKFLOW_SLE_PERCENTILES).describe("Cycle Time's percentiles.");
 
+/** A board's stage ids a policy can name, for the hints ("backlog, ready, …"). */
+const stageIds = (board: WorkflowBoard) => policyStages(board).map((s) => s.id);
+const STAGE_IDS_TEXT = `the Flow board's ${stageIds("flow").join(", ")}; the Sprint board's ${stageIds("sprint").join(", ")}`;
+
 const UpdateWorkflowParams = z.object({
   board: z.enum(["sprint", "flow"]).nullable().optional().describe("The board it describes."),
   workItem: optText().describe("What one item of work is."),
@@ -346,7 +353,13 @@ const UpdateWorkflowParams = z.object({
   policies: z
     .array(
       z.object({
-        stage: z.string().min(1).max(STAGE_ID_MAX).describe("A stage id of the board, never done."),
+        stage: z
+          .string()
+          .min(1)
+          .max(STAGE_ID_MAX)
+          .describe(
+            `A stage id of the board it describes (${STAGE_IDS_TEXT}). A policy for done is dropped.`
+          ),
         enter: z.string().max(WORKFLOW_TEXT_MAX).optional(),
         exit: z.string().max(WORKFLOW_TEXT_MAX).optional(),
       })
@@ -428,6 +441,23 @@ export function planWorkflowUpdate(
   at: string = new Date().toISOString()
 ): { def: WorkflowDefinition } | Fail {
   const { statik, cadences, meanings, targetSplit, ...rest } = params;
+  if (params.policies) {
+    // The page shows (and its next Save keeps) only the board's own stages.
+    const board = params.board === undefined ? describedBoard(def) : params.board;
+    const known = new Set([
+      "done",
+      ...(board ? stageIds(board) : [...stageIds("flow"), ...stageIds("sprint")]),
+    ]);
+    const unknown = params.policies.map((p) => p.stage.trim()).filter((id) => !known.has(id));
+    if (unknown.length) {
+      return fail(
+        "bad_stage",
+        `${board ? `The ${BOARD_NAME[board]} has` : "Neither board has"} no stage ${unknown
+          .map((id) => `"${id}"`)
+          .join(", ")}. Use one of: ${board ? stageIds(board).join(", ") : STAGE_IDS_TEXT}.`
+      );
+    }
+  }
   const patch: WorkflowPatch = { ...(rest as WorkflowPatch) };
   if (statik) {
     const notes: Record<string, unknown> = { ...(def?.statik ?? {}) };
@@ -482,7 +512,7 @@ registry.register({
   name: "update_workflow",
   category: "write",
   requiresConfirmation: false,
-  description: `Change the team's Definition of Workflow (it is created when there is none). Every field is optional: a field left out stays, null clears it. Texts are at most ${WORKFLOW_TEXT_MAX} characters (STATIK notes ${STATIK_NOTE_MAX}); policies replace every stage policy (at most ${STAGE_POLICIES_MAX}; a policy for done is dropped: Done means the Definition of Done); cadences replace the list (at most ${KANBAN_CADENCES_MAX}); targetSplit is four whole numbers adding up to 100, which Flow Insights reads for both boards. Returns {ok: true, updated, definition} or {ok: false, error, hint}.`,
+  description: `Change the team's Definition of Workflow (it is created when there is none). Every field is optional: a field left out stays, null clears it. Texts are at most ${WORKFLOW_TEXT_MAX} characters (STATIK notes ${STATIK_NOTE_MAX}); policies replace every stage policy (at most ${STAGE_POLICIES_MAX}; each names a stage of the board it describes, ${STAGE_IDS_TEXT}, and any other stage is refused as bad_stage; a policy for done is dropped: Done means the Definition of Done); cadences replace the list (at most ${KANBAN_CADENCES_MAX}); targetSplit is four whole numbers adding up to 100, which Flow Insights reads for both boards. Returns {ok: true, updated, definition} or {ok: false, error, hint}.`,
   paramsSchema: UpdateWorkflowParams,
   handler: async (params) => {
     const { def } = browserWorld();

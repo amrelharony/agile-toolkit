@@ -164,6 +164,28 @@ describe("update_workflow and get_workflow", () => {
     expect(targetSplitOf(def())).toBeNull();
   });
 
+  it("refuses a policy for a stage the board doesn't have, naming the board's stages", async () => {
+    const out = await run<{ ok: boolean; error: string; hint: string }>(
+      "tool.kanban.update_workflow",
+      { board: "flow", policies: [{ stage: "In progress", exit: "Tests pass" }] }
+    );
+    expect(out).toMatchObject({ ok: false, error: "bad_stage" });
+    expect(out.hint).toMatch(/"In progress".*Use one of: backlog, ready, in_progress, review\./);
+    expect(def()).toBeUndefined();
+    await run("tool.kanban.update_workflow", { board: "flow" });
+    expect(
+      await run("tool.kanban.update_workflow", { policies: [{ stage: "todo", enter: "Planned" }] })
+    ).toMatchObject({ ok: false, error: "bad_stage" });
+    // The same call can move it to the Sprint board, whose To do is "todo".
+    expect(
+      await run("tool.kanban.update_workflow", {
+        board: "sprint",
+        policies: [{ stage: "todo", enter: "Planned" }],
+      })
+    ).toMatchObject({ ok: true, updated: true });
+    expect(def()?.policies).toEqual([{ stage: "todo", enter: "Planned" }]);
+  });
+
   it("refuses text over the caps", () => {
     const params = registry.get("tool.kanban.update_workflow")!.paramsSchema;
     expect(params.safeParse({ workItem: "x".repeat(201) }).success).toBe(false);
