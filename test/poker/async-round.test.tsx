@@ -66,6 +66,7 @@ vi.mock("framer-motion", async () => {
   };
 });
 
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { AsyncRoundsPanel } from "@/app/(tools)/planning-poker/async/async-rounds-panel";
 import { AsyncRoundCard } from "@/app/(tools)/planning-poker/async/async-round-card";
 import { PlanningPokerClient } from "@/app/(tools)/planning-poker/planning-poker-client";
@@ -287,6 +288,27 @@ describe("pasting reply codes", () => {
       ["lee (2)", "8"],
       ["Lee", "3"],
     ]);
+  });
+
+  it("announces each confirmation once, through the app's announcer", async () => {
+    const r = round();
+    useWorkspaceStore.setState({ pokerAsyncRounds: [r] });
+    render(
+      <LiveAnnouncerProvider>
+        <AsyncRoundsPanel hostName="Priya" />
+      </LiveAnnouncerProvider>
+    );
+    fireEvent.change(within(article()).getByLabelText("Paste reply codes"), {
+      target: { value: codeFor(r, "Lee", ["5", "8"]) },
+    });
+    fireEvent.click(within(article()).getByRole("button", { name: "Add replies" }));
+    await waitFor(() => expect(screen.getByTestId("live-polite").textContent).toBe("Added Lee."));
+    // Shown on the card too, but not as a second live region.
+    expect(article().textContent).toContain("Added Lee.");
+    const live = Array.from(document.querySelectorAll("[aria-live], [role=status]")).filter((el) =>
+      el.textContent?.includes("Added Lee.")
+    );
+    expect(live).toEqual([screen.getByTestId("live-polite")]);
   });
 
   it("adds a code pasted with its link once, and skips the same reply pasted again", () => {

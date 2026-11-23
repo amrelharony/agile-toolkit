@@ -120,6 +120,8 @@ export function AsyncRoundCard({
 }) {
   const headingId = useId();
   const announce = useAnnounce();
+  // The last confirmation, shown under the card. The app's announcer reads
+  // it out, so the line itself is no live region (it would be read twice).
   const [status, setStatus] = useState("");
   const say = (text: string) => {
     setStatus(text);
@@ -234,9 +236,7 @@ export function AsyncRoundCard({
       )}
       {round.status === "closed" && <ClosedRound round={round} />}
 
-      <p role="status" className={cn("text-xs text-sub", !status && "sr-only")}>
-        {status}
-      </p>
+      {status && <p className="text-xs text-sub">{status}</p>}
     </article>
   );
 }
