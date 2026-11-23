@@ -183,6 +183,11 @@ export function EpicRoadmapClient() {
   const hydrated = useWorkspaceHydrated();
   /** An epic a `?epic=` link asked for, until it is on screen (or known to be gone). */
   const [linkedEpic, setLinkedEpic] = useState<string | null>(null);
+  /**
+   * The epic a link brought into view, marked until focus leaves it: focus
+   * moved there after a click on a link shows no focus ring.
+   */
+  const [shownEpic, setShownEpic] = useState<{ id: string; on: "row" | "card" } | null>(null);
 
   const views = useMemo(() => epicViews(epics, stories, now), [epics, stories, now]);
   // Earliest start first; the order on screen stays put while dates are
@@ -373,7 +378,14 @@ export function EpicRoadmapClient() {
       );
     const card = view === "horizons" ? find("data-epic-card") : undefined;
     const shown = card && card.closest("details:not([open])") === null ? card : undefined;
-    focusOn(shown ?? find("data-epic-row"));
+    const target = shown ?? find("data-epic-row");
+    if (target && focusOn(target)) {
+      const mark = { id: linkedEpic, on: shown ? "card" : "row" } as const;
+      setShownEpic(mark);
+      target.addEventListener("blur", () => setShownEpic((cur) => (cur === mark ? null : cur)), {
+        once: true,
+      });
+    }
     setLinkedEpic(null);
     dropSearchParam("epic");
   }, [linkedEpic, epics, hydrated, view]);
@@ -506,7 +518,13 @@ export function EpicRoadmapClient() {
                 options={VIEW_OPTIONS}
               />
               {view === "horizons" ? (
-                <HorizonsBoard views={views} maps={maps} now={now} onMove={moveHorizon} />
+                <HorizonsBoard
+                  views={views}
+                  maps={maps}
+                  now={now}
+                  onMove={moveHorizon}
+                  highlightedId={shownEpic?.on === "card" ? shownEpic.id : null}
+                />
               ) : (
                 <>
                   <div className="mb-3 flex flex-wrap items-start gap-3">
@@ -573,7 +591,10 @@ export function EpicRoadmapClient() {
                     key={v.epic.id}
                     data-epic-row={v.epic.id}
                     tabIndex={-1}
-                    className="space-y-3 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className={cn(
+                      "space-y-3 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      shownEpic?.on === "row" && shownEpic.id === v.epic.id && "ring-2 ring-ring"
+                    )}
                   >
                     {editingId === v.epic.id ? (
                       <EpicEditor

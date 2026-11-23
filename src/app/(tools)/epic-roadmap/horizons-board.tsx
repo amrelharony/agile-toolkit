@@ -6,6 +6,7 @@ import { Field } from "@/components/ui/field";
 import { colorVar } from "@/lib/roadmap/palette";
 import { normalizeQuarter } from "@/lib/roadmap/quarters";
 import { rollupLabel } from "@/lib/roadmap/rollup";
+import { cn } from "@/lib/utils";
 import {
   HORIZON_LABEL,
   NOW_CROWDED,
@@ -40,12 +41,15 @@ export function HorizonsBoard({
   maps,
   now,
   onMove,
+  highlightedId = null,
 }: {
   views: readonly EpicView[];
   /** The strategy maps, for the "Why:" line of an epic sent from one. */
   maps: readonly StrategyMap[];
   now: Date;
   onMove: (epic: Epic, horizon: EpicHorizon | null) => void;
+  /** The epic a `?epic=` link brought into view, marked until focus leaves it. */
+  highlightedId?: string | null;
 }) {
   const id = useId();
   const columns = horizonColumns(boardItems(views), now);
@@ -72,7 +76,13 @@ export function HorizonsBoard({
               <ul className="space-y-2">
                 {columns[h].map((item) => (
                   <li key={item.epic.id}>
-                    <HorizonCard item={item} maps={maps} now={now} onMove={onMove} />
+                    <HorizonCard
+                      item={item}
+                      maps={maps}
+                      now={now}
+                      onMove={onMove}
+                      highlighted={item.epic.id === highlightedId}
+                    />
                   </li>
                 ))}
               </ul>
@@ -88,7 +98,13 @@ export function HorizonsBoard({
           <ul className="space-y-2 pb-2">
             {columns.done.map((item) => (
               <li key={item.epic.id}>
-                <HorizonCard item={item} maps={maps} now={now} onMove={onMove} />
+                <HorizonCard
+                  item={item}
+                  maps={maps}
+                  now={now}
+                  onMove={onMove}
+                  highlighted={item.epic.id === highlightedId}
+                />
               </li>
             ))}
           </ul>
@@ -104,11 +120,13 @@ function HorizonCard({
   maps,
   now,
   onMove,
+  highlighted,
 }: {
   item: BoardItem;
   maps: readonly StrategyMap[];
   now: Date;
   onMove: (epic: Epic, horizon: EpicHorizon | null) => void;
+  highlighted: boolean;
 }) {
   const headingId = useId();
   const { epic, view } = item;
@@ -133,7 +151,10 @@ function HorizonCard({
       aria-labelledby={headingId}
       tabIndex={-1}
       data-epic-card={epic.id}
-      className="space-y-1.5 rounded-md border border-border bg-card p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn(
+        "space-y-1.5 rounded-md border bg-card p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+        highlighted ? "border-accent ring-2 ring-ring" : "border-border"
+      )}
     >
       <div className="flex items-start gap-2">
         <span

@@ -259,13 +259,24 @@ describe("links, Markdown and the prompt", () => {
       expect(document.activeElement?.getAttribute("data-epic-row")).toBe("refunds")
     );
     expect(window.location.search).toBe("");
+    // Marked, since focus moved after a click on a link shows no ring, until focus leaves it.
+    const row = document.activeElement as HTMLElement;
+    await waitFor(() => expect(row).toHaveClass("ring-2", "ring-ring"));
+    act(() => row.blur());
+    expect(row).not.toHaveClass("ring-2");
     unmount();
     useRoadmapView.setState({ view: "horizons" });
     window.history.replaceState(null, "", "/epic-roadmap?epic=offline");
     renderRoadmap();
-    await waitFor(() =>
-      expect(screen.getByRole("article", { name: "Offline mode" })).toHaveFocus()
-    );
+    const card = screen.getByRole("article", { name: "Offline mode" });
+    await waitFor(() => expect(card).toHaveFocus());
+    await waitFor(() => expect(card).toHaveClass("border-accent", "ring-2"));
+    // Only the card it focused, not the same epic's row in the list.
+    const listRow = document.querySelector('[data-epic-row="offline"]');
+    expect(listRow).not.toHaveClass("ring-2");
+    act(() => card.blur());
+    expect(card).not.toHaveClass("border-accent");
+    expect(card).toHaveClass("border-border");
   });
 
   it("drops a link to an epic that is gone", async () => {
