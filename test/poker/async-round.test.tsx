@@ -821,6 +821,32 @@ describe("the Poker page", () => {
     expect(window.location.hash).toBe("");
   });
 
+  it("shows the rounds it can read from an imported file, and writes a repaired one back", async () => {
+    // No CRUD checks this slice, so a hand-edited file can hold anything.
+    useWorkspaceStore.setState({
+      pokerAsyncRounds: [
+        round({ id: "async_good", title: "Good round" }),
+        { id: "async_nodate", title: "No date", status: "open" } as unknown as PokerAsyncRound,
+        {
+          ...round({ id: "async_loose", title: "Loose round" }),
+          stories: undefined,
+          replies: "none",
+        } as unknown as PokerAsyncRound,
+      ],
+    });
+    render(<PlanningPokerClient />);
+    expect(await screen.findByRole("article", { name: "Good round" })).toBeTruthy();
+    expect(screen.getByRole("article", { name: "Loose round" })).toBeTruthy();
+    expect(screen.queryByRole("article", { name: "No date" })).toBeNull();
+    // The repaired copy is written back, so the next read (and sync) gets lists.
+    await waitFor(() =>
+      expect(rounds().find((r) => r.id === "async_loose")).toMatchObject({
+        stories: [],
+        replies: [],
+      })
+    );
+  });
+
   it("closes a round past its 14 days when the page loads, dropping names", async () => {
     const old = round({
       createdAt: "2026-01-01T10:00:00.000Z",

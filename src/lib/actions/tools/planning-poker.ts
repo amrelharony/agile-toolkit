@@ -77,6 +77,8 @@ import {
   newAsyncRoundId,
   packFor,
   readAsyncRound,
+  readAsyncRounds,
+  readPokerAsyncRound,
   revealAndFlag,
 } from "@/lib/estimation/async-pack";
 import { SCALES, SCALE_LABELS, type ScaleType } from "@/lib/estimation/decks";
@@ -741,8 +743,9 @@ registry.register({
  *  a note or anyone's card. There is no verb to add a reply.
  * ======================================================================== */
 
+// Each row read into shape first (no CRUD checked it): a malformed one is repaired or left out.
 const asyncRoundsIn = (rounds: readonly PokerAsyncRound[] | undefined) =>
-  (rounds ?? [])
+  readAsyncRounds(rounds)
     .map((r) => readAsyncRound(r))
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 
@@ -820,7 +823,9 @@ type RevealAsync =
   | { revealed: false; reason: "not_found" | "not_open" | "no_replies" }
   | { revealed: true; round: PokerAsyncRound };
 
-function planAsyncReveal(stored: PokerAsyncRound | null | undefined): RevealAsync {
+function planAsyncReveal(raw: PokerAsyncRound | null | undefined): RevealAsync {
+  // A row that can't be read (no CRUD checked it) is as good as not there.
+  const stored = readPokerAsyncRound(raw);
   if (!stored) return { revealed: false, reason: "not_found" };
   const round = readAsyncRound(stored);
   if (round.status !== "open") return { revealed: false, reason: "not_open" };
@@ -880,7 +885,7 @@ registry.register({
     "Reveal an open round without a meeting that has at least one reply, so the host's page shows everyone's cards and the stories far apart are ticked to talk about live. Returns {revealed: true, id, title, status, scaleType, dueDate, replyCount, expectedCount, storyCount, stories: {title, label, verdict, suggested, agreed, voteCount}[]}, or {revealed: false, reason: 'not_found' | 'not_open' | 'no_replies'}. Counts and verdicts only: never a name, a note or anyone's card. The host agrees each estimate on the page.",
   paramsSchema: z.object({ id: z.string().min(1).max(64) }),
   handler: async (params) => {
-    const found = (ws().pokerAsyncRounds ?? []).find((r) => r.id === params.id);
+    const found = readAsyncRounds(ws().pokerAsyncRounds).find((r) => r.id === params.id);
     const plan = planAsyncReveal(found);
     if (plan.revealed) ws().upsertPokerAsyncRound(plan.round);
     return revealedView(plan);

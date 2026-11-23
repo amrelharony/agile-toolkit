@@ -161,6 +161,7 @@ import type {
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
 import { rowsUnlinkedFrom } from "@/lib/prioritization/binding";
+import { readAsyncRounds } from "@/lib/estimation/async-read";
 
 interface WorkspaceActions {
   setTeamName: (name: string) => void;
@@ -2038,7 +2039,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           meetingAudits: arr("meetingAudits"),
           // Phase 43 — the tools plan's phase 2
           exampleMaps: arr("exampleMaps"),
-          pokerAsyncRounds: arr("pokerAsyncRounds"),
+          // No CRUD checks these rows on the way in: read them, so a malformed
+          // round is left out or repaired rather than thrown on by every reader.
+          pokerAsyncRounds: Array.isArray(p.pokerAsyncRounds)
+            ? readAsyncRounds(p.pokerAsyncRounds)
+            : undefined,
           bugReports: arr("bugReports"),
           hillCharts: arr("hillCharts"),
           testSessions: arr("testSessions"),

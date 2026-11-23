@@ -17,7 +17,13 @@ import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
-import { readAsyncRound, readReply, replyClash, replyProblem } from "@/lib/estimation/async-pack";
+import {
+  readAsyncRound,
+  readPokerAsyncRound,
+  readReply,
+  replyClash,
+  replyProblem,
+} from "@/lib/estimation/async-pack";
 import { addReplyToRound, shortTitle } from "./round-actions";
 
 /** The address without its #reply= fragment. */
@@ -34,10 +40,12 @@ export function ReplyImport({ code, onDone }: { code: string; onDone: () => void
   const hydrated = useWorkspaceHydrated();
   const { log } = useHistoryLogger("planning-poker");
   const reply = useMemo(() => readReply(code), [code]);
+  // The stored row (a stable pick), then read into shape: a malformed one reads as none.
   const stored = useWorkspaceStore((s) =>
-    reply ? s.pokerAsyncRounds?.find((r) => r.id === reply.roundId) : undefined
+    reply ? s.pokerAsyncRounds?.find((r) => r?.id === reply.roundId) : undefined
   );
-  const round = stored ? readAsyncRound(stored) : undefined;
+  const shaped = stored ? readPokerAsyncRound(stored) : null;
+  const round = shaped ? readAsyncRound(shaped) : undefined;
   const [done, setDone] = useState<string | null>(null);
   const boxRef = useRef<HTMLElement>(null);
 

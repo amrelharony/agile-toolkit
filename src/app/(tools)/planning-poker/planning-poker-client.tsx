@@ -63,6 +63,8 @@ import {
   heldQueueCount,
   heldStoryIds,
   readAsyncRound,
+  readAsyncRounds,
+  readPokerAsyncRound,
   withStoryEstimate,
 } from "@/lib/estimation/async-rounds";
 import { agreeTypedStory, saveRound } from "./async/round-store";
@@ -288,9 +290,11 @@ export function PlanningPokerClient() {
   // workspace has loaded, by sync from another device later on, or when the
   // page comes back into view after a while. A round that hasn't expired
   // reads back as the same object, so this writes only the ones that have.
+  // A malformed row (an imported file's) is read into shape first
+  // (readPokerAsyncRound): repaired, and written back repaired, or left out.
   const storedRounds = useWorkspaceStore((s) => s.pokerAsyncRounds);
   const held = useMemo(
-    () => heldStoryIds((storedRounds ?? []).map((r) => readAsyncRound(r))),
+    () => heldStoryIds(readAsyncRounds(storedRounds).map((r) => readAsyncRound(r))),
     [storedRounds]
   );
   const hydrated = useWorkspaceHydrated();
@@ -306,9 +310,11 @@ export function PlanningPokerClient() {
     if (!hydrated) return;
     const { upsertPokerAsyncRound } = useWorkspaceStore.getState();
     const now = new Date();
-    for (const round of storedRounds ?? []) {
+    for (const stored of storedRounds ?? []) {
+      const round = readPokerAsyncRound(stored);
+      if (!round) continue;
       const read = readAsyncRound(round, now);
-      if (read !== round) upsertPokerAsyncRound(read);
+      if (read !== stored) upsertPokerAsyncRound(read);
     }
   }, [hydrated, storedRounds, shownAt]);
   const heldCount = useMemo(() => heldQueueCount(queue, storedRounds), [queue, storedRounds]);
@@ -429,7 +435,7 @@ export function PlanningPokerClient() {
     // is saved to the backlog under the same id (so the session's own Save
     // to backlog finds it saved), with Undo.
     const at = new Date().toISOString();
-    for (const stored of useWorkspaceStore.getState().pokerAsyncRounds ?? []) {
+    for (const stored of readAsyncRounds(useWorkspaceStore.getState().pokerAsyncRounds)) {
       const round = readAsyncRound(stored);
       if (round.status === "closed") continue;
       const story = round.stories.find((st) => st.id === storyId);
