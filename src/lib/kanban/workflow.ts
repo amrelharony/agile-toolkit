@@ -11,6 +11,7 @@
  *   - `normalizeWorkflowDefinition` reads a stored or agent-written row
  *     defensively and enforces every cap the CRUD schema has;
  *   - `mergeWorkflow` applies a partial change (null clears a field);
+ *   - `sameWorkflowContent` tells whether a save changed anything;
  *   - `withSavedVersion` snapshots it with the board's WIP limits;
  *   - `compareVersion` reads the described board's items before and after
  *     a version was saved;
@@ -347,6 +348,32 @@ function contentOf(def: WorkflowDefinition): string {
   delete rest.createdAt;
   delete rest.updatedAt;
   return JSON.stringify(rest);
+}
+
+/**
+ * The definition's content in one form: normalised (so its keys are in one
+ * order, whichever wrote it: Postgres jsonb reads keys back shortest first,
+ * zod writes them in schema order), without its stamps, and with the stage
+ * policies by stage id (their order means nothing: each names its stage).
+ */
+export function workflowContent(def: WorkflowDefinition | null | undefined): WorkflowDefinition {
+  const out = normalizeWorkflowDefinition(def);
+  delete out.createdAt;
+  delete out.updatedAt;
+  if (out.policies) {
+    out.policies = [...out.policies].sort((a, b) =>
+      a.stage < b.stage ? -1 : a.stage > b.stage ? 1 : 0
+    );
+  }
+  return out;
+}
+
+/** Whether two definitions say the same thing, whatever their key order and stamps. */
+export function sameWorkflowContent(
+  a: WorkflowDefinition | null | undefined,
+  b: WorkflowDefinition | null | undefined
+): boolean {
+  return JSON.stringify(workflowContent(a)) === JSON.stringify(workflowContent(b));
 }
 
 /**

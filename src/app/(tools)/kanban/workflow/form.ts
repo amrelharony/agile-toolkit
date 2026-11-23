@@ -24,6 +24,8 @@ import {
   describedBoard,
   mergeWorkflow,
   policyStages,
+  sameWorkflowContent,
+  workflowContent,
   type WorkflowBoard,
   type WorkflowPatch,
 } from "@/lib/kanban/workflow";
@@ -174,15 +176,11 @@ export function applyWorkflowValues(
 ): WorkflowDefinition {
   const merged = mergeWorkflow(def, patch, at);
   const next = withTargetSplit(merged, split, at);
-  if (def && JSON.stringify(strip(next)) === JSON.stringify(strip(def))) return def;
+  // By content, not by the JSON of the row: a synced or agent-written row
+  // has its keys in another order, and the form sends the target mix apart
+  // from the meanings, so the merge always builds a new object.
+  if (def && sameWorkflowContent(next, def)) return def;
   return next;
-}
-
-function strip(def: WorkflowDefinition) {
-  const out: Partial<WorkflowDefinition> = { ...def };
-  delete out.createdAt;
-  delete out.updatedAt;
-  return out;
 }
 
 /** The add-a-cadence form's draft. */
@@ -255,7 +253,10 @@ export function changedParts(
     ["sle", (d) => d?.sle],
     ["work_types", (d) => d?.workTypes],
   ];
+  // Both normalised first, so a synced row's key order isn't a change.
+  const a = before ? workflowContent(before) : null;
+  const b = workflowContent(after);
   return parts
-    .filter(([, get]) => JSON.stringify(get(before)) !== JSON.stringify(get(after)))
+    .filter(([, get]) => JSON.stringify(get(a)) !== JSON.stringify(get(b)))
     .map(([name]) => name);
 }

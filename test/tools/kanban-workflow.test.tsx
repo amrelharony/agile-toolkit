@@ -247,6 +247,37 @@ describe("the definition's draft", () => {
     expect(applyWorkflowValues(saved, v.values)).toBe(saved);
   });
 
+  it("tells a save that changes nothing by content, whatever order a synced row's keys are in", () => {
+    // As Postgres jsonb reads a row back: keys shortest first, with a target mix.
+    const synced = {
+      id: WORKFLOW_DEFINITION_ID,
+      sle: { pct: 85, days: 8 },
+      board: "flow",
+      policies: [
+        { exit: "Checked", stage: "review" },
+        { enter: "Pulled", stage: "ready" },
+      ],
+      updatedAt: "2026-11-01T10:00:00.000Z",
+      workTypes: [
+        { type: "feature", targetPct: 40 },
+        { type: "defect", meaning: "Broken for a user", targetPct: 40 },
+        { type: "debt", targetPct: 15 },
+        { type: "risk", targetPct: 5 },
+      ],
+    } as unknown as WorkflowDefinition;
+    const d = draftFromWorkflow(synced, "flow");
+    const same = validateWorkflowDraft(d);
+    if (!same.ok) throw new Error("the draft should be valid");
+    expect(applyWorkflowValues(synced, same.values)).toBe(synced);
+    // One real edit is a change, and only its part is logged.
+    const edited = validateWorkflowDraft({ ...d, pullPolicy: "Oldest first" });
+    if (!edited.ok) throw new Error("the draft should be valid");
+    const saved = applyWorkflowValues(synced, edited.values);
+    expect(saved).not.toBe(synced);
+    expect(saved.pullPolicy).toBe("Oldest first");
+    expect(changedParts(synced, saved)).toEqual(["pull"]);
+  });
+
   it("checks a cadence", () => {
     expect(validateCadence({ name: " ", cadence: "weekly", minutes: "", purpose: "" })).toEqual({
       ok: false,
