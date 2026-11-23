@@ -919,6 +919,73 @@ describe("value checks, the A/B line and the kind filter", () => {
     await waitFor(() => expect(screen.getByTestId("live-polite")).toHaveTextContent(TRACKER_FULL));
   });
 
+  describe("focus", () => {
+    let frames: FrameRequestCallback[] = [];
+    beforeEach(() => {
+      frames = [];
+      vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+    });
+    afterEach(() => vi.unstubAllGlobals());
+    /** Runs the frames the page asked for, after React has rendered. */
+    const nextFrame = () => act(() => frames.splice(0).forEach((f) => f(0)));
+    const checkButton = (title: string) =>
+      screen.getByRole("button", { name: `Check its value: ${title}` });
+    const fillAndAdd = () => {
+      fireEvent.change(screen.getByLabelText("How you'll tell"), {
+        target: { value: "fewer questions" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Add value check" }));
+    };
+
+    it("goes back to the shipped item on Cancel, to the next one on a save, then to the new card", () => {
+      useWorkspaceStore.setState({
+        stories: [
+          { id: "s1", title: "Bulk invite", status: "done", doneAt: `${ago(3)}T12:00:00` },
+          { id: "s2", title: "Search", status: "done", doneAt: `${ago(5)}T12:00:00` },
+        ],
+      });
+      renderPage();
+      fireEvent.click(checkButton("Bulk invite"));
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      nextFrame();
+      expect(document.activeElement).toBe(checkButton("Bulk invite"));
+
+      fireEvent.click(checkButton("Bulk invite"));
+      fillAndAdd();
+      nextFrame();
+      expect(document.activeElement).toBe(checkButton("Search"));
+
+      fireEvent.click(checkButton("Search"));
+      fillAndAdd();
+      nextFrame();
+      const added = stored().find((h) => h.shipped?.id === "s2") as Hypothesis;
+      expect(screen.queryByRole("list", { name: "Shipped work to check" })).toBeNull();
+      expect(document.activeElement).toBe(
+        within(card(added.believe)).getByRole("button", { name: `Edit ${added.believe}` })
+      );
+    });
+
+    it("goes back to Set it or Change when the card's Measured by editor closes", () => {
+      seed(hyp("e", { believe: "an experiment" }));
+      renderPage();
+      const setIt = () =>
+        within(card("an experiment")).getByRole("button", {
+          name: /how “an experiment” is measured/,
+        });
+      fireEvent.click(setIt());
+      fireEvent.click(within(card("an experiment")).getByRole("button", { name: "Cancel" }));
+      expect(document.activeElement).toBe(setIt());
+      fireEvent.click(setIt());
+      fireEvent.change(within(card("an experiment")).getByLabelText("How you'll tell"), {
+        target: { value: "fewer refunds" },
+      });
+      fireEvent.click(within(card("an experiment")).getByRole("button", { name: "Save measure" }));
+      expect(one("e")?.measuredBy).toEqual({ kind: "words", note: "fewer refunds" });
+      expect(document.activeElement).toBe(setIt());
+      expect(setIt()).toHaveTextContent("Change");
+    });
+  });
+
   it("marks a check Due past its day, and reads the metric into the result with Undo", () => {
     useWorkspaceStore.setState({ productMetrics: [metric()] });
     seed(

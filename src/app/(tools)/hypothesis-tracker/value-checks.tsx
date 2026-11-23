@@ -246,6 +246,25 @@ const KIND_LABEL = { story: "Story", epic: "Epic" } as const;
 /** How many candidates show before "Show all". */
 const SHOWN = 5;
 
+/** The element whose `attr` is `value`; values go in no selector, so need no escaping. */
+const markedWith = (attr: string, value: string) =>
+  Array.from(document.querySelectorAll<HTMLElement>(`[${attr}]`)).find(
+    (el) => el.getAttribute(attr) === value
+  );
+
+/** Once React has re-rendered, focus the first of these that is on the page. */
+function focusFirst(...finders: (() => HTMLElement | null | undefined)[]) {
+  requestAnimationFrame(() => {
+    for (const find of finders) {
+      const el = find();
+      if (el) {
+        el.focus();
+        return;
+      }
+    }
+  });
+}
+
 /**
  * "Shipped work to check": the candidates, each with "Check its value",
  * which opens the form in place. Shows nothing while there are none.
@@ -294,16 +313,26 @@ export function ShippedWork({
                   okrs={okrs}
                   onSave={(values) => {
                     // Refused: the form stays open with what was typed, and says why.
-                    if (onAdd(values) === null) {
+                    const id = onAdd(values);
+                    if (id === null) {
                       setFull(keyOf(c));
                       return;
                     }
                     setFull(null);
                     setOpenId(null);
+                    // It leaves the list: on to the next one, else the new card, else New hypothesis.
+                    const at = candidates.findIndex((x) => keyOf(x) === keyOf(c));
+                    const near = candidates[at + 1] ?? candidates[at - 1];
+                    focusFirst(
+                      () => (near ? markedWith("data-value-check", keyOf(near)) : undefined),
+                      () => markedWith("data-hypothesis-edit", id),
+                      () => document.querySelector<HTMLElement>("[data-new-hypothesis]")
+                    );
                   }}
                   onCancel={() => {
                     setFull(null);
                     setOpenId(null);
+                    focusFirst(() => markedWith("data-value-check", keyOf(c)));
                   }}
                 />
                 {full === keyOf(c) && (
@@ -326,6 +355,8 @@ export function ShippedWork({
                   variant="outline"
                   className="gap-1"
                   aria-label={`Check its value: ${c.title}`}
+                  // Where focus comes back to when its form closes, or the one before it saves.
+                  data-value-check={keyOf(c)}
                   onClick={() => setOpenId(keyOf(c))}
                 >
                   <Plus className="h-4 w-4" aria-hidden="true" />

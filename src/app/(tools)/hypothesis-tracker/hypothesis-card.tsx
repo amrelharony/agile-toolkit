@@ -113,6 +113,8 @@ export function HypothesisCard({
   const editRef = useRef<HTMLButtonElement>(null);
   const statusRef = useRef<HTMLSelectElement>(null);
   const refocusEdit = useRef(false);
+  const measureRef = useRef<HTMLButtonElement>(null);
+  const refocusMeasure = useRef(false);
   /** Words typed in "What we learned" that the row's check refused, held until it passes. */
   const heldOutcome = useRef<string | null>(null);
 
@@ -137,6 +139,17 @@ export function HypothesisCard({
     refocusEdit.current = false;
     editRef.current?.focus();
   }, [editing]);
+
+  // The "Measured by" editor closed: focus goes back to the button that opened it.
+  useEffect(() => {
+    if (measuring || !refocusMeasure.current) return;
+    refocusMeasure.current = false;
+    measureRef.current?.focus();
+  }, [measuring]);
+  const closeMeasuring = () => {
+    refocusMeasure.current = true;
+    setMeasuring(false);
+  };
 
   /**
    * The saved row with `patch` typed over it, checked as the editor checks
@@ -363,10 +376,10 @@ export function HypothesisCard({
               metrics={context.metrics}
               okrs={context.okrs}
               onSave={(m) => {
-                setMeasuring(false);
+                closeMeasuring();
                 onValueAction(h, { kind: "measured-by", measuredBy: m });
               }}
-              onCancel={() => setMeasuring(false)}
+              onCancel={closeMeasuring}
             />
           ) : (
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -375,6 +388,7 @@ export function HypothesisCard({
                 {measuredLine ? `Measured by ${measuredLine}` : "Measured by: not set"}
               </span>
               <Button
+                ref={measureRef}
                 type="button"
                 size="sm"
                 variant="ghost"
