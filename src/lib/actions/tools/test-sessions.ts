@@ -109,6 +109,10 @@ const stamped = (s: TestSession): TestSession => ({ ...s, updatedAt: nowIso() })
 
 const SessionId = z.string().min(1).describe("The session's id (see list_state).");
 
+/** The team's own sessions: the example's are left out. */
+const ownSessions = (sessions: readonly TestSession[]) =>
+  sessions.filter((s) => !isExampleId(s.id));
+
 /* ── tool.test_sessions.list_state ───────────────────────────────────── */
 
 const ListParams = z.object({
@@ -120,7 +124,8 @@ async function listState(store: SessionStore, p: z.infer<typeof ListParams>): Pr
   const bugs = new Map((await store.bugs()).map((b) => [b.id, b]));
   const now = Date.now();
   const status = p.status ?? "all";
-  const running = runningSession(sessions);
+  // The team's running session: an example's never counts, as on the page.
+  const running = runningSession(ownSessions(sessions));
   return {
     running: running ? running.id : null,
     examples: sessions.filter((s) => isExampleId(s.id)).length,
@@ -176,7 +181,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "List Test Sessions as the page shows them, newest first. Params: status? (planned | running | done | all; default all). Returns {running (the running session's id) | null, examples, sessions: {id, charter: {target, using?, toLearn}, sentence (the charter as a sentence), tester, storyId, area, minutes, status, startedAt, endsAt, timeUp (running past its time), endedAt, minutesRan, coverage, split: {testing, bugs, setup} | null, debrief, example, noteCounts: {note, bug, question, idea}, unsentBugs (bug notes not in Bug Triage yet), notes: {id, at, kind, text, minutesIn, bug: {targetId, state: 'open' | 'closed' | 'gone'} | null}[]}[]}.",
+    "List Test Sessions as the page shows them, newest first. Params: status? (planned | running | done | all; default all). Returns {running (the team's running session's id; an example's never counts) | null, examples, sessions: {id, charter: {target, using?, toLearn}, sentence (the charter as a sentence), tester, storyId, area, minutes, status, startedAt, endsAt, timeUp (running past its time), endedAt, minutesRan, coverage, split: {testing, bugs, setup} | null, debrief, example, noteCounts: {note, bug, question, idea}, unsentBugs (bug notes not in Bug Triage yet), notes: {id, at, kind, text, minutesIn, bug: {targetId, state: 'open' | 'closed' | 'gone'} | null}[]}[]}.",
   paramsSchema: ListParams,
   handler: async (p) => listState(browserStore, p),
   mcpHandler: async (p, ctx) => listState(serverStore(ctx.userId), p),
@@ -254,8 +259,10 @@ async function start(store: SessionStore, p: { id: string }): Promise<Out> {
   const sessions = await store.sessions();
   const session = sessions.find((s) => s.id === p.id);
   if (!session) return { started: false, reason: "not_found" };
+  // The page's Start is off for the example's sessions, and so is this.
+  if (isExampleId(session.id)) return { started: false, reason: "example" };
   if (session.status !== "planned") return { started: false, reason: session.status };
-  const other = runningSession(sessions);
+  const other = runningSession(ownSessions(sessions));
   if (other) return { started: false, reason: "another_running", runningId: other.id };
   const next = stamped({ ...session, status: "running", startedAt: nowIso() });
   await store.put(next);
@@ -275,7 +282,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Start a planned test session: it is running from now. One session runs at a time. This stamps the start only: it claims no timer (the page's docked timer is the browser's own), and the page counts the session down from its start. Params: id. Returns {started: true, id, startedAt, endsAt} or {started: false, reason: 'not_found' | 'running' | 'done' | 'another_running', runningId?}.",
+    "Start a planned test session: it is running from now. One session runs at a time (an example's running session doesn't count, and the example's sessions never start). This stamps the start only: it claims no timer (the page's docked timer is the browser's own), and the page counts the session down from its start. Params: id. Returns {started: true, id, startedAt, endsAt} or {started: false, reason: 'not_found' | 'example' | 'running' | 'done' | 'another_running', runningId?}.",
   paramsSchema: z.object({ id: SessionId }),
   handler: async (p) => start(browserStore, p),
   mcpHandler: async (p, ctx) => start(serverStore(ctx.userId), p),

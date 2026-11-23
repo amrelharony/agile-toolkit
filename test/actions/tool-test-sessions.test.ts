@@ -3,8 +3,8 @@
  *
  *   1. registration — reads and writes, each with an MCP handler, none a room verb.
  *   2. plan_session, then list_state: newest first, the sentence, the clock.
- *   3. start_session stamps only (no docked timer), one running at a time;
- *      add_note needs a started session and stamps minutes in; end_session
+ *   3. start_session stamps only (no docked timer), one running at a time,
+ *      the example's sessions left out (never start, never block); add_note needs a started session and stamps minutes in; end_session
  *      takes a debrief whose split adds up to 100.
  *   4. send_bugs makes bugs in Bug Triage linked both ways, skips the ones
  *      there, never sends the example; over MCP the bugs are the user's rows.
@@ -144,6 +144,35 @@ describe("running a session", () => {
       started: false,
       reason: "running",
     });
+  });
+
+  it("leaves the example out: its running session doesn't block, and its sessions never start", async () => {
+    useWorkspaceStore.setState({
+      testSessions: [
+        session({
+          id: "example-session-running",
+          status: "running",
+          startedAt: new Date().toISOString(),
+        }),
+        session({ id: "example-session-planned", createdAt: "2026-11-20T07:00:00Z" }),
+        session({ id: "tsess_own", createdAt: "2026-11-20T09:00:00Z" }),
+      ],
+    });
+    const before = await run<{ running: string | null; examples: number }>(
+      "tool.test_sessions.list_state"
+    );
+    expect(before).toMatchObject({ running: null, examples: 2 });
+    expect(
+      await run("tool.test_sessions.start_session", { id: "example-session-planned" })
+    ).toEqual({ started: false, reason: "example" });
+    expect(stored("example-session-planned")?.status).toBe("planned");
+    expect(await run("tool.test_sessions.start_session", { id: "tsess_own" })).toMatchObject({
+      started: true,
+      id: "tsess_own",
+    });
+    expect(stored("tsess_own")?.status).toBe("running");
+    const after = await run<{ running: string | null }>("tool.test_sessions.list_state");
+    expect(after.running).toBe("tsess_own");
   });
 
   it("adds notes to a started session only, stamped with their minutes in", async () => {
