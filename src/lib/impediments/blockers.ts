@@ -42,6 +42,7 @@ import {
   untrackedBlock,
   type BlockRow,
 } from "@/lib/flow/blocks";
+import { cutText } from "@/lib/utils/cut-text";
 import { isExampleId } from "@/lib/utils/example-id";
 import { clusterKey, defaultClusterLabel, defaultClusterSide } from "./clusters";
 import { dayOf, impedimentAgeDays, isResolved } from "./model";
@@ -204,7 +205,7 @@ export function blockerRows(
       kind: "impediment",
       id: i.id,
       title: textOf(i.title) || "Untitled impediment",
-      ...(description ? { cause: description.slice(0, 200) } : {}),
+      ...(description ? { cause: cutText(description, 200) } : {}),
       cluster,
       side: impedimentSide(i, cluster),
       blockedDays: 0,
@@ -593,7 +594,7 @@ export function readBlockers(
 
 /** A cluster's name as stored: trimmed, single spaces, at most BLOCKER_CLUSTER_MAX characters. */
 export function cleanClusterName(cluster: string): string {
-  return cluster.trim().replace(/\s+/g, " ").slice(0, BLOCKER_CLUSTER_MAX).trim();
+  return cutText(cluster.trim().replace(/\s+/g, " "), BLOCKER_CLUSTER_MAX).trim();
 }
 
 /**
@@ -652,7 +653,7 @@ export function clusterImpediment(
     new Set(members.map((r) => (r.cause ?? r.title).replace(/\s+/g, " ").trim()).filter(Boolean))
   )
     .slice(0, 5)
-    .map((c) => (c.length > 160 ? `${c.slice(0, 159).trimEnd()}…` : c));
+    .map((c) => (c.length > 160 ? `${cutText(c, 159).trimEnd()}…` : c));
   const counts = [
     items
       ? `${items} ${items === 1 ? "item" : "items"} blocked for ${days} ${days === 1 ? "day" : "days"}`

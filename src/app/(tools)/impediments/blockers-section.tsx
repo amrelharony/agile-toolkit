@@ -53,6 +53,7 @@ import {
   type KanbanBoard,
   type Story,
 } from "@/lib/stores/workspace-types";
+import { cutText } from "@/lib/utils/cut-text";
 import type { Validation } from "@/lib/utils/form";
 import { exampleId, isExampleId } from "@/lib/utils/example-id";
 import { undoable } from "@/lib/utils/undoable";
@@ -114,7 +115,7 @@ function blockerText(r: BlockerRow): string {
     r.kind === "impediment"
       ? [r.title, r.cause].filter(Boolean).join(". ")
       : r.cause || `Blocked: ${r.title}`;
-  return text.replace(/\s+/g, " ").trim().slice(0, CLUSTER_TEXT_MAX) || "Blocked";
+  return cutText(text.replace(/\s+/g, " ").trim(), CLUSTER_TEXT_MAX) || "Blocked";
 }
 
 const monthLabel = (month: string) => {
@@ -376,7 +377,7 @@ export function BlockersSection({
                 <BlockersParetoChart
                   unit={unit}
                   data={read.pareto.clusters.map((c) => ({
-                    name: c.cluster.length > 24 ? `${c.cluster.slice(0, 23)}…` : c.cluster,
+                    name: c.cluster.length > 24 ? `${cutText(c.cluster, 23)}…` : c.cluster,
                     value: byDays ? c.blockedDays : c.impediments,
                     vital: c.vital,
                   }))}

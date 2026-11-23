@@ -8,6 +8,7 @@
 import { lazyAiTask } from "../task-ref";
 import { TOOL_AI_BODY_BUDGET } from "../contract";
 import { cleanThemes } from "./audience-wall.lite";
+import { cutText } from "@/lib/utils/cut-text";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 import { keywordGroups } from "@/lib/audience-wall/words";
 import { clusterFor, defaultClusterSide } from "@/lib/impediments/clusters";
@@ -26,7 +27,8 @@ export const CLUSTER_NAME_MAX = BLOCKER_CLUSTER_MAX;
 /** Where the blockers no rule or shared word could place go. */
 export const OTHER_CLUSTER = "Other";
 
-const cut = (s: string, max: number) => (s.length > max ? s.slice(0, max).trimEnd() : s);
+// Never half an emoji: a lone surrogate is refused by jsonb once a cluster is stored.
+const cut = (s: string, max: number) => (s.length > max ? cutText(s, max).trimEnd() : s);
 
 /**
  * Clusters without AI: the keyword rules first (`clusterFor`, a default

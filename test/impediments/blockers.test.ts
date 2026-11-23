@@ -15,6 +15,8 @@ import {
   blockedWorkSentence,
   blockerRows,
   blockersByMonth,
+  cleanClusterName,
+  clusterImpediment,
   clusterPareto,
   lastDays,
   readBlockers,
@@ -373,5 +375,32 @@ describe("the window", () => {
       "Another team cost the most: 2 blocked days; 100% from outside the team."
     );
     expect(readBlockers([], [], [], WINDOW).verdict).toBe("Nothing was blocked in this window.");
+  });
+});
+
+describe("cut text", () => {
+  /** No lone half of an emoji: jsonb refuses one, and the row fails to sync. */
+  const whole = (s: string) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(s);
+
+  it("never splits an emoji in a cause, a raised description or a cluster name", () => {
+    const long = `${"a".repeat(158)}😀${"b".repeat(60)}`;
+    const rows = blockerRows(
+      [story("s", { blockLog: [{ from: at(day(1)), to: at(day(2)), cluster: "Another team" }] })],
+      [],
+      [imp("i", { cluster: "Another team", description: `${"c".repeat(199)}😀 more` })],
+      WINDOW
+    );
+    const cause = rows.find((r) => r.kind === "impediment")?.cause ?? "";
+    expect(cause).toHaveLength(199);
+    expect(whole(cause)).toBe(true);
+    const raised = clusterImpediment(
+      [...rows, { ...rows[0], key: "x", cause: long }],
+      "Another team",
+      { id: "n", today: day(30), from: day(0) }
+    );
+    expect(whole(raised.description ?? "")).toBe(true);
+    expect(raised.description).toContain(`- ${"a".repeat(158)}…`);
+    const name = cleanClusterName(`${"d".repeat(59)}😀`);
+    expect(name).toBe("d".repeat(59));
   });
 });
