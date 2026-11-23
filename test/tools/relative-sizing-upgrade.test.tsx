@@ -556,6 +556,29 @@ describe("talking about a story, the export and deleting", () => {
     expect(theBoard().items).toHaveLength(3);
   });
 
+  it("says a full board has no room for a split, with no Undo claiming an add", async () => {
+    const full = board();
+    const extra = Array.from({ length: 97 }, (_, i) => ({
+      id: `x${i}`,
+      title: `Extra ${i}`,
+      bucketId: "b2",
+      moves: 0,
+    }));
+    seedBoard({
+      ...full,
+      items: [
+        ...full.items.map((i) => (i.id === "c1" ? { ...i, contested: true, moves: 3 } : i)),
+        ...extra,
+      ],
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Split it without AI" }));
+    fireEvent.click(screen.getAllByRole("button", { name: /^Add: / })[0]);
+    expect(theBoard().items).toHaveLength(100);
+    expect(undo.all).toEqual([]);
+    statusSays(/A board holds 100 stories at most/);
+  });
+
   it("exports the board as Markdown", async () => {
     seedBoard({
       ...board(),

@@ -347,31 +347,40 @@ export function RelativeSizingClient() {
   /* ── Talk about it ─────────────────────────────────────────────────── */
 
   const split = (b: SizingBoard, titles: string[]) => {
+    // Added first: a full board says so inline, and no toast claims an add.
+    const prefix = `${ITEM_ID_PREFIX}${nanoid(6)}_`;
     let added: string[] = [];
+    writeBoard(b.id, (cur) => {
+      const r = withNewItems(
+        cur,
+        titles.map((title) => ({ title })),
+        nowIso(),
+        (i) => `${prefix}${i}`
+      );
+      added = r.added;
+      return added.length > 0 ? r.board : null;
+    });
+    if (added.length === 0) {
+      return say(
+        `A board holds ${SIZING_LIMITS.items} stories at most. Remove one to add a smaller story.`
+      );
+    }
+    const first = freshBoard(b.id)?.items.find((i) => i.id === added[0])?.title ?? "";
+    const left = titles.length - added.length;
     undoable({
       label:
-        titles.length === 1
-          ? `Added “${short(titles[0], 40)}”`
-          : `Added ${titles.length} smaller stories`,
+        added.length === 1
+          ? `Added “${short(first, 40)}”`
+          : `Added ${added.length} smaller stories`,
       kind: "success",
-      apply: () => {
-        const prefix = `${ITEM_ID_PREFIX}${nanoid(6)}_`;
-        writeBoard(b.id, (cur) => {
-          const r = withNewItems(
-            cur,
-            titles.map((title) => ({ title })),
-            nowIso(),
-            (i) => `${prefix}${i}`
-          );
-          added = r.added;
-          return r.board;
-        });
-      },
+      apply: () => {},
       revert: () => {
         writeBoard(b.id, (cur) => withoutItems(cur, added, nowIso()));
       },
     });
-    announce(`Added ${plural(titles.length, "smaller story", "smaller stories")} to Not placed.`);
+    announce(
+      `Added ${plural(added.length, "smaller story", "smaller stories")} to Not placed.${left > 0 ? ` ${plural(left, "was", "were")} left out: a board holds ${SIZING_LIMITS.items}.` : ""}`
+    );
   };
 
   const sendToPoker = (b: SizingBoard) => {
