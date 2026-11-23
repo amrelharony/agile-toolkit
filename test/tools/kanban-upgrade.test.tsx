@@ -1703,7 +1703,12 @@ describe("flow board", () => {
 describe("theme colours", () => {
   it("uses no hard-coded hex colours", () => {
     const dir = path.resolve(__dirname, "../../src/app/(tools)/kanban");
-    for (const name of readdirSync(dir)) {
+    // Every file, the Definition of Workflow's folder included.
+    const names = readdirSync(dir, { recursive: true, withFileTypes: true })
+      .filter((e) => e.isFile())
+      .map((e) => path.relative(dir, path.join(e.parentPath, e.name)));
+    expect(names).toContain(path.join("workflow", "workflow-section.tsx"));
+    for (const name of names) {
       const src = readFileSync(path.join(dir, name), "utf8");
       expect(src, name).not.toMatch(/["'`[(]#[0-9a-f]{3,8}\b/i);
       expect(src, name).not.toMatch(/rgba?\(/i);
