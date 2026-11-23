@@ -73,7 +73,14 @@ import { sendHandoff } from "@/lib/handoffs/send";
 import { STORY_MAP_ID, takeQueuedStoriesById } from "@/lib/handoffs/poker-writeback";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
-import { encodeReply, validateReply } from "@/lib/estimation/async-pack";
+import {
+  asyncDeckFor,
+  encodeReply,
+  newAsyncRound,
+  newAsyncRoundId,
+  packFor,
+  validateReply,
+} from "@/lib/estimation/async-pack";
 
 const FIB = ["1", "2", "3", "5", "8", "13", "21", "?", "∞"];
 const ws = () => useWorkspaceStore.getState();
@@ -488,6 +495,60 @@ describe("a new round", () => {
     expectCountsOnly(["Search work", "Save a search"]);
     // The round's link is ready to copy.
     expect(within(article("Search work")).getByRole("button", { name: "Copy link" })).toBeTruthy();
+  });
+
+  it("checks the link's length with the round's real id, so a round that passes fits", () => {
+    // The pack's JSON in bytes for these titles, with an id as long as a real one.
+    const packBytes = (titles: string[]) =>
+      new TextEncoder().encode(
+        JSON.stringify(
+          packFor(
+            newAsyncRound(
+              {
+                title: "Big",
+                scaleType: "fibonacci",
+                deck: asyncDeckFor("fibonacci"),
+                stories: titles.map((title, i) => ({ id: `t${i}`, title })),
+              },
+              newAsyncRoundId(),
+              ""
+            ),
+            { host: "Priya" }
+          )
+        )
+      ).length;
+    // 4,500 bytes are exactly 6,000 base64url characters, the cap; one more is 6,002.
+    const titlesAt = (bytes: number) => {
+      const base = Array.from({ length: 12 }, () => "估".repeat(120));
+      // One ASCII character is one byte ("" would become "Untitled story").
+      const pad = bytes - packBytes([...base, "a"]) + 1;
+      expect(pad).toBeGreaterThan(0);
+      expect(pad).toBeLessThanOrEqual(120);
+      return [...base, "a".repeat(pad)];
+    };
+    const makeRound = (titles: string[]) => {
+      fireEvent.click(screen.getByRole("button", { name: "New round" }));
+      fireEvent.change(screen.getByLabelText(/Round name/), { target: { value: "Big" } });
+      fireEvent.change(screen.getByLabelText(/Stories, one per line/), {
+        target: { value: titles.join("\n") },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Make the link" }));
+    };
+    render(<AsyncRoundsPanel hostName="Priya" />);
+
+    // One byte over: refused in the form, before anything is saved.
+    makeRound(titlesAt(4501));
+    expect(screen.getByText(/Split the stories into two rounds/)).toBeTruthy();
+    expect(rounds()).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    // Right at the cap: saved, and its card offers the link.
+    makeRound(titlesAt(4500));
+    expect(rounds()).toHaveLength(1);
+    expect(rounds()[0].id).toMatch(/^async_[0-9a-f]{12}$/);
+    const box = article("Big");
+    expect(within(box).getByRole("button", { name: "Copy link" })).toBeTruthy();
+    expect(box.textContent).not.toContain("Too long for one link");
   });
 
   it("strips hidden direction marks from queued and typed titles, never “Untitled story”", () => {

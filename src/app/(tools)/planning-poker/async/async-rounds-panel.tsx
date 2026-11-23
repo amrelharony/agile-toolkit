@@ -174,8 +174,11 @@ function NewRoundForm({
   const [draftScale, setDraftScale] = useState<ScaleType>(INITIAL_ASYNC_ROUND.scaleType);
   const [draftDeck, setDraftDeck] = useState<string[]>([]);
   const references = useCardReferences(draftScale, draftDeck);
+  // The round's real id from the start: the link-size check packs the same
+  // id the saved round's link will carry, so a round that passes it fits.
+  const [roundId] = useState(newAsyncRoundId);
 
-  /** The round the values would make, with stand-in ids (the pack holds titles only). */
+  /** The round the values would make, with stand-in story ids (the pack holds titles only). */
   const provisional = (v: AsyncRoundValues): AsyncRoundInput => ({
     title: v.title,
     scaleType: v.scaleType,
@@ -197,7 +200,7 @@ function NewRoundForm({
       const checked = validateAsyncRound(d, { today, queueIds: offeredIds });
       if (!checked.ok) return checked;
       // The link must fit before any queue story is stamped.
-      const round = newAsyncRound(provisional(checked.values), "async_provisional", "");
+      const round = newAsyncRound(provisional(checked.values), roundId, "");
       const packed = encodePack(
         packFor(round, { host: hostName, meanings: meaningsFor(checked.values.deck) })
       );
@@ -213,7 +216,7 @@ function NewRoundForm({
       const now = new Date().toISOString();
       const round = newAsyncRound(
         { ...provisional(values), stories: [...fromQueue, ...typed] },
-        newAsyncRoundId(),
+        roundId,
         now
       );
       if (saveRound(round) === null) onCreated(round);
