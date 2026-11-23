@@ -178,6 +178,44 @@ describe("tool.kickoff.list_state", () => {
     expect(canvas.statement).toBeNull();
   });
 
+  it("reports no worry for a line whose worry was deleted, and keeps the link through a write", async () => {
+    useWorkspaceStore.setState({
+      kickoffs: [
+        kickoff({
+          id: "deck",
+          format: "inception",
+          sections: {
+            worries: [],
+            needs: [item("n", "A contact", { covers: "w", owner: "Omar" })],
+          },
+        }),
+      ],
+    });
+    type State = { kickoffs: { sections: { id: string; items: Record<string, unknown>[] }[] }[] };
+    const needs = (s: State) => s.kickoffs[0].sections.find((x) => x.id === "needs")!.items[0];
+    expect(needs(await run<State>("tool.kickoff.list_state"))).toMatchObject({ covers: null });
+    // A verb's write keeps the id, so the worry's Undo finds its cover again.
+    await run("tool.kickoff.add_items", {
+      kickoffId: "deck",
+      section: "in-scope",
+      items: [{ text: "Tap to pay" }],
+    });
+    const saved = ws().kickoffs!.find((k) => k.id === "deck")!;
+    expect(saved.sections.needs[0].covers).toBe("w");
+    useWorkspaceStore.setState({
+      kickoffs: [
+        {
+          ...saved,
+          sections: {
+            ...saved.sections,
+            worries: [item("w", "Slow partner", { likelihood: 4, impact: 5 })],
+          },
+        },
+      ],
+    });
+    expect(needs(await run<State>("tool.kickoff.list_state"))).toMatchObject({ covers: "w" });
+  });
+
   it("gives a problem framing's statement, typed or built", async () => {
     useWorkspaceStore.setState({
       kickoffs: [

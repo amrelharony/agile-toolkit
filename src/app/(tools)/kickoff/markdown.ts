@@ -6,7 +6,7 @@
  * credit line. Lines are collapsed and table cells escaped.
  */
 
-import { formatOf, itemsOf, oneLine, orderedSliders, shortText } from "@/lib/kickoff/model";
+import { coveredWorry, formatOf, oneLine, orderedSliders, shortText } from "@/lib/kickoff/model";
 import { PEOPLE_SECTION, type KickoffSectionDef } from "@/lib/kickoff/formats";
 import { creditLine, creditUrl, sectionsMarkdown } from "@/lib/sectioned/model";
 import type { Kickoff, KickoffItem } from "@/lib/stores/workspace-types";
@@ -41,12 +41,9 @@ function itemLine(k: Kickoff, item: KickoffItem, def: KickoffSectionDef): string
     ].filter(Boolean);
     if (parts.length > 0) line += ` · ${parts.join(" · ")}`;
   }
-  if (def.covers && item.covers) {
-    const worry = formatOf(k)
-      .sections.filter((d) => d.coverTarget)
-      .flatMap((d) => itemsOf(k, d.id))
-      .find((w) => w.id === item.covers);
-    if (worry) line += ` (covers: ${shortText(worry.text, 80)})`;
+  if (def.covers) {
+    const worry = coveredWorry(k, item);
+    if (worry) line += ` (covers: ${shortText(worry.item.text, 80)})`;
   }
   return line;
 }

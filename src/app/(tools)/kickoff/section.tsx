@@ -27,6 +27,7 @@ import { KICKOFF_ACTIONS } from "@/lib/history/event-actions";
 import { COVER_HINT, PEOPLE_SECTION, type KickoffSectionDef } from "@/lib/kickoff/formats";
 import {
   coverSections,
+  coveredWorry,
   coveringItems,
   cutLine,
   findItem,
@@ -257,8 +258,9 @@ export function KickoffSection({
   const { kickoff: k, write, log, example } = handle;
   const items = itemsOf(k, def.id);
   const routes = (def.routes ?? []).filter((r) => ROUTES.has(r));
-  const worryLabel = (id: string) => {
-    const found = findItem(k, id);
+  /** The words of the worry a line covers; null while that worry is missing. */
+  const worryLabel = (item: KickoffItem) => {
+    const found = coveredWorry(k, item);
     return found ? shortText(found.item.text, 60) : null;
   };
 
@@ -352,7 +354,7 @@ export function KickoffSection({
     }
     if (def.coverTarget) parts.push(<Cover key="cover" handle={handle} worry={item} />);
     if (def.covers && item.covers) {
-      const words = worryLabel(item.covers);
+      const words = worryLabel(item);
       if (words) {
         parts.push(
           <p key="covers" className="text-xs text-sub">

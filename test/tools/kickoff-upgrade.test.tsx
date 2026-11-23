@@ -430,6 +430,33 @@ describe("filling it in", () => {
     expect(screen.getByText("Covers: The partner is slow")).toBeInTheDocument();
   });
 
+  it("puts a deleted worry back with Undo still covered, even after another edit", () => {
+    seed(
+      kickoff({
+        id: "k1",
+        format: "inception",
+        sections: {
+          worries: [item("w1", "Certification is slow", { likelihood: 4, impact: 3 })],
+          needs: [item("n1", "A partner contact", { owner: "Omar", covers: "w1" })],
+        },
+      })
+    );
+    renderPage();
+    expect(screen.getByText("Covers: Certification is slow")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete “Certification is slow”" }));
+    expect(byId("k1").sections.worries).toEqual([]);
+    expect(screen.queryByText("Covers: Certification is slow")).toBeNull();
+    // A write inside the Undo window reads the row without the worry.
+    enter("Add to Definitely in", "Tap to pay in the app");
+    expect(byId("k1").sections.needs[0].covers).toBe("w1");
+    undo("Deleted “Certification is slow”");
+    expect(byId("k1").sections.worries.map((w) => w.id)).toEqual(["w1"]);
+    expect(byId("k1").sections.needs[0]).toMatchObject({ id: "n1", covers: "w1" });
+    expect(screen.queryByText("Nothing covers this yet.")).toBeNull();
+    expect(screen.queryByText("Nothing covers “Certification is slow” yet.")).toBeNull();
+    expect(screen.getByText("Covers: Certification is slow")).toBeInTheDocument();
+  });
+
   it("lists what's still open", () => {
     seed(
       kickoff({

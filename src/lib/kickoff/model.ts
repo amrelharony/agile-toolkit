@@ -19,6 +19,7 @@
 import { nanoid } from "nanoid";
 import type { HandoffSource } from "@/lib/handoffs/types";
 import {
+  SECTION_ITEM_ID_MAX,
   addDraftLines,
   cleanSections,
   draftLinesFor,
@@ -122,11 +123,22 @@ function cleanLinks(raw: unknown): HandoffLink[] | undefined {
   return byRoute.size > 0 ? Array.from(byRoute.values()) : undefined;
 }
 
-/** A line as its section takes it: ratings only where the section rates, an owner only where it has one. */
+/**
+ * A line as its section takes it: ratings only where the section rates, an
+ * owner only where it has one, and the worry it covers only where its
+ * section covers. That worry's id stays while the worry is missing: a
+ * deleted worry's Undo (or any write made before it) finds the lines that
+ * covered it still pointing at it. The views look the worry up
+ * (`coveredWorry`, `coveringItems`), so an id that points at nothing shows
+ * nothing.
+ */
 function cleanItem(item: KickoffItem, def: KickoffSectionDef): KickoffItem {
-  const { likelihood, impact, owner, ...rest } = item;
+  const { likelihood, impact, owner, covers, ...rest } = item;
   const next: KickoffItem = { ...rest };
   if (def.owner && owner) next.owner = owner;
+  if (def.covers && typeof covers === "string" && covers && covers.length <= SECTION_ITEM_ID_MAX) {
+    next.covers = covers;
+  }
   if (def.ratings) {
     const l = toRating(likelihood);
     const i = toRating(impact);
@@ -199,9 +211,10 @@ const isoOrUndefined = (v: unknown): string | undefined =>
  * A stored kickoff read safely, or null when it can't be one (no id, or a
  * format the catalog doesn't have). It keeps the format's sections only
  * (lib/sectioned's `cleanSections`), drops lines with neither words nor an
- * owner, ratings off the 1–5 scale, and `covers` ids that point at nothing
- * (or sit on a line whose section can't cover); slider positions come out
- * unique, 1 first, and only formats with sliders keep them.
+ * owner, ratings off the 1–5 scale, and `covers` on a line whose section
+ * can't cover (a `covers` whose worry is missing stays: see `cleanItem`);
+ * slider positions come out unique, 1 first, and only formats with sliders
+ * keep them.
  */
 export function normalizeKickoff(raw: unknown): Kickoff | null {
   if (!isRecord(raw)) return null;
@@ -213,22 +226,10 @@ export function normalizeKickoff(raw: unknown): Kickoff | null {
     itemMax: KICKOFF_ITEM_MAX,
     longMax: KICKOFF_ITEM_MAX,
   });
-  const worries = new Set<string>();
   // Only the sections the row holds: a missing one reads as empty (itemsOf).
-  const held = def.sections.filter((d) => Object.prototype.hasOwnProperty.call(sections, d.id));
-  for (const d of held) {
-    const items = sections[d.id].map((i) => cleanItem(i, d)).filter((i) => !isBlankItem(i));
-    sections[d.id] = items;
-    if (d.coverTarget) for (const i of items) worries.add(i.id);
-  }
-  for (const d of held) {
-    sections[d.id] = sections[d.id].map((i) => {
-      if (i.covers === undefined) return i;
-      if (d.covers && typeof i.covers === "string" && worries.has(i.covers)) return i;
-      const { covers: _covers, ...rest } = i;
-      void _covers;
-      return rest;
-    });
+  for (const d of def.sections) {
+    if (!Object.prototype.hasOwnProperty.call(sections, d.id)) continue;
+    sections[d.id] = sections[d.id].map((i) => cleanItem(i, d)).filter((i) => !isBlankItem(i));
   }
   const status: KickoffStatus = (KICKOFF_STATUSES as readonly unknown[]).includes(raw.status)
     ? (raw.status as KickoffStatus)
@@ -490,6 +491,19 @@ export function coveringItems(
       ? itemsOf(k, def.id).flatMap((item) => (item.covers === worryId ? [{ item, def }] : []))
       : []
   );
+}
+
+/**
+ * The worry a line covers, with its section; null when it covers none, or
+ * its worry isn't in the kickoff (deleted, and maybe on its way back with
+ * Undo).
+ */
+export function coveredWorry(
+  k: Kickoff,
+  item: KickoffItem
+): { item: KickoffItem; def: KickoffSectionDef } | null {
+  if (!item.covers) return null;
+  return worriesOf(k).find((w) => w.item.id === item.covers) ?? null;
 }
 
 /** The sections whose lines can cover this kickoff's worries. */

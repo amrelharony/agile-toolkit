@@ -47,6 +47,7 @@ import { KICKOFF_FORMAT_DEFS, kickoffSection } from "@/lib/kickoff/formats";
 import {
   answerOf,
   blankKickoff,
+  coveredWorry,
   coveringItems,
   cutLine,
   fitsRow,
@@ -154,7 +155,8 @@ function summarize(rows: readonly unknown[]) {
                   }
                 : {}),
               ...(def.coverTarget ? { covered: coveringItems(k, item.id).length > 0 } : {}),
-              ...(def.covers ? { covers: item.covers ?? null } : {}),
+              // A worry that isn't there (deleted, maybe coming back with Undo) reads as none.
+              ...(def.covers ? { covers: coveredWorry(k, item)?.item.id ?? null } : {}),
               sentTo: (item.sentTo ?? []).map((l) => l.route),
             })),
           };

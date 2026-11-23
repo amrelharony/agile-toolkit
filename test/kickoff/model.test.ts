@@ -21,6 +21,8 @@ import {
 import {
   blankKickoff,
   changedSinceAgreed,
+  coveredWorry,
+  coveringItems,
   draftItemsFor,
   draftSlidersFor,
   hmwStarters,
@@ -149,7 +151,7 @@ describe("normalizeKickoff", () => {
     expect(normalizeKickoff({ id: "k", format: "whiteboard" })).toBeNull();
   });
 
-  it("keeps the format's sections, drops empty lines, off-scale ratings and dangling covers", () => {
+  it("keeps the format's sections, drops empty lines, off-scale ratings and covers where none go", () => {
     const k = normalizeKickoff({
       id: "k1",
       title: "Map",
@@ -179,9 +181,10 @@ describe("normalizeKickoff", () => {
     );
     expect(k.sections.mission.map((i) => i.id)).toEqual(["m1"]);
     expect(k.sections.risks).toEqual([item("r1", "Certification is slow", { likelihood: 4 })]);
+    // A worry that isn't there keeps its cover: a deleted worry's Undo finds it.
     expect(k.sections.commitments).toEqual([
       item("c1", "Watch the partner", { owner: "Omar", covers: "r1" }),
-      item("c2", "Write the docs"),
+      item("c2", "Write the docs", { covers: "gone" }),
     ]);
     // Objectives can't cover, and aren't rated.
     expect(k.sections.objectives).toEqual([item("o1", "A pilot")]);
@@ -379,6 +382,31 @@ describe("worries sent on", () => {
       title: "Unrated worry",
       sourceRef: { tool: "kickoff", id: "r2", doc: "kickoff_map" },
     });
+  });
+
+  it("finds the worry a line covers, and none while that worry is gone", () => {
+    const [chase] = map.sections.commitments;
+    expect(coveredWorry(map, chase)?.item.text).toBe("The partner is slow");
+    expect(coveredWorry(map, item("c9", "Covers nothing"))).toBeNull();
+    // An id that isn't a worry's (here a commitment's) covers nothing.
+    expect(coveredWorry(map, item("c9", "Odd", { covers: "c2" }))).toBeNull();
+    // The worry deleted: the row keeps the covers ids, the views show none…
+    const without = normalizeKickoff({
+      ...map,
+      sections: { ...map.sections, risks: [map.sections.risks[1]] },
+    })!;
+    expect(without.sections.commitments.map((c) => c.covers)).toEqual(["r1", "r1"]);
+    expect(coveredWorry(without, without.sections.commitments[0])).toBeNull();
+    expect(kickoffToMarkdown(without, { today: "2026-11-20" })).not.toContain("(covers:");
+    // …and with the worry back (its Undo), every line covers it again.
+    const back = normalizeKickoff({
+      ...without,
+      sections: { ...without.sections, risks: map.sections.risks },
+    })!;
+    expect(coveringItems(back, "r1").map((c) => c.item.id)).toEqual(["c1", "c2", "x1"]);
+    expect(worryToRisk(back, back.sections.risks[0])).toEqual(
+      worryToRisk(map, map.sections.risks[0])
+    );
   });
 
   it("keeps example lines and [placeholders] from being sent", () => {
