@@ -473,6 +473,33 @@ describe("talking about it live", () => {
     fireEvent.click(screen.getByRole("button", { name: `Accept ${value}` }));
   }
 
+  it("agrees a queue story accepted live on its round, and writes it back once", async () => {
+    const q1 = queueCard("c1", "Search products");
+    const [taken] = takeQueuedStoriesById([q1]);
+    useWorkspaceStore.setState({
+      pokerAsyncRounds: [
+        round({
+          status: "revealed",
+          stories: [{ id: taken.id, title: "Search products", discuss: true }],
+          replies: [
+            { id: "a", name: "Ana", votes: [{ storyId: taken.id, card: "3" }], at: "x" },
+            { id: "b", name: "Bo", votes: [{ storyId: taken.id, card: "13" }], at: "x" },
+          ],
+        }),
+      ],
+    });
+    render(<PlanningPokerClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Talk about it live (1)" }));
+    expect(await screen.findByRole("heading", { name: "Search products" })).toBeTruthy();
+
+    voteRevealAccept("8");
+    expect(card("c1")?.estimate).toBe("8");
+    expect(queue()).toEqual([]);
+    expect(rounds()[0].stories[0]).toMatchObject({ finalEstimate: "8", discuss: false });
+    // Written back where it came from, so no backlog story is made.
+    expect(ws().stories).toEqual([]);
+  });
+
   it("saves a typed story accepted live to the backlog, as Accept on the round does", async () => {
     useWorkspaceStore.setState({ pokerAsyncRounds: [revealed()] });
     render(<PlanningPokerClient />);
