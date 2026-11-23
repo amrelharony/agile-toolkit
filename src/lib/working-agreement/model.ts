@@ -35,6 +35,7 @@ import type {
 import { WORKING_AGREEMENT_ID } from "@/lib/stores/workspace-types";
 import { findRosterMember, nameKey } from "@/lib/team/names";
 import { enoughData } from "@/lib/analytics/min-sample";
+import { normalizeTemplates, readTemplateRef } from "./template-values";
 
 /** The agreement's one document id. */
 export const WA_ID = WORKING_AGREEMENT_ID;
@@ -170,7 +171,39 @@ function normalizeRule(raw: unknown): CharterRule | null {
   else delete rule.description;
   if (isCheckInMark(raw.stillWorking)) rule.stillWorking = raw.stillWorking;
   else delete rule.stillWorking;
+  // A charter template's line keeps its mark; anything else in its place goes.
+  const template = readTemplateRef(raw.template);
+  if (template) rule.template = template;
+  else delete rule.template;
   return rule;
+}
+
+/**
+ * `rule` as edited by hand: its text, its description (undefined leaves it;
+ * an emptied one goes) and, when given, its category. A change makes the
+ * rule the team's own: it loses its charter template's mark, so applying
+ * the template again won't overwrite it. Where it came from (`sourceRef`, a
+ * kickoff's rule) stays. Nothing changed gives `rule` back as it is.
+ */
+export function withRuleText(
+  rule: CharterRule,
+  text: string,
+  description: string | undefined,
+  category?: CharterRuleCategory
+): CharterRule {
+  const next: CharterRule = { ...rule, text };
+  if (description !== undefined) {
+    if (description.trim()) next.description = description.trim();
+    else delete next.description;
+  }
+  if (category) next.category = category;
+  const changed =
+    next.text !== rule.text ||
+    (next.description ?? "") !== (rule.description ?? "") ||
+    next.category !== rule.category;
+  if (!changed) return rule;
+  delete next.template;
+  return next;
 }
 
 function normalizeMeta(raw: unknown): CharterMeta {
@@ -280,7 +313,7 @@ export function normalizeAgreement(raw: unknown): WorkingAgreement {
   // the page always stamped publishedAt when it published. Read such a
   // document as never published, so the first Publish makes it v1.
   if (meta.version > 0 && !meta.publishedAt && versions.length === 0) meta.version = 0;
-  return {
+  const doc: WorkingAgreement = {
     ...(raw as Partial<WorkingAgreement>),
     id: WA_ID,
     rules,
@@ -288,6 +321,11 @@ export function normalizeAgreement(raw: unknown): WorkingAgreement {
     checkIns,
     versions,
   };
+  // The charter templates applied, read back to a usable shape (absent when none is).
+  const templates = normalizeTemplates(raw.templates);
+  if (templates) doc.templates = templates;
+  else delete doc.templates;
+  return doc;
 }
 
 /* ── Consent ────────────────────────────────────────────────────────── */

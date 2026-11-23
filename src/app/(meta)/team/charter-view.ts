@@ -4,6 +4,7 @@
  */
 
 import type {
+  Kickoff,
   ProductGoal,
   Sprint,
   Story,
@@ -11,6 +12,7 @@ import type {
   WorkingAgreement,
 } from "@/lib/stores/workspace-types";
 import { activeGoal, targetText } from "@/lib/product-goal/model";
+import { teamPurpose } from "@/lib/kickoff/model";
 import { CEREMONY_LABEL, WEEKDAY_LABEL, type CeremonyCadence } from "@/lib/sprints/cadence";
 import { isExampleSprintId } from "@/lib/sprints/example";
 import { sprintsByEndDate } from "@/lib/sprints/metrics";
@@ -77,6 +79,12 @@ export interface CharterDocs {
    * read-only line (example goals left out). Absent: not shown.
    */
   productGoals?: readonly ProductGoal[];
+  /**
+   * The workspace's kickoffs: the charter shows the team's purpose from the
+   * newest agreed Team Canvas (example kickoffs left out) as a read-only
+   * line. Absent, or no purpose: not shown.
+   */
+  kickoffs?: readonly Kickoff[];
 }
 
 /** The active Product Goal as the charter shows it, or null when none is active. */
@@ -89,6 +97,25 @@ export function charterProductGoal(
     statement: goal.statement.replace(/\s+/g, " ").trim(),
     target: targetText(goal.targetDate),
     measures: goal.measures.map((m) => m.replace(/\s+/g, " ").trim()).filter(Boolean),
+  };
+}
+
+/**
+ * The team's purpose as the charter shows it (Kickoff's `teamPurpose`: the
+ * newest agreed, non-example Team Canvas), with the link to that kickoff;
+ * null when there is none.
+ */
+export function charterPurpose(
+  docs: Pick<CharterDocs, "kickoffs">
+): { kickoffId: string; text: string; href: string } | null {
+  const purpose = teamPurpose(docs.kickoffs);
+  if (!purpose) return null;
+  const text = purpose.text.replace(/\s+/g, " ").trim();
+  if (!text) return null;
+  return {
+    kickoffId: purpose.kickoffId,
+    text,
+    href: `/kickoff?kickoff=${encodeURIComponent(purpose.kickoffId)}`,
   };
 }
 
@@ -422,6 +449,10 @@ export function charterMarkdown(docs: CharterDocs, today: string): string {
       lines.push("");
     }
   }
+
+  // Only when the team has agreed one, so a charter without it reads as before.
+  const purpose = charterPurpose(docs);
+  if (purpose) lines.push("## Team purpose", "", oneLine(purpose.text), "");
 
   lines.push("## Team", "");
   if (docs.members.length === 0) lines.push("No members listed yet.");

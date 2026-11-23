@@ -129,14 +129,24 @@ describe("what the MCP handlers call", () => {
         "src/lib/roadmap/epic-source.ts",
         "src/lib/roadmap/horizons.ts",
         "src/lib/root-cause/loops.ts",
+        "src/lib/standup/digest-ai.ts",
+        "src/lib/standup/entries.ts",
         "src/lib/strategy-map/checks.ts",
         "src/lib/strategy-map/drafts.ts",
         "src/lib/strategy-map/formats.ts",
         "src/lib/strategy-map/model.ts",
         "src/lib/strategy-map/rules.ts",
         "src/lib/strategy-map/send.ts",
+        "src/lib/team-time/model.ts",
+        "src/lib/team-time/next-step.ts",
+        "src/lib/team-time/note.ts",
+        "src/lib/team-time/rotation.ts",
+        "src/lib/team-time/sun.ts",
+        "src/lib/team-time/validate.ts",
         "src/lib/test-sessions/model.ts",
         "src/lib/trees/parent-tree.ts",
+        "src/lib/working-agreement/model.ts",
+        "src/lib/working-agreement/templates.ts",
       ].map(abs)
     );
     expect(clients).toEqual([]);
@@ -153,6 +163,7 @@ describe("the action files", () => {
   it.each([
     // One tool id per line, so tools added side by side merge cleanly.
     "ab-calculator",
+    "async-standup",
     "bug-triage",
     "parking-lot",
     "pi-planning",
@@ -178,7 +189,9 @@ describe("the action files", () => {
     "retro",
     "root-cause",
     "strategy-tree",
+    "team-time",
     "test-sessions",
+    "working-agreement",
   ])("%s reaches no client module but the workspace store", (tool) => {
     const { seen, clients } = walk([abs(`src/lib/actions/tools/${tool}.ts`)]);
     expect(clients).toEqual([]);

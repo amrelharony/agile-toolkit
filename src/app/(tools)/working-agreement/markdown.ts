@@ -80,6 +80,32 @@ export function agreementMarkdown(
     lines.push("");
   }
 
+  // The charter templates' answers that aren't rules: the ladder as a table, and AI use's tools.
+  const ladder = doc.templates?.urgencyLadder;
+  if (ladder) {
+    lines.push(
+      "## Urgency ladder",
+      "",
+      "| Level | When | Where | Reply within |",
+      "| --- | --- | --- | --- |",
+      ...ladder.levels.map(
+        (l) =>
+          `| ${cell(l.label)} | ${cell(l.when)} | ${cell(l.channel)} | ${cell(l.replyWithin)} |`
+      ),
+      ""
+    );
+  }
+  const ai = doc.templates?.aiUse;
+  if (ai) {
+    lines.push(
+      "## AI use",
+      "",
+      `- Tools we use: ${ai.tools.length > 0 ? ai.tools.map(oneLine).join(", ") : "none named yet"}`,
+      `- Where we share prompts: ${ai.shareWhere ? oneLine(ai.shareWhere) : "not set yet"}`,
+      ""
+    );
+  }
+
   const trend = checkInTrend(doc);
   if (trend.length > 0) {
     lines.push(

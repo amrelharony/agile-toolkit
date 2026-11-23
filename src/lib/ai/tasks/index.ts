@@ -7,6 +7,7 @@
 import type { AiTaskDef } from "../task-types";
 import { suggestOptionsTask } from "./_example";
 import { abPlanCheckTask } from "./ab-calculator";
+import { asyncStandupDigestTask } from "./async-standup";
 import { clusterTask, mergeQuestionsTask, toBacklogTask } from "./audience-wall";
 import { backlogHealthReviewTask } from "./backlog-health";
 import { bugTriageSeverityTask } from "./bug-triage";
@@ -40,6 +41,7 @@ import { categoriesTask, countermeasureTask, loopLinksTask, nextWhyTask } from "
 import { notebookTagTask, notebookWeeklySummaryTask } from "./sm-notebook";
 import { sprintRiskNoteTask } from "./sprint";
 import { strategyTreeDraftTask } from "./strategy-tree";
+import { teamTimeScheduleNoteTask } from "./team-time";
 import { testSessionsChartersTask } from "./test-sessions";
 
 // `any` here only erases each task's own input/output types for the list; the
@@ -48,6 +50,7 @@ import { testSessionsChartersTask } from "./test-sessions";
 export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   suggestOptionsTask,
   abPlanCheckTask,
+  asyncStandupDigestTask,
   clusterTask,
   mergeQuestionsTask,
   toBacklogTask,
@@ -93,5 +96,6 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   notebookTagTask,
   sprintRiskNoteTask,
   strategyTreeDraftTask,
+  teamTimeScheduleNoteTask,
   testSessionsChartersTask,
 ];

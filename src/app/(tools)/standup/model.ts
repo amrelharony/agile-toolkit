@@ -9,10 +9,10 @@
  * in lib/standup/entries; this file only adds what the page needs.
  */
 
-import type { StandupEntry, StandupMode } from "@/lib/stores/workspace-types";
+import type { StandupEntry, StandupFormat, StandupMode } from "@/lib/stores/workspace-types";
 import type { Validation } from "@/lib/utils/form";
 import { addDays, dayOf, daysBetween } from "@/lib/impediments/model";
-import { hasBlocker } from "@/lib/standup/entries";
+import { BLOCKER_DRI_MAX, formatFields, hasBlocker } from "@/lib/standup/entries";
 import { hashSeed } from "@/lib/utils/random";
 
 /** Matches people across entries and the roster: trimmed, case-insensitive. */
@@ -34,9 +34,15 @@ export interface EntryDraft {
   blockers: string;
   /** Anything else (stored as the entry's `description`). */
   notes: string;
+  /** Progress/Plans/Problems (async posts); absent is classic. */
+  format?: StandupFormat;
+  /** Who can clear the blocker (async posts; kept only with a blocker). */
+  dri?: string;
+  /** A hand-over to the next time zone (async posts). */
+  handoff?: string;
 }
 
-export type EntryField = keyof EntryDraft;
+export type EntryField = Exclude<keyof EntryDraft, "format">;
 
 /** A checked draft: trimmed, with a real day. */
 export type EntryValues = EntryDraft;
@@ -54,6 +60,9 @@ export function draftFrom(e: StandupEntry): EntryDraft {
     today: e.today ?? "",
     blockers: e.blockers ?? "",
     notes: e.description ?? "",
+    ...(e.format === "ppp" ? { format: "ppp" as const } : {}),
+    ...(e.blockerDri ? { dri: e.blockerDri } : {}),
+    ...(e.handoff ? { handoff: e.handoff } : {}),
   };
 }
 
@@ -76,7 +85,15 @@ export function validateEntry(d: EntryDraft, today: string): Validation<EntryVal
   for (const key of ["yesterday", "today", "blockers", "notes"] as const) {
     if (!errors[key] && d[key].trim().length > ENTRY_TEXT_MAX) errors[key] = TOO_LONG;
   }
+  if ((d.handoff ?? "").trim().length > ENTRY_TEXT_MAX) errors.handoff = TOO_LONG;
+  const blockers = d.blockers.trim();
+  if (blockers && (d.dri ?? "").trim().length > BLOCKER_DRI_MAX) {
+    errors.dri = `Keep the name under ${BLOCKER_DRI_MAX} characters.`;
+  }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
+  // Each new field only when it is set (formatFields): a classic post gives
+  // exactly what it gave before formats.
+  const extra = formatFields(d, blockers);
   return {
     ok: true,
     values: {
@@ -84,8 +101,11 @@ export function validateEntry(d: EntryDraft, today: string): Validation<EntryVal
       date: date as string,
       yesterday: d.yesterday.trim(),
       today: d.today.trim(),
-      blockers: d.blockers.trim(),
+      blockers,
       notes: d.notes.trim(),
+      ...(extra.format ? { format: extra.format } : {}),
+      ...(extra.blockerDri ? { dri: extra.blockerDri } : {}),
+      ...(extra.handoff ? { handoff: extra.handoff } : {}),
     },
   };
 }
@@ -135,13 +155,16 @@ export function postedEntry(
     mode,
     ...(values.notes ? { description: values.notes } : {}),
     ...carriedBlockerState(existing, values.blockers),
+    ...formatFields(values, values.blockers),
   };
 }
 
 /**
- * `entry` edited in place: same id, person, day, mode and timestamp. An old
- * async update comes in as an async entry (lib/standup/entries), so saving
- * it writes a StandupEntry under its id, which replaces it from then on.
+ * `entry` edited in place: same id, person, day, mode, format and
+ * timestamp. An old async update comes in as an async entry
+ * (lib/standup/entries), so saving it writes a StandupEntry under its id,
+ * which replaces it from then on. A DRI or hand-over cleared in the editor
+ * is gone after the save.
  */
 export function editedEntry(entry: StandupEntry, values: EntryValues): StandupEntry {
   const next: StandupEntry = {
@@ -153,20 +176,28 @@ export function editedEntry(entry: StandupEntry, values: EntryValues): StandupEn
   delete next.blockerResolved;
   delete next.sentTo;
   delete next.description;
+  delete next.blockerDri;
+  delete next.handoff;
+  const { blockerDri, handoff } = formatFields(values, values.blockers);
   return {
     ...next,
     ...(values.notes ? { description: values.notes } : {}),
     ...carriedBlockerState(entry, values.blockers),
+    ...(blockerDri ? { blockerDri } : {}),
+    ...(handoff ? { handoff } : {}),
   };
 }
 
 /** Whether saving `values` over `entry` would change anything. */
 export function sameEntryText(entry: StandupEntry, values: EntryValues): boolean {
+  const dri = entry.blockers.trim() ? (entry.blockerDri ?? "").trim() : "";
   return (
     entry.yesterday.trim() === values.yesterday &&
     entry.today.trim() === values.today &&
     entry.blockers.trim() === values.blockers &&
-    (entry.description ?? "").trim() === values.notes
+    (entry.description ?? "").trim() === values.notes &&
+    dri === (values.dri ?? "") &&
+    (entry.handoff ?? "").trim() === (values.handoff ?? "")
   );
 }
 

@@ -248,6 +248,8 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
 export const PAGE_READ_GROUPS: Readonly<Record<string, readonly string[]>> = {
   // Its details form links a product metric.
   "ab-calculator": ["workspace.product_metric"],
+  // The digests and the Hand-overs panel read Team Time's places.
+  "async-standup": ["workspace.team_time_person"],
   "bug-triage": ["workspace.sprint"],
   "ebm-dashboard": ["tool.product_goal"],
   // Its Three-point check reads Planning Poker's three_point verb.
@@ -286,8 +288,11 @@ export const PAGE_READ_GROUPS: Readonly<Record<string, readonly string[]>> = {
   // Unsized stories to size; "Save sizes" writes through the page's own verb.
   "relative-sizing": ["workspace.story"],
   "release-readiness": ["workspace.story"],
+  standup: ["workspace.team_time_person"],
   "team-time": ["workspace.team_member"],
   "test-sessions": ["workspace.team_member"],
+  // The core-hours template reads Team Time's people, on each clock.
+  "working-agreement": ["workspace.team_time_person"],
 };
 
 /** Amr's verbs for a live Audience Wall room (`registerLiveWall`), for pages that host one. */

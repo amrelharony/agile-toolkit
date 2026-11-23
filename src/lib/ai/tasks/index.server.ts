@@ -7,6 +7,7 @@ import "server-only";
 import type { AiTaskPrompt } from "../task-types";
 import { suggestOptionsPrompt } from "./_example.server";
 import { abPlanCheckPrompt } from "./ab-calculator.server";
+import { asyncStandupDigestPrompt } from "./async-standup.server";
 import { clusterPrompt, mergeQuestionsPrompt, toBacklogPrompt } from "./audience-wall.server";
 import { backlogHealthReviewPrompt } from "./backlog-health.server";
 import { bugTriageSeverityPrompt } from "./bug-triage.server";
@@ -45,6 +46,7 @@ import {
 import { notebookTagPrompt, notebookWeeklySummaryPrompt } from "./sm-notebook.server";
 import { sprintRiskNotePrompt } from "./sprint.server";
 import { strategyTreeDraftPrompt } from "./strategy-tree.server";
+import { teamTimeScheduleNotePrompt } from "./team-time.server";
 import { testSessionsChartersPrompt } from "./test-sessions.server";
 
 // See index.ts on `any`: each prompt's input is checked by its task's schema first.
@@ -52,6 +54,7 @@ import { testSessionsChartersPrompt } from "./test-sessions.server";
 export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   suggestOptionsPrompt,
   abPlanCheckPrompt,
+  asyncStandupDigestPrompt,
   clusterPrompt,
   mergeQuestionsPrompt,
   toBacklogPrompt,
@@ -97,5 +100,6 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   notebookTagPrompt,
   sprintRiskNotePrompt,
   strategyTreeDraftPrompt,
+  teamTimeScheduleNotePrompt,
   testSessionsChartersPrompt,
 ];

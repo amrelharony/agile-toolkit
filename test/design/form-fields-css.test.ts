@@ -128,6 +128,7 @@ describe("native selects styled to match <Input>", () => {
     "src/app/(tools)/premortem/premortem-client.tsx",
     "src/app/(tools)/product-canvas/select-class.ts",
     "src/app/(tools)/product-metrics/metric-form.tsx",
+    "src/app/(tools)/team-time/fields.tsx",
     "src/app/(tools)/test-sessions/fields.tsx",
     "src/components/shared/quarter-picker.tsx",
   ];
