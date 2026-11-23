@@ -31,7 +31,8 @@ import type {
   RiskiestAssumption,
 } from "@/lib/stores/workspace-types";
 import { RA_ID, rankAssumptions } from "@/lib/assumptions/model";
-import { HYPOTHESIS_TRACKER_ID } from "@/lib/hypotheses/model";
+import { HYPOTHESIS_TRACKER_ID, TRACKER_FULL } from "@/lib/hypotheses/model";
+import { fullTracker } from "../hypotheses/full-tracker";
 
 import "@/lib/actions/tools/riskiest-assumption";
 
@@ -291,5 +292,17 @@ describe.each(TRANSPORTS)("%s", (path) => {
       reason: "not_found",
     });
     expect(tracker(path)).toHaveLength(1);
+  });
+
+  it("test_assumption makes nothing while the Hypothesis Tracker is full, as the page's send does", async () => {
+    const full = fullTracker();
+    seed(path, [a("as1", 4, 2)], full.hypotheses);
+    expect(await run(path, "test_assumption", { assumptionId: "as1" })).toEqual({
+      sent: false,
+      reason: "too_big",
+      message: TRACKER_FULL,
+    });
+    expect(tracker(path)).toEqual(full.hypotheses);
+    expect(canvas(path)[0].sentTo).toBeUndefined();
   });
 });

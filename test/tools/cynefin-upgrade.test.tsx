@@ -6,6 +6,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { CynefinItem, Hypothesis, WhiteboardObject } from "@/lib/stores/workspace-types";
 import { HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
+import { TRACKER_FULL } from "@/lib/hypotheses/model";
+import { fullTracker } from "../hypotheses/full-tracker";
 import {
   DOMAINS,
   classifySignals,
@@ -435,6 +437,18 @@ describe("the agent says the same", () => {
       sent: false,
       reason: "already_sent",
     });
+  });
+
+  it("send_to_hypothesis makes nothing while the Hypothesis Tracker is full", async () => {
+    const full = fullTracker();
+    seed([item()], full.hypotheses);
+    expect(await run("send_to_hypothesis", { id: "c1" })).toEqual({
+      sent: false,
+      reason: "too_big",
+      message: TRACKER_FULL,
+    });
+    expect(hypotheses()).toEqual(full.hypotheses);
+    expect(items()[0].sentTo).toBeUndefined();
   });
 });
 

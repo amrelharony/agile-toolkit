@@ -382,7 +382,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Test an impact as a drafted hypothesis in the Hypothesis Tracker, as the page's 'Test this impact' does: we believe its deliverables will lead the actor to change (or that the actor will), to learn whether they really do, with the goal's measure as the success metric; linked both ways. Once while that hypothesis exists; never an example. Params: mapId, nodeId. Returns {sent: true, route: 'hypothesis', targetId, title} or {sent: false, reason: 'not_found' | 'example' | 'level' (not an impact) | 'already_sent' (with targetId) | 'blank' | 'too_big', message?}.",
+    "Test an impact as a drafted hypothesis in the Hypothesis Tracker, as the page's 'Test this impact' does: we believe its deliverables will lead the actor to change (or that the actor will), to learn whether they really do, with the goal's measure as the success metric; linked both ways. Once while that hypothesis exists; never an example. Params: mapId, nodeId. Returns {sent: true, route: 'hypothesis', targetId, title} or {sent: false, reason: 'not_found' | 'example' | 'level' (not an impact) | 'already_sent' (with targetId) | 'blank' | 'too_big' (the map's row or the Hypothesis Tracker is full, nothing made; with message), message?}.",
   paramsSchema: TestSchema,
   handler: async (p) =>
     sendNode(

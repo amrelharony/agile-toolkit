@@ -55,6 +55,8 @@ import { strategyMapProblems } from "@/lib/strategy-map/rules";
 import { STRATEGY_NODES_MAX } from "@/lib/strategy-map/model";
 import "@/lib/actions/tools/impact-map";
 import { nearlyFull } from "../strategy-map/near-full";
+import { fullTracker } from "../hypotheses/full-tracker";
+import { TRACKER_FULL } from "@/lib/hypotheses/model";
 
 const ctx = (source: "agent" | "mcp" = "agent") => ({
   userId: "u",
@@ -427,6 +429,22 @@ describe("send_deliverable and test_impact, in the browser", () => {
     expect(ws().hypothesisTrackers).toEqual([]);
     expect(stored()).toEqual(full);
   });
+
+  it("refuses to test an impact while the Hypothesis Tracker is full, as the page's button does", async () => {
+    const tracker = fullTracker();
+    useWorkspaceStore.setState({ hypothesisTrackers: [tracker] });
+    expect(await run("test_impact", { mapId: "strategyMap_m", nodeId: "i" })).toEqual({
+      sent: false,
+      reason: "too_big",
+      message: TRACKER_FULL,
+    });
+    expect(ws().hypothesisTrackers).toEqual([tracker]);
+    expect(nodeOf(stored(), "i").sentTo).toBeUndefined();
+    // A deliverable's sends don't touch the tracker, so they still go.
+    expect(
+      await run("send_deliverable", { mapId: "strategyMap_m", nodeId: "d", to: "backlog-story" })
+    ).toMatchObject({ sent: true });
+  });
 });
 
 describe("over MCP", () => {
@@ -481,6 +499,20 @@ describe("over MCP", () => {
       expect(await run(name, params, true)).toMatchObject({ sent: false, reason: "too_big" });
     }
     expect(Array.from(server.rows.keys())).toEqual(["workspace:strategyMap/strategyMap_m"]);
+  });
+
+  it("writes no hypothesis and no link while the user's Hypothesis Tracker is full", async () => {
+    const tracker = fullTracker();
+    const TRACKER_ROW = "workspace:hypothesisTracker/hypothesisTracker:current";
+    server.rows.set(TRACKER_ROW, tracker);
+    expect(await run("test_impact", { mapId: "strategyMap_m", nodeId: "i" }, true)).toEqual({
+      sent: false,
+      reason: "too_big",
+      message: TRACKER_FULL,
+    });
+    expect(server.rows.get(TRACKER_ROW)).toEqual(tracker);
+    const saved = server.rows.get("workspace:strategyMap/strategyMap_m") as StrategyMap;
+    expect(nodeOf(saved, "i").sentTo).toBeUndefined();
   });
 
   it("sends again only once the server's target is gone", async () => {

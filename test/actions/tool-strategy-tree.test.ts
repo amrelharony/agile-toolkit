@@ -45,6 +45,8 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { strategyMapProblems } from "@/lib/strategy-map/rules";
 import "@/lib/actions/tools/strategy-tree";
 import { nearlyFull } from "../strategy-map/near-full";
+import { fullTracker } from "../hypotheses/full-tracker";
+import { TRACKER_FULL } from "@/lib/hypotheses/model";
 
 const ctx = (source: "agent" | "mcp" = "agent") => ({
   userId: "u",
@@ -421,6 +423,18 @@ describe("send, in the browser", () => {
     expect(ws().epicRoadmaps).toEqual([]);
     expect(stored("strategyMap_l")).toEqual(full);
   });
+
+  it("refuses to test a bet while the Hypothesis Tracker is full, as the page's button does", async () => {
+    const tracker = fullTracker();
+    useWorkspaceStore.setState({ hypothesisTrackers: [tracker] });
+    expect(await run("send", { treeId: "strategyMap_l", nodeId: "b", to: "hypothesis" })).toEqual({
+      sent: false,
+      reason: "too_big",
+      message: TRACKER_FULL,
+    });
+    expect(ws().hypothesisTrackers).toEqual([tracker]);
+    expect(nodeOf(stored("strategyMap_l"), "b").sentTo).toBeUndefined();
+  });
 });
 
 describe("over MCP", () => {
@@ -460,6 +474,22 @@ describe("over MCP", () => {
       await run("send", { treeId: "strategyMap_l", nodeId: "in", to: "epic" }, true)
     ).toMatchObject({ sent: false, reason: "too_big" });
     expect(Array.from(server.rows.keys())).toEqual(["workspace:strategyMap/strategyMap_l"]);
+  });
+
+  it("writes no hypothesis and no link while the user's Hypothesis Tracker is full", async () => {
+    const tracker = fullTracker();
+    const TRACKER_ROW = "workspace:hypothesisTracker/hypothesisTracker:current";
+    server.rows.set(TRACKER_ROW, tracker);
+    expect(
+      await run("send", { treeId: "strategyMap_l", nodeId: "b", to: "hypothesis" }, true)
+    ).toEqual({ sent: false, reason: "too_big", message: TRACKER_FULL });
+    expect(server.rows.get(TRACKER_ROW)).toEqual(tracker);
+    const saved = server.rows.get("workspace:strategyMap/strategyMap_l") as StrategyMap;
+    expect(nodeOf(saved, "b").sentTo).toBeUndefined();
+    // The epic still goes: only the tracker is full.
+    expect(
+      await run("send", { treeId: "strategyMap_l", nodeId: "in", to: "epic" }, true)
+    ).toMatchObject({ sent: true });
   });
 
   it("sets a status on the user's row", async () => {

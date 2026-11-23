@@ -11,7 +11,9 @@
  * In the browser a send goes through its route (as the page's sendHandoff
  * calls it, without the toast: an agent has no Undo); over MCP the target
  * is written to the user's rows on the server, built by the very same
- * builders. Only the three routes are imported, never the hand-off
+ * builders. Either way a send the target can't take is refused first, as
+ * the route's own check refuses it on the page (a hypothesis the tracker's
+ * one row can't hold). Only the three routes are imported, never the hand-off
  * registry, whose other targets reach browser-only modules.
  *
  * The leading underscore keeps scripts/generate-action-registry.mjs from
@@ -43,8 +45,10 @@ import { EPIC_ROADMAP_ID, buildEpicFromSource } from "@/lib/roadmap/epic-source"
 import { epicRollup, linkedStories } from "@/lib/roadmap/rollup";
 import {
   HYPOTHESIS_TRACKER_ID,
+  TRACKER_FULL,
   hypothesisFromSource,
   isResolved,
+  trackerFits,
   withHypothesis,
 } from "@/lib/hypotheses/model";
 import { stampStoryWrite } from "@/lib/sprints/story-status";
@@ -84,6 +88,12 @@ export interface StrategyStore {
   hypotheses(): Promise<Hypothesis[]>;
   /** A link's target as it is now. */
   target(link: HandoffLink): Promise<TargetState>;
+  /**
+   * Why the route can't take `src` now, or null: the route's own check
+   * (HandoffRoute.problem), such as TRACKER_FULL when the Hypothesis
+   * Tracker's one row can't hold another hypothesis. Asked before `send`.
+   */
+  problem(route: StrategySendRoute, src: HandoffSource): Promise<string | null>;
   /** Create the item a route makes for `src`; returns its id. */
   send(route: StrategySendRoute, src: HandoffSource): Promise<string>;
 }
@@ -101,6 +111,7 @@ export const browserStrategyStore: StrategyStore = {
     if (!route.exists(link.targetId)) return "gone";
     return route.isDone?.(link.targetId) ? "done" : "live";
   },
+  problem: async (route, src) => ROUTES[route].problem?.(src) ?? null,
   send: async (route, src) => ROUTES[route].send(src),
 };
 
@@ -117,6 +128,16 @@ export function serverStrategyStore(userId: string): StrategyStore {
     (tracker ??= serverGetEntity<HypothesisTracker>(userId, KIND_HT, HYPOTHESIS_TRACKER_ID).then(
       (d) => d ?? null
     ));
+  // The hypothesis `problem` checked against the tracker's row, so `send` writes that same one.
+  const built = new WeakMap<HandoffSource, Hypothesis>();
+  const hypothesisFor = (src: HandoffSource) => {
+    let h = built.get(src);
+    if (!h) {
+      h = hypothesisFromSource(src, nanoid(8), todayLocalISO());
+      built.set(src, h);
+    }
+    return h;
+  };
   return {
     maps: async () => readStrategyMaps(await serverListEntities(userId, STRATEGY_MAP_KIND)),
     put: async (map) => {
@@ -141,6 +162,12 @@ export function serverStrategyStore(userId: string): StrategyStore {
       }
       return "gone";
     },
+    // Of the three routes only the hypothesis has a check, as in the browser: the tracker's one row.
+    problem: async (route, src) =>
+      route === "hypothesis" &&
+      !trackerFits(withHypothesis(await loadTracker(), hypothesisFor(src)))
+        ? TRACKER_FULL
+        : null,
     send: async (route, src) => {
       if (route === "backlog-story") {
         // Stamped as the browser's store stamps a new story (createdAt).
@@ -159,13 +186,13 @@ export function serverStrategyStore(userId: string): StrategyStore {
         roadmap = undefined;
         return epic.id;
       }
-      const h = hypothesisFromSource(src, nanoid(8), todayLocalISO());
-      await serverUpsertEntity<HypothesisTracker>(
-        userId,
-        KIND_HT,
-        withHypothesis(await loadTracker(), h)
-      );
+      const h = hypothesisFor(src);
+      const next = withHypothesis(await loadTracker(), h);
+      // Asked by `problem` first; a caller that skipped it still never writes a row over the cap.
+      if (!trackerFits(next)) throw new Error(TRACKER_FULL);
+      await serverUpsertEntity<HypothesisTracker>(userId, KIND_HT, next);
       tracker = undefined;
+      built.delete(src);
       return h.id;
     },
   };
@@ -218,7 +245,9 @@ export type SendOutcome =
  * only from a level that takes the route, never an example, once while
  * the target exists (a target that is gone can be sent again), with the
  * link written on the node; a map whose row can't hold the link is refused
- * (too_big) before the target is made. `want` names the map's tool: an impact map's
+ * (too_big) before the target is made, and so is a send the target refuses
+ * (too_big with the route's message: a full Hypothesis Tracker says
+ * TRACKER_FULL, as the page does). `want` names the map's tool: an impact map's
  * verb never sends a tree's node, and the other way round.
  */
 export async function sendNode(
@@ -246,6 +275,10 @@ export async function sendNode(
   // The row must hold the link before anything is made: a target left with
   // no link back is never seen as already sent, so each retry would make another.
   if (!holdsLink(map)) return { sent: false, reason: "too_big", message: TOO_BIG };
+  // And the target must take it: a hypothesis the tracker's one row can't hold
+  // would leave every later tracker write refused by the database.
+  const refused = await store.problem(p.route, src);
+  if (refused) return { sent: false, reason: "too_big", message: refused };
   const targetId = await store.send(p.route, src);
   const link: HandoffLink = { route: p.route, targetId, at: new Date().toISOString() };
   const next: StrategyMap = {
