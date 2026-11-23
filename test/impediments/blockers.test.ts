@@ -217,6 +217,32 @@ describe("the Pareto", () => {
     expect(readBlockers([], [], [imp("4")], WINDOW).unclustered).toHaveLength(1);
   });
 
+  it("counts one cluster however its name is cased or spaced", () => {
+    const rows = blockerRows(
+      [],
+      [],
+      [
+        imp("1", { cluster: "Another team" }),
+        imp("2", { cluster: "another  team" }),
+        imp("3", { cluster: "Legal sign-off" }),
+        imp("4", { cluster: "legal sign-off" }),
+        imp("5", { cluster: "legal  sign-off" }),
+        imp("6", { cluster: "Waiting for a review" }),
+      ],
+      WINDOW
+    );
+    const p = clusterPareto(rows);
+    // A default cluster reads as the list writes it; a team's own as most of its rows spell it.
+    expect(p.clusters.map((c) => [c.cluster, c.impediments])).toEqual([
+      ["legal sign-off", 3],
+      ["Another team", 2],
+      ["Waiting for a review", 1],
+    ]);
+    expect(
+      blockersByMonth(rows, "impediments").flatMap((m) => m.top.map((t) => t.cluster))
+    ).not.toContain("another  team");
+  });
+
   it("gives each month its top three", () => {
     const rows = blockerRows(
       [],

@@ -43,8 +43,10 @@ import {
   type BlockRow,
 } from "@/lib/flow/blocks";
 import { isExampleId } from "@/lib/utils/example-id";
-import { defaultClusterSide } from "./clusters";
+import { clusterKey, defaultClusterLabel, defaultClusterSide } from "./clusters";
 import { dayOf, impedimentAgeDays, isResolved } from "./model";
+
+export { clusterKey } from "./clusters";
 
 /** The windows the page offers, in days. */
 export const BLOCKER_WINDOWS = [30, 90, 180] as const;
@@ -250,20 +252,34 @@ export interface ClusterPareto {
 
 const round1 = (n: number) => Math.round(n * 10) / 10;
 
-function aggregate(rows: readonly BlockerRow[]) {
-  const byCluster = new Map<
-    string,
-    { rows: BlockerRow[]; items: Set<string>; days: number; imps: number; open: number }
-  >();
+/** One cluster's rows and totals. */
+interface ClusterGroup {
+  rows: BlockerRow[];
+  /** Stories and cards blocked under it ("story:<id>", "card:<id>"). */
+  items: Set<string>;
+  days: number;
+  imps: number;
+  open: number;
+}
+
+/**
+ * The rows by cluster, keyed by the cluster's display name. Spellings that
+ * differ only in case or spacing ("Another team", "another  team") are one
+ * cluster, shown as the default list writes it, else as most of its rows
+ * spell it (ties: the first seen).
+ */
+function aggregate(rows: readonly BlockerRow[]): Map<string, ClusterGroup> {
+  const byKey = new Map<string, { group: ClusterGroup; spellings: Map<string, number> }>();
   for (const r of rows) {
-    if (!r.cluster) continue;
-    const g = byCluster.get(r.cluster) ?? {
-      rows: [],
-      items: new Set<string>(),
-      days: 0,
-      imps: 0,
-      open: 0,
+    const key = clusterKey(r.cluster);
+    if (!key) continue;
+    const entry = byKey.get(key) ?? {
+      group: { rows: [], items: new Set<string>(), days: 0, imps: 0, open: 0 },
+      spellings: new Map<string, number>(),
     };
+    const spelling = cleanClusterName(r.cluster as string);
+    entry.spellings.set(spelling, (entry.spellings.get(spelling) ?? 0) + 1);
+    const g = entry.group;
     g.rows.push(r);
     if (r.kind === "impediment") {
       g.imps++;
@@ -272,7 +288,21 @@ function aggregate(rows: readonly BlockerRow[]) {
       g.items.add(`${r.kind}:${r.id}`);
       g.days += r.blockedDays;
     }
-    byCluster.set(r.cluster, g);
+    byKey.set(key, entry);
+  }
+  const byCluster = new Map<string, ClusterGroup>();
+  for (const [key, { group, spellings }] of Array.from(byKey)) {
+    let name = defaultClusterLabel(key) ?? "";
+    let most = 0;
+    if (!name) {
+      for (const [spelling, n] of Array.from(spellings)) {
+        if (n > most) {
+          most = n;
+          name = spelling;
+        }
+      }
+    }
+    byCluster.set(name, group);
   }
   return byCluster;
 }
@@ -540,11 +570,6 @@ export function readBlockers(
 }
 
 /* ── Writing a cluster, and raising one as an impediment ───────────── */
-
-/** A cluster's name compared without case or extra spaces. */
-export function clusterKey(cluster: string | null | undefined): string {
-  return typeof cluster === "string" ? cluster.trim().replace(/\s+/g, " ").toLowerCase() : "";
-}
 
 /** A cluster's name as stored: trimmed, single spaces, at most BLOCKER_CLUSTER_MAX characters. */
 export function cleanClusterName(cluster: string): string {

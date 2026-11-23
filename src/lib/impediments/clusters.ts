@@ -50,6 +50,25 @@ export function defaultClusterSide(label: string | null | undefined): BlockSide 
   return SIDE_BY_LABEL.get(labelKey(label)) ?? null;
 }
 
+/* ── One cluster, however it is typed (tools plan phase 2) ── */
+
+/**
+ * A cluster's name compared without case or extra spaces, so "Another
+ * team" and "another  team" are one cluster. "" for no name.
+ */
+export function clusterKey(cluster: string | null | undefined): string {
+  return typeof cluster === "string" ? labelKey(cluster) : "";
+}
+
+const LABEL_BY_KEY: ReadonlyMap<string, string> = new Map(
+  DEFAULT_BLOCKER_CLUSTERS.map((c) => [labelKey(c.label), c.label])
+);
+
+/** The default cluster's label as the list writes it, by any spelling of it, or null. */
+export function defaultClusterLabel(cluster: string | null | undefined): string | null {
+  return LABEL_BY_KEY.get(clusterKey(cluster)) ?? null;
+}
+
 /* ── Keyword rules (Flow Insights and Impediments, tools plan phase 2) ── */
 
 /**

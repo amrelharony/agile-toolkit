@@ -9,6 +9,8 @@ import {
   CLUSTER_RULES,
   DEFAULT_BLOCKER_CLUSTERS,
   clusterFor,
+  clusterKey,
+  defaultClusterLabel,
   defaultClusterSide,
 } from "@/lib/impediments/clusters";
 import { BLOCKER_CLUSTER_MAX, BLOCK_SIDES } from "@/lib/stores/workspace-types";
@@ -83,5 +85,19 @@ describe("the keyword rules", () => {
     expect(clusterFor("Waiting for the weather")).toBeNull();
     expect(clusterFor("   ")).toBeNull();
     expect(clusterFor(undefined)).toBeNull();
+  });
+});
+
+describe("one cluster however it is typed", () => {
+  it("compares names without case or extra spaces", () => {
+    expect(clusterKey("  Another   TEAM ")).toBe("another team");
+    expect(clusterKey(undefined)).toBe("");
+    expect(clusterKey(null)).toBe("");
+  });
+
+  it("gives a default cluster's label as the list writes it", () => {
+    expect(defaultClusterLabel("another  team")).toBe("Another team");
+    expect(defaultClusterLabel("Legal sign-off")).toBeNull();
+    expect(defaultClusterLabel("")).toBeNull();
   });
 });
