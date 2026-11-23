@@ -9,6 +9,7 @@ import { suggestOptionsTask } from "./_example";
 import { clusterTask, mergeQuestionsTask, toBacklogTask } from "./audience-wall";
 import { backlogHealthReviewTask } from "./backlog-health";
 import { cardForMoodTask, generateCardsTask } from "./card-decks";
+import { examplesTask, questionsTask, rulesTask } from "./example-mapping";
 import { agendaTask } from "./facilitator-timers";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { meetingAuditSuggestTask } from "./meeting-audit";
@@ -32,6 +33,9 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   backlogHealthReviewTask,
   generateCardsTask,
   cardForMoodTask,
+  rulesTask,
+  examplesTask,
+  questionsTask,
   agendaTask,
   interruptClassifyTask,
   meetingAuditSuggestTask,
