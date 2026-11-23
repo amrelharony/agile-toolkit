@@ -93,9 +93,12 @@ import { EPIC_ROADMAP_ID } from "@/lib/roadmap/epic-source";
 import { storyKind } from "@/lib/stories/kind";
 import { isExampleId } from "@/lib/utils/example-id";
 import {
+  LINKS_ROW_FULL,
   NOTES_AUDIENCES,
+  NOTES_ROW_FULL,
   draftReleaseNotes,
   draftText,
+  growsPastRow,
   linkedIds,
   linkedStoriesOf,
   newestDone,
@@ -681,6 +684,9 @@ async function linkStories(store: ReleaseStore, params: z.infer<typeof LinkParam
   const next: Release = { ...r };
   if (ids.length > 0) next.storyIds = ids;
   else delete next.storyIds;
+  if (growsPastRow(doc, next)) {
+    return { updated: false as const, reason: "too_large", message: LINKS_ROW_FULL };
+  }
   await store.putDoc(withRelease(doc, next));
   return {
     updated: true as const,
@@ -698,7 +704,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Link the stories a release ships, as the page's 'Link N stories' does: mode add (default) adds to its list, set replaces it ([] unlinks all). A story another release links, an unknown id and an example story are skipped. Linking changes two numbers: for a release in planning, the Definition of Done gate checks the linked stories instead of the DoD's old team-level ticks, and DORA's lead time uses the link. Params: releaseId, storyIds, mode?. Returns {updated: true, storyIds, added, removed, skipped: {id, reason: 'unknown' | 'linked_elsewhere'}[]} or {updated: false, reason}.",
+    "Link the stories a release ships, as the page's 'Link N stories' does: mode add (default) adds to its list, set replaces it ([] unlinks all). A story another release links, an unknown id and an example story are skipped. Linking changes two numbers: for a release in planning, the Definition of Done gate checks the linked stories instead of the DoD's old team-level ticks, and DORA's lead time uses the link. Every release lives in one synced row, so a link that would grow it past the row's cap is refused (reason 'too_large'). Params: releaseId, storyIds, mode?. Returns {updated: true, storyIds, added, removed, skipped: {id, reason: 'unknown' | 'linked_elsewhere'}[]} or {updated: false, reason, message?}.",
   paramsSchema: LinkParams,
   handler: async (params) => linkStories(browserStore, params),
   mcpHandler: async (params, ctx) => linkStories(serverStore(ctx.userId), params),
@@ -779,6 +785,9 @@ async function setNotes(store: ReleaseStore, params: z.infer<typeof SetNotesPara
   if (text) {
     next.releaseNotes = { audience: params.audience, text, updatedAt: new Date().toISOString() };
   } else delete next.releaseNotes;
+  if (growsPastRow(doc, next)) {
+    return { updated: false as const, reason: "too_large", message: NOTES_ROW_FULL };
+  }
   await store.putDoc(withRelease(doc, next));
   return { updated: true as const, cleared: !text, length: text.length };
 }
@@ -790,7 +799,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Save a release's notes, as the page's Save does: plain text for customers or for the team, stamped now. An empty text clears them. Reopening and shipping again keep the notes; the page then asks to check them before the next ship. Params: releaseId, audience (customers | team), text (at most 3,000 characters). Returns {updated: true, cleared, length} or {updated: false, reason}.",
+    "Save a release's notes, as the page's Save does: plain text for customers or for the team, stamped now. An empty text clears them. Reopening and shipping again keep the notes; the page then asks to check them before the next ship. Every release lives in one synced row, so notes that would grow it past the row's cap are refused (reason 'too_large': shorten them, or remove old releases). Params: releaseId, audience (customers | team), text (at most 3,000 characters). Returns {updated: true, cleared, length} or {updated: false, reason, message?}.",
   paramsSchema: SetNotesParams,
   handler: async (params) => setNotes(browserStore, params),
   mcpHandler: async (params, ctx) => setNotes(serverStore(ctx.userId), params),

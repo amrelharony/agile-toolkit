@@ -60,10 +60,12 @@ export interface ReleaseNotesPanelProps {
   /** The example is on screen: its notes stay in the example. */
   preview: boolean;
   epicTitle: (epicId: string | undefined) => string | undefined;
-  onLink: (r: Release, storyIds: string[]) => void;
+  /** Links them; says why when it can't (the release list would be too big to sync). */
+  onLink: (r: Release, storyIds: string[]) => string | null;
   onUnlink: (r: Release, story: Story) => void;
   onDrafted: (r: Release, audience: NotesAudience, source: AiSource) => void;
-  onSave: (r: Release, notes: { audience: NotesAudience; text: string } | null) => void;
+  /** Saves or clears them; says why when it can't (the release list would be too big to sync). */
+  onSave: (r: Release, notes: { audience: NotesAudience; text: string } | null) => string | null;
 }
 
 export function ReleaseNotesPanel(props: ReleaseNotesPanelProps) {
@@ -115,6 +117,7 @@ function LinkedStories({
   onUnlink,
 }: ReleaseNotesPanelProps) {
   const [picked, setPicked] = useState<string[]>([]);
+  const [refused, setRefused] = useState<string | null>(null);
   const { done, notDone, missing } = linkedStoriesOf({ storyIds: [...linkedIds] }, stories);
   const shown = suggestions.slice(0, SUGGESTIONS_SHOWN);
   const linked = [...done, ...notDone];
@@ -193,13 +196,19 @@ function LinkedStories({
             className="gap-1"
             disabled={picked.length === 0}
             onClick={() => {
-              onLink(r, picked);
-              setPicked([]);
+              const why = onLink(r, picked);
+              setRefused(why);
+              if (!why) setPicked([]);
             }}
           >
             <Link2 aria-hidden="true" />
             Link {picked.length} {picked.length === 1 ? "story" : "stories"}
           </Button>
+          {refused && (
+            <p role="alert" className="text-xs text-danger">
+              {refused}
+            </p>
+          )}
         </fieldset>
       )}
     </div>
@@ -221,6 +230,8 @@ function NotesEditor({
   const [includeNotes, setIncludeNotes] = useState(false);
   const [text, setText] = useState(saved?.text ?? "");
   const [draft, setDraft] = useState<{ text: string; source: AiSource } | null>(null);
+  // Why the last Save was refused, until the text changes.
+  const [refused, setRefused] = useState<string | null>(null);
   const name = nameOf(r);
   const { done } = linkedStoriesOf({ storyIds: [...linkedIds] }, stories);
   const outdated = notesOutdatedFor(r);
@@ -298,6 +309,7 @@ function NotesEditor({
               onClick={() => {
                 setText(draft.text.slice(0, NOTES_TEXT_MAX));
                 setDraft(null);
+                setRefused(null);
               }}
             >
               Use this draft
@@ -324,17 +336,29 @@ function NotesEditor({
         error={
           over
             ? `Keep the notes to ${NOTES_TEXT_MAX.toLocaleString("en-GB")} characters.`
-            : undefined
+            : (refused ?? undefined)
         }
       >
-        {(p) => <Textarea {...p} rows={6} value={text} onChange={(e) => setText(e.target.value)} />}
+        {(p) => (
+          <Textarea
+            {...p}
+            rows={6}
+            value={text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setRefused(null);
+            }}
+          />
+        )}
       </Field>
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
           size="sm"
           disabled={over || !changed}
-          onClick={() => onSave(r, text.trim() ? { audience, text: text.trim() } : null)}
+          onClick={() =>
+            setRefused(onSave(r, text.trim() ? { audience, text: text.trim() } : null))
+          }
         >
           {text.trim() || !saved ? "Save notes" : "Clear notes"}
         </Button>

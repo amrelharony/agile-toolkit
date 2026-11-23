@@ -6,7 +6,13 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { Release, ReleaseReadiness, Story } from "@/lib/stores/workspace-types";
+import {
+  ENTITY_ROW_MAX_BYTES,
+  type Release,
+  type ReleaseReadiness,
+  type Story,
+} from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 const server = vi.hoisted(() => ({ rows: new Map<string, { id: string }>() }));
 
@@ -206,6 +212,40 @@ describe("the release-notes verbs", () => {
     expect(
       schema.safeParse({ releaseId: "r1", audience: "team", text: "x".repeat(3001) }).success
     ).toBe(false);
+  });
+
+  it("refuses notes or links that would grow the release list past one synced row", async () => {
+    /** The list with an old release padded to leave `room` bytes under the row's cap. */
+    const nearCap = (room: number) => {
+      const old: Release = { ...shipped, id: "old", name: "Old", storyIds: undefined };
+      const base = docOf(planning, shipped, { ...old, description: "" });
+      return docOf(planning, shipped, {
+        ...old,
+        description: "x".repeat(ENTITY_ROW_MAX_BYTES - room - jsonBytes(base)),
+      });
+    };
+    // A full save of notes in 3-byte text is about 9 KB: 4 KB of room is too little.
+    useWorkspaceStore.setState({ releaseReadinesses: [nearCap(4000)] });
+    const full = { releaseId: "r2", audience: "customers", text: "界".repeat(3000) };
+    expect(await run("set_notes", full)).toMatchObject({
+      updated: false,
+      reason: "too_large",
+      message: expect.stringMatching(/too big to sync/),
+    });
+    expect(stored("r2")?.releaseNotes).toBeUndefined();
+    expect(await run("set_notes", { ...full, text: "Fixes" })).toMatchObject({ updated: true });
+    // Clearing shrinks the list, so it is never refused.
+    expect(await run("set_notes", { ...full, text: "" })).toMatchObject({ updated: true });
+
+    useWorkspaceStore.setState({ releaseReadinesses: [nearCap(5)] });
+    expect(await run("link_stories", { releaseId: "r2", storyIds: ["s1"] })).toMatchObject({
+      updated: false,
+      reason: "too_large",
+    });
+    expect(stored("r2")?.storyIds).toBeUndefined();
+
+    server.rows.set(`workspace:releaseReadiness/${RELEASE_DOC_ID}`, nearCap(4000));
+    expect(await run("set_notes", full, true)).toMatchObject({ reason: "too_large" });
   });
 
   it("works on the user's rows over MCP", async () => {

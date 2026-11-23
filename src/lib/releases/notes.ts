@@ -10,6 +10,7 @@
  */
 
 import {
+  ENTITY_ROW_MAX_BYTES,
   TOOL_TEXT_MAX,
   type Release,
   type ReleaseReadiness,
@@ -18,6 +19,7 @@ import {
 import { shipEvents } from "./model";
 import { storyKind, type StoryKind } from "@/lib/stories/kind";
 import { isExampleId } from "@/lib/utils/example-id";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 /** At most this many stories go into one draft: the newest done. */
 export const NOTES_STORIES_MAX = 40;
@@ -107,6 +109,27 @@ export function linkedIds(release: Pick<Release, "storyIds">): string[] {
   return Array.isArray(release.storyIds)
     ? Array.from(new Set(release.storyIds.filter((id) => typeof id === "string")))
     : [];
+}
+
+/** Said when a save of notes would make the release list too big to sync. */
+export const NOTES_ROW_FULL =
+  "These notes would make the release list too big to sync: shorten them, or remove old releases.";
+/** Said when linking stories would make the release list too big to sync. */
+export const LINKS_ROW_FULL =
+  "Linking these would make the release list too big to sync: remove old releases first.";
+
+/**
+ * Whether `after` in place of its release grows the release list past one
+ * synced row (ENTITY_ROW_MAX_BYTES): every release lives in that one row,
+ * so a write past it would never sync. A change that shrinks the list is
+ * never refused, even when the list is already past the cap.
+ */
+export function growsPastRow(doc: ReleaseReadiness, after: Release): boolean {
+  const next = jsonBytes({
+    ...doc,
+    releases: doc.releases.map((r) => (r.id === after.id ? after : r)),
+  });
+  return next > ENTITY_ROW_MAX_BYTES && next > jsonBytes(doc);
 }
 
 /** Ids every other release links. */

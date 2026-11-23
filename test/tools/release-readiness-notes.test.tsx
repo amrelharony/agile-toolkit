@@ -3,7 +3,13 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { Release, ReleaseReadiness, Story } from "@/lib/stores/workspace-types";
+import {
+  ENTITY_ROW_MAX_BYTES,
+  type Release,
+  type ReleaseReadiness,
+  type Story,
+} from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 /**
  * Release Readiness's release notes (tools plan, phase 2, N06): on each
@@ -255,6 +261,45 @@ describe("writing the notes", () => {
     });
     expect(panel.getByRole("alert")).toHaveTextContent(/Keep the notes to 3,000 characters/);
     expect(panel.getByRole("button", { name: "Save notes" })).toBeDisabled();
+  });
+});
+
+describe("one synced row for every release", () => {
+  /** v2 and v1, v1's description padded to leave `room` bytes under the row's cap. */
+  const nearCap = (room: number, over: Partial<Release> = {}) => {
+    const base = { id: RELEASE_DOC_ID, releases: [planning(over), shipped({ description: "" })] };
+    const fill = ENTITY_ROW_MAX_BYTES - room - jsonBytes(base);
+    return [planning(over), shipped({ description: "x".repeat(fill) })];
+  };
+
+  it("refuses notes that would make the list too big to sync, saving nothing", () => {
+    // A full save in 3-byte text is about 9 KB: 4 KB of room is too little.
+    seed(nearCap(4000, { storyIds: ["s1"] }), STORIES);
+    renderPage();
+    const panel = openNotes("v2");
+    const box = panel.getByLabelText(/^Release notes for v2/);
+    fireEvent.change(box, { target: { value: "界".repeat(3000) } });
+    fireEvent.click(panel.getByRole("button", { name: "Save notes" }));
+    expect(panel.getByRole("alert")).toHaveTextContent(
+      "These notes would make the release list too big to sync: shorten them, or remove old releases."
+    );
+    expect(stored("r2")?.releaseNotes).toBeUndefined();
+    expect(logged("notes_saved")).toEqual([]);
+    fireEvent.change(box, { target: { value: "Fixes" } });
+    expect(panel.queryByRole("alert")).toBeNull();
+    fireEvent.click(panel.getByRole("button", { name: "Save notes" }));
+    expect(stored("r2")?.releaseNotes).toMatchObject({ text: "Fixes" });
+  });
+
+  it("refuses links that would make the list too big to sync, keeping the picks", () => {
+    seed(nearCap(5), STORIES);
+    renderPage();
+    const panel = openNotes("v2");
+    fireEvent.click(panel.getByLabelText(/Fix the login crash/));
+    fireEvent.click(panel.getByRole("button", { name: "Link 1 story" }));
+    expect(panel.getByRole("alert")).toHaveTextContent(/Linking these would make the release list/);
+    expect(stored("r2")?.storyIds).toBeUndefined();
+    expect(panel.getByLabelText(/Fix the login crash/)).toBeChecked();
   });
 });
 

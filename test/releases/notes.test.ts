@@ -17,6 +17,7 @@ import {
   cleanTitle,
   draftReleaseNotes,
   draftText,
+  growsPastRow,
   linkedStoriesOf,
   notesOutdatedFor,
   notesStoryOf,
@@ -27,7 +28,13 @@ import {
   type NotesStory,
 } from "@/lib/releases/notes";
 import { releaseNotesSteps } from "@/lib/releases/notes-steps";
-import type { Release, ReleaseReadiness, Story } from "@/lib/stores/workspace-types";
+import {
+  ENTITY_ROW_MAX_BYTES,
+  type Release,
+  type ReleaseReadiness,
+  type Story,
+} from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 const TODAY = "2026-11-23";
 const at = (day: string) => new Date(`${day}T12:00:00`).toISOString();
@@ -279,6 +286,34 @@ describe("after a reopen", () => {
         shippedDate: "2026-11-20",
       })
     ).toBeNull();
+  });
+});
+
+describe("the one synced row", () => {
+  /** A release list `room` bytes short of the row's cap, with r1 to write to. */
+  const nearCap = (room: number): ReleaseReadiness => {
+    const r1: Release = { id: "r1", name: "v1", plannedDate: TODAY, status: "planning", gates: {} };
+    const base = { id: "doc", releases: [r1, { ...r1, id: "old", description: "" }] };
+    const fill = ENTITY_ROW_MAX_BYTES - room - jsonBytes(base);
+    return { ...base, releases: [r1, { ...r1, id: "old", description: "x".repeat(fill) }] };
+  };
+  // A full save of notes in 3-byte text: about 9 KB.
+  const notes = (doc: ReleaseReadiness): Release => ({
+    ...doc.releases[0],
+    releaseNotes: { audience: "customers", text: "界".repeat(NOTES_TEXT_MAX), updatedAt: TODAY },
+  });
+
+  it("refuses a change that grows the list past the cap", () => {
+    expect(growsPastRow(nearCap(4000), notes(nearCap(4000)))).toBe(true);
+    expect(growsPastRow(nearCap(20_000), notes(nearCap(20_000)))).toBe(false);
+  });
+
+  it("never refuses a change that shrinks the list, even past the cap", () => {
+    const over = nearCap(-1000);
+    const withNotes = { ...over, releases: [notes(over), over.releases[1]] };
+    expect(growsPastRow(withNotes, { ...withNotes.releases[0], releaseNotes: undefined })).toBe(
+      false
+    );
   });
 });
 

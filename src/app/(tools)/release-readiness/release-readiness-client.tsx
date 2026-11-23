@@ -39,6 +39,9 @@ import {
 } from "@/lib/releases/auto-gates";
 import { RELEASE_DOC_ID, teamGates } from "@/lib/releases/gates";
 import {
+  LINKS_ROW_FULL,
+  NOTES_ROW_FULL,
+  growsPastRow,
   linkedIds,
   releaseNotesMarkdown,
   suggestReleaseStories,
@@ -389,16 +392,19 @@ export function ReleaseReadinessClient() {
   /** What a release links as the notes read it (the example's own links in the example). */
   const linkedOf = (r: Release) => linkedIds(notesDoc.releases.find((x) => x.id === r.id) ?? r);
 
-  const linkStories = (r: Release, ids: string[]) => {
+  // Every release lives in one synced row: a change that would grow it
+  // past the row's cap is refused, with the sentence the panel shows (as
+  // an alert, so it is announced there).
+  const linkStories = (r: Release, ids: string[]): string | null => {
     const all = Array.from(new Set([...linkedOf(r), ...ids]));
     const added = all.length - linkedOf(r).length;
-    if (added === 0) return;
-    change(
-      r,
-      { ...r, storyIds: all },
-      `Linked ${plural(added, "story", "stories")} to “${nameOf(r)}”`,
-      () => record(RELEASE_READINESS_ACTIONS.STORIES_LINKED, { releaseId: r.id, count: added })
+    if (added === 0) return null;
+    const next: Release = { ...r, storyIds: all };
+    if (growsPastRow(doc, next)) return LINKS_ROW_FULL;
+    change(r, next, `Linked ${plural(added, "story", "stories")} to “${nameOf(r)}”`, () =>
+      record(RELEASE_READINESS_ACTIONS.STORIES_LINKED, { releaseId: r.id, count: added })
     );
+    return null;
   };
 
   const unlinkStory = (r: Release, story: Story) => {
@@ -424,10 +430,14 @@ export function ReleaseReadinessClient() {
     });
   };
 
-  const saveNotes = (r: Release, notes: { audience: NotesAudience; text: string } | null) => {
+  const saveNotes = (
+    r: Release,
+    notes: { audience: NotesAudience; text: string } | null
+  ): string | null => {
     const next: Release = { ...r };
     if (notes) next.releaseNotes = { ...notes, updatedAt: new Date().toISOString() };
     else delete next.releaseNotes;
+    if (growsPastRow(doc, next)) return NOTES_ROW_FULL;
     change(
       r,
       next,
@@ -440,6 +450,7 @@ export function ReleaseReadinessClient() {
           audience: notes?.audience ?? r.releaseNotes?.audience ?? "customers",
         })
     );
+    return null;
   };
 
   const setGates = (fn: (list: ReleaseGateDef[]) => ReleaseGateDef[]) =>
