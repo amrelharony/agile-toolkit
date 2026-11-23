@@ -44,6 +44,7 @@ import { stampStoryWrite } from "@/lib/sprints/story-status";
 import { cleanStoryFields } from "@/lib/stories/fields";
 import { cleanCardFlowFields, stampBoardBlocks } from "@/lib/flow/block-stamps";
 import {
+  defaultBoard,
   flowInsights,
   guessWorkType,
   keywordWorkType,
@@ -160,12 +161,15 @@ const ListParams = z.object({
 
 async function listState(store: FlowStore, p: z.infer<typeof ListParams>) {
   const data = await store.read();
-  const board: FlowBoard | null = p.board ?? null;
+  const cards = cardsOf(data.board);
+  // The board first, so its default window is the page's (6 sprints, 12 weeks).
+  const board: FlowBoard =
+    p.board ?? defaultBoard({ sprints: data.sprints, cards, includeExamples: false });
   const x = flowInsights({
     board,
     stories: data.stories,
     sprints: data.sprints,
-    cards: cardsOf(data.board),
+    cards,
     plans: data.plans,
     workflow: data.workflow,
     periods: p.periods ?? (board === "flow" ? 12 : 6),

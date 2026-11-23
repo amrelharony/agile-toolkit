@@ -173,6 +173,17 @@ describe("list_state", () => {
     expect(finished).toHaveLength(1);
     expect(finished[0]).toMatchObject({ finished: 2, risk: 1 });
   });
+
+  it("reads the page's 12 weeks when it picks the Flow board itself", async () => {
+    // No finished sprint, so the default board is the Flow board.
+    useWorkspaceStore.setState({ kanbanBoards: [board([card("c1")])] });
+    const out = await run<{ board: string; periods: unknown[]; verdict: string }>(
+      "tool.flow_insights.list_state"
+    );
+    expect(out.board).toBe("flow");
+    expect(out.periods).toHaveLength(12);
+    expect(out.verdict).not.toContain("6 weeks");
+  });
 });
 
 describe("list_unsorted", () => {
