@@ -11,7 +11,7 @@
  * share these rules.
  */
 
-import type { BoardState, RetroCard } from "@/app/(tools)/retro/types";
+import type { RetroCard } from "@/app/(tools)/retro/types";
 import {
   RETRO_CARD_DAY_MAX,
   type MoodEntry,
@@ -20,12 +20,17 @@ import {
 } from "@/lib/stores/workspace-types";
 import { DEFAULT_SPRINT_DAYS, dayDate, sprintLengthDays } from "@/lib/sprints/series";
 import { LOW_MOOD, dailyMood, realEntries, realPulses, teamLevelDays } from "@/lib/team/mood";
+import { SEISMOGRAPH_BANDS, isCardDay, type SeismographBand } from "./seismograph-format";
 
-export const SEISMOGRAPH_FORMAT_ID = "seismograph";
-
-/** The three bands, the format's column keys, high to low. */
-export const SEISMOGRAPH_BANDS = ["highs", "steady", "lows"] as const;
-export type SeismographBand = (typeof SEISMOGRAPH_BANDS)[number];
+// Which boards chart and what a card's day is live in seismograph-format.ts,
+// for the pages that only carry a day; these names stay importable from here.
+export {
+  SEISMOGRAPH_BANDS,
+  SEISMOGRAPH_FORMAT_ID,
+  isCardDay,
+  isSeismograph,
+  type SeismographBand,
+} from "./seismograph-format";
 
 /** A band in a sentence or a table cell. */
 export const BAND_LABEL: Record<SeismographBand, string> = {
@@ -42,18 +47,6 @@ export const BAND_MARK: Record<SeismographBand, string> = { highs: "▲", steady
 
 const isBand = (key: string): key is SeismographBand =>
   (SEISMOGRAPH_BANDS as readonly string[]).includes(key);
-
-/** Whether a board runs as an Emotional Seismograph: its format, with the three columns. */
-export function isSeismograph(board: Pick<BoardState, "format"> | null | undefined): boolean {
-  if (!board || board.format?.id !== SEISMOGRAPH_FORMAT_ID) return false;
-  const keys = new Set((board.format.columns ?? []).map((c) => c.key));
-  return SEISMOGRAPH_BANDS.every((k) => keys.has(k));
-}
-
-/** Whether `v` is a card's day: a whole number from 0 to RETRO_CARD_DAY_MAX. */
-export function isCardDay(v: unknown): v is number {
-  return typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= RETRO_CARD_DAY_MAX;
-}
 
 export interface SeismographDay {
   day: number;

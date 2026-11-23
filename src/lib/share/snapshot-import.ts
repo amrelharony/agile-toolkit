@@ -34,7 +34,7 @@ import {
 import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
 import { RETRO_COLUMN_PALETTE } from "@/lib/constants/retro-formats";
 import { isRetroVotes } from "@/lib/retro/board";
-import { isCardDay } from "@/lib/retro/seismograph";
+import { isCardDay } from "@/lib/retro/seismograph-format";
 import { themed } from "@/lib/utils/theme-color";
 import { latestCheckInDay, withCheckIn } from "@/lib/okrs/progress";
 import { isIsoDate } from "@/lib/sprints/calendar";

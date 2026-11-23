@@ -9,7 +9,7 @@
 import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
 import { retroVotes } from "@/lib/retro/board";
 import { slug } from "@/lib/retro/custom-format";
-import { isCardDay, isSeismograph } from "@/lib/retro/seismograph";
+import { isCardDay, isSeismograph } from "@/lib/retro/seismograph-format";
 import type { BoardState, RetroCard } from "./types";
 
 export function makeId() {
