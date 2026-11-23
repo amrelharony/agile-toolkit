@@ -843,7 +843,7 @@ registry.register({
   name: "list_async",
   category: "read",
   description:
-    "List Planning Poker's rounds without a meeting (people estimate from a link and send the host a reply code), newest first. Returns {total, rounds: {id, title, status ('open' | 'revealed' | 'closed'), scaleType, dueDate, replyCount, expectedCount, storyCount, stories (null until revealed, then per story {title, label, verdict, suggested, agreed, voteCount})}[]}. Never a name, a note or anyone's card: those stay on the host's page. A round is closed, with its names and notes dropped, 14 days after its due day.",
+    "List Planning Poker's rounds without a meeting (people estimate from a link and send the host a reply code), newest first. Returns {total, rounds: {id, title, status ('open' | 'revealed' | 'closed'), scaleType, dueDate, replyCount, expectedCount, storyCount, stories (null until revealed, then per story {title, label, verdict, suggested, agreed, voteCount})}[]}. Never a name, a note or anyone's card: those stay in the host's workspace, synced to their account when signed in. A round lists as closed once 14 days have passed since its due day (or the day it was made, when it has none), and its names and notes are dropped the next time the host opens the toolkit.",
   paramsSchema: z.object({}),
   handler: async () => asyncList(ws().pokerAsyncRounds),
   mcpHandler: async (_params, ctx) =>
