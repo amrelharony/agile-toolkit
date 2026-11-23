@@ -83,6 +83,7 @@ import {
   ebmVerdict,
   experimentsFor,
   goalLadder,
+  holdsReview,
   hypothesesOf,
   measuresByArea,
   newReview,
@@ -370,11 +371,12 @@ async function acceptSourceReading(store: EbmStore, p: z.infer<typeof AcceptPara
   if (reading.date > latestCheckInDay(today, store.onServer)) {
     return { recorded: false as const, reason: "no_reading" as const };
   }
-  const { metric, replaced } = withReading(
+  const { metric, replaced, kept } = withReading(
     m,
     { id: `${READING_ID_PREFIX}${nanoid(8)}`, date: reading.date, value: reading.value },
     new Date().toISOString()
   );
+  if (!kept) return { recorded: false as const, reason: "older_than_kept" as const };
   await store.putMetric(metric);
   return {
     recorded: true as const,
@@ -391,7 +393,7 @@ registry.register({
   name: "accept_source_reading",
   category: "write",
   description:
-    "Write a measure's toolkit reading (its source's number today, as read_sources gives it) as a reading on the measure; a reading already on that day is replaced. Returns {recorded: true, date, value, basis, replaced} or {recorded: false, reason: not_found | no_source | no_reading}.",
+    "Write a measure's toolkit reading (its source's number today, as read_sources gives it) as a reading on the measure; a reading already on that day is replaced. Returns {recorded: true, date, value, basis, replaced} or {recorded: false, reason: not_found | no_source | no_reading | older_than_kept (older than all 52 readings kept, so nothing was saved)}.",
   paramsSchema: AcceptParams,
   handler: async (p) => acceptSourceReading(browserStore, p),
   mcpHandler: async (p, ctx) => acceptSourceReading(serverStore(ctx.userId), p),
@@ -483,7 +485,11 @@ async function recordReview(store: EbmStore, p: z.infer<typeof ReviewParams>) {
     checked.values,
     pool.byArea
   );
-  await store.putBoard(withReview(board, review, new Date().toISOString()));
+  const next = withReview(board, review, new Date().toISOString());
+  if (!holdsReview(next, review.id)) {
+    return { recorded: false as const, reason: "older_than_kept" as const };
+  }
+  await store.putBoard(next);
   return {
     recorded: true as const,
     reviewId: review.id,
@@ -500,7 +506,7 @@ registry.register({
   name: "record_review",
   category: "write",
   description:
-    "Record an EBM review: the area to focus on next, a note, and each area's progress now (the team's own measures, or the EBM example's while the team has none, as suggest_focus and the page read them; an area left out was not measured). A review of the example is the example's own (example: true) and goes when it is cleared. The newest 24 reviews are kept. Returns {recorded: true, reviewId, date, focus, areas, example}.",
+    "Record an EBM review: the area to focus on next, a note, and each area's progress now (the team's own measures, or the EBM example's while the team has none, as suggest_focus and the page read them; an area left out was not measured). A review of the example is the example's own (example: true) and goes when it is cleared. The newest 24 reviews are kept, so a review dated before all 24 is not saved. Returns {recorded: true, reviewId, date, focus, areas, example} or {recorded: false, reason: older_than_kept}.",
   paramsSchema: ReviewParams,
   handler: async (p) => recordReview(browserStore, p),
   mcpHandler: async (p, ctx) => recordReview(serverStore(ctx.userId), p),

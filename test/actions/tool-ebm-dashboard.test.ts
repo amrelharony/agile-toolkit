@@ -384,6 +384,22 @@ describe("the board", () => {
     expect(r.reviewId).toMatch(/^review_/);
   });
 
+  it("refuses a review dated before all 24 it keeps, and writes nothing", async () => {
+    const reviews = Array.from({ length: 24 }, (_, i) => ({
+      id: `review_${i}`,
+      date: `2025-01-${String(i + 1).padStart(2, "0")}`,
+      focus: "current-value" as const,
+      areas: {},
+    }));
+    useWorkspaceStore.setState({
+      ebmBoards: [{ id: EBM_BOARD_ID, reviews, createdAt: NOW, updatedAt: NOW }],
+    });
+    expect(
+      await run("tool.ebm_dashboard.record_review", { focus: "time-to-market", date: "2024-12-31" })
+    ).toEqual({ recorded: false, reason: "older_than_kept" });
+    expect(board()?.reviews.map((r) => r.id)).toEqual(reviews.map((r) => r.id));
+  });
+
   it("records a review on the server", async () => {
     await mcp("tool.ebm_dashboard.record_review", { focus: "current-value" });
     expect((rows.get(`${EBM_BOARD_KIND}/${EBM_BOARD_ID}`) as EbmBoard).reviews).toHaveLength(1);

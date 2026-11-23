@@ -52,6 +52,7 @@ import { generateEbmDashboardPrompts } from "@/lib/ai-prompts/ebm-dashboard";
 import { MEASURES_PRODUCT_MAX } from "@/lib/ai/tasks/ebm-dashboard.lite";
 import {
   READING_ID_PREFIX,
+  READING_TOO_OLD,
   compactMetric,
   isEbmExample,
   latestText,
@@ -59,8 +60,10 @@ import {
   metricFromValues,
   metricLinks,
   metricRuleProblems,
+  readingsLeftOutText,
   usableMetrics,
   withReading,
+  withReadings,
   withoutReading,
   type MetricValues,
   type ReadingValues,
@@ -70,12 +73,14 @@ import {
   EBM_CREDIT,
   EBM_CREDIT_HREF,
   REVIEW_ID_PREFIX,
+  REVIEW_TOO_OLD,
   areaScores,
   ebmExampleLoaded,
   ebmVerdict,
   emptyEbmBoard,
   experimentsFor,
   goalLadder,
+  holdsReview,
   hypothesesOf,
   measuresByArea,
   newReview,
@@ -317,11 +322,12 @@ export function EbmDashboardClient() {
   const addReading = (m: ProductMetric, values: ReadingValues, source?: MetricSourceId) => {
     const base = currentMetrics().find((x) => x.id === m.id);
     if (!base) return;
-    const { metric, replaced } = withReading(
+    const { metric, replaced, kept } = withReading(
       base,
       { id: `${READING_ID_PREFIX}${nanoid(8)}`, ...values },
       new Date().toISOString()
     );
+    if (!kept) return setProblem(READING_TOO_OLD);
     if (jsonBytes(metric) > ENTITY_ROW_MAX_BYTES) return setProblem(TOO_BIG);
     putMetrics([metric]);
     record(EBM_DASHBOARD_ACTIONS.READING_ADDED, m.id, {
@@ -337,19 +343,25 @@ export function EbmDashboardClient() {
   const importReadings = (m: ProductMetric, rs: ReadingValues[]) => {
     const before = currentMetrics().find((x) => x.id === m.id);
     if (!before) return;
-    const now = new Date().toISOString();
-    const next = rs.reduce(
-      (acc, r) => withReading(acc, { id: `${READING_ID_PREFIX}${nanoid(8)}`, ...r }, now).metric,
-      before
+    const {
+      metric: next,
+      kept,
+      left,
+    } = withReadings(
+      before,
+      rs.map((r) => ({ id: `${READING_ID_PREFIX}${nanoid(8)}`, ...r })),
+      new Date().toISOString()
     );
+    if (kept === 0) return setProblem(READING_TOO_OLD);
     if (jsonBytes(next) > ENTITY_ROW_MAX_BYTES) return setProblem(TOO_BIG);
     undoable({
-      label: `Added ${rs.length} ${rs.length === 1 ? "reading" : "readings"} to “${m.name}”`,
+      label: `Added ${kept} ${kept === 1 ? "reading" : "readings"} to “${m.name}”`,
       apply: () => putMetrics([next]),
       revert: () => putMetrics([before]),
     });
-    record(EBM_DASHBOARD_ACTIONS.READING_ADDED, m.id, { metricId: m.id, readings: rs.length });
-    done(`Added ${rs.length} readings.`);
+    record(EBM_DASHBOARD_ACTIONS.READING_ADDED, m.id, { metricId: m.id, readings: kept });
+    done(`Added ${kept} ${kept === 1 ? "reading" : "readings"}.`);
+    if (left > 0) setProblem(readingsLeftOutText(left));
   };
 
   const removeReading = (m: ProductMetric, r: MetricReading) => {
@@ -386,7 +398,9 @@ export function EbmDashboardClient() {
     const pool = reviewPool(currentMetrics());
     const id = `${pool.exampleOnly ? "example-ebm-" : ""}${REVIEW_ID_PREFIX}${nanoid(8)}`;
     const review = newReview(id, values, pool.byArea);
-    if (!putBoard(withReview(currentBoard(), review, new Date().toISOString()))) return;
+    const next = withReview(currentBoard(), review, new Date().toISOString());
+    if (!holdsReview(next, review.id)) return setProblem(REVIEW_TOO_OLD);
+    if (!putBoard(next)) return;
     if (!pool.exampleOnly) {
       log(EBM_DASHBOARD_ACTIONS.REVIEW_RECORDED, {
         reviewId: review.id,

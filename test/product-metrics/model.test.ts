@@ -34,6 +34,9 @@ import {
   validateMetric,
   validateReading,
   withReading,
+  withReadings,
+  READING_TOO_OLD,
+  readingsLeftOutText,
 } from "@/lib/product-metrics/model";
 import { buildExample } from "@/app/(tools)/product-metrics/example";
 
@@ -78,6 +81,29 @@ describe("readings", () => {
     }
     expect(m.readings).toHaveLength(READINGS_MAX);
     expect(m.readings[0].value).toBe(3);
+  });
+
+  it("says when a new reading is older than every one kept, so it was dropped", () => {
+    const full = metric({
+      readings: Array.from({ length: READINGS_MAX }, (_, i) =>
+        r(
+          `2025-${String(Math.floor(i / 28) + 1).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`,
+          i
+        )
+      ),
+    });
+    const old = withReading(full, r("2024-12-31", 9, "old"), NOW);
+    expect(old.kept).toBe(false);
+    expect(old.metric.readings.some((x) => x.id === "old")).toBe(false);
+    expect(withReading(full, r("2026-01-01", 9, "new"), NOW).kept).toBe(true);
+    const many = withReadings(full, [r("2024-01-01", 1, "a"), r("2026-02-01", 2, "b")], NOW);
+    expect([many.kept, many.left]).toEqual([1, 1]);
+    expect(READING_TOO_OLD).toBe(
+      "Only the newest 52 readings are kept, and this one is older than all of them. Nothing was saved."
+    );
+    expect(readingsLeftOutText(1)).toBe(
+      "1 reading was older than the newest 52 kept, so it was left out."
+    );
   });
 
   it("reads the change in the metric's own direction", () => {

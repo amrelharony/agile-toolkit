@@ -219,6 +219,27 @@ describe("readings", () => {
     expect(metrics()[0].readings).toEqual([]);
   });
 
+  it("says a reading older than all 52 kept isn't saved, rather than dropping it quietly", async () => {
+    const full = Array.from({ length: 52 }, (_, i) => ({
+      id: `r${i}`,
+      date: `2025-${String(Math.floor(i / 28) + 1).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`,
+      value: i,
+    }));
+    seed([metric({ role: "north-star", readings: full })]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^Reading/ }));
+    type(/^Day/, "2024-12-31");
+    type(/^Value/, "3");
+    fireEvent.click(screen.getByRole("button", { name: "Add the reading" }));
+    expect(
+      screen.getByText(
+        "Only the newest 52 readings are kept, and this one is older than all of them. Nothing was saved."
+      )
+    ).toHaveAttribute("role", "alert");
+    expect(metrics()[0].readings).toEqual(full);
+    expect(logs).toEqual([]);
+  });
+
   it("pastes readings, names the bad lines, and undoes them together", async () => {
     seed([metric({ role: "north-star" })]);
     renderPage();

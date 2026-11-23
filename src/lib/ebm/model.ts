@@ -153,6 +153,13 @@ export function withReview(board: EbmBoard | null, review: EbmReview, now: strin
   return { ...base, reviews, updatedAt: now };
 }
 
+/** Whether `board` holds the review `id` (withReview drops one older than every review kept). */
+export const holdsReview = (board: EbmBoard, id: string): boolean =>
+  board.reviews.some((r) => r.id === id);
+
+/** Why a review older than every one kept isn't saved. */
+export const REVIEW_TOO_OLD = `Only the newest ${REVIEWS_MAX} reviews are kept, and this one is older than all of them. Nothing was saved.`;
+
 /** `board` (or a new one) with the strategic goal and its why set; blank text clears it. */
 export function withStrategicGoal(
   board: EbmBoard | null,

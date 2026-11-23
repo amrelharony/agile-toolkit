@@ -130,6 +130,23 @@ describe("add_reading", () => {
     });
   });
 
+  it("refuses a reading older than all 52 it keeps, and writes nothing", async () => {
+    const full = Array.from({ length: 52 }, (_, i) => ({
+      id: `r${i}`,
+      date: `2025-${String(Math.floor(i / 28) + 1).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`,
+      value: i,
+    }));
+    seed([metric({ readings: full })]);
+    expect(
+      await run("tool.product_metrics.add_reading", {
+        metricId: "metric_a",
+        value: 1,
+        date: "2024-12-31",
+      })
+    ).toEqual({ recorded: false, reason: "older_than_kept" });
+    expect(metrics()[0].readings).toEqual(full);
+  });
+
   it("writes on the server", async () => {
     rows.set(`${PRODUCT_METRIC_KIND}/metric_a`, metric());
     const r = await mcp<{ recorded: boolean }>("tool.product_metrics.add_reading", {
@@ -168,6 +185,25 @@ describe("add_funnel_period", () => {
         counts: { acquisition: 100, retention: 20 },
       })
     ).toEqual({ recorded: false, reason: "no_stage_metric", stages: ["retention"] });
+  });
+
+  it("writes nothing when the day is older than every reading a stage keeps", async () => {
+    const full = Array.from({ length: 52 }, (_, i) => ({
+      id: `r${i}`,
+      date: `2025-${String(Math.floor(i / 28) + 1).padStart(2, "0")}-${String((i % 28) + 1).padStart(2, "0")}`,
+      value: i,
+    }));
+    seed([
+      metric({ id: "metric_acq", name: "acq", aarrr: "acquisition" }),
+      metric({ id: "metric_act", name: "act", aarrr: "activation", readings: full }),
+    ]);
+    expect(
+      await run("tool.product_metrics.add_funnel_period", {
+        date: "2024-12-31",
+        counts: { acquisition: 100, activation: 30 },
+      })
+    ).toEqual({ recorded: false, reason: "older_than_kept", stages: ["activation"] });
+    expect(metrics()[0].readings).toEqual([]);
   });
 });
 

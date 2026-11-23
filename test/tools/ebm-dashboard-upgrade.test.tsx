@@ -475,6 +475,33 @@ describe("reviews", () => {
   });
 });
 
+describe("the kept window", () => {
+  it("says a review older than all 24 kept isn't saved", async () => {
+    const reviews = Array.from({ length: 24 }, (_, i) => ({
+      id: `review_${i}`,
+      date: `2025-01-${String(i + 1).padStart(2, "0")}`,
+      focus: "current-value" as const,
+      areas: {},
+    }));
+    useWorkspaceStore.setState({
+      ebmBoards: [{ id: EBM_BOARD_ID, reviews, createdAt: NOW, updatedAt: NOW }],
+    });
+    renderPage();
+    fireEvent.change(await screen.findByLabelText(/^Area to focus on next/), {
+      target: { value: "current-value" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Day/), { target: { value: "2024-12-31" } });
+    fireEvent.click(screen.getByRole("button", { name: "Record the review" }));
+    expect(
+      screen.getByText(
+        "Only the newest 24 reviews are kept, and this one is older than all of them. Nothing was saved."
+      )
+    ).toHaveAttribute("role", "alert");
+    expect(board()?.reviews).toHaveLength(24);
+    expect(logs).toEqual([]);
+  });
+});
+
 describe("Ask Amr, without AI", () => {
   it("suggests measures for an area to add, leaving out names it has", async () => {
     useWorkspaceStore.setState({

@@ -18,6 +18,8 @@ import {
 import {
   AREA_NEXT_STEPS,
   REVIEWS_MAX,
+  REVIEW_TOO_OLD,
+  holdsReview,
   areaProgress,
   areaScores,
   ebmExampleLoaded,
@@ -163,6 +165,18 @@ describe("the board", () => {
     expect(b?.reviews).toHaveLength(REVIEWS_MAX);
     expect(b?.reviews[0].id).toBe("review_2");
     expect(b?.id).toBe(EBM_BOARD_ID);
+  });
+
+  it("knows when a backdated review was dropped at once", () => {
+    let b: EbmBoard | null = null;
+    for (let i = 0; i < REVIEWS_MAX; i++) b = withReview(b, review(i), NOW);
+    const old = { ...review(0), id: "review_old", date: "2024-06-01" };
+    const next = withReview(b, old, NOW);
+    expect(holdsReview(next, "review_old")).toBe(false);
+    expect(holdsReview(withReview(b, { ...old, date: "2026-11-01" }, NOW), "review_old")).toBe(
+      true
+    );
+    expect(REVIEW_TOO_OLD).toMatch(/^Only the newest 24 reviews are kept/);
   });
 
   it("reads a stored board defensively", () => {

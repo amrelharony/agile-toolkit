@@ -198,7 +198,11 @@ async function addReading(store: MetricsStore, p: z.infer<typeof AddReadingParam
   }
   const now = new Date().toISOString();
   const readingId = `${READING_ID_PREFIX}${nanoid(8)}`;
-  const { metric: next, replaced } = withReading(
+  const {
+    metric: next,
+    replaced,
+    kept,
+  } = withReading(
     metric,
     {
       id: readingId,
@@ -208,6 +212,7 @@ async function addReading(store: MetricsStore, p: z.infer<typeof AddReadingParam
     },
     now
   );
+  if (!kept) return { recorded: false as const, reason: "older_than_kept" as const };
   await store.put([next]);
   const latest = latestReading(next);
   return {
@@ -226,7 +231,7 @@ registry.register({
   name: "add_reading",
   category: "write",
   description:
-    "Record one dated reading on a product metric (also an EBM measure's reading). A second reading on the same day replaces the first; the newest 52 are kept. The day defaults to today and can't be later. Returns {recorded: true, readingId, date, replaced, latest: {date, value}, change (latest − the reading before, or null)} or {recorded: false, reason: not_found}.",
+    "Record one dated reading on a product metric (also an EBM measure's reading). A second reading on the same day replaces the first; the newest 52 are kept, so a reading older than all 52 is not saved. The day defaults to today and can't be later. Returns {recorded: true, readingId, date, replaced, latest: {date, value}, change (latest − the reading before, or null)} or {recorded: false, reason: not_found | older_than_kept}.",
   paramsSchema: AddReadingParams,
   handler: async (p) => addReading(browserStore, p),
   mcpHandler: async (p, ctx) => addReading(serverStore(ctx.userId), p),
@@ -272,14 +277,18 @@ async function addFunnelPeriod(store: MetricsStore, p: z.infer<typeof FunnelPara
     throw new Error(`${Object.values(checked.errors).join(" ")} Nothing was saved.`);
   }
   const now = new Date().toISOString();
-  const writes = given.map(
-    (s) =>
-      withReading(
-        byStage[s] as ProductMetric,
-        { id: `${READING_ID_PREFIX}${nanoid(8)}`, date, value: p.counts[s] as number },
-        now
-      ).metric
+  const results = given.map((s) =>
+    withReading(
+      byStage[s] as ProductMetric,
+      { id: `${READING_ID_PREFIX}${nanoid(8)}`, date, value: p.counts[s] as number },
+      now
+    )
   );
+  const dropped = given.filter((_, i) => !results[i].kept);
+  if (dropped.length > 0) {
+    return { recorded: false as const, reason: "older_than_kept" as const, stages: dropped };
+  }
+  const writes = results.map((r) => r.metric);
   await store.put(writes);
   const merged = all.map((m) => writes.find((w) => w.id === m.id) ?? m);
   const funnel = funnelView(merged.filter((m) => !isExampleId(m.id)));
@@ -298,7 +307,7 @@ registry.register({
   name: "add_funnel_period",
   category: "write",
   description:
-    "Record one period of the AARRR funnel: one reading on each stage's metric for the same day (default today, never later). Needs acquisition and at least one other stage, and a metric on each stage given (the team's own; set them up with workspace.product_metric.create and aarrr). Returns {recorded: true, date, stages, nested, leakiest} or {recorded: false, reason: need_acquisition_and_another | no_stage_metric, stages?}.",
+    "Record one period of the AARRR funnel: one reading on each stage's metric for the same day (default today, never later). Needs acquisition and at least one other stage, and a metric on each stage given (the team's own; set them up with workspace.product_metric.create and aarrr). Each stage keeps its newest 52 readings, so a day older than all of a stage's is not saved (older_than_kept, nothing written). Returns {recorded: true, date, stages, nested, leakiest} or {recorded: false, reason: need_acquisition_and_another | no_stage_metric | older_than_kept, stages?}.",
   paramsSchema: FunnelParams,
   handler: async (p) => addFunnelPeriod(browserStore, p),
   mcpHandler: async (p, ctx) => addFunnelPeriod(serverStore(ctx.userId), p),

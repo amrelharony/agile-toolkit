@@ -279,18 +279,46 @@ export function isStale(m: Pick<ProductMetric, "readings">, today: string): bool
 
 /* ── Writes ─────────────────────────────────────────────────────────── */
 
-/** `m` with `reading` added: one per day (a second on the same day replaces the first), the newest READINGS_MAX kept. */
+/**
+ * `m` with `reading` added: one per day (a second on the same day replaces
+ * the first), the newest READINGS_MAX kept. `kept` is false when the new
+ * reading is older than every one kept, so it was dropped at once: the
+ * page and Amr then save nothing and say why (READING_TOO_OLD).
+ */
 export function withReading(
   m: ProductMetric,
   reading: MetricReading,
   now: string
-): { metric: ProductMetric; replaced: boolean } {
-  const kept = sortedReadings(m);
-  const replaced = kept.some((r) => r.date === reading.date);
-  const readings = [...kept.filter((r) => r.date !== reading.date), reading]
+): { metric: ProductMetric; replaced: boolean; kept: boolean } {
+  const before = sortedReadings(m);
+  const replaced = before.some((r) => r.date === reading.date);
+  const readings = [...before.filter((r) => r.date !== reading.date), reading]
     .sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0))
     .slice(-READINGS_MAX);
-  return { metric: { ...m, readings, updatedAt: now }, replaced };
+  const kept = readings.some((r) => r.id === reading.id);
+  return { metric: { ...m, readings, updatedAt: now }, replaced, kept };
+}
+
+/** `m` with each of `readings` added in turn, and how many of them the newest READINGS_MAX hold. */
+export function withReadings(
+  m: ProductMetric,
+  readings: readonly MetricReading[],
+  now: string
+): { metric: ProductMetric; kept: number; left: number } {
+  const metric = readings.reduce((acc, r) => withReading(acc, r, now).metric, m);
+  const ids = new Set(metric.readings.map((r) => r.id));
+  const kept = readings.filter((r) => ids.has(r.id)).length;
+  return { metric, kept, left: readings.length - kept };
+}
+
+/** Why a reading older than every one kept isn't saved. */
+export const READING_TOO_OLD = `Only the newest ${READINGS_MAX} readings are kept, and this one is older than all of them. Nothing was saved.`;
+
+/** What a paste says when some of its readings were older than every one kept. */
+export function readingsLeftOutText(left: number): string {
+  return `${left} ${left === 1 ? "reading was" : "readings were"} older than the newest ${READINGS_MAX} kept, so ${
+    left === 1 ? "it was" : "they were"
+  } left out.`;
 }
 
 /** `m` without the reading `readingId`. */

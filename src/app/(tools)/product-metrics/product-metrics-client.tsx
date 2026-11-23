@@ -55,7 +55,9 @@ import { SOURCE_INFO } from "@/lib/ebm/source-info";
 import {
   AARRR_LABEL,
   EMPTY_METRIC_DRAFT,
+  READINGS_MAX,
   READING_ID_PREFIX,
+  READING_TOO_OLD,
   emptyFunnelDraft,
   funnelView,
   heartView,
@@ -67,10 +69,12 @@ import {
   metricRuleProblems,
   northStarView,
   northStarWrites,
+  readingsLeftOutText,
   stageMetrics,
   usableMetrics,
   validateFunnelPeriod,
   withReading,
+  withReadings,
   withoutReading,
   type FunnelDraft,
   type FunnelField,
@@ -226,11 +230,16 @@ export function ProductMetricsClient() {
   const addReading = (metric: ProductMetric, values: ReadingValues) => {
     const base = current().find((m) => m.id === metric.id);
     if (!base) return;
-    const { metric: next, replaced } = withReading(
+    const {
+      metric: next,
+      replaced,
+      kept,
+    } = withReading(
       base,
       { id: `${READING_ID_PREFIX}${nanoid(8)}`, ...values },
       new Date().toISOString()
     );
+    if (!kept) return refuse(READING_TOO_OLD);
     if (jsonBytes(next) > ENTITY_ROW_MAX_BYTES) return refuse(TOO_BIG);
     put([next]);
     record(PRODUCT_METRICS_ACTIONS.READING_ADDED, next.id, { date: values.date });
@@ -242,22 +251,25 @@ export function ProductMetricsClient() {
   const importReadings = (metric: ProductMetric, readings: ReadingValues[]) => {
     const before = current().find((m) => m.id === metric.id);
     if (!before) return;
-    const now = new Date().toISOString();
-    const next = readings.reduce(
-      (m, r) => withReading(m, { id: `${READING_ID_PREFIX}${nanoid(8)}`, ...r }, now).metric,
-      before
+    const {
+      metric: next,
+      kept,
+      left,
+    } = withReadings(
+      before,
+      readings.map((r) => ({ id: `${READING_ID_PREFIX}${nanoid(8)}`, ...r })),
+      new Date().toISOString()
     );
+    if (kept === 0) return refuse(READING_TOO_OLD);
     if (jsonBytes(next) > ENTITY_ROW_MAX_BYTES) return refuse(TOO_BIG);
     undoable({
-      label: `Added ${readings.length} ${readings.length === 1 ? "reading" : "readings"} to “${metric.name}”`,
+      label: `Added ${kept} ${kept === 1 ? "reading" : "readings"} to “${metric.name}”`,
       apply: () => put([next]),
       revert: () => put([before]),
     });
-    record(PRODUCT_METRICS_ACTIONS.READINGS_IMPORTED, metric.id, {
-      readings: readings.length,
-      metrics: 1,
-    });
-    done(`Added ${readings.length} readings.`);
+    record(PRODUCT_METRICS_ACTIONS.READINGS_IMPORTED, metric.id, { readings: kept, metrics: 1 });
+    done(`Added ${kept} ${kept === 1 ? "reading" : "readings"}.`);
+    if (left > 0) setProblem(readingsLeftOutText(left));
   };
 
   const removeReading = (metric: ProductMetric, reading: MetricReading) => {
@@ -317,18 +329,24 @@ export function ProductMetricsClient() {
     const now = new Date().toISOString();
     const stages = AARRR_STAGES.filter((s) => values.counts[s] !== undefined);
     const before = stages.map((s) => own[s] as ProductMetric);
-    const writes = stages.map(
-      (s) =>
-        withReading(
-          own[s] as ProductMetric,
-          {
-            id: `${READING_ID_PREFIX}${nanoid(8)}`,
-            date: values.date,
-            value: values.counts[s] as number,
-          },
-          now
-        ).metric
+    const results = stages.map((s) =>
+      withReading(
+        own[s] as ProductMetric,
+        {
+          id: `${READING_ID_PREFIX}${nanoid(8)}`,
+          date: values.date,
+          value: values.counts[s] as number,
+        },
+        now
+      )
     );
+    const dropped = stages.find((_, i) => !results[i].kept);
+    if (dropped) {
+      return refuse(
+        `Only the newest ${READINGS_MAX} readings are kept, and this period is older than all of ${AARRR_LABEL[dropped]}'s. Nothing was saved.`
+      );
+    }
+    const writes = results.map((r) => r.metric);
     undoable({
       label: `Added the funnel period of ${values.date}`,
       apply: () => put(writes),
