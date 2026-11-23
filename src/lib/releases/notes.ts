@@ -92,8 +92,8 @@ const cut = (text: string, max: number) =>
   text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
-/** A timestamp's local day. */
-function localDay(iso: string | undefined): string | undefined {
+/** A timestamp's local day, the day the suggestions count by (and the page shows). */
+export function localDay(iso: string | undefined): string | undefined {
   if (!iso) return undefined;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return undefined;

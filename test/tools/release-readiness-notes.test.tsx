@@ -57,6 +57,7 @@ beforeAll(() => {
 });
 
 import { ReleaseReadinessClient } from "@/app/(tools)/release-readiness/release-readiness-client";
+import { dayLabel } from "@/app/(tools)/release-readiness/text";
 import { RELEASE_DOC_ID } from "@/lib/releases/gates";
 import { addDays } from "@/lib/flow/days";
 import { todayIso } from "@/lib/sprints/series";
@@ -151,6 +152,20 @@ describe("linking the stories a release ships", () => {
     expect(panel.getByLabelText(/Search by name/)).toBeInTheDocument();
     expect(panel.queryByLabelText(/Story old/)).toBeNull();
     expect(panel.queryByLabelText(/Dark mode/)).toBeNull();
+  });
+
+  it("labels a suggested story with the local day it was done, the day it is counted by", () => {
+    // Done on that day here, at a time whose UTC day differs wherever the zone
+    // allows: just after midnight east of UTC, late in the evening west of it.
+    const [y, m, d] = on(-2).split("-").map(Number);
+    const west = new Date(y, m - 1, d).getTimezoneOffset() >= 0;
+    const at = new Date(y, m - 1, d, west ? 23 : 0, 30).toISOString();
+    seed([planning(), shipped()], [story("s9", null, { title: "Late fix", doneAt: at })]);
+    renderPage();
+    const panel = openNotes("v2");
+    expect(panel.getByLabelText(/Late fix/)).toHaveAccessibleName(
+      new RegExp(`^Late fix\\s*done ${dayLabel(on(-2))}$`)
+    );
   });
 
   it("links the picked stories with Undo, logging the count", () => {

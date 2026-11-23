@@ -34,6 +34,7 @@ import {
   checkedDraft,
   draftText,
   linkedStoriesOf,
+  localDay,
   newestDone,
   notesOutdatedFor,
   notesStoryOf,
@@ -180,7 +181,7 @@ function LinkedStories({
               <span className="min-w-0 flex-1 break-words">
                 {s.title || "Untitled story"}
                 {s.doneAt && (
-                  <span className="ml-1 text-xs text-sub">done {dayLabel(s.doneAt)}</span>
+                  <span className="ml-1 text-xs text-sub">done {dayLabel(localDay(s.doneAt))}</span>
                 )}
               </span>
             </label>
