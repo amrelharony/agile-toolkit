@@ -1051,7 +1051,10 @@ describe("value checks, the A/B line and the kind filter", () => {
       within(c).getByRole("button", { name: "Use the A/B result: “short forms convert”" })
     );
     expect(one("h-ab")).not.toHaveProperty("actual");
-    expect(one("h-ab")?.outcome).toMatch(/^A\/B test “Shorter form”/);
+    // The early look is written as one, never as a result.
+    expect(one("h-ab")?.outcome).toMatch(
+      /^A\/B test “Shorter form”: Too early to call: 1,000 of 3,841 per variant\. So far: B converted better/
+    );
     expect(logged("result_recorded")).toEqual([]);
   });
 

@@ -379,6 +379,29 @@ describe("use_ab_result", () => {
     });
   });
 
+  it("says it is too early below the planned sample, and sets no number", async () => {
+    seed([pct], {
+      abTests: [
+        abTest({
+          variants: [
+            { id: "a", name: "A", visitors: 600, conversions: 48 },
+            { id: "b", name: "B", visitors: 600, conversions: 84 },
+          ],
+        }),
+      ],
+    });
+    const r = await run<{ updated: boolean; sentence: string; actualSet: boolean }>(
+      "use_ab_result",
+      { hypothesisId: "h1" }
+    );
+    expect(r).toMatchObject({ updated: true, actualSet: false, suggestedVerdict: null });
+    expect(r.sentence).toMatch(
+      /^A\/B test “Shorter form”: Too early to call: 600 of 3,841 per variant\. So far: B converted better than A/
+    );
+    expect(one("h1")?.outcome).toBe(r.sentence);
+    expect(one("h1")).not.toHaveProperty("actual");
+  });
+
   it("refuses with no test or no counts", async () => {
     seed([pct]);
     expect(await run("use_ab_result", { hypothesisId: "h1" })).toMatchObject({

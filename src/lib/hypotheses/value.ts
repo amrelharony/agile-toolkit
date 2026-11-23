@@ -35,7 +35,7 @@ import { addDays } from "@/lib/flow/days";
 import { doneOn } from "@/lib/flow/items";
 import { epicRollup, linkedStories } from "@/lib/roadmap/rollup";
 import { EPIC_ROADMAP_ID } from "@/lib/roadmap/epic-source";
-import { testSummary } from "@/lib/experiments/model";
+import { testSummary, tooEarlyText } from "@/lib/experiments/model";
 import { isExampleId } from "@/lib/utils/example-id";
 import type { FormErrors, Validation } from "@/lib/utils/form";
 import {
@@ -415,7 +415,7 @@ export type AbResultUpdate =
   | {
       ok: true;
       next: Hypothesis;
-      /** "A/B test “name”: B converted better than A by …". */
+      /** "A/B test “name”: B converted better than A by …" (below the plan, "…: Too early to call: …. So far: …"). */
       sentence: string;
       /** Whether the measured result was set (B's rate in %). */
       actualSet: boolean;
@@ -431,12 +431,19 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
  * what we learned (on its own line, once), and B's rate × 100 as the
  * measured result only when the target is in "%", the test has its
  * planned sample per version and the result is significant at the plan's
- * confidence. It never sets the status.
+ * confidence. Below the planned sample the line starts "Too early to
+ * call: …. So far:", as the page reads it, so an early peek's
+ * "significant" never stands as a result. It never sets the status.
  */
 export function abResultUpdate(h: Hypothesis, test: AbTest): AbResultUpdate {
   const s = testSummary(test);
   if (!s.result) return { ok: false, reason: "no_result" };
-  const sentence = `A/B test “${cut(test.name, 120) || "Untitled"}”: ${s.result.sentence}`;
+  const { early } = s.result;
+  const reading =
+    early.planned !== null && !early.met
+      ? `${tooEarlyText(early)}. So far: ${s.result.sentence}`
+      : s.result.sentence;
+  const sentence = `A/B test “${cut(test.name, 120) || "Untitled"}”: ${reading}`;
   const prev = (h.outcome ?? "").trim();
   if (prev.includes(sentence)) return { ok: false, reason: "already_used" };
   const outcome = prev ? `${prev}\n${sentence}` : sentence;

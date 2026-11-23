@@ -430,6 +430,31 @@ describe("Use the A/B result", () => {
     expect(kept.ok && kept.next.outcome?.startsWith("Earlier notes.\nA/B test")).toBe(true);
   });
 
+  it("says it is too early below the planned sample, even when the peek reads significant", () => {
+    const peek = test({
+      variants: [
+        { id: "a", name: "A", visitors: 600, conversions: 48 },
+        { id: "b", name: "B", visitors: 600, conversions: 84 },
+      ],
+    });
+    const r = abResultUpdate(pct, peek);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.sentence).toMatch(
+      /^A\/B test “Shorter form”: Too early to call: 600 of 3,841 per variant\. So far: B converted better than A by 6\.0 points .*, significant at 95% confidence\.$/
+    );
+    expect(r.next.outcome).toBe(r.sentence);
+    expect(r.actualSet).toBe(false);
+    expect(r.next.actual).toBeUndefined();
+    expect(r.suggestedVerdict).toBeNull();
+    // With the sample in, the full result can still go in on its own line.
+    const later = abResultUpdate(r.next, test());
+    expect(later.ok && later.next.outcome?.split("\n")).toEqual([
+      r.sentence,
+      "A/B test “Shorter form”: B converted better than A by 2.0 points (95% interval +0.6 to +3.4 points; p = 0.0045), significant at 95% confidence.",
+    ]);
+  });
+
   it("refuses without counts, or with no room in what we learned", () => {
     const empty = test({
       variants: [
