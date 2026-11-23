@@ -459,7 +459,7 @@ export function EpicRoadmapClient() {
     <ToolPageWrapper
       toolId="epic-roadmap"
       title="Epic Roadmap"
-      description="Timeline view of epics across quarters, with progress rolled up from their stories."
+      description="Epics on a quarterly timeline or a Now, Next, Later board, with progress rolled up from their stories."
       category="Portfolio & Scaling"
     >
       <OnSearchParams onChange={(params) => setLinkedEpic(params.get("epic"))} />

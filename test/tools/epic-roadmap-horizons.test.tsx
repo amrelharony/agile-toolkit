@@ -23,7 +23,12 @@ const h = vi.hoisted(() => ({
 const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn() }));
 vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
 vi.mock("@/components/layout/tool-page-wrapper", () => ({
-  ToolPageWrapper: ({ children }: { children: ReactNode }) => <div>{children}</div>,
+  ToolPageWrapper: ({ children, description }: { children: ReactNode; description?: string }) => (
+    <div>
+      <p data-testid="page-description">{description}</p>
+      {children}
+    </div>
+  ),
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({
   AiPromptGenerator: ({ config }: { config: { prompts: { prompt: string }[] } }) => (
@@ -46,6 +51,8 @@ import { crowdedNote } from "@/app/(tools)/epic-roadmap/horizons-board";
 import { horizonsMarkdown, toMarkdown } from "@/app/(tools)/epic-roadmap/markdown";
 import { epicViews, whyLine } from "@/app/(tools)/epic-roadmap/view";
 import { readRoadmapView, useRoadmapView } from "@/app/(tools)/epic-roadmap/view-store";
+import { metadata } from "@/app/(tools)/epic-roadmap/page";
+import { getToolById } from "@/lib/constants/tools";
 
 const NOW = new Date("2026-11-23T12:00:00Z");
 const ER_ID = "epicRoadmap:current";
@@ -131,6 +138,15 @@ describe("the view switch", () => {
     expect(column(/^Now/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("radio", { name: "Timeline" }));
     expect(screen.getByText("View from")).toBeInTheDocument();
+  });
+
+  it("describes both views, in the header and in the page's metadata", () => {
+    const registry = getToolById("epic-roadmap")!.description;
+    expect(registry).toContain("Now, Next, Later");
+    renderRoadmap();
+    expect(screen.getByTestId("page-description")).toHaveTextContent(`${registry}.`);
+    expect(metadata.description).toBe(registry);
+    expect(metadata.title).toBe("Epic Roadmap");
   });
 
   it("reads anything stored but the board as the timeline", () => {
