@@ -19,6 +19,7 @@ import {
   newestArchivedRetro,
 } from "@/lib/retro/board";
 import { isIsoDate } from "@/lib/sprints/calendar";
+import { cutText } from "@/lib/utils/cut-text";
 import type { HandoffSource } from "../types";
 
 /** The current retro's id (lib/retro/board). */
@@ -77,6 +78,17 @@ function isDueDay(due: string | undefined): due is string {
   return typeof due === "string" && /^\d{4}-\d{2}-\d{2}$/.test(due) && isIsoDate(due);
 }
 
+/**
+ * The card's words. A card has no notes, so a source longer than a card
+ * (an Improve countermeasure or a Kickoff line runs to 1000 characters)
+ * ends in "…": the cut shows, and the card's source link holds the rest.
+ * Never cut through a character (a lone surrogate fails the board's push).
+ */
+function cardText(title: string): string {
+  const full = title.trim();
+  return full.length > RETRO_CARD_MAX ? `${cutText(full, RETRO_CARD_MAX - 1).trimEnd()}…` : full;
+}
+
 export function buildRetroCard(
   src: HandoffSource,
   format: Pick<RetroFormat, "columns"> | undefined,
@@ -86,7 +98,7 @@ export function buildRetroCard(
   return {
     id,
     columnKey: retroColumnFor(format, src.tone),
-    text: src.title.trim().slice(0, RETRO_CARD_MAX),
+    text: cardText(src.title),
     votes: 0,
     groupedWith: null,
     isActionItem: action,
