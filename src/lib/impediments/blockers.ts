@@ -639,6 +639,34 @@ export function openImpedimentFor(
   return impediments.find((i) => i && !isResolved(i) && clusterKey(i.cluster) === key);
 }
 
+/**
+ * The side `cluster` already carries, for a blocker given it next: a
+ * default cluster's own; else the side most of the window's rows under it
+ * carry (as its Pareto row shows it); else most of the impediments filed
+ * under it with a side of their own (ties: inside). Null for a cluster
+ * nothing carries yet.
+ */
+export function clusterSideOf(
+  cluster: string,
+  rows: readonly BlockerRow[],
+  impediments: readonly Impediment[]
+): BlockSide | null {
+  const own = defaultClusterSide(cluster);
+  if (own) return own;
+  const key = clusterKey(cluster);
+  if (!key) return null;
+  const members = rows.filter((r) => clusterKey(r.cluster) === key);
+  if (members.length > 0) return majoritySide(members);
+  const sides = impediments.flatMap((i) =>
+    i && clusterKey(i.cluster) === key && (i.blockSide === "internal" || i.blockSide === "external")
+      ? [i.blockSide]
+      : []
+  );
+  if (sides.length === 0) return null;
+  const outside = sides.filter((s) => s === "external").length;
+  return outside > sides.length - outside ? "external" : "internal";
+}
+
 export const RAISED_TITLE = "Keeps blocking us: ";
 
 /**

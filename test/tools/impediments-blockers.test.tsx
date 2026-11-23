@@ -231,6 +231,32 @@ describe("Blockers: where the time goes", () => {
     });
   });
 
+  it("gives a cluster the team named its side again when it is picked for another blocker", async () => {
+    useWorkspaceStore.setState({
+      impediments: [imp("i1", "Anything", { cluster: "Another team" })],
+      stories: [
+        story("a", { title: "Contract wording", blocked: true, blockLog: [{ from: stamp(2) }] }),
+        story("b", { title: "Data retention", blocked: true, blockLog: [{ from: stamp(1) }] }),
+      ],
+    });
+    renderPage();
+    const s = within(await screen.findByRole("region", { name: "Blockers: where the time goes" }));
+    fireEvent.change(s.getByRole("combobox", { name: "Cluster for Contract wording" }), {
+      target: { value: "__new__" },
+    });
+    fireEvent.change(s.getByLabelText("New cluster"), { target: { value: "Legal sign-off" } });
+    fireEvent.click(s.getByRole("radio", { name: "Outside" }));
+    fireEvent.click(s.getByRole("button", { name: "Save cluster" }));
+    const select = s.getByRole("combobox", { name: "Cluster for Data retention" });
+    expect(within(select).getByRole("group", { name: "Your clusters" })).toHaveTextContent(
+      "Legal sign-off"
+    );
+    fireEvent.change(select, { target: { value: "Legal sign-off" } });
+    const spell = (id: string) => ws().stories.find((x) => x.id === id)?.blockLog?.[0];
+    expect(spell("a")).toMatchObject({ cluster: "Legal sign-off", side: "external" });
+    expect(spell("b")).toMatchObject({ cluster: "Legal sign-off", side: "external" });
+  });
+
   it("raises a cluster as one impediment, with Undo, and then says it is raised", async () => {
     useWorkspaceStore.setState({
       impediments: [

@@ -18,6 +18,7 @@ import {
   cleanClusterName,
   clusterImpediment,
   clusterPareto,
+  clusterSideOf,
   lastDays,
   readBlockers,
   sideSplit,
@@ -375,6 +376,30 @@ describe("the window", () => {
       "Another team cost the most: 2 blocked days; 100% from outside the team."
     );
     expect(readBlockers([], [], [], WINDOW).verdict).toBe("Nothing was blocked in this window.");
+  });
+});
+
+describe("a cluster's side", () => {
+  it("is a default cluster's own, else its rows', else its impediments'", () => {
+    const rows = blockerRows(
+      [
+        story("a", {
+          blockLog: [
+            { from: at(day(1)), to: at(day(2)), cluster: "Legal sign-off", side: "external" },
+          ],
+        }),
+      ],
+      [],
+      [],
+      WINDOW
+    );
+    const old = [
+      imp("i", { raisedAt: day(-90), cluster: "Vendor contract", blockSide: "external" }),
+    ];
+    expect(clusterSideOf("another TEAM", [], [])).toBe("external");
+    expect(clusterSideOf("legal  sign-off", rows, [])).toBe("external");
+    expect(clusterSideOf("Vendor contract", rows, old)).toBe("external");
+    expect(clusterSideOf("Coffee machine", rows, old)).toBeNull();
   });
 });
 

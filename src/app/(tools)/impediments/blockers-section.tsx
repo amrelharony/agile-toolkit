@@ -38,12 +38,13 @@ import {
   cleanClusterName,
   clusterImpediment,
   clusterKey,
+  clusterSideOf,
   lastDays,
   openImpedimentFor,
   readBlockers,
   type BlockerRow,
 } from "@/lib/impediments/blockers";
-import { DEFAULT_BLOCKER_CLUSTERS, defaultClusterSide } from "@/lib/impediments/clusters";
+import { DEFAULT_BLOCKER_CLUSTERS } from "@/lib/impediments/clusters";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   BLOCKER_CLUSTER_MAX,
@@ -234,7 +235,8 @@ export function BlockersSection({
   }
 
   function pick(row: BlockerRow, cluster: string, side?: BlockSide) {
-    const sideTo = side ?? defaultClusterSide(cluster) ?? undefined;
+    // A cluster the team named keeps the side it was given: written on every row it goes on.
+    const sideTo = side ?? clusterSideOf(cluster, read.rows, impediments) ?? undefined;
     const n = writeClusters(
       sameCluster([targetOf(row)], cluster, sideTo),
       `Put “${row.title}” under ${cluster}`
