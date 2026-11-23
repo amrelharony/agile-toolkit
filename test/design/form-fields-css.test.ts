@@ -113,6 +113,7 @@ describe("native selects styled to match <Input>", () => {
     "src/app/(tools)/jtbd-mapper/job-form.tsx",
     "src/app/(tools)/premortem/components/premortem-form.tsx",
     "src/app/(tools)/premortem/premortem-client.tsx",
+    "src/app/(tools)/product-metrics/metric-form.tsx",
     "src/components/shared/quarter-picker.tsx",
   ];
 
