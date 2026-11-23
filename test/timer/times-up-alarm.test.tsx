@@ -53,8 +53,11 @@ import {
   useFacilitatorSettings,
   useFtSession,
 } from "@/lib/facilitator-timers/store";
-import { useRingsOwnAlarm } from "@/lib/timer/dock-timer";
+import { ringsOwnAlarm, useRingsOwnAlarm } from "@/lib/timer/dock-timer";
+import { dockFor, startRun } from "@/app/(tools)/ceremony-timer/run";
+import { resolveAgenda } from "@/app/(tools)/ceremony-timer/agenda";
 
+const CT_HREF = "/ceremony-timer";
 const ROOT = join(__dirname, "..", "..");
 const read = (rel: string) => readFileSync(join(ROOT, rel), "utf8");
 const T0 = Date.parse("2026-11-12T09:00:00Z");
@@ -170,14 +173,82 @@ describe("the docked timer", () => {
   it("leaves the ringing to the owner's page when that page rings its own", () => {
     nav.pathname = "/ceremony-timer";
     useDockTimer.getState().publish(standup());
+    function Page() {
+      useRingsOwnAlarm("/ceremony-timer");
+      return null;
+    }
     render(
       <LiveAnnouncerProvider>
+        <Page />
         <DockedTimer />
       </LiveAnnouncerProvider>
     );
     advance(3000);
     expect(useDockTimer.getState().timer?.endedAt).toBe(T0 + 2000);
     expect(alarm.timesUp).not.toHaveBeenCalled();
+  });
+
+  describe("a Ceremony Timer segment", () => {
+    const publishSegment = (chime: boolean) => {
+      const dock = dockFor(
+        startRun("daily", T0),
+        resolveAgenda("daily", null, 14),
+        CT_HREF,
+        T0,
+        chime
+      );
+      expect(dock).toMatchObject({ href: CT_HREF, chime });
+      useDockTimer.getState().publish(dock);
+      return dock!;
+    };
+
+    it("rings under the timer's own chime switch away from its page", () => {
+      const dock = publishSegment(true);
+      render(
+        <LiveAnnouncerProvider>
+          <DockedTimer />
+        </LiveAnnouncerProvider>
+      );
+      advance(dock.totalSeconds * 1000 + 100);
+      expect(alarm.timesUp).toHaveBeenCalledTimes(1);
+      expect(alarm.timesUp).toHaveBeenCalledWith({ sound: true });
+    });
+
+    it("stays silent with the timer's chime off, even with the shared switch on", () => {
+      useAlarmPrefs.setState({ sound: true });
+      const dock = publishSegment(false);
+      render(
+        <LiveAnnouncerProvider>
+          <DockedTimer />
+        </LiveAnnouncerProvider>
+      );
+      advance(dock.totalSeconds * 1000 + 100);
+      expect(alarm.timesUp).toHaveBeenCalledTimes(1);
+      expect(alarm.timesUp).toHaveBeenCalledWith({ sound: false });
+    });
+
+    it("rings its own on its page only while the page is mounted", () => {
+      expect(ringsOwnAlarm(CT_HREF)).toBe(false);
+      function Page() {
+        useRingsOwnAlarm(CT_HREF);
+        return null;
+      }
+      const { unmount } = render(<Page />);
+      expect(ringsOwnAlarm(CT_HREF)).toBe(true);
+      unmount();
+      expect(ringsOwnAlarm(CT_HREF)).toBe(false);
+    });
+
+    it("the page rings timesUp with its switch and registers itself", () => {
+      const src = read("src/app/(tools)/ceremony-timer/ceremony-timer-client.tsx");
+      expect(src).toMatch(/import \{[^}]*\btimesUp\b[^}]*\} from "\.\/alarm"/);
+      expect(src).toMatch(/\btimesUp\(\{ sound: chime \}\)/);
+      expect(src).toMatch(/\buseRingsOwnAlarm\(DOCK_HREF\)/);
+      // The segment's end rings nothing else beside it (a turn's single beep stays).
+      expect(src).not.toMatch(/\bplayChime\(3\)/);
+      expect(src).not.toMatch(/\bvibrate\(/);
+      expect(read("src/lib/timer/dock-timer.ts")).not.toMatch(/ALWAYS_RINGS_OWN/);
+    });
   });
 
   it.each([

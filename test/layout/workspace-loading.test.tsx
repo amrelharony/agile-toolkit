@@ -49,6 +49,8 @@ import { KanbanClient } from "@/app/(tools)/kanban/kanban-client";
 import { RetroActionsTracker } from "@/app/(tools)/retro-actions/tracker";
 import { RefinementClient } from "@/app/(tools)/refinement/refinement-client";
 import { TeamClient } from "@/app/(meta)/team/team-client";
+import { CycleTimeClient } from "@/app/(tools)/cycle-time/cycle-time-client";
+import { CFDClient } from "@/app/(tools)/cumulative-flow/cfd-client";
 
 /** The first HTML's status placeholder, parsed back into the DOM. */
 function serverStatus(ui: ReactElement): HTMLElement {
@@ -179,6 +181,17 @@ describe("pre-hydration placeholders reserve the tool's room", () => {
     const column = status.parentElement!;
     expect(column).toHaveClass("min-w-0");
     expect(column.parentElement).toHaveClass("grid", "lg:grid-cols-[minmax(0,1fr)_380px]");
+  });
+
+  it.each([
+    ["the Cycle Time Analyzer", () => <CycleTimeClient />],
+    ["the Cumulative Flow Diagram", () => <CFDClient />],
+  ])("%s, which shifted 0.23 on phones with a one-line card", (_name, ui) => {
+    const status = serverStatus(ui());
+    expect(status).toHaveTextContent("Loading the boards…");
+    // Short until the boards load: the phone-only reserve.
+    expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
+    expect(status).not.toHaveClass(WORKSPACE_LOADING_RESERVE_TALL);
   });
 
   it("the Team page, capped near its empty state's height", () => {

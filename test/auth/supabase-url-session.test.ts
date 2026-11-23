@@ -128,23 +128,85 @@ describe("realtime client (realtime/supabase-client.ts)", () => {
 
   it("getSupabaseClient ignores a session persisted in localStorage", async () => {
     const expiresAt = Math.floor(Date.now() / 1000) + 3600;
-    window.localStorage.setItem(
-      STORAGE_KEY,
-      JSON.stringify({
-        access_token: "planted-jwt",
-        refresh_token: "planted-refresh",
-        token_type: "bearer",
-        expires_in: 3600,
-        expires_at: expiresAt,
-        user: { id: "someone-else", aud: "authenticated" },
-      })
-    );
-    const { getSupabaseClient } = await import("@/lib/realtime/supabase-client");
+    const planted = JSON.stringify({
+      access_token: "planted-jwt",
+      refresh_token: "planted-refresh",
+      token_type: "bearer",
+      expires_in: 3600,
+      expires_at: expiresAt,
+      user: { id: "someone-else", aud: "authenticated" },
+    });
+    const { getSupabaseClient, REALTIME_AUTH_STORAGE_KEY } =
+      await import("@/lib/realtime/supabase-client");
+    // Under the default key and under the client's own one.
+    window.localStorage.setItem(STORAGE_KEY, planted);
+    window.localStorage.setItem(REALTIME_AUTH_STORAGE_KEY, planted);
     const client = getSupabaseClient();
     created.push(client!);
     await client!.auth.initialize();
 
     const { data } = await client!.auth.getSession();
     expect(data.session).toBeNull();
+  });
+});
+
+/**
+ * Both clients in one page. auth-js counts GoTrue clients per storage key
+ * and warns "Multiple GoTrueClient instances" from the second on a key,
+ * naming the key. The auth client (one per browser: @supabase/ssr keeps it
+ * as a singleton) holds the default key, so the realtime client keeps its
+ * own. Each case clears the warnings once the auth client exists, and reads
+ * only what creating the realtime client says.
+ */
+describe("both browser clients together", () => {
+  const AUTH_KEY = STORAGE_KEY;
+  const multipleWarnings = (key?: string) =>
+    vi
+      .mocked(console.warn)
+      .mock.calls.map(([message]) => String(message))
+      .filter(
+        (m) =>
+          m.includes("Multiple GoTrueClient") &&
+          (key === undefined || m.includes(`GoTrueClient@${key}:`))
+      );
+  const storageKeyOf = (client: SupabaseClient) =>
+    (client.auth as unknown as { storageKey: string }).storageKey;
+
+  async function authClient() {
+    const { getAuthBrowserClient } = await import("@/lib/auth/supabase-browser");
+    const auth = getAuthBrowserClient()!;
+    expect(storageKeyOf(auth)).toBe(AUTH_KEY);
+    vi.mocked(console.warn).mockClear();
+    return auth;
+  }
+
+  it("control: the realtime client's options on the default key are warned about", async () => {
+    await authClient();
+    const { createClient } = await import("@supabase/supabase-js");
+    created.push(
+      createClient(SUPABASE_URL, "anon-key", {
+        auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+      })
+    );
+    expect(multipleWarnings(AUTH_KEY)).toHaveLength(1);
+  });
+
+  it("creating the realtime client beside the auth client logs no Multiple GoTrueClient warning", async () => {
+    await authClient();
+    const { getSupabaseClient, REALTIME_AUTH_STORAGE_KEY } =
+      await import("@/lib/realtime/supabase-client");
+    const realtime = getSupabaseClient()!;
+    created.push(realtime);
+    expect(REALTIME_AUTH_STORAGE_KEY).toBe("agile-toolkit-realtime");
+    expect(storageKeyOf(realtime)).toBe(REALTIME_AUTH_STORAGE_KEY);
+    // Nothing shares the auth client's key.
+    expect(multipleWarnings(AUTH_KEY)).toEqual([]);
+    // The page keeps one realtime client: asking again makes none.
+    vi.mocked(console.warn).mockClear();
+    expect(getSupabaseClient()).toBe(realtime);
+    expect(multipleWarnings()).toEqual([]);
+    // It never persists, so nothing is written under its own key.
+    await realtime.auth.initialize();
+    expect(window.localStorage.getItem(REALTIME_AUTH_STORAGE_KEY)).toBeNull();
   });
 });

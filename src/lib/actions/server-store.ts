@@ -312,7 +312,7 @@ export async function serverGetUserStateBlob(
  * `serverPatchUserStateBlob`, one key per line.
  */
 export const SERVER_WRITABLE_BLOB_KEYS: readonly string[] = [
-  "agile-toolkit:card-decks", // CARD_DECKS_STORE_KEY; P2.0c converts its verbs
+  "agile-toolkit:card-decks", // CARD_DECKS_STORE_KEY: deal, shuffle and add_card (P2.0c)
   "agile-toolkit:relative-sizing", // P2.1's MCP handlers
 ];
 
