@@ -497,7 +497,7 @@ export function RoamSection({
                         <Link
                           ref={refFor(`roam-open:${risk.id}`)}
                           href="/risk-register"
-                          className="inline-flex items-center gap-1 text-xs text-accent underline-offset-2 hover:underline"
+                          className="min-touch-coarse inline-flex items-center gap-1 py-1 text-xs text-accent underline-offset-2 hover:underline"
                         >
                           <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
                           In the Risk Register

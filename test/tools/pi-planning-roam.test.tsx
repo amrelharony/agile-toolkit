@@ -240,10 +240,10 @@ describe("Risks: ROAM", () => {
     expect(stored().items[0].sentTo).toEqual([
       expect.objectContaining({ route: "risk", targetId: risks[0].id }),
     ]);
-    expect(screen.getByRole("link", { name: "In the Risk Register" })).toHaveAttribute(
-      "href",
-      "/risk-register"
-    );
+    const sentLink = screen.getByRole("link", { name: "In the Risk Register" });
+    expect(sentLink).toHaveAttribute("href", "/risk-register");
+    // A full-size tap target on a phone, like the button it replaces.
+    expect(sentLink).toHaveClass("min-touch-coarse");
 
     undoLast();
     expect(useWorkspaceStore.getState().risks ?? []).toEqual([]);
