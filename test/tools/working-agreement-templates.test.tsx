@@ -272,6 +272,16 @@ describe("template rules on the charter", () => {
     expect(screen.queryByText("From the Focus time template")).toBeNull();
   });
 
+  it("Edit in template moves focus into the urgency ladder's first field", () => {
+    seed(withLadder());
+    renderPage();
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit in template: Urgency ladder" })[0]);
+    // Level 1's "Move up" is disabled; focus lands on its name instead.
+    const first = within(form()).getAllByLabelText(/^Name/)[0];
+    expect(first).toHaveValue("Emergency");
+    expect(document.activeElement).toBe(first);
+  });
+
   it("exports the urgency ladder as a table", () => {
     seed(withLadder());
     renderPage();

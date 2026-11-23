@@ -919,13 +919,24 @@ export function AiUseForm({ doc, initial, onApply, onCancel }: TemplateFormProps
   );
 }
 
-/** Scrolls an opened form into view and puts focus on its first field. */
+/** A form's fields that can take focus, in page order. */
+const FIELD =
+  'input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled])';
+
+/**
+ * Scrolls an opened form into view and puts focus on its first field that
+ * can take it (the ladder's first "Move up" is disabled, and a disabled
+ * button never takes focus), else its first button that can.
+ */
 export function useFocusOnOpen(ref: { current: HTMLElement | null }, key: string | null) {
   useEffect(() => {
     if (!key) return;
     const el = ref.current;
     if (!el) return;
     el.scrollIntoView?.({ block: "nearest" });
-    el.querySelector<HTMLElement>("input, textarea, select, button")?.focus();
+    const target =
+      el.querySelector<HTMLElement>(FIELD) ??
+      el.querySelector<HTMLElement>("button:not([disabled])");
+    target?.focus();
   }, [key, ref]);
 }
