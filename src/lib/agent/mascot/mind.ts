@@ -8,9 +8,10 @@
  *
  * `feel` says something happened to him; `did` says he did something, so that he
  * varies what he does next. What he remembers is saved a moment later, to this
- * browser only.
+ * browser only. "Clear data on this browser" forgets it (see forgetMind).
  */
 
+import { resetOnLocalDataClear } from "@/lib/utils/clear-local-data";
 import { createBrain, type Brain, type BrainEvent } from "./brain/state";
 import {
   counted,
@@ -50,7 +51,21 @@ export function getMind(): Mind {
   const { memory, arrival } = noteVisit(loadMemory(storage()), new Date());
   saveMemory(storage(), memory);
   mind = { brain: createBrain({ start: { affection: fondness(memory) } }), memory, arrival };
+  resetOnLocalDataClear(forgetMind);
   return mind;
+}
+
+/**
+ * Forget the visitor in this tab. "Clear data on this browser" runs it before
+ * it removes the stored memory: otherwise a save already on its way, or the
+ * next thing that happens to him before the page reloads, would put the old
+ * memory straight back. If he is asked again before the reload, he starts from
+ * whatever the storage holds by then.
+ */
+export function forgetMind(): void {
+  clearTimeout(saving);
+  saving = undefined;
+  mind = null;
 }
 
 function saveSoon(): void {
@@ -93,8 +108,6 @@ export function takeArrival(): Arrival {
 
 /** Test-only: forget the mind (not the storage). */
 export function __resetMindForTests(): void {
-  clearTimeout(saving);
-  saving = undefined;
-  mind = null;
+  forgetMind();
   arrivalTaken = false;
 }
