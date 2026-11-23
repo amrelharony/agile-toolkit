@@ -271,6 +271,8 @@ export function TestSessionsClient() {
       cheer(TOOL_ID, "done");
     }
     announce("Debrief saved.");
+    // The form, and its Save button with it, gives way to the debrief.
+    headings.current.get(session.id)?.focus();
   };
 
   const remove = (session: TestSession) => {
@@ -354,6 +356,8 @@ export function TestSessionsClient() {
         ? "Logged 1 bug in Bug Triage."
         : `Logged ${sent.length} bugs in Bug Triage.`
     );
+    // With every bug sent, the button that sent them goes.
+    headings.current.get(session.id)?.focus();
   };
 
   const actions: SessionActions = {

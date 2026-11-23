@@ -108,6 +108,11 @@ const undoLast = () => {
   expect(opts?.action).toBeTruthy();
   act(() => opts?.action?.onClick());
 };
+/** Focus a control, then click it, as a keyboard user's Enter does. */
+const press = (el: HTMLElement) => {
+  act(() => el.focus());
+  fireEvent.click(el);
+};
 const dock = () => useDockTimer.getState().timer;
 const standupDock = () =>
   useDockTimer
@@ -401,7 +406,10 @@ describe("the debrief", () => {
     fireEvent.change(within(done).getByRole("textbox", { name: /What you learned/ }), {
       target: { value: "Prices follow the address." },
     });
-    fireEvent.click(save);
+    press(save);
+    // The form, Save with it, gave way to the debrief: focus is on the session.
+    expect(within(card("tsess_a")).queryByRole("button", { name: "Save debrief" })).toBeNull();
+    expect(document.activeElement).toBe(within(card("tsess_a")).getByRole("heading"));
     expect(stored("tsess_a")).toMatchObject({
       coverage: "most",
       split: { testing: 70, bugs: 20, setup: 10 },
@@ -423,6 +431,10 @@ describe("the debrief", () => {
     fireEvent.click(within(card("tsess_a")).getByRole("button", { name: "Save debrief" }));
     expect(logged(TEST_SESSIONS_ACTIONS.SESSION_DEBRIEFED)).toHaveLength(1);
     expect(cheers).toHaveLength(1);
+    // Cancel goes with the form too.
+    fireEvent.click(within(card("tsess_a")).getByRole("button", { name: "Edit debrief" }));
+    press(within(card("tsess_a")).getByRole("button", { name: "Cancel" }));
+    expect(document.activeElement).toBe(within(card("tsess_a")).getByRole("heading"));
   });
 
   it("logs all the bugs in Bug Triage with one Undo", async () => {
@@ -438,9 +450,9 @@ describe("the debrief", () => {
       }),
     ]);
     renderPage();
-    fireEvent.click(
-      within(await findCard("tsess_a")).getByRole("button", { name: "Log all 2 bugs" })
-    );
+    press(within(await findCard("tsess_a")).getByRole("button", { name: "Log all 2 bugs" }));
+    // The button went with the last unsent bug: focus is on the session.
+    expect(document.activeElement).toBe(within(card("tsess_a")).getByRole("heading"));
     const bugs = ws().bugReports ?? [];
     expect(bugs.map((b) => b.title)).toEqual(["The list jumps to the top", "Prices stay wrong"]);
     expect(bugs[0]).toMatchObject({

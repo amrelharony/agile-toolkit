@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { Bug, CalendarPlus, Pencil, Play, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -295,6 +295,7 @@ export function SessionCard({
   headingRef?: (el: HTMLHeadingElement | null) => void;
 }) {
   const [editingDebrief, setEditingDebrief] = useState(false);
+  const heading = useRef<HTMLHeadingElement | null>(null);
   const example = isExampleId(session.id);
   const counts = noteCounts(session);
   const ran = minutesRan(session);
@@ -325,7 +326,10 @@ export function SessionCard({
       <div className="space-y-1">
         <h3
           id={`session-${session.id}`}
-          ref={headingRef}
+          ref={(el) => {
+            heading.current = el;
+            headingRef?.(el);
+          }}
           tabIndex={-1}
           className="break-words text-sm font-semibold text-text focus:outline-none"
         >
@@ -436,7 +440,15 @@ export function SessionCard({
                 actions.debrief(session, v);
                 setEditingDebrief(false);
               }}
-              onCancel={session.coverage ? () => setEditingDebrief(false) : undefined}
+              onCancel={
+                session.coverage
+                  ? () => {
+                      // Cancel goes with the form: focus the session's heading.
+                      setEditingDebrief(false);
+                      heading.current?.focus();
+                    }
+                  : undefined
+              }
             />
           )}
 
