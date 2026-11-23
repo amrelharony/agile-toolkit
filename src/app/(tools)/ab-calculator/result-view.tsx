@@ -16,9 +16,16 @@ import {
   pointsText,
   rateText,
   splitPText,
+  type ConversionAnalysis,
 } from "@/lib/experiments/ab";
 import { countText, type ResultReading } from "@/lib/experiments/model";
 import { cn } from "@/lib/utils";
+
+/** A result's colour by which way it went: B won, B lost, or no clear difference. */
+export function verdictTone(r: Pick<ConversionAnalysis, "significant" | "difference">): string {
+  if (!r.significant) return "text-text";
+  return r.difference > 0 ? "text-success" : "text-danger";
+}
 
 export function ResultView({
   reading,
@@ -43,7 +50,7 @@ export function ResultView({
       <p
         className={cn(
           "break-words text-sm font-medium",
-          tooEarly ? "text-warning" : r.significant ? "text-success" : "text-text"
+          tooEarly ? "text-warning" : verdictTone(r)
         )}
         {...(live ? { role: "status" } : {})}
       >

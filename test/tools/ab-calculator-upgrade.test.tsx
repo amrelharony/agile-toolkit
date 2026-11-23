@@ -231,6 +231,18 @@ describe("read the result", () => {
     expect(screen.getByText("Decide the sample before you start next time.")).toBeInTheDocument();
   });
 
+  it("colours a result by which way it went: a win green, a loss red, no difference plain", () => {
+    renderPage();
+    countsOf("1000", "200", "1000", "250");
+    expect(screen.getByText(/^B converted better than A/)).toHaveClass("text-success");
+    countsOf("1000", "250", "1000", "200");
+    const loss = screen.getByText(/^B converted worse than A by 5\.0 points/);
+    expect(loss).toHaveClass("text-danger");
+    expect(loss).not.toHaveClass("text-success");
+    countsOf("1000", "100", "1000", "104");
+    expect(screen.getByText(/^No clear difference between A and B/)).toHaveClass("text-text");
+  });
+
   it("warns when the split is off, and says what a typed count needs", () => {
     renderPage();
     countsOf("10000", "1000", "10600", "1100");
