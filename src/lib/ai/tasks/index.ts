@@ -9,12 +9,14 @@ import { suggestOptionsTask } from "./_example";
 import { clusterTask, mergeQuestionsTask, toBacklogTask } from "./audience-wall";
 import { backlogHealthReviewTask } from "./backlog-health";
 import { cardForMoodTask, generateCardsTask } from "./card-decks";
+import { ebmMeasuresTask } from "./ebm-dashboard";
 import { agendaTask } from "./facilitator-timers";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { meetingAuditSuggestTask } from "./meeting-audit";
 import { parkingRouteTask } from "./parking-lot";
 import { themeNamesTask } from "./picker";
 import { productGoalDraftTask } from "./product-goal";
+import { productMetricsSuggestTask } from "./product-metrics";
 import { groupTopicsTask, surprisePlanTask } from "./retro";
 import { retroActionsThemesTask } from "./retro-actions";
 import { categoriesTask, countermeasureTask, nextWhyTask } from "./root-cause";
@@ -32,12 +34,14 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   backlogHealthReviewTask,
   generateCardsTask,
   cardForMoodTask,
+  ebmMeasuresTask,
   agendaTask,
   interruptClassifyTask,
   meetingAuditSuggestTask,
   parkingRouteTask,
   themeNamesTask,
   productGoalDraftTask,
+  productMetricsSuggestTask,
   surprisePlanTask,
   groupTopicsTask,
   retroActionsThemesTask,

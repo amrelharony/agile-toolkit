@@ -9,12 +9,14 @@ import { suggestOptionsPrompt } from "./_example.server";
 import { clusterPrompt, mergeQuestionsPrompt, toBacklogPrompt } from "./audience-wall.server";
 import { backlogHealthReviewPrompt } from "./backlog-health.server";
 import { cardForMoodPrompt, generateCardsPrompt } from "./card-decks.server";
+import { ebmMeasuresPrompt } from "./ebm-dashboard.server";
 import { agendaPrompt } from "./facilitator-timers.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
 import { themeNamesPrompt } from "./picker.server";
 import { productGoalDraftPrompt } from "./product-goal.server";
+import { productMetricsSuggestPrompt } from "./product-metrics.server";
 import { groupTopicsPrompt, surprisePlanPrompt } from "./retro.server";
 import { retroActionsThemesPrompt } from "./retro-actions.server";
 import { categoriesPrompt, countermeasurePrompt, nextWhyPrompt } from "./root-cause.server";
@@ -31,12 +33,14 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   backlogHealthReviewPrompt,
   generateCardsPrompt,
   cardForMoodPrompt,
+  ebmMeasuresPrompt,
   agendaPrompt,
   interruptClassifyPrompt,
   meetingAuditSuggestPrompt,
   parkingRoutePrompt,
   themeNamesPrompt,
   productGoalDraftPrompt,
+  productMetricsSuggestPrompt,
   surprisePlanPrompt,
   groupTopicsPrompt,
   retroActionsThemesPrompt,
