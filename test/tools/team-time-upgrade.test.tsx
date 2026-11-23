@@ -206,6 +206,15 @@ describe("the empty page and the example", () => {
     tab("Office days");
     expect(await screen.findByText(/Anchor day: Thu, when 2 of 2 are in/)).toBeInTheDocument();
   });
+
+  it("links to the Async Standup, where the hand-overs between places live", async () => {
+    await renderPage();
+    const link = screen.getByRole("link", { name: "Async Standup" });
+    expect(link).toHaveAttribute("href", "/async-standup");
+    expect(link.closest("p")).toHaveTextContent(
+      "Follow-the-sun hand-overs between places live in the Async Standup."
+    );
+  });
 });
 
 describe("People", () => {

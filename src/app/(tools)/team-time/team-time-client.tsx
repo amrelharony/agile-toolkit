@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
+import Link from "next/link";
 import { Earth } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -361,7 +362,11 @@ export function TeamTimeClient() {
           </TabsContent>
         </Tabs>
         <p className="text-xs text-sub">
-          Follow-the-sun hand-overs between places live in the Async Standup.
+          Follow-the-sun hand-overs between places live in the{" "}
+          <Link href="/async-standup" className="text-accent underline underline-offset-2">
+            Async Standup
+          </Link>
+          .
         </p>
       </div>
     </ToolPageWrapper>
