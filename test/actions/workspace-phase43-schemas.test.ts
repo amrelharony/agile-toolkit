@@ -77,6 +77,8 @@ import {
   MEETING_NOTE,
   PERSONA,
   PRODUCT_CANVAS,
+  PRODUCT_CASE,
+  PRODUCT_IDEA,
   PRODUCT_METRIC,
   RELEASES_WITH_NOTES,
   RETRO_WITH_DAYS,
@@ -163,6 +165,8 @@ const COLLECTIONS: [toolId: string, slice: keyof Workspace, doc: Doc, kind: stri
   ["workspace.test_session", "testSessions", TEST_SESSION, TEST_SESSION_KIND],
   ["workspace.meeting_note", "meetingNotes", MEETING_NOTE, MEETING_NOTE_KIND],
   ["workspace.product_canvas", "productCanvases", PRODUCT_CANVAS, PRODUCT_CANVAS_KIND],
+  ["workspace.product_canvas", "productCanvases", PRODUCT_IDEA, PRODUCT_CANVAS_KIND],
+  ["workspace.product_canvas", "productCanvases", PRODUCT_CASE, PRODUCT_CANVAS_KIND],
   ["workspace.strategy_map", "strategyMaps", IMPACT_MAP, STRATEGY_MAP_KIND],
   ["workspace.persona", "personas", PERSONA, PERSONA_KIND],
   ["workspace.product_metric", "productMetrics", PRODUCT_METRIC, PRODUCT_METRIC_KIND],
@@ -857,17 +861,17 @@ describe("P2.3 product canvases", () => {
     accepts(T, { ...PRODUCT_CANVAS, sections: { a: half, b: half } });
     rejects(T, { ...PRODUCT_CANVAS, sections: { a: half, b: half, c: [item(99)] } });
     for (const appetiteWeeks of [0, 13, 2.5]) rejects(T, { ...PRODUCT_CANVAS, appetiteWeeks });
-    rejects(T, { ...PRODUCT_CANVAS, intake: { ...PRODUCT_CANVAS.intake, demand: 0 } });
-    rejects(T, { ...PRODUCT_CANVAS, intake: { ...PRODUCT_CANVAS.intake, demand: 10000 } });
-    rejects(T, { ...PRODUCT_CANVAS, intake: { ...PRODUCT_CANVAS.intake, source: "press" } });
+    rejects(T, { ...PRODUCT_IDEA, intake: { ...PRODUCT_IDEA.intake, demand: 0 } });
+    rejects(T, { ...PRODUCT_IDEA, intake: { ...PRODUCT_IDEA.intake, demand: 10000 } });
+    rejects(T, { ...PRODUCT_IDEA, intake: { ...PRODUCT_IDEA.intake, source: "press" } });
     rejects(T, {
-      ...PRODUCT_CANVAS,
+      ...PRODUCT_IDEA,
       intake: {
-        ...PRODUCT_CANVAS.intake,
+        ...PRODUCT_IDEA.intake,
         requesters: Array.from({ length: TOOL_LIST_MAX.requesters + 1 }, (_, i) => `r${i}`),
       },
     });
-    rejects(T, { ...PRODUCT_CANVAS, decision: { verdict: "maybe" } });
+    rejects(T, { ...PRODUCT_CASE, decision: { verdict: "maybe" } });
     rejects(T, { ...PRODUCT_CANVAS, bet: { ...PRODUCT_CANVAS.bet, cycle: 61 } });
     rejects(T, { ...PRODUCT_CANVAS, bet: { ...PRODUCT_CANVAS.bet, weeks: 13 } });
     rejects(T, { ...PRODUCT_CANVAS, bet: { ...PRODUCT_CANVAS.bet, start: "December" } });
@@ -921,8 +925,13 @@ describe("P2.3 product canvases", () => {
     await expect(updateOverMcp(T, vision, { format: "pr-faq" })).rejects.toThrow(
       /keeps its format/
     );
-    // A format the page doesn't offer yet (P2.3b's) is left as it is.
-    await expect(create(T, { ...PRODUCT_CANVAS, id: undefined }, true)).resolves.toBeDefined();
+    // P2.3b's formats are checked too: each fixture passes, another format's field doesn't.
+    for (const row of [PRODUCT_CANVAS, PRODUCT_IDEA, PRODUCT_CASE]) {
+      await expect(create(T, { ...row, id: undefined }, true)).resolves.toBeDefined();
+    }
+    await expect(
+      create(T, { ...PRODUCT_CANVAS, id: undefined, intake: PRODUCT_IDEA.intake }, true)
+    ).rejects.toThrow(/A Shape Up pitch has no intake/);
   });
 });
 

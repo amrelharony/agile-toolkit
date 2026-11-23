@@ -254,33 +254,46 @@ export const INTERRUPT_FROM_BUG: InterruptItem = {
 
 /* P2.3 */
 
+/** A Shape Up pitch with every field a pitch keeps: an owner, sends, a nice-to-have scope, its appetite and its bet. */
 export const PRODUCT_CANVAS: ProductCanvas = {
   id: "pcanvas_1",
   format: "shape-up",
   title: "Refunds without a call",
   sections: {
-    problem: [
-      {
-        id: "p1",
-        text: "Shop owners phone us to refund a payment.",
-        detail: "About 40 calls a week.",
-        evidence: "fact",
-        links: ["story_7"],
-        owner: "Ana",
-      },
-    ],
+    problem: [{ id: "p1", text: "Shop owners phone us to refund a payment.", owner: "Ana" }],
     "no-gos": [
       {
         id: "n1",
         text: "No partial refunds this cycle",
-        evidence: "assumption",
-        promptId: "rabbit-holes",
-        niceToHave: true,
         sentTo: [{ route: "decision", targetId: "dec_1", at: LATER }],
+      },
+    ],
+    scopes: [
+      {
+        id: "s1",
+        text: "Refund a whole payment",
+        niceToHave: true,
+        sentTo: [{ route: "backlog-story", targetId: "story_7", at: LATER }],
       },
     ],
   },
   appetiteWeeks: 6,
+  bet: { status: "bet", cycle: 4, start: "2026-12-01", weeks: 6, decidedAt: LATER },
+  productGoalId: "goal_1",
+  sentTo: [{ route: "hypothesis", targetId: "hyp_1", at: LATER }],
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+/** An idea merged into another: its intake, a line marked a fact, and its own send. */
+export const PRODUCT_IDEA: ProductCanvas = {
+  id: "pcanvas_2",
+  format: "idea",
+  title: "Refund from the phone",
+  sections: {
+    problem: [{ id: "i1", text: "Refunds need a phone call." }],
+    who: [{ id: "i2", text: "Market stall holders", evidence: "fact" }],
+  },
   intake: {
     requesters: ["Shop owners", "Support"],
     source: "customer",
@@ -289,10 +302,22 @@ export const PRODUCT_CANVAS: ProductCanvas = {
     mergedInto: "pcanvas_0",
     note: "Asked for since spring.",
   },
+  sentTo: [{ route: "opportunity", targetId: "opp_1", at: LATER }],
+  createdAt: AT,
+  updatedAt: LATER,
+};
+
+/** A lean business case with its decision. */
+export const PRODUCT_CASE: ProductCanvas = {
+  id: "pcanvas_3",
+  format: "business-case",
+  title: "Card-free shops",
+  sections: {
+    epic: [{ id: "c1", text: "Every payment on the owner's phone" }],
+    expect: [{ id: "c2", text: "Shops stop renting a card machine.\n\nMore card payments." }],
+  },
   decision: { verdict: "go", note: "Worth six weeks.", decidedAt: LATER },
-  bet: { status: "bet", cycle: 4, start: "2026-12-01", weeks: 6, decidedAt: LATER },
-  productGoalId: "goal_1",
-  sentTo: [{ route: "hypothesis", targetId: "hyp_1", at: LATER }],
+  sentTo: [{ route: "decision", targetId: "dec_2", at: LATER }],
   createdAt: AT,
   updatedAt: LATER,
 };
