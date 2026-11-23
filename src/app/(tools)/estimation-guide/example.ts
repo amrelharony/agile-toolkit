@@ -14,7 +14,7 @@
  * they are never written into the workspace's stories.
  */
 
-import { exampleId, isExampleId } from "@/components/tool-frame/example-data";
+import { exampleId, isExampleId } from "@/lib/utils/example-id";
 import type { EstimationScale } from "@/lib/constants/scales";
 import { entryKey } from "./entries";
 
