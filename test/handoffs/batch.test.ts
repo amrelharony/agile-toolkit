@@ -11,7 +11,7 @@ vi.mock("@/lib/utils/undoable", () => ({
 
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { HandoffLink } from "@/lib/stores/workspace-types";
-import { sendHandoffBatch, type HandoffLinkStore } from "@/lib/handoffs/send";
+import { sendHandoff, sendHandoffBatch, type HandoffLinkStore } from "@/lib/handoffs/send";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { findRetroCard } from "@/lib/handoffs/targets/retro-board";
 import { blankRetroBoard } from "@/lib/retro/board";
@@ -161,6 +161,43 @@ describe("sendHandoffBatch", () => {
     expect(useWorkspaceStore.getState().risks).toEqual([]);
     expect(a.links).toEqual([]);
     expect(b.links).toEqual([]);
+  });
+});
+
+describe("a source that can't hold another link (canLink)", () => {
+  const rated = { likelihood: 3, impact: 4 };
+  const src = (id: string) => ({
+    title: `Risk ${id}`,
+    ...rated,
+    sourceRef: { tool: "premortem", id },
+  });
+
+  it("sendHandoff makes nothing and shows no toast when canLink says no", () => {
+    const full = Object.assign(linkStore(), { canLink: () => false });
+    expect(sendHandoff("risk", src("c1"), full)).toBeNull();
+    expect(useWorkspaceStore.getState().risks).toEqual([]);
+    expect(full.links).toEqual([]);
+    expect(undo.last).toBeNull();
+    // A store with room (or no canLink at all) sends as before.
+    expect(
+      sendHandoff("risk", src("c1"), Object.assign(linkStore(), { canLink: () => true }))
+    ).not.toBeNull();
+    expect(useWorkspaceStore.getState().risks).toHaveLength(1);
+  });
+
+  it("sendHandoffBatch skips only the items that can't hold their link", () => {
+    const room = linkStore();
+    const full = Object.assign(linkStore(), { canLink: () => false });
+    const sent = sendHandoffBatch("risk", [
+      { src: src("c1"), links: full },
+      { src: src("c2"), links: room },
+    ]);
+    expect(sent).toHaveLength(1);
+    expect(useWorkspaceStore.getState().risks.map((r) => r.title)).toEqual(["Risk c2"]);
+    expect(room.links).toHaveLength(1);
+    expect(full.links).toEqual([]);
+    expect(sendHandoffBatch("risk", [{ src: src("c3"), links: full }])).toEqual([]);
+    expect(useWorkspaceStore.getState().risks).toHaveLength(1);
   });
 });
 

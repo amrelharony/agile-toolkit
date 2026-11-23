@@ -10,6 +10,7 @@
 import type { Hypothesis, JobStory, TreeNode, TreeNodeKind } from "@/lib/stores/workspace-types";
 import { linkedTest, type LinkedTest } from "@/lib/hypotheses/model";
 import { nodeTitle, outcomeOf, subtreeIds } from "@/lib/opportunity-tree/model";
+import type { DrawnParentTree } from "@/lib/trees/parent-tree";
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -51,48 +52,9 @@ export function addLabel(parent: TreeNodeKind, kind: TreeNodeKind): string {
 
 /* ── The tree as drawn ───────────────────────────────────────────────── */
 
-export interface DrawnTree {
-  /** The nodes drawn at the top: no parent, a parent that is gone, or cut off by a cycle. */
-  roots: TreeNode[];
-  childrenOf: (id: string) => TreeNode[];
-}
-
-/**
- * The tree for drawing, in stored order. A node whose parent isn't on the
- * tree (an agent's or an import's) is drawn at the top rather than lost,
- * and so is a node a hand-edited cycle would hide.
- */
-export function drawTree(nodes: readonly TreeNode[]): DrawnTree {
-  const ids = new Set(nodes.map((n) => n.id));
-  const children = new Map<string, TreeNode[]>();
-  const roots: TreeNode[] = [];
-  for (const n of nodes) {
-    if (n.parentId && n.parentId !== n.id && ids.has(n.parentId)) {
-      const list = children.get(n.parentId) ?? [];
-      list.push(n);
-      children.set(n.parentId, list);
-    } else roots.push(n);
-  }
-  // Anything a cycle cuts off from every root is drawn at the top too.
-  const seen = new Set<string>();
-  const visit = (start: TreeNode) => {
-    const stack = [start];
-    while (stack.length > 0) {
-      const n = stack.pop()!;
-      if (seen.has(n.id)) continue;
-      seen.add(n.id);
-      stack.push(...(children.get(n.id) ?? []));
-    }
-  };
-  roots.forEach(visit);
-  for (const n of nodes) {
-    if (!seen.has(n.id)) {
-      roots.push(n);
-      visit(n);
-    }
-  }
-  return { roots, childrenOf: (id) => children.get(id) ?? [] };
-}
+// drawTree lives in lib/trees/parent-tree (shared with the strategy maps).
+export { drawTree } from "@/lib/trees/parent-tree";
+export type DrawnTree = DrawnParentTree<TreeNode>;
 
 /* ── What a delete takes ─────────────────────────────────────────────── */
 

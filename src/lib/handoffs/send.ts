@@ -6,7 +6,9 @@
  * (and puts back an older link the send replaced). A route the item was
  * already sent on, whose target still exists, is refused, so a double click
  * or a second menu can't make a duplicate; so is an item the route says it
- * can't take yet (HandoffRoute.problem: an unrated risk).
+ * can't take yet (HandoffRoute.problem: an unrated risk), and one whose own
+ * store says it can't hold another link (HandoffLinkStore.canLink: a row at
+ * its size limit), before anything is made.
  */
 
 import { undoable } from "@/lib/utils/undoable";
@@ -18,6 +20,12 @@ export interface HandoffLinkStore {
   getLinks: () => readonly HandoffLink[] | undefined;
   /** Replace the source item's links. */
   setLinks: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) => void;
+  /**
+   * Whether the source item can hold one more link now. Asked before the
+   * target is made: false sends nothing, so no target is left without its
+   * link and no success toast shows. Left out, every send may go ahead.
+   */
+  canLink?: () => boolean;
 }
 
 /** A name short enough for a one-line toast. */
@@ -41,7 +49,8 @@ const sendable = (route: HandoffRoute, src: HandoffSource): boolean =>
 
 /**
  * Returns the new link, or null when nothing was sent (a blank title, a
- * source the route can't take yet, or a live link on this route already).
+ * source the route can't take yet, a live link on this route already, or a
+ * source that can't hold the link).
  */
 export function sendHandoff(
   routeId: HandoffRouteId,
@@ -51,6 +60,7 @@ export function sendHandoff(
   const route = getHandoffRoute(routeId);
   if (!sendable(route, src)) return null;
   if (liveLink(links.getLinks(), routeId)) return null;
+  if (links.canLink && !links.canLink()) return null;
   // A dead link (its target is gone) is replaced, and comes back on Undo.
   const previous = findLink(links.getLinks(), routeId);
   let sent: HandoffLink | null = null;
@@ -90,8 +100,8 @@ export interface HandoffBatchItem {
 /**
  * Send several items on one route with one toast and one Undo ("Sent 3
  * to the Risk Register"). Items with a blank title, a source the route
- * can't take yet or a live link on the route are skipped, as `sendHandoff`
- * would skip them. Undo removes every target and link this send made, and
+ * can't take yet, a live link on the route or no room for the link are
+ * skipped, as `sendHandoff` would skip them. Undo removes every target and link this send made, and
  * puts back any dead link a send replaced. Should a send still throw, the
  * ones made before it are taken back first, so none is left with no Undo.
  * Returns the new links, in the items' order.
@@ -103,7 +113,10 @@ export function sendHandoffBatch(
 ): HandoffLink[] {
   const route = getHandoffRoute(routeId);
   const todo = items.filter(
-    (item) => sendable(route, item.src) && !liveLink(item.links.getLinks(), routeId)
+    (item) =>
+      sendable(route, item.src) &&
+      !liveLink(item.links.getLinks(), routeId) &&
+      (item.links.canLink?.() ?? true)
   );
   if (todo.length === 0) return [];
   const previous = todo.map((item) => findLink(item.links.getLinks(), routeId));

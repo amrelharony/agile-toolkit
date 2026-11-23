@@ -37,6 +37,8 @@ export interface SendToProps {
   onLinksChange: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) => void;
   /** Read the item's freshest links; defaults to `sentTo`. */
   getLinks?: () => readonly HandoffLink[] | undefined;
+  /** Whether the item can hold one more link (asked before anything is made); defaults to yes. */
+  canLink?: () => boolean;
   /** Menu item text per route; defaults to the route's name. */
   itemLabels?: Partial<Record<HandoffRouteId, string>>;
 }
@@ -48,6 +50,7 @@ export function SendToMenuItems({
   sentTo,
   onLinksChange,
   getLinks,
+  canLink,
   itemLabels,
 }: SendToProps) {
   const blank = !item.title.trim();
@@ -76,6 +79,7 @@ export function SendToMenuItems({
               sendHandoff(id, item, {
                 getLinks: getLinks ?? (() => sentTo),
                 setLinks: onLinksChange,
+                canLink,
               })
             }
           >

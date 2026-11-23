@@ -17,6 +17,18 @@ const ENTRIES = [
   "src/lib/utils/csv.ts",
   "src/lib/sprints/calendar.ts",
   "src/lib/roadmap/quarters.ts",
+  "src/lib/personas/model.ts",
+  "src/lib/roadmap/epic-source.ts",
+  "src/lib/roadmap/horizons.ts",
+  "src/lib/strategy-map/checks.ts",
+  "src/lib/strategy-map/drafts.ts",
+  "src/lib/strategy-map/formats.ts",
+  "src/lib/strategy-map/ideas.ts",
+  "src/lib/strategy-map/model.ts",
+  "src/lib/strategy-map/path.ts",
+  "src/lib/strategy-map/rules.ts",
+  "src/lib/strategy-map/send.ts",
+  "src/lib/trees/parent-tree.ts",
 ].map((f) => path.join(ROOT, f));
 const BANNED_PACKAGES = ["react", "react-dom", "zustand", "lucide-react"];
 

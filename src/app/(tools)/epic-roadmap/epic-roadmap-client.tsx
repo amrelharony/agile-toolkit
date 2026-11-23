@@ -10,8 +10,11 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { CalloutAlert } from "@/components/shared/callout-alert";
 import { ResortChip } from "@/components/shared/resort-chip";
 import { SectionCard } from "@/components/shared/section-card";
+import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
+import { SourceLink } from "@/components/handoff/source-link";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
+import { ToggleGroup } from "@/components/ui/toggle-group";
 import {
   ExampleNotice,
   LoadExampleButton,
@@ -24,7 +27,15 @@ import { plural } from "@/lib/charts/chart-text";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { POKER_LOG_ID, storyQueueSource } from "@/lib/handoffs/targets/poker-queue";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Epic, PokerQueueItem, Story } from "@/lib/stores/workspace-types";
+import type {
+  Epic,
+  EpicHorizon,
+  PokerQueueItem,
+  Story,
+  StrategyMap,
+} from "@/lib/stores/workspace-types";
+import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { HORIZON_LABEL, horizonOf, withHorizon } from "@/lib/roadmap/horizons";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { EPIC_ROADMAP_ACTIONS } from "@/lib/history/event-actions";
 import { selectEvents } from "@/lib/history/selectors";
@@ -53,6 +64,8 @@ import {
 } from "@/lib/roadmap/quarters";
 import { SCHEDULE_LABEL, rollupLabel, type EpicSchedule } from "@/lib/roadmap/rollup";
 import { RoadmapTimeline } from "./timeline";
+import { HorizonsBoard } from "./horizons-board";
+import { readRoadmapView, useRoadmapView, type RoadmapView } from "./view-store";
 import { useFocusAfter } from "./use-focus-after";
 import {
   byStart,
@@ -67,6 +80,20 @@ import {
 
 const ER_ID = "epicRoadmap:current"; // MUST match ER_ID in lib/actions/tools/epic-roadmap.ts.
 const EMPTY_EPICS: Epic[] = [];
+const NO_MAPS: StrategyMap[] = [];
+
+const VIEW_OPTIONS: { value: RoadmapView; label: string }[] = [
+  { value: "timeline", label: "Timeline" },
+  { value: "horizons", label: "Now, Next, Later" },
+];
+
+/** Focus `el` once it is on screen, scrolling to it. */
+function focusOn(el: HTMLElement | null | undefined): boolean {
+  if (!el) return false;
+  el.scrollIntoView?.({ block: "nearest" });
+  el.focus();
+  return true;
+}
 
 // The synced workspace singleton wrapping the epics[] array. Writes read
 // the store at the moment they run, so an agent's add between two clicks
@@ -145,6 +172,22 @@ export function EpicRoadmapClient() {
     const id = setInterval(() => setNow(new Date()), 60 * 60 * 1000);
     return () => clearInterval(id);
   }, []);
+
+  // Timeline or Now, Next, Later: remembered on this device, the timeline until it loads.
+  const view = readRoadmapView(useRoadmapView((s) => s.view));
+  useEffect(() => {
+    void useRoadmapView.persist.rehydrate();
+  }, []);
+  const setView = (next: RoadmapView) => useRoadmapView.setState({ view: next });
+  const maps = useWorkspaceStore((s) => s.strategyMaps) ?? NO_MAPS;
+  const hydrated = useWorkspaceHydrated();
+  /** An epic a `?epic=` link asked for, until it is on screen (or known to be gone). */
+  const [linkedEpic, setLinkedEpic] = useState<string | null>(null);
+  /**
+   * The epic a link brought into view, marked until focus leaves it: focus
+   * moved there after a click on a link shows no focus ring.
+   */
+  const [shownEpic, setShownEpic] = useState<{ id: string; on: "row" | "card" } | null>(null);
 
   const views = useMemo(() => epicViews(epics, stories, now), [epics, stories, now]);
   // Earliest start first; the order on screen stays put while dates are
@@ -284,6 +327,69 @@ export function EpicRoadmapClient() {
     });
   }
 
+  /**
+   * Move an epic on the Now, Next, Later board by hand, or back to follow
+   * its quarters (`null`). Its quarters never change. Focus stays on its
+   * horizon select, wherever the card lands; Undo puts the old place back.
+   */
+  function moveHorizon(epic: Epic, horizon: EpicHorizon | null) {
+    const before = epic.horizon ?? null;
+    if (before === horizon) return;
+    const name = short(epicName(epic));
+    focusAfter(`horizon:${epic.id}`);
+    const place = (h: EpicHorizon | null) =>
+      setEpics((s) => s.map((e) => (e.id === epic.id ? withHorizon(e, h) : e)));
+    undoable({
+      label: horizon
+        ? `Moved “${name}” to ${HORIZON_LABEL[horizon]}`
+        : `“${name}” follows its quarters again`,
+      apply: () => {
+        place(horizon);
+        if (!isExampleId(epic.id)) {
+          log(EPIC_ROADMAP_ACTIONS.HORIZON_CHANGED, {
+            epicId: epic.id,
+            ...(horizon ? { horizon } : {}),
+          });
+        }
+      },
+      revert: () => {
+        focusAfter(`horizon:${epic.id}`);
+        place(before);
+      },
+    });
+  }
+
+  // A `?epic=<id>` link (a hand-off's "Open"): once the epic is here, bring
+  // its card (on the board) or its row into view and focus it.
+  useEffect(() => {
+    if (!linkedEpic) return;
+    const here = epics.some((e) => e.id === linkedEpic);
+    if (!here) {
+      if (hydrated) {
+        setLinkedEpic(null);
+        dropSearchParam("epic");
+      }
+      return;
+    }
+    const root = exportRef.current;
+    const find = (attr: string) =>
+      Array.from(root?.querySelectorAll<HTMLElement>(`[${attr}]`) ?? []).find(
+        (el) => el.getAttribute(attr) === linkedEpic
+      );
+    const card = view === "horizons" ? find("data-epic-card") : undefined;
+    const shown = card && card.closest("details:not([open])") === null ? card : undefined;
+    const target = shown ?? find("data-epic-row");
+    if (target && focusOn(target)) {
+      const mark = { id: linkedEpic, on: shown ? "card" : "row" } as const;
+      setShownEpic(mark);
+      target.addEventListener("blur", () => setShownEpic((cur) => (cur === mark ? null : cur)), {
+        once: true,
+      });
+    }
+    setLinkedEpic(null);
+    dropSearchParam("epic");
+  }, [linkedEpic, epics, hydrated, view]);
+
   const toggleStories = (id: string) =>
     setOpenStories((open) => {
       const next = new Set(open);
@@ -316,11 +422,18 @@ export function EpicRoadmapClient() {
       toolName: "Epic Roadmap",
       // The rolled-up progress, so the prompt sees what the page shows.
       prompts: generateEpicRoadmapPrompts({
-        epics: views.map((v) => ({ ...v.epic, progress: v.rollup.pct })),
+        epics: views.map((v) => {
+          const place = horizonOf({ epic: v.epic, done: v.rollup.done }, now);
+          return {
+            ...v.epic,
+            progress: v.rollup.pct,
+            horizon: `${HORIZON_LABEL[place.horizon]}${place.from === "set" ? " (set by hand)" : ""}`,
+          };
+        }),
         columns,
       }),
     }),
-    [views, columns]
+    [views, columns, now]
   );
 
   // ── Cross-tool signals: recent sprint completions + OKR updates ─────────
@@ -358,9 +471,10 @@ export function EpicRoadmapClient() {
     <ToolPageWrapper
       toolId="epic-roadmap"
       title="Epic Roadmap"
-      description="Timeline view of epics across quarters, with progress rolled up from their stories."
+      description="Epics on a quarterly timeline or a Now, Next, Later board, with progress rolled up from their stories."
       category="Portfolio & Scaling"
     >
+      <OnSearchParams onChange={(params) => setLinkedEpic(params.get("epic"))} />
       <div ref={exportRef} className="space-y-4">
         {hasExampleItems(epics) && <ExampleNotice onClear={clearExample} />}
 
@@ -395,57 +509,77 @@ export function EpicRoadmapClient() {
               }
             >
               <p className="mb-3 text-sm font-medium text-text">{verdict}</p>
-              <div className="mb-3 flex flex-wrap items-start gap-3">
-                <QuarterPicker
-                  label="View from"
-                  value={normalizeQuarter(from)}
-                  onChange={(q) => setRange({ from: q, to })}
+              <ToggleGroup<RoadmapView>
+                label="Roadmap view"
+                size="sm"
+                className="mb-3"
+                value={view}
+                onValueChange={setView}
+                options={VIEW_OPTIONS}
+              />
+              {view === "horizons" ? (
+                <HorizonsBoard
+                  views={views}
+                  maps={maps}
                   now={now}
-                  also={allQuarters}
-                  className="w-full sm:w-44"
+                  onMove={moveHorizon}
+                  highlightedId={shownEpic?.on === "card" ? shownEpic.id : null}
                 />
-                <QuarterPicker
-                  label="View to"
-                  value={normalizeQuarter(to)}
-                  onChange={(q) => setRange({ from, to: q })}
-                  now={now}
-                  also={allQuarters}
-                  error={span === 0 ? "End the view on or after its start." : undefined}
-                  className="w-full sm:w-44"
-                />
-                {range && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="self-end"
-                    onClick={() => setRange(null)}
-                  >
-                    Fit to epics
-                  </Button>
-                )}
-              </div>
-              {span > MAX_QUARTERS_SPAN && (
-                <p className="mb-3 text-xs text-warning">
-                  Showing the first {MAX_QUARTERS_SPAN} quarters of {span}. Narrow the view to see
-                  every epic.
-                </p>
-              )}
-              {(outside > 0 || unscheduled > 0) && (
-                <p className="mb-3 text-xs text-sub">
-                  {outside > 0 &&
-                    `${plural(outside, "epic")} ${outside === 1 ? "falls" : "fall"} outside this view. `}
-                  {unscheduled > 0 &&
-                    `${plural(unscheduled, "epic")} ${unscheduled === 1 ? "has" : "have"} no valid quarters: edit to place ${unscheduled === 1 ? "it" : "them"}.`}
-                </p>
-              )}
-              {columns.length > 0 && (
-                <RoadmapTimeline
-                  views={ordered}
-                  columns={columns}
-                  summary={timelineSummary(views, from, viewEnd, now)}
-                  now={now}
-                />
+              ) : (
+                <>
+                  <div className="mb-3 flex flex-wrap items-start gap-3">
+                    <QuarterPicker
+                      label="View from"
+                      value={normalizeQuarter(from)}
+                      onChange={(q) => setRange({ from: q, to })}
+                      now={now}
+                      also={allQuarters}
+                      className="w-full sm:w-44"
+                    />
+                    <QuarterPicker
+                      label="View to"
+                      value={normalizeQuarter(to)}
+                      onChange={(q) => setRange({ from, to: q })}
+                      now={now}
+                      also={allQuarters}
+                      error={span === 0 ? "End the view on or after its start." : undefined}
+                      className="w-full sm:w-44"
+                    />
+                    {range && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="self-end"
+                        onClick={() => setRange(null)}
+                      >
+                        Fit to epics
+                      </Button>
+                    )}
+                  </div>
+                  {span > MAX_QUARTERS_SPAN && (
+                    <p className="mb-3 text-xs text-warning">
+                      Showing the first {MAX_QUARTERS_SPAN} quarters of {span}. Narrow the view to
+                      see every epic.
+                    </p>
+                  )}
+                  {(outside > 0 || unscheduled > 0) && (
+                    <p className="mb-3 text-xs text-sub">
+                      {outside > 0 &&
+                        `${plural(outside, "epic")} ${outside === 1 ? "falls" : "fall"} outside this view. `}
+                      {unscheduled > 0 &&
+                        `${plural(unscheduled, "epic")} ${unscheduled === 1 ? "has" : "have"} no valid quarters: edit to place ${unscheduled === 1 ? "it" : "them"}.`}
+                    </p>
+                  )}
+                  {columns.length > 0 && (
+                    <RoadmapTimeline
+                      views={ordered}
+                      columns={columns}
+                      summary={timelineSummary(views, from, viewEnd, now)}
+                      now={now}
+                    />
+                  )}
+                </>
               )}
             </SectionCard>
 
@@ -453,7 +587,15 @@ export function EpicRoadmapClient() {
               <ResortChip isStale={isStale} onResort={resort} what="Dates" />
               <ul className="divide-y divide-border" aria-label="Epics, earliest start first">
                 {ordered.map((v) => (
-                  <li key={v.epic.id} className="space-y-3 py-3">
+                  <li
+                    key={v.epic.id}
+                    data-epic-row={v.epic.id}
+                    tabIndex={-1}
+                    className={cn(
+                      "space-y-3 py-3 outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                      shownEpic?.on === "row" && shownEpic.id === v.epic.id && "ring-2 ring-ring"
+                    )}
+                  >
                     {editingId === v.epic.id ? (
                       <EpicEditor
                         epic={v.epic}
@@ -545,6 +687,7 @@ function EpicRow({
         {epic.description && (
           <p className="whitespace-pre-wrap break-words text-xs text-sub">{epic.description}</p>
         )}
+        {epic.sourceRef && <SourceLink sourceRef={epic.sourceRef} />}
       </div>
       <div className="shrink-0 text-right">
         <p className="font-data text-lg leading-tight text-text">{rollup.pct}%</p>

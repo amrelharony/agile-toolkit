@@ -53,7 +53,7 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Click New hypothesis and fill We believe, We will, To learn and Success looks like; Add hypothesis saves it (Enter works too). Move Raised on back if the test started earlier.",
       "Optionally set a Numeric target: The number should Rise to at least or Fall to at most a Target, with a Unit and the Baseline where it stands now.",
-      "Set the Status on the card as the test runs. A hypothesis sent from another tool (Riskiest Assumption, the Opportunity Tree, Cynefin, a Design Sprint or Product Canvas) arrives Drafted, often with Needs detail: use Edit or Add the detail to fill what you'll do and the success metric before it can run.",
+      "Set the Status on the card as the test runs. A hypothesis sent from another tool (Riskiest Assumption, the Opportunity Tree, Cynefin, a Design Sprint, Product Canvas, an Impact Map or a Strategy Tree) arrives Drafted, often with Needs detail: use Edit or Add the detail to fill what you'll do and the success metric before it can run.",
       "When the result is in, type it in Measured result. The card says whether the target was met and offers Mark validated or Mark invalidated; nothing changes until you click it. Set Result on to the day the test ended and note What we learned.",
       "Use Show to filter by Open, a result or Needs detail. Validation rate is validated ÷ (validated + invalidated); Advanced analysis shows how long tests take once five have a result.",
     ],
@@ -250,10 +250,10 @@ export const GUIDES: ToolGuide[] = [
       "Before an Impact Map.",
     ],
     steps: [
-      "Add a persona with a name, a role and whether it is a main, secondary or anti persona.",
+      "Add a persona with a name, a role and its tier: main, also served, or not for us (an anti-persona).",
       "List their goals, frustrations and habits, and say how much of it is researched or assumed.",
       "Link the interviews it comes from.",
-      "Ask Amr drafts a persona from interview notes, with names taken out first, and you edit it before saving. Without AI, the page pulls goals and frustrations out of the notes.",
+      "Ask Amr drafts a persona from your notes or picked interviews, with participants renamed and the emails and phone numbers it can spot taken out first; check for other names, then edit it before saving. Without AI, the page pulls goals and frustrations out of the notes.",
       "See which Impact Maps use it.",
     ],
     tips: ["Use made-up names.", "A persona marked assumed is a question to research."],

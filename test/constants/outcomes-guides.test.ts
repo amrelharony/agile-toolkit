@@ -116,6 +116,8 @@ describe("the Outcomes, quality & library guides describe the pages as they are 
       cynefin: "Cynefin",
       "design-sprint": "a Design Sprint",
       "product-canvas": "Product Canvas",
+      "impact-map": "an Impact Map",
+      "strategy-tree": "a Strategy Tree",
     };
     expect(Array.from(senders).sort()).toEqual(Object.keys(named).sort());
     expect(allText(guide("hypothesis-tracker"))).toContain(

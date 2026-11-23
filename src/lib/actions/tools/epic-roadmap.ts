@@ -14,7 +14,9 @@
  *   2. add_epic      — add an epic; quarters are normalised to "YYYY Qn".
  *   3. set_progress  — set an epic's typed progress (used while no stories
  *                      are linked to it).
- *   4. link_story / unlink_story — set or clear a story's epicId.
+ *   4. set_horizon   — move an epic on the Now, Next, Later board by hand,
+ *                      or back to its quarters (lib/roadmap/horizons).
+ *   5. link_story / unlink_story — set or clear a story's epicId.
  *
  * Entity kind "workspace:epicRoadmap" + the fixed ER_ID match
  * epic-roadmap-client.tsx, so MCP writes round-trip into the UI.
@@ -24,10 +26,16 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
-import type { EpicRoadmap, Epic, Story } from "@/lib/stores/workspace-types";
+import {
+  EPIC_HORIZONS,
+  type EpicRoadmap,
+  type Epic,
+  type Story,
+} from "@/lib/stores/workspace-types";
 import { epicRollup, linkedStories } from "@/lib/roadmap/rollup";
 import { normalizeQuarter, quarterIndex } from "@/lib/roadmap/quarters";
 import { EPIC_COLORS, isEpicColorKey } from "@/lib/roadmap/palette";
+import { horizonOf, withHorizon, type HorizonColumn } from "@/lib/roadmap/horizons";
 
 const KIND_ER = "workspace:epicRoadmap";
 const KIND_STORY = "workspace:story";
@@ -46,11 +54,16 @@ function browserDoc(): EpicRoadmap | null {
   return (ws().epicRoadmaps ?? []).find((d) => d.id === ER_ID) ?? null;
 }
 
-function summarize(doc: EpicRoadmap | null, stories: readonly Story[]) {
+function summarize(doc: EpicRoadmap | null, stories: readonly Story[], now = new Date()) {
+  const byHorizon: Record<HorizonColumn, number> = { now: 0, next: 0, later: 0, done: 0 };
   const epics = (doc?.epics ?? []).map((e) => {
     const r = epicRollup(e, linkedStories(e.id, stories));
+    const place = horizonOf({ epic: e, done: r.done }, now);
+    byHorizon[place.horizon]++;
     return {
       ...e,
+      horizonShown: place.horizon,
+      horizonFrom: place.from,
       rollup: {
         pct: r.pct,
         source: r.source,
@@ -67,7 +80,7 @@ function summarize(doc: EpicRoadmap | null, stories: readonly Story[]) {
   const avgProgress = epics.length
     ? round2(epics.reduce((a, e) => a + e.rollup.pct, 0) / epics.length)
     : 0;
-  return { exists: doc !== null, total: epics.length, avgProgress, epics };
+  return { exists: doc !== null, total: epics.length, avgProgress, byHorizon, epics };
 }
 
 // ──────── tool.epic_roadmap.list_state ────────
@@ -77,7 +90,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the epic roadmap as the page shows it. Each epic's rollup.pct comes from its linked stories (done points over points, or done stories over stories while any is unestimated); with no stories linked it is the typed progress (rollup.source 'typed'). Returns {exists, total, avgProgress (mean of rollup.pct), epics: {id, title, startQuarter, endQuarter, progress (typed), owner, color, rollup: {pct, source, basis, done, stories, doneStories, points, donePoints, unestimated}}[]}.",
+    "Summarise the epic roadmap as the page shows it. Each epic's rollup.pct comes from its linked stories (done points over points, or done stories over stories while any is unestimated); with no stories linked it is the typed progress (rollup.source 'typed'). horizonShown is its column on the Now, Next, Later board ('now', 'next', 'later' or 'done'); horizonFrom says why: 'done' (finished, whatever was set), 'set' (moved by hand: horizon holds it), 'quarters' (started → now, starting within 2 quarters → next, else later) or 'none' (no valid quarters → later). Returns {exists, total, avgProgress (mean of rollup.pct), byHorizon: {now, next, later, done}, epics: {id, title, startQuarter, endQuarter, progress (typed), owner, color, horizon?, sourceRef?, horizonShown, horizonFrom, rollup: {pct, source, basis, done, stories, doneStories, points, donePoints, unestimated}}[]}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(browserDoc(), ws().stories ?? []),
   mcpHandler: async (_params, ctx) => {
@@ -169,6 +182,63 @@ registry.register({
     if (!next) return { updated: false };
     await serverUpsertEntity<EpicRoadmap>(ctx.userId, KIND_ER, next);
     return { updated: true };
+  },
+});
+
+// ──────── tool.epic_roadmap.set_horizon ────────
+
+const SetHorizonParams = z.object({
+  epicId: z.string().min(1).max(200),
+  horizon: z
+    .enum(EPIC_HORIZONS)
+    .nullable()
+    .describe("'now', 'next' or 'later' to move it by hand; null to follow its quarters again."),
+});
+
+/** The roadmap with the epic's horizon set (or cleared), and where it now shows; null for an unknown epic. */
+function applyHorizon(
+  doc: EpicRoadmap | null,
+  stories: readonly Story[],
+  params: z.infer<typeof SetHorizonParams>
+): { doc: EpicRoadmap; horizon: HorizonColumn; from: string } | null {
+  const epic = doc?.epics.find((e) => e.id === params.epicId);
+  if (!doc || !epic) return null;
+  const next = withHorizon(epic, params.horizon);
+  const place = horizonOf({
+    epic: next,
+    done: epicRollup(next, linkedStories(next.id, stories)).done,
+  });
+  return {
+    doc: { ...doc, epics: doc.epics.map((e) => (e.id === epic.id ? next : e)) },
+    horizon: place.horizon,
+    from: place.from,
+  };
+}
+
+registry.register({
+  id: "tool.epic_roadmap.set_horizon",
+  toolId: "tool.epic_roadmap",
+  name: "set_horizon",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Move an epic on the Now, Next, Later board by hand ('now', 'next' or 'later'), or set it back to follow its quarters (null). Its quarters never change, and a done epic still shows under Done. Returns {updated: true, horizon (where it now shows: now, next, later or done), from ('set', 'quarters', 'none' or 'done')}, or {updated: false, reason: 'not_found'}.",
+  paramsSchema: SetHorizonParams,
+  handler: async (params) => {
+    const out = applyHorizon(browserDoc(), ws().stories ?? [], params);
+    if (!out) return { updated: false, reason: "not_found" };
+    ws().upsertEpicRoadmap(out.doc);
+    return { updated: true, horizon: out.horizon, from: out.from };
+  },
+  mcpHandler: async (params, ctx) => {
+    const [doc, stories] = await Promise.all([
+      serverGetEntity<EpicRoadmap>(ctx.userId, KIND_ER, ER_ID),
+      serverListEntities<Story>(ctx.userId, KIND_STORY),
+    ]);
+    const out = applyHorizon(doc ?? null, stories, params);
+    if (!out) return { updated: false, reason: "not_found" };
+    await serverUpsertEntity<EpicRoadmap>(ctx.userId, KIND_ER, out.doc);
+    return { updated: true, horizon: out.horizon, from: out.from };
   },
 });
 

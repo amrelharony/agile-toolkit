@@ -13,10 +13,12 @@ import { cardForMoodPrompt, generateCardsPrompt } from "./card-decks.server";
 import { mapExamplesPrompt, mapQuestionsPrompt, mapRulesPrompt } from "./example-mapping.server";
 import { agendaPrompt } from "./facilitator-timers.server";
 import { hillChartUpdateNotePrompt } from "./hill-chart.server";
+import { impactMapDraftPrompt } from "./impact-map.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
 import { notesToActionsExtractPrompt } from "./notes-to-actions.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
+import { personaFromNotesPrompt } from "./persona-library.server";
 import { themeNamesPrompt } from "./picker.server";
 import { pokerSimilarPrompt } from "./planning-poker.server";
 import { productCanvasDraftPrompt, productCanvasGapsPrompt } from "./product-canvas.server";
@@ -28,6 +30,7 @@ import { retroActionsThemesPrompt } from "./retro-actions.server";
 import { categoriesPrompt, countermeasurePrompt, nextWhyPrompt } from "./root-cause.server";
 import { notebookTagPrompt, notebookWeeklySummaryPrompt } from "./sm-notebook.server";
 import { sprintRiskNotePrompt } from "./sprint.server";
+import { strategyTreeDraftPrompt } from "./strategy-tree.server";
 import { testSessionsChartersPrompt } from "./test-sessions.server";
 
 // See index.ts on `any`: each prompt's input is checked by its task's schema first.
@@ -46,10 +49,12 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   mapQuestionsPrompt,
   agendaPrompt,
   hillChartUpdateNotePrompt,
+  impactMapDraftPrompt,
   interruptClassifyPrompt,
   meetingAuditSuggestPrompt,
   notesToActionsExtractPrompt,
   parkingRoutePrompt,
+  personaFromNotesPrompt,
   themeNamesPrompt,
   pokerSimilarPrompt,
   productCanvasDraftPrompt,
@@ -67,5 +72,6 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   notebookWeeklySummaryPrompt,
   notebookTagPrompt,
   sprintRiskNotePrompt,
+  strategyTreeDraftPrompt,
   testSessionsChartersPrompt,
 ];
