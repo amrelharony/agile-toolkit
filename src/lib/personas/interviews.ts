@@ -4,8 +4,8 @@
  * (anonymiseInterviews: each participant becomes "Participant N", and the
  * context and quotes go through redactPii and lose the participant's own
  * name). Only the context and the quotes' text go in: never a date, a tag
- * or an id. Other people's names inside a quote aren't caught, which the
- * page says beside the button. Pure and server-safe.
+ * or an id. Other people's names in the context or a quote aren't caught,
+ * which the page says beside the button. Pure and server-safe.
  */
 
 import type { Interview } from "@/lib/stores/workspace-types";

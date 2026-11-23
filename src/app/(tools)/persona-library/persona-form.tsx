@@ -42,9 +42,9 @@ import { PointsField } from "./points-field";
 
 /** Decision D4's lines beside the two draft buttons, and the form's name hint, word for word. */
 export const NOTES_AI_LINE =
-  "Names and contact details aren't all caught. Take them out before you ask Amr.";
+  "Names aren't caught, and contact details can slip through. Take them out before you ask Amr.";
 export const INTERVIEWS_AI_LINE =
-  "Participant names become Participant 1, 2… Other names in quotes aren't caught, so check before you ask Amr.";
+  "Each interview's context and quotes are sent, with participants renamed Participant 1, 2… Other names in them aren't caught, so check before you ask Amr.";
 export const NAME_HINT = "Use a made-up name. Don't describe a real person.";
 /** Under the notes box: what the best-effort filter does, promising no more than D4's line. */
 export const NOTES_HINT = "Emails and phone numbers we can spot are taken out first.";

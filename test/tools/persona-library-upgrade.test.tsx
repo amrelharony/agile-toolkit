@@ -230,10 +230,10 @@ describe("Persona Library first run", () => {
     expect(await screen.findByText(NAME_HINT)).toBeInTheDocument();
     expect(screen.getByText(NOTES_AI_LINE)).toBeInTheDocument();
     expect(NOTES_AI_LINE).toBe(
-      "Names and contact details aren't all caught. Take them out before you ask Amr."
+      "Names aren't caught, and contact details can slip through. Take them out before you ask Amr."
     );
     expect(INTERVIEWS_AI_LINE).toBe(
-      "Participant names become Participant 1, 2… Other names in quotes aren't caught, so check before you ask Amr."
+      "Each interview's context and quotes are sent, with participants renamed Participant 1, 2… Other names in them aren't caught, so check before you ask Amr."
     );
     // The hint under the notes promises no more than that line.
     expect(
