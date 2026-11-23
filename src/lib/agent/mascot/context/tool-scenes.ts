@@ -298,9 +298,24 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     actions: { interview_added: ["interview.note"], quote_sent: ["interview.quote"] },
   },
   {
+    toolId: "persona-library",
+    open: ["interview"],
+    actions: { persona_created: ["interview.note"] },
+  },
+  {
     toolId: "opportunity-tree",
     open: ["tree"],
     actions: { node_added: ["tree.grow"], experiment_sent: ["tree.share"] },
+  },
+  {
+    toolId: "impact-map",
+    open: ["goal.think"],
+    actions: { node_added: ["tree.grow"], deliverable_sent: ["tree.share"] },
+  },
+  {
+    toolId: "strategy-tree",
+    open: ["tree"],
+    actions: { node_added: ["tree.grow"], bet_sent: ["tree.share"] },
   },
   // A test created hasn't run: X095 stops before its cart crosses. test_generated, logged in
   // the same handler, stays unbound, so the test created is what he answers.
