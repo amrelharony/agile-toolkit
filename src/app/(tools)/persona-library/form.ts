@@ -106,6 +106,24 @@ export function fieldsOf(p: Persona): PersonaFields {
   };
 }
 
+/** Whether anything is typed or picked in the form: a text, a point, a tag or an interview. */
+export function hasTyped(d: PersonaFields): boolean {
+  return (
+    [d.name, d.role, d.summary, d.quote, d.context, d.tags].some((s) => s.trim() !== "") ||
+    PERSONA_LISTS.some((l) => d[l].length > 0) ||
+    d.interviewIds.length > 0
+  );
+}
+
+/** Whether two forms hold the same thing, field by field. */
+export function sameFields(a: PersonaFields, b: PersonaFields): boolean {
+  const keys = Object.keys(a) as (keyof PersonaFields)[];
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((k) => JSON.stringify(a[k]) === JSON.stringify(b[k]))
+  );
+}
+
 const n = (x: number) => x.toLocaleString("en-GB");
 
 /** Tags as typed: each comma-separated part, trimmed, blanks dropped. */

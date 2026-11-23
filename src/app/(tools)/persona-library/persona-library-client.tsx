@@ -60,7 +60,9 @@ import { buildExample } from "./example";
 import {
   emptyFields,
   fieldsOf,
+  hasTyped,
   personaFromValues,
+  sameFields,
   validatePersona,
   withDraft,
   type PersonaField,
@@ -177,19 +179,65 @@ export function PersonaLibraryClient() {
   const draftRef = useRef(form.draft);
   draftRef.current = form.draft;
 
+  // Which persona the form edits now, for an Undo that comes after a later change.
+  const editingRef = useRef(editingId);
+  editingRef.current = editingId;
+
   const resetForm = (next?: PersonaFields) => {
     session.current++;
     setDraftedBy(null);
     form.reset(next ?? freshFields());
   };
 
-  const startEdit = (p: Persona) => {
-    setEditingId(p.id);
-    setFromMap(null);
-    setSavedFor(null);
-    resetForm(fieldsOf(p));
-    focusSoon(nameInput);
+  /**
+   * Replaces the form (Edit on a card, a `?fromMap=` link) by running
+   * `change`. When the form held something not saved, what was typed in a
+   * new persona or the changes to the one being edited, Undo puts it back:
+   * over the form `change` opened, or a blank add form, never over other
+   * work in progress.
+   */
+  const replaceForm = (change: () => void) => {
+    const draft = draftRef.current;
+    const was = { editingId, fromMap, draftedBy };
+    const unsaved = editing ? !sameFields(draft, fieldsOf(editing)) : hasTyped(draft);
+    if (!unsaved) {
+      change();
+      return;
+    }
+    const name = draft.name.trim();
+    let opened = -1;
+    undoable({
+      label: editing
+        ? `Left your changes to “${short(editing.name)}” unsaved`
+        : name
+          ? `Left “${short(name)}” unsaved`
+          : "Left a new persona unsaved",
+      apply: () => {
+        change();
+        opened = session.current;
+      },
+      revert: () => {
+        const blank = editingRef.current === null && !hasTyped(draftRef.current);
+        if (session.current !== opened && !blank) return;
+        setEditingId(was.editingId && findPersona(was.editingId) ? was.editingId : null);
+        setFromMap(was.fromMap);
+        setSavedFor(null);
+        session.current++;
+        form.reset(draft);
+        setDraftedBy(was.draftedBy);
+        focusSoon(nameInput);
+      },
+    });
   };
+
+  const startEdit = (p: Persona) =>
+    replaceForm(() => {
+      setEditingId(p.id);
+      setFromMap(null);
+      setSavedFor(null);
+      resetForm(fieldsOf(p));
+      focusSoon(nameInput);
+    });
 
   const cancelEdit = () => {
     const id = editingId;
@@ -344,11 +392,13 @@ export function PersonaLibraryClient() {
         announce("That Impact Map actor isn't there any more. Add the persona here.");
         return;
       }
-      setEditingId(null);
-      setSavedFor(null);
-      setFromMap({ mapId, actor: actor.text, map: map.title });
-      resetForm({ ...freshFields(), role: actor.text.slice(0, PERSONA_ROLE_MAX) });
-      focusSoon(nameInput);
+      replaceForm(() => {
+        setEditingId(null);
+        setSavedFor(null);
+        setFromMap({ mapId, actor: actor.text, map: map.title });
+        resetForm({ ...freshFields(), role: actor.text.slice(0, PERSONA_ROLE_MAX) });
+        focusSoon(nameInput);
+      });
     }
     // personas and maps are read as they are when the link is acted on.
     // eslint-disable-next-line react-hooks/exhaustive-deps

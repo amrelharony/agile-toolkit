@@ -387,6 +387,40 @@ describe("adding and editing", () => {
     expect(screen.getByText("Add a persona")).toBeInTheDocument();
   });
 
+  it("keeps what was typed for Undo when Edit opens another persona", async () => {
+    seed([persona("persona_a", { name: "Tom", tier: "secondary" })]);
+    renderPage();
+    await screen.findByLabelText(/^Name/);
+    type(/^Name/, "Noor");
+    type(/^Role/, "Nurse");
+    fireEvent.change(screen.getByLabelText("Add a goal"), { target: { value: "Sleep more" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add goal" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit Tom" }));
+    expect(screen.getByText("Edit “Tom”")).toBeInTheDocument();
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Left “Noor” unsaved");
+    undoToast("Left “Noor” unsaved");
+    expect(screen.getByText("Add a persona")).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Name/)).toHaveValue("Noor");
+    expect(screen.getByLabelText(/^Role/)).toHaveValue("Nurse");
+    expect(screen.getByRole("list", { name: "Goals" })).toHaveTextContent("Sleep more");
+    fireEvent.click(screen.getByRole("button", { name: "Add persona" }));
+    expect(stored().map((p) => p.name)).toEqual(["Tom", "Noor"]);
+
+    // From a blank form there is nothing to keep, and no toast.
+    const toasts = toastSpy.mock.calls.length;
+    fireEvent.click(screen.getByRole("button", { name: "Edit Tom" }));
+    expect(toastSpy.mock.calls.length).toBe(toasts);
+    // Changes to the persona being edited are kept the same way.
+    type(/^Role/, "Office manager");
+    fireEvent.click(screen.getByRole("button", { name: "Edit Noor" }));
+    expect(screen.getByText("Edit “Noor”")).toBeInTheDocument();
+    undoToast("Left your changes to “Tom” unsaved");
+    expect(screen.getByText("Edit “Tom”")).toBeInTheDocument();
+    expect(screen.getByLabelText(/^Role/)).toHaveValue("Office manager");
+    expect(stored().find((p) => p.name === "Tom")?.role).toBe("Shift nurse");
+  });
+
   it("cancels an edit without saving", async () => {
     seed([persona("persona_a")]);
     renderPage();
