@@ -1095,7 +1095,12 @@ describe("value checks, the A/B line and the kind filter", () => {
     renderPage();
     const c = card("an experiment");
     expect(within(c).getByText("Measured by: not set")).toBeInTheDocument();
-    fireEvent.click(within(c).getByRole("button", { name: "Set how “an experiment” is measured" }));
+    // Its name starts with the visible "Set it", so speech input can say it.
+    const setIt = within(c).getByRole("button", {
+      name: "Set it: how “an experiment” is measured",
+    });
+    expect(setIt).toHaveTextContent("Set it");
+    fireEvent.click(setIt);
     fireEvent.click(within(c).getByRole("button", { name: "Save measure" }));
     expect(within(c).getByText(/Say how you'll tell/)).toBeInTheDocument();
     fireEvent.change(within(c).getByLabelText("How you'll tell"), {
@@ -1107,6 +1112,11 @@ describe("value checks, the A/B line and the kind filter", () => {
     expect(
       within(card("an experiment")).getByText("Measured by fewer refunds")
     ).toBeInTheDocument();
+    expect(
+      within(card("an experiment")).getByRole("button", {
+        name: "Change how “an experiment” is measured",
+      })
+    ).toHaveTextContent("Change");
   });
 
   it("shows the linked A/B test and uses its result with Undo, setting the number only when it is in", () => {

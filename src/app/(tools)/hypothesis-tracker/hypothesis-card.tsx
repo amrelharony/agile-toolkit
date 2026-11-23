@@ -393,7 +393,8 @@ export function HypothesisCard({
                 size="sm"
                 variant="ghost"
                 className="h-auto px-1.5 py-0.5 text-xs"
-                aria-label={`${h.measuredBy ? "Change" : "Set"} how “${title}” is measured`}
+                // The visible words first, so speech input can say them.
+                aria-label={`${h.measuredBy ? "Change" : "Set it:"} how “${title}” is measured`}
                 onClick={() => setMeasuring(true)}
               >
                 {h.measuredBy ? "Change" : "Set it"}
