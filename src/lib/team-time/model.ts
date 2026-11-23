@@ -16,6 +16,7 @@ import {
   type TeamTimePerson,
   type TeamTimePoll,
   type TeamTimeRotation,
+  type TeamTimeRotationOption,
 } from "@/lib/stores/workspace-types";
 import {
   CEREMONY_LABEL,
@@ -35,7 +36,7 @@ import { readPerson, readPoll, readRotation, samePerson } from "./rows";
 import { MINUTE_MS } from "./overlap";
 import { burden, type Burden } from "./slots";
 import type { PersonValues, PollValues, RotationValues } from "./validate";
-import { localClock, wallToUtc } from "./zones";
+import { canonicalZone, localClock, wallToUtc } from "./zones";
 
 /** The usable rows of a stored list (a bad row written elsewhere is left out). */
 export const readPeople = (raw: readonly unknown[] | undefined): TeamTimePerson[] =>
@@ -201,7 +202,17 @@ export const POLL_WAIT_DAYS = 3;
 
 /* ── Rotations ────────────────────────────────────────────────────────── */
 
-/** A new or edited rotation from checked values; `optionId(i)` names new options. */
+/** What makes a rotation's time the same time: its weekday, its HH:MM and its zone (canonical). */
+const optionKey = (o: Pick<TeamTimeRotationOption, "weekday" | "time" | "timeZone">) =>
+  `${o.weekday}|${o.time}|${canonicalZone(o.timeZone.trim()) ?? o.timeZone}`;
+
+/**
+ * A new or edited rotation from checked values; `optionId(i)` names new
+ * options. A time keeps its id (and so its held meetings) only while its
+ * weekday, time and zone stay the same, whatever its place in the list or
+ * its label; a changed time is a new one. The page and Amr's plan_rotation
+ * both come through here, so they keep the same held meetings.
+ */
 export function rotationFrom(
   values: RotationValues,
   prev: TeamTimeRotation | null,
@@ -209,13 +220,24 @@ export function rotationFrom(
   optionId: (i: number) => string,
   now: string
 ): TeamTimeRotation {
-  const options = values.options.map((o, i) => ({
-    id: o.id ?? optionId(i),
-    ...(o.label ? { label: o.label } : {}),
-    weekday: o.weekday,
-    time: o.time,
-    timeZone: o.timeZone,
-  }));
+  const kept = new Map<string, string>();
+  for (const o of prev?.options ?? []) {
+    const key = optionKey(o);
+    if (!kept.has(key)) kept.set(key, o.id);
+  }
+  const used = new Set<string>();
+  const options = values.options.map((o, i) => {
+    const same = kept.get(optionKey(o));
+    const optId = same && !used.has(same) ? same : optionId(i);
+    used.add(optId);
+    return {
+      id: optId,
+      ...(o.label ? { label: o.label } : {}),
+      weekday: o.weekday,
+      time: o.time,
+      timeZone: o.timeZone,
+    };
+  });
   const ids = new Set(options.map((o) => o.id));
   const next: TeamTimeRotation = {
     id,

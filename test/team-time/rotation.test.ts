@@ -13,7 +13,8 @@ import {
   nextOccurrences,
   rotationAttendees,
 } from "@/lib/team-time/rotation";
-import { withHeld } from "@/lib/team-time/model";
+import { rotationFrom, withHeld } from "@/lib/team-time/model";
+import { validateRotation, type RotationOptionDraft } from "@/lib/team-time/validate";
 import { TEAM_TIME_MAX, type TeamTimeRotation } from "@/lib/stores/workspace-types";
 import { AT, london, newYork, t } from "./fixtures";
 
@@ -183,6 +184,38 @@ describe("totals", () => {
         () => ""
       )
     ).toBe("Every meeting falls in everyone's working hours.");
+  });
+});
+
+describe("rotationFrom", () => {
+  const edit = (options: RotationOptionDraft[]) => {
+    const prev = rotation({
+      held: [
+        { date: "2026-11-17", optionId: "A" },
+        { date: "2026-11-24", optionId: "B", skipped: true },
+      ],
+    });
+    const checked = validateRotation({ ...prev, options });
+    if (!checked.ok) throw new Error(JSON.stringify(checked.errors));
+    return rotationFrom(checked.values, prev, prev.id, (i) => `new${i}`, AT);
+  };
+
+  it("keeps a time's id and held meetings when it moves or is relabelled", () => {
+    const next = edit([
+      { label: "Americas", weekday: 2, time: "15:00", timeZone: "america/new_york" },
+      { id: "B", label: "Europe", weekday: 2, time: "09:00", timeZone: "Europe/London" },
+    ]);
+    expect(next.options.map((o) => o.id)).toEqual(["B", "A"]);
+    expect(next.held).toHaveLength(2);
+  });
+
+  it("gives a changed time a new id, so its held meetings go", () => {
+    const next = edit([
+      { id: "A", label: "", weekday: 3, time: "15:00", timeZone: "America/Toronto" },
+      { id: "B", label: "", weekday: 2, time: "15:00", timeZone: "America/New_York" },
+    ]);
+    expect(next.options.map((o) => o.id)).toEqual(["new0", "B"]);
+    expect(next.held).toEqual([{ date: "2026-11-24", optionId: "B", skipped: true }]);
   });
 });
 

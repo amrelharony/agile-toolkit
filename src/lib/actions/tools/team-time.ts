@@ -664,19 +664,14 @@ async function planRotation(
     return p?.id ?? who;
   });
   if (unknown.length > 0) return { saved: false, reason: "unknown_attendee", names: unknown };
-  // An option at the same weekday, time and zone keeps its id, so its held meetings stay.
-  const options = params.options.map((o) => {
-    const same = prev?.options.find(
-      (x) => x.weekday === o.weekday && x.time === o.time && x.timeZone === o.timeZone
-    );
-    return {
-      ...(same ? { id: same.id } : {}),
-      label: o.label ?? "",
-      weekday: o.weekday,
-      time: o.time,
-      timeZone: o.timeZone,
-    };
-  });
+  // rotationFrom keeps the id (and the held meetings) of each time whose
+  // weekday, time and zone stay the same, as the page does.
+  const options = params.options.map((o) => ({
+    label: o.label ?? "",
+    weekday: o.weekday,
+    time: o.time,
+    timeZone: o.timeZone,
+  }));
   const checked = validateRotation({ ...params, options, ...(attendees ? { attendees } : {}) });
   if (!checked.ok) {
     return { saved: false, reason: "invalid", problems: Object.values(checked.errors) };
@@ -727,7 +722,7 @@ registry.register({
   name: "plan_rotation",
   category: "write",
   requiresConfirmation: false,
-  description: `Create or update a Team Time rotation, as the page's Rotate tab does: a meeting that moves between 2–${TEAM_TIME_MAX.options} times (a weekday and HH:MM on a zone's clock), every 1–4 weeks from startDate, in-turn or fairest, for its attendees (everyone by default). Updating keeps the held and skipped meetings of the times it keeps. Returns {saved: true, created, rotation, next: the next ${ROTATION_PLAN_COUNT} meetings {date, option, start, label, outsideHours: {name, burden}[]}, totals: {name, points}[] (1 per meeting early or late, 2 at night or on a day off, held plus planned), spread, fairness (a sentence to quote)} or {saved: false, reason: 'not_found' | 'unknown_attendee' | 'invalid', problems?}. Mark meetings held or skipped with workspace.team_time_rotation.update (its held list).`,
+  description: `Create or update a Team Time rotation, as the page's Rotate tab does: a meeting that moves between 2–${TEAM_TIME_MAX.options} times (a weekday and HH:MM on a zone's clock), every 1–4 weeks from startDate, in-turn or fairest, for its attendees (everyone by default). Updating keeps the held and skipped meetings of the times it keeps (the same weekday, time and zone, any spelling of the zone); a changed time starts with none. A past meeting nobody marked counts as held, so the plan goes on after it. Returns {saved: true, created, rotation, next: the next ${ROTATION_PLAN_COUNT} meetings {date, option, start, label, outsideHours: {name, burden}[]}, totals: {name, points}[] (1 per meeting early or late, 2 at night or on a day off, held plus planned), spread, fairness (a sentence to quote)} or {saved: false, reason: 'not_found' | 'unknown_attendee' | 'invalid', problems?}. Mark meetings held or skipped with workspace.team_time_rotation.update (its held list).`,
   paramsSchema: PlanRotationParams,
   handler: async (p) => planRotation(browserStore, p),
   mcpHandler: async (p, ctx) => planRotation(serverStore(ctx.userId), p),

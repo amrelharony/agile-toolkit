@@ -193,6 +193,7 @@ export function validatePoll(
 /* ── Rotations ────────────────────────────────────────────────────────── */
 
 export interface RotationOptionDraft {
+  /** The saved time the form row started from (a key for the form; rotationFrom matches times by weekday, time and zone). */
   id?: string;
   label: string;
   weekday: number;

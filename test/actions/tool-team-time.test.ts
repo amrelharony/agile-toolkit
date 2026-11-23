@@ -39,6 +39,9 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { canonicalZone } from "@/lib/team-time/zones";
+import { rotationFrom } from "@/lib/team-time/model";
+import { nextOccurrences } from "@/lib/team-time/rotation";
+import { validateRotation } from "@/lib/team-time/validate";
 import "@/lib/actions/tools/team-time";
 import { london, newYork, tokyo } from "../team-time/fixtures";
 
@@ -395,6 +398,60 @@ describe("plan_rotation", () => {
     const saved = ws().teamTimeRotations?.[0];
     expect(saved?.options[0].id).toBe("A");
     expect(saved?.held).toEqual([{ date: "2026-11-17", optionId: "A" }]);
+  });
+
+  it("keeps the held meetings of a time sent with another spelling of its zone", async () => {
+    useWorkspaceStore.setState({ teamTimePeople: [london, newYork] });
+    const options = [
+      { weekday: 2, time: "09:00", timeZone: "Asia/Kolkata" },
+      { weekday: 2, time: "15:00", timeZone: "Europe/London" },
+    ];
+    await run("tool.team_time.plan_rotation", { ...params, options });
+    const created = ws().teamTimeRotations![0];
+    const held = [
+      { date: "2026-11-17", optionId: created.options[0].id },
+      { date: "2026-11-24", optionId: created.options[1].id, skipped: true as const },
+    ];
+    ws().upsertTeamTimeRotation({ ...created, held });
+    const r = await run<{ saved: boolean }>("tool.team_time.plan_rotation", {
+      ...params,
+      id: created.id,
+      minutes: 45,
+      options: [options[0], { ...options[1], timeZone: "europe/london" }],
+    });
+    expect(r.saved).toBe(true);
+    const saved = ws().teamTimeRotations![0];
+    expect(saved.options.map((o) => o.id)).toEqual(created.options.map((o) => o.id));
+    expect(saved.held).toEqual(held);
+  });
+
+  it("keeps the same held meetings as the page after the same edit", async () => {
+    const prev = rotation({
+      held: [
+        { date: "2026-11-17", optionId: "A" },
+        { date: "2026-11-24", optionId: "B" },
+      ],
+    });
+    useWorkspaceStore.setState({ teamTimePeople: [london, newYork], teamTimeRotations: [prev] });
+    // Time 1 moves from Tue 09:00 London to Wed 15:00 Toronto; the form keeps its row's id.
+    const edited = [
+      { label: "", weekday: 3, time: "15:00", timeZone: "America/Toronto" },
+      { label: "", weekday: 2, time: "15:00", timeZone: "America/New_York" },
+    ];
+    const checked = validateRotation({
+      ...prev,
+      options: edited.map((o, i) => ({ ...o, id: prev.options[i].id })),
+    });
+    if (!checked.ok) throw new Error("the page's edit didn't check out");
+    const page = rotationFrom(checked.values, prev, prev.id, () => "opt_page", AT);
+    await run("tool.team_time.plan_rotation", { ...params, id: "rot1", options: edited });
+    const verb = ws().teamTimeRotations![0];
+    expect(verb.held).toEqual(page.held);
+    const plan = (r: TeamTimeRotation) =>
+      nextOccurrences(r, [london, newYork], Date.parse("2026-11-26T00:00:00Z")).map(
+        (o) => `${o.start} ${o.optionId === "B" ? "B" : "new"}`
+      );
+    expect(plan(verb)).toEqual(plan(page));
   });
 
   it("refuses an unknown attendee, a missing rotation or two of the same time", async () => {
