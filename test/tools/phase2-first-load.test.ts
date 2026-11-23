@@ -58,6 +58,19 @@ function firstLoad(entry: string): Set<string> {
 }
 
 describe("what a tool page's first load leaves out", () => {
+  it("the team charter reads the team's purpose without Kickoff's model and its formats", () => {
+    const reached = firstLoad("src/app/(meta)/team/team-client.tsx");
+    expect(reached).toContain("src/app/(meta)/team/charter-view.ts");
+    expect(reached).toContain("src/lib/kickoff/purpose.ts");
+    for (const lazy of [
+      "src/lib/kickoff/model.ts",
+      "src/lib/kickoff/formats.ts",
+      "src/lib/sectioned/model.ts",
+    ]) {
+      expect(reached, lazy).not.toContain(lazy);
+    }
+  });
+
   it("Impediments loads its Blockers section, the AI kit and its clustering after the page", () => {
     const reached = firstLoad("src/app/(tools)/impediments/impediments-client.tsx");
     // The walk does see the page's own parts.
