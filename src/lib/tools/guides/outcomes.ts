@@ -189,7 +189,7 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Pick a format.",
       "Add notes to each box and mark each one a fact or a guess.",
-      "Ask Amr drafts from the Product Goal and points out gaps, and you pick what to keep. Draft without AI offers starter lines.",
+      "Ask Amr drafts from the Product Goal and points out gaps, and you pick what to keep. Suggest without AI offers the goal's words and starter lines.",
       "Send a note to the Hypothesis Tracker, the backlog, the Opportunity Tree or the Decision Log.",
       "On a Shape Up pitch, set the appetite and use the betting table.",
     ],
