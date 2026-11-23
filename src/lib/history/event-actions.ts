@@ -671,7 +671,7 @@ export const WORKING_AGREEMENT_ACTIONS = {
   CHARTER_RESET: "charter_reset",
   CHECK_IN_SAVED: "check_in_saved",
   CHECK_IN_REMOVED: "check_in_removed",
-  /** Payload: the template's id (urgency-ladder, core-hours, focus-time or ai-use) and how many rules it wrote. */
+  /** Payload: templateId (urgency-ladder, core-hours, focus-time or ai-use) and how many rules it added, updated, removed and skipped; never their text. */
   TEMPLATE_APPLIED: "template_applied",
 } as const;
 
@@ -727,7 +727,7 @@ export const ASYNC_STANDUP_ACTIONS = {
   UPDATE_REMOVED: "update_removed",
   DIGEST_GENERATED: "digest_generated", // milestone
   ASYNC_STANDUP_RESET: "async_standup_reset",
-  /** The daily digest was summarised. Payload: the day and the source (ai or rules). */
+  /** The daily digest was summarised. Payload: the day, the source (ai or rules) and the day's updateCount and blockerCount; never the summary. */
   DIGEST_SUMMARISED: "digest_summarised",
 } as const;
 
