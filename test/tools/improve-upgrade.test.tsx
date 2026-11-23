@@ -292,6 +292,26 @@ describe("empty state, example and starting one", () => {
     expect(screen.queryByRole("button", { name: "Suggest without AI" })).not.toBeInTheDocument();
   });
 
+  it("never links the example to the team's own analyses", () => {
+    useWorkspaceStore.setState({
+      rootCauseAnalyses: [analysis({ id: "rca_1", title: "Slow releases" })],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(screen.queryByLabelText("Link a Root Cause analysis")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("On your own A3s, link a Root Cause analysis here.")
+    ).toBeInTheDocument();
+    const example = stored().find((i) => i.method === "a3")!;
+    const { result } = renderHook(() => useItemActions(example.id, () => undefined), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <LiveAnnouncerProvider>{children}</LiveAnnouncerProvider>
+      ),
+    });
+    act(() => result.current.linkAnalysis("rca_1"));
+    expect(byId(example.id)!.rootCauseId).toBeUndefined();
+  });
+
   it("validates the start form: a title and a method, nothing saved before", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Start" }));
@@ -443,6 +463,22 @@ describe("?from= a Root Cause analysis", () => {
       expect(screen.getByRole("heading", { name: "Planned from it" })).toBeInTheDocument()
     );
     expect(screen.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
+  });
+
+  it("opens the start form, not an example that points at the analysis", async () => {
+    const [example] = buildExample();
+    useWorkspaceStore.setState({
+      rootCauseAnalyses: [rca],
+      improvements: [{ ...example, rootCauseId: "rca_1" }],
+    });
+    window.history.replaceState(null, "", "/improve?from=rca_1");
+    renderPage();
+    await waitFor(() =>
+      expect(
+        screen.getByText(/From the Root Cause analysis “Releases rolled back”/)
+      ).toBeInTheDocument()
+    );
+    expect(screen.getByRole("button", { name: "Start" })).toBeInTheDocument();
   });
 
   it("says what comes along in a sentence that agrees, one thing or several", () => {

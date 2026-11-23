@@ -504,8 +504,13 @@ export function useItemActions(itemId: string, log: Log) {
 
   /* ── The Root Cause analysis ── */
 
-  /** Link an analysis (or none); unlinking also forgets the analysis it opened. */
+  /**
+   * Link an analysis (or none); unlinking also forgets the analysis it
+   * opened. An example is never linked to the team's analyses (it can still
+   * be unlinked).
+   */
   const linkAnalysis = (analysisId: string | undefined) => {
+    if (analysisId && example) return;
     const saved = write((c, now) => {
       if (analysisId) return touched(c, { rootCauseId: analysisId }, now);
       const opened = findLink(c.sentTo, "root-cause");

@@ -277,8 +277,9 @@ export function ImproveClient() {
       if (isExampleId(rcaId)) return;
       const analysis = readAnalyses(ws().rootCauseAnalyses).find((a) => a.id === rcaId);
       if (!analysis) return;
+      // Never the example: it isn't the team's, so the start form opens instead.
       const existing = newestFirst(readImprovements(ws().improvements)).find(
-        (i) => i.rootCauseId === rcaId
+        (i) => !isExampleId(i.id) && i.rootCauseId === rcaId
       );
       if (existing) {
         select(existing.id);

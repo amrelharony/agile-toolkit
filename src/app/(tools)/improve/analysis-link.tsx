@@ -6,7 +6,8 @@
  * open a new one with Analyze in Root Cause (one Undo takes back the
  * analysis and the link). Once linked, its root cause shows read-only, with
  * Use this (fills "Why it happens", with Undo) and Open in Root Cause. An
- * analysis that was deleted says so and offers Unlink.
+ * analysis that was deleted says so and offers Unlink. An example A3 never
+ * links to the team's own analyses: it says where linking happens instead.
  */
 
 import { useId } from "react";
@@ -92,6 +93,10 @@ export function AnalysisLink({
     );
   }
 
+  if (actions.example) {
+    return <p className="text-xs text-sub">On your own A3s, link a Root Cause analysis here.</p>;
+  }
+
   return (
     <div className="space-y-2">
       <div className="max-w-md">
@@ -114,25 +119,23 @@ export function AnalysisLink({
           ))}
         </select>
       </div>
-      {!actions.example && (
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            onClick={() => actions.analyzeInRootCause()}
-            disabled={!item.title.trim()}
-            className="gap-1.5"
-            aria-describedby={`${ids}-analyze-note`}
-          >
-            <Search aria-hidden="true" />
-            Analyze in Root Cause
-          </Button>
-          <p id={`${ids}-analyze-note`} className="text-xs text-sub">
-            Opens a new analysis of this problem, linked here.
-          </p>
-        </div>
-      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => actions.analyzeInRootCause()}
+          disabled={!item.title.trim()}
+          className="gap-1.5"
+          aria-describedby={`${ids}-analyze-note`}
+        >
+          <Search aria-hidden="true" />
+          Analyze in Root Cause
+        </Button>
+        <p id={`${ids}-analyze-note`} className="text-xs text-sub">
+          Opens a new analysis of this problem, linked here.
+        </p>
+      </div>
     </div>
   );
 }
