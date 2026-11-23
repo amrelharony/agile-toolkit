@@ -9,8 +9,8 @@
  *  - `openRound(prompt, mode, { build })` puts a prompt on the wall ("live":
  *    posts show as they arrive; "hidden": only a count until `reveal()`;
  *    `build`: people may post "Yes, and…" on a post), and `setOpen`,
- *    `setMode`, `setBuild`, `hide`, `merge`, `answer`, `lowerHand`,
- *    `lowerAllHands` run it; `setScoring("open")` starts a 25/10 scoring
+ *    `setMode`, `setBuild`, `hide`, `merge` (and `unmerge`, its Undo),
+ *    `answer`, `lowerHand`, `lowerAllHands` run it; `setScoring("open")` starts a 25/10 scoring
  *    (no new posts; each person scores five posts) and `setScoring("shown")`
  *    shares the totals;
  *  - each request is checked cheaply (seat, removed, a resend), decrypted
@@ -89,6 +89,7 @@ import {
   setWallOpen,
   setWallScoring,
   toWallResult,
+  unmergeWallPosts,
   wallView,
   type HostWall,
   type HostWallPost,
@@ -205,6 +206,12 @@ export interface WallRoom extends Pick<
   reveal: () => void;
   hide: (postId: string, hidden: boolean) => void;
   merge: (fromId: string, intoId: string) => void;
+  /**
+   * Put a merged post back on its own (the Undo of `merge`): its votes and
+   * the posts merged into it go back with it, and what happened since stays.
+   * Does nothing once it can't (taken back, the round scored or new).
+   */
+  unmerge: (fromId: string) => void;
   /** Mark a question answered, or not. */
   answer: (postId: string, answered: boolean) => void;
   lowerHand: (id: string) => void;
@@ -468,6 +475,10 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
   );
   const merge = useCallback(
     (fromId: string, intoId: string) => hostOnly((w) => mergeWallPosts(w, fromId, intoId)),
+    [hostOnly]
+  );
+  const unmerge = useCallback(
+    (fromId: string) => hostOnly((w) => unmergeWallPosts(w, fromId)),
     [hostOnly]
   );
   const setBuild = useCallback(
@@ -881,6 +892,7 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
     reveal,
     hide,
     merge,
+    unmerge,
     answer: markAnswered,
     lowerHand,
     lowerAllHands,

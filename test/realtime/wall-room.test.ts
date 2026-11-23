@@ -30,6 +30,7 @@ import {
   setWallOpen,
   setWallScoring,
   toWallResult,
+  unmergeWallPosts,
   wallView,
   type HostWall,
   type WallContext,
@@ -480,6 +481,161 @@ describe("the host's moves", () => {
     const back = apply(wall, B, { t: "withdraw", r: RID, pid: dup.id, key: KEY_B });
     expect(back.ok).toBe(true);
     expect(wallView(back.wall).round!.posts![0].merged).toEqual([]);
+  });
+
+  describe("undoing a merge", () => {
+    const AT = "2026-11-12T10:00:00Z";
+    const KEY_C1 = "keyC1_0123456789abc";
+    const KEY_C2 = "keyC2_0123456789abc";
+    const KEY_A2 = "keyA2_0123456789abc";
+
+    function vote(wall: HostWall, by: string, p: string, key: string): HostWall {
+      const res = apply(wall, by, { t: "vote", r: RID, pid: p, lock: lockOf(key) });
+      if (!res.ok) throw new Error("vote refused");
+      return res.wall;
+    }
+
+    /** A's question, B's duplicate of it; C upvoted both, A upvoted the duplicate. */
+    function duplicate() {
+      let wall = open();
+      const first = post(wall, A, "How do we deploy?");
+      const dup = post(first.wall, B, "How does deploy work?", KEY_B);
+      wall = vote(dup.wall, C, first.id, KEY_C1);
+      wall = vote(wall, C, dup.id, KEY_C2);
+      wall = vote(wall, A, dup.id, KEY_A2);
+      return { wall, first: first.id, dup: dup.id };
+    }
+
+    const host = (wall: HostWall, p: string) => wall.round!.posts.get(p)!;
+
+    it("puts the posts and votes back exactly when nothing changed", () => {
+      const { wall, first, dup } = duplicate();
+      const merged = mergeWallPosts(wall, dup, first);
+      expect(wallView(merged).round!.posts).toHaveLength(1);
+      const back = unmergeWallPosts(merged, dup);
+      expect(wallView(back)).toEqual(wallView(wall));
+      expect(hostWallPosts(back)).toEqual(hostWallPosts(wall));
+      expect(toWallResult(back, "audience-wall", AT)).toEqual(
+        toWallResult(wall, "audience-wall", AT)
+      );
+      // Lock for lock, the vote the merge dropped (A wrote the kept post) included.
+      expect(host(back, dup).voters).toEqual(host(wall, dup).voters);
+      expect(host(back, first).voters).toEqual(host(wall, first).voters);
+      expect(host(back, dup).voters.get(A)).toEqual([lockOf(KEY_A2)]);
+      expect(host(back, dup).parked).toBeUndefined();
+    });
+
+    it("keeps what it needs in the host's memory only: never on the wire or in the save", () => {
+      const { wall, first, dup } = duplicate();
+      const merged = mergeWallPosts(wall, dup, first);
+      expect(host(merged, dup).parked).toMatchObject({ into: first });
+      for (const shared of [wallView(merged), toWallResult(merged, "audience-wall", AT)]) {
+        expect(JSON.stringify(shared)).not.toMatch(/parked|carried|voters/);
+      }
+    });
+
+    it("leaves a vote cast on the kept post after the merge with it", () => {
+      const { wall, first, dup } = duplicate();
+      // B (who wrote the duplicate) upvotes the kept question once they're merged.
+      const after = vote(mergeWallPosts(wall, dup, first), B, first, "keyB2_0123456789abc");
+      const back = unmergeWallPosts(after, dup);
+      expect(host(back, first).voters.has(B)).toBe(true);
+      expect(host(back, first).voters.get(C)).toEqual([lockOf(KEY_C1)]);
+      const votes = Object.fromEntries(wallView(back).round!.posts!.map((p) => [p.id, p.votes]));
+      expect(votes).toEqual({ [first]: 2, [dup]: 2 });
+    });
+
+    it("doesn't bring back a carried vote taken back after the merge", () => {
+      const { wall, first, dup } = duplicate();
+      const merged = mergeWallPosts(wall, dup, first);
+      // C takes back their vote on the merged question (with the duplicate's key).
+      const res = apply(merged, C, { t: "unvote", r: RID, pid: dup, key: KEY_C2 });
+      expect(res.ok).toBe(true);
+      const back = unmergeWallPosts(res.wall, dup);
+      expect(host(back, dup).voters.has(C)).toBe(false);
+      expect(host(back, first).voters.has(C)).toBe(false);
+      // A's vote, which the merge had dropped, comes back.
+      expect(Array.from(host(back, dup).voters)).toEqual([[A, [lockOf(KEY_A2)]]]);
+      // C's taken-back locks stay spent.
+      expect(apply(back, C, { t: "vote", r: RID, pid: dup, lock: lockOf(KEY_C2) })).toMatchObject({
+        ok: false,
+        why: "already",
+      });
+    });
+
+    it("puts the posts merged into it back under it, and those come apart in turn", () => {
+      let wall = open();
+      const p1 = post(wall, A, "When is the next release?");
+      const p2 = post(p1.wall, B, "Release date?", KEY_B);
+      const p3 = post(p2.wall, C, "When do we ship?", "keyC_0123456789abcdef");
+      const start = p3.wall;
+      wall = mergeWallPosts(start, p3.id, p2.id);
+      const one = wall;
+      wall = mergeWallPosts(wall, p2.id, p1.id);
+      expect(wallView(wall).round!.posts!.map((p) => p.merged)).toEqual([
+        ["Release date?", "When do we ship?"],
+      ]);
+      // The second merge undone: p3 is back under p2, not on its own.
+      const back = unmergeWallPosts(wall, p2.id);
+      expect(wallView(back)).toEqual(wallView(one));
+      expect(host(back, p3.id).mergedInto).toBe(p2.id);
+      // And the first one after it.
+      expect(wallView(unmergeWallPosts(back, p3.id))).toEqual(wallView(start));
+    });
+
+    it("waits while the kept post is itself merged into a third, then works in order", () => {
+      let wall = open();
+      const p1 = post(wall, A, "Who owns the roadmap?");
+      const p2 = post(p1.wall, B, "Roadmap owner?", KEY_B);
+      const p3 = post(p2.wall, C, "Who decides the roadmap?", "keyC_0123456789abcdef");
+      const start = p3.wall;
+      wall = mergeWallPosts(start, p2.id, p1.id);
+      const once = wall;
+      wall = mergeWallPosts(wall, p1.id, p3.id);
+      expect(unmergeWallPosts(wall, p2.id)).toBe(wall);
+      const back = unmergeWallPosts(unmergeWallPosts(wall, p1.id), p2.id);
+      expect(wallView(unmergeWallPosts(wall, p1.id))).toEqual(wallView(once));
+      expect(wallView(back)).toEqual(wallView(start));
+    });
+
+    it("merges again after an undo, and undoes that too", () => {
+      const { wall, first, dup } = duplicate();
+      const again = mergeWallPosts(
+        unmergeWallPosts(mergeWallPosts(wall, dup, first), dup),
+        dup,
+        first
+      );
+      expect(wallView(again)).toEqual(wallView(mergeWallPosts(wall, dup, first)));
+      expect(wallView(unmergeWallPosts(again, dup))).toEqual(wallView(wall));
+    });
+
+    it("does nothing on a scored round, a taken-back post, or a post not merged", () => {
+      const { wall, first, dup } = duplicate();
+      const merged = mergeWallPosts(wall, dup, first);
+      expect(unmergeWallPosts(wall, dup)).toBe(wall);
+      expect(unmergeWallPosts(merged, first)).toBe(merged);
+      expect(unmergeWallPosts(merged, "pid_nothere1")).toBe(merged);
+      const scored = setWallScoring(merged, "open");
+      expect(unmergeWallPosts(scored, dup)).toBe(scored);
+      // B takes the duplicate back: there's nothing to put back.
+      const gone = apply(merged, B, { t: "withdraw", r: RID, pid: dup, key: KEY_B });
+      expect(gone.ok).toBe(true);
+      expect(unmergeWallPosts(gone.wall, dup)).toBe(gone.wall);
+      // A new round has none of the old one's posts.
+      const next = openWallRound(merged, "round_000002", "Next question", "live")!;
+      expect(unmergeWallPosts(next, dup)).toBe(next);
+      expect(unmergeWallPosts(emptyWall(), dup)).toEqual(emptyWall());
+    });
+
+    it("leaves a post standing alone with nothing to undo once the kept post is taken back", () => {
+      const { wall, first, dup } = duplicate();
+      const merged = mergeWallPosts(wall, dup, first);
+      const gone = apply(merged, A, { t: "withdraw", r: RID, pid: first, key: KEY_A });
+      expect(gone.ok).toBe(true);
+      expect(host(gone.wall, dup).mergedInto).toBeNull();
+      expect(host(gone.wall, dup).parked).toBeUndefined();
+      expect(unmergeWallPosts(gone.wall, dup)).toBe(gone.wall);
+    });
   });
 
   it("keeps a hidden round's posts off the wire and out of the host's screen until Reveal", () => {

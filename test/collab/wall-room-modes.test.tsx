@@ -186,6 +186,57 @@ describe("the host's hook", () => {
     expect(result.current.hands).toEqual([]);
   });
 
+  it("undoes a merge for the room, keeping an upvote cast since", async () => {
+    const { ch, crypto, result } = await startHost();
+    act(() => {
+      result.current.openRound("Questions for the CTO", "live");
+    });
+    await tick(600);
+    let s = states(ch).at(-1)!;
+    const r = s.round!.id;
+    for (const [m, pid, text, key] of [
+      [A, "pid_quest001", "When is the next release?", "keyA_0123456789abcdef"],
+      [B, "pid_quest002", "Release date?", "keyB_0123456789abcdef"],
+    ] as const) {
+      s = states(ch).at(-1)!;
+      await deliver(
+        ch,
+        WALL_ROOM_EVENTS.intent,
+        await request(crypto, s, m.id, { t: "post", r, pid, text, lock: lockOf(key) })
+      );
+      await tick(600);
+    }
+    act(() => result.current.merge("pid_quest002", "pid_quest001"));
+    await tick(600);
+    expect(states(ch).at(-1)!.round).toMatchObject({ count: 1 });
+    // Bo upvotes the kept question while they're merged.
+    s = states(ch).at(-1)!;
+    await deliver(
+      ch,
+      WALL_ROOM_EVENTS.intent,
+      await request(crypto, s, B.id, {
+        t: "vote",
+        r,
+        pid: "pid_quest001",
+        lock: lockOf("keyB2_0123456789abcd"),
+      })
+    );
+    await tick(600);
+    act(() => result.current.unmerge("pid_quest002"));
+    await tick(600);
+    const round = states(ch).at(-1)!.round!;
+    expect(round.count).toBe(2);
+    expect(round.posts).toEqual([
+      { id: "pid_quest001", text: "When is the next release?", votes: 1, merged: [] },
+      { id: "pid_quest002", text: "Release date?", votes: 0, merged: [] },
+    ]);
+    // Undoing it again changes nothing.
+    const sent = states(ch).length;
+    act(() => result.current.unmerge("pid_quest002"));
+    await tick(600);
+    expect(states(ch)).toHaveLength(sent);
+  });
+
   it("runs a 25/10 scoring: counts scores while open, shares totals only when shown", async () => {
     const { ch, crypto, result } = await startHost();
     act(() => {

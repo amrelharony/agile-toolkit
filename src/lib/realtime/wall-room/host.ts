@@ -95,6 +95,27 @@ export interface HostPost {
    * shown it can't be taken back (that would show whose it was).
    */
   together?: boolean;
+  /**
+   * Merged into another post: how to put it back (`unmergeWallPosts`). In
+   * memory only, never shared or saved.
+   */
+  parked?: ParkedPost;
+}
+
+/**
+ * What a merge records on the post it merged away, so the host can undo it
+ * from where things stand then (votes cast or taken back after the merge
+ * stay as they are), not from a snapshot.
+ */
+export interface ParkedPost {
+  /** The post it went under. */
+  into: string;
+  /** Its upvotes at the merge: member id → their locks. */
+  voters: ReadonlyMap<string, readonly string[]>;
+  /** The members whose locks the merge added to `into` (the others' were dropped). */
+  carried: ReadonlySet<string>;
+  /** The posts that were merged into it, which went under `into` with it. */
+  children: readonly { pid: string; text: string }[];
 }
 
 /** The round's options when it opens. */
@@ -309,7 +330,8 @@ export function hideWallPost(wall: HostWall, pid: string, hidden: boolean): Host
  * counts once; `into`'s writer's own vote is dropped), and it no longer
  * shows on its own. Unchanged when either isn't on the wall, they're the
  * same, `into` would hold more than `WALL_LIMITS.maxMergedTexts` texts, or
- * the round is scored (scores don't merge).
+ * the round is scored (scores don't merge). `from` keeps, in the host's
+ * memory, what `unmergeWallPosts` needs to put it back.
  */
 export function mergeWallPosts(wall: HostWall, from: string, into: string): HostWall {
   const r = wall.round;
@@ -319,19 +341,80 @@ export function mergeWallPosts(wall: HostWall, from: string, into: string): Host
   const merged = [...a.merged, { pid: b.pid, text: b.text }, ...b.merged];
   if (merged.length > WALL_LIMITS.maxMergedTexts) return wall;
   const voters = new Map(a.voters);
+  const carried = new Set<string>();
   b.voters.forEach((locks, member) => {
     if (member === a.author) return;
     if (!voters.has(member) && voters.size >= WALL_LIMITS.maxVotesPerPost) return;
     voters.set(member, [...(voters.get(member) ?? []), ...locks]);
+    carried.add(member);
   });
+  const parked: ParkedPost = { into: a.pid, voters: b.voters, carried, children: b.merged };
   const posts = new Map(r.posts);
   posts.set(a.pid, { ...a, merged, voters });
-  posts.set(b.pid, { ...b, mergedInto: a.pid, merged: [], voters: new Map() });
+  posts.set(b.pid, { ...b, mergedInto: a.pid, merged: [], voters: new Map(), parked });
   for (const child of b.merged) {
     const c = posts.get(child.pid);
     if (c) posts.set(c.pid, { ...c, mergedInto: a.pid });
   }
   return { ...wall, round: { ...r, posts } };
+}
+
+/**
+ * Undo `mergeWallPosts(wall, from, …)` from what it recorded, not from a
+ * snapshot, so what happened since stays: a vote cast on the kept post
+ * after the merge stays with it, and a vote taken back after it stays
+ * taken back. `from` stands on its own again with the votes it brought
+ * (the ones still on the kept post), plus the ones the merge dropped (its
+ * writer's vote on the kept post's text, votes over the cap); the posts
+ * that were merged into `from` go back under it.
+ *
+ * Unchanged unless the round exists and isn't scored, `from` is still
+ * merged into the post it went under (not taken back, not moved on with
+ * that post into a third), and that post is still there.
+ */
+export function unmergeWallPosts(wall: HostWall, from: string): HostWall {
+  const r = wall.round;
+  const b = r?.posts.get(from);
+  const parked = b?.parked;
+  if (!r || !b || !parked || r.scoring || b.mergedInto !== parked.into) return wall;
+  const a = r.posts.get(parked.into);
+  if (!a) return wall;
+  const kept = new Map(a.voters);
+  const back = new Map<string, readonly string[]>();
+  parked.voters.forEach((locks, member) => {
+    if (!parked.carried.has(member)) {
+      // Never added to the kept post: all of them come back.
+      back.set(member, locks);
+      return;
+    }
+    // Added to the kept post: only the locks still there (a vote taken back since stays gone).
+    const now = kept.get(member);
+    const mine = now ? locks.filter((l) => now.includes(l)) : [];
+    if (!now || mine.length === 0) return;
+    const rest = now.filter((l) => !mine.includes(l));
+    if (rest.length > 0) kept.set(member, rest);
+    else kept.delete(member);
+    back.set(member, mine);
+  });
+  const posts = new Map(r.posts);
+  const children: { pid: string; text: string }[] = [];
+  for (const child of parked.children) {
+    const c = posts.get(child.pid);
+    if (!c || c.mergedInto !== a.pid) continue;
+    posts.set(c.pid, { ...c, mergedInto: b.pid });
+    children.push({ pid: c.pid, text: c.text });
+  }
+  const gone = new Set([b.pid, ...children.map((c) => c.pid)]);
+  posts.set(a.pid, { ...a, voters: kept, merged: a.merged.filter((m) => !gone.has(m.pid)) });
+  posts.set(b.pid, { ...standing(b), merged: children, voters: back });
+  return { ...wall, round: { ...r, posts } };
+}
+
+/** A post standing on its own again: not merged, with nothing left to undo. */
+function standing(post: HostPost): HostPost {
+  const out: HostPost = { ...post, mergedInto: null };
+  delete out.parked;
+  return out;
 }
 
 /** Lower someone's hand (the host may lower anyone's). */
@@ -485,10 +568,10 @@ export function applyWallIntent(
           posts.set(host.pid, { ...host, merged: host.merged.filter((m) => m.pid !== post.pid) });
         }
       }
-      // Others merged into it stand on their own again.
+      // Others merged into it stand on their own again, with nothing to undo.
       for (const child of post.merged) {
         const c = posts.get(child.pid);
-        if (c) posts.set(c.pid, { ...c, mergedInto: null });
+        if (c) posts.set(c.pid, standing(c));
       }
       return accept({
         ...wall,
