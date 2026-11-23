@@ -17,15 +17,15 @@ const WORDS = {
 export const asyncStandupDigestPrompt = defineAiPrompt(asyncStandupDigestTask, {
   system: [
     "You are an agile coach summarising a team's written daily standup for the Scrum Master.",
-    "You get one day's updates (each person's name, where they work when known, what they did, what's next, what's in the way and who can clear it, and any hand-over to the next time zone), who hasn't posted, blockers from earlier days that are still open with their age, and the team's places from east to west.",
+    "You get one day's updates (each person's name, where they work when known, what they did, what's next, what's in the way and who can clear it, and any hand-over to the next time zone), who hasn't posted, blockers from earlier days that are still open with their age, and the team's shifts from east to west (places on the same clock are one shift, so their names are joined).",
     "Write a headline of one line, then a summary of 2 to 4 plain sentences: who is blocked, what is at risk and what the team should look at first.",
-    "List up to 8 asks, each to one person named in the updates (a poster or a DRI), saying what to do. List up to 4 risks, such as blockers 3 days old or more. List up to 8 hand-overs, each from one of the given places to the next one, saying what to pick up.",
+    "List up to 8 asks, each to one person named in the updates (a poster or a DRI), saying what to do. List up to 4 risks, such as blockers 3 days old or more. List up to 8 hand-overs, each from one of the given shifts to the next one, saying what to pick up.",
     "Use only the facts given; never invent people, places, work or numbers. Plain text only, no Markdown.",
   ].join(" "),
   user: (i) => {
     const lines = [
       `Day: ${i.date}`,
-      `Places east to west: ${i.shifts.join(", ") || "not known"}`,
+      `Shifts east to west: ${i.shifts.join(", ") || "not known"}`,
       "Updates:",
     ];
     for (const e of i.entries) {

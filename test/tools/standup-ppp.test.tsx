@@ -249,6 +249,38 @@ describe("follow the sun", () => {
     expect(within(panel).getAllByText(/ there$/)).toHaveLength(2);
   });
 
+  it("makes the places on one clock one shift: no hand-over between them", () => {
+    useWorkspaceStore.setState({
+      teamTimePeople: [
+        person("p1", "Priya", "Europe/London", "London office"),
+        person("p2", "Tom", "Europe/London"),
+      ],
+      standupEntries: [entry("p0", "Priya"), entry("t0", "Tom")],
+    });
+    const view = renderStandup();
+    fireEvent.change(memberInput(), { target: { value: "Priya" } });
+    expect(screen.queryByLabelText(/^Hand over to the next shift/)).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Hand-overs" })).toBeNull();
+    view.unmount();
+    // Berlin and Paris share a clock: one shift, after Sydney.
+    useWorkspaceStore.setState({
+      teamTimePeople: [
+        person("p1", "Ben", "Europe/Berlin"),
+        person("p2", "Pia", "Europe/Paris"),
+        person("p3", "Sky", "Australia/Sydney"),
+      ],
+      standupEntries: [entry("b0", "Ben"), entry("p0", "Pia"), entry("s0", "Sky")],
+    });
+    renderStandup();
+    const panel = document.querySelector("[data-handovers]") as HTMLElement;
+    expect(within(panel).getByText("Sydney → Berlin / Paris → back to Sydney")).toBeInTheDocument();
+    expect(within(panel).getByText("Ben, Pia")).toBeInTheDocument();
+    fireEvent.change(memberInput(), { target: { value: "Ben" } });
+    expect(
+      screen.getByText("Sydney starts next: say what to pick up, and where it is.")
+    ).toBeInTheDocument();
+  });
+
   it("isn't there with one place, or in the live standup", () => {
     useWorkspaceStore.setState({ teamTimePeople: PEOPLE.slice(0, 1) });
     const view = renderStandup();

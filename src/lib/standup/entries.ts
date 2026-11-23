@@ -18,6 +18,7 @@ import type {
 } from "@/lib/stores/workspace-types";
 import { nameKey } from "@/lib/team/names";
 import { sunOrder, type StandupPlace } from "@/lib/team-time/sun";
+import { offsetMinutes } from "@/lib/team-time/zones";
 
 /** A blocker's DRI, as the page and the agent take it. */
 export const BLOCKER_DRI_MAX = 120;
@@ -199,8 +200,39 @@ export const formatOf = (e: Pick<StandupEntry, "format">): StandupFormat =>
 /** Places keyed by `nameKey(member)`: where each Standup poster works (Team Time's `standupPlaces`). */
 export type StandupPlaces = ReadonlyMap<string, StandupPlace>;
 
-/** The distinct places of `places`, east to west on `date`: the follow-the-sun shift chain. */
-export function shiftChain(places: StandupPlaces | undefined, date: string): StandupPlace[] {
+/**
+ * One shift of the follow-the-sun chain: the places on the same clock on
+ * the day (the same UTC offset), under their labels joined ("Berlin /
+ * Paris"), on the first place's zone. People on one clock are one shift, so
+ * no hand-over passes between them.
+ */
+export interface StandupShift extends StandupPlace {
+  /** The places on this clock, in the order the chain met them. */
+  places: StandupPlace[];
+}
+
+const samePlace = (a: StandupPlace, b: StandupPlace) => a.label === b.label && a.zone === b.zone;
+
+/** "London office / London": each label once (by case), in order. */
+function shiftLabel(places: readonly StandupPlace[]): string {
+  const seen = new Set<string>();
+  const labels: string[] = [];
+  for (const p of places) {
+    const key = p.label.trim().toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    labels.push(p.label.trim());
+  }
+  return labels.join(" / ");
+}
+
+/**
+ * The follow-the-sun shift chain on `date`: the distinct places of
+ * `places`, east to west, with the places that share a UTC offset that day
+ * grouped into one shift. A zone this runtime can't read is a shift of its
+ * own.
+ */
+export function shiftChain(places: StandupPlaces | undefined, date: string): StandupShift[] {
   if (!places) return [];
   const seen = new Set<string>();
   const list: StandupPlace[] = [];
@@ -210,16 +242,47 @@ export function shiftChain(places: StandupPlaces | undefined, date: string): Sta
     seen.add(key);
     list.push(p);
   }
-  return sunOrder(list, date);
+  // The same moment sunOrder sorts on: noon UTC on the day.
+  const noon = Date.parse(`${date.slice(0, 10)}T12:00:00Z`);
+  const at = Number.isNaN(noon) ? Date.now() : noon;
+  const clock = (zone: string) => {
+    try {
+      return `offset:${offsetMinutes(zone, at)}`;
+    } catch {
+      return `zone:${zone}`;
+    }
+  };
+  const shifts = new Map<string, StandupPlace[]>();
+  for (const p of sunOrder(list, date)) {
+    const key = clock(p.zone);
+    shifts.set(key, [...(shifts.get(key) ?? []), p]);
+  }
+  return Array.from(shifts.values()).map((group) => ({
+    label: shiftLabel(group),
+    zone: group[0].zone,
+    places: group,
+  }));
 }
 
-/** The place after `place` in the chain, round to the first; null with fewer than two places. */
-export function nextPlace(
-  chain: readonly StandupPlace[],
+/** Where `place`'s shift is in the chain, or -1. */
+export function shiftIndex(
+  chain: readonly StandupShift[],
   place: StandupPlace | undefined
-): StandupPlace | null {
-  if (!place || chain.length < 2) return null;
-  const at = chain.findIndex((p) => p.label === place.label && p.zone === place.zone);
+): number {
+  if (!place) return -1;
+  return chain.findIndex((s) => s.places.some((p) => samePlace(p, place)));
+}
+
+/**
+ * The shift after `place`'s in the chain, round to the first: always a
+ * later clock. Null with fewer than two shifts, or a place not in it.
+ */
+export function nextPlace(
+  chain: readonly StandupShift[],
+  place: StandupPlace | undefined
+): StandupShift | null {
+  if (chain.length < 2) return null;
+  const at = shiftIndex(chain, place);
   return at < 0 ? null : chain[(at + 1) % chain.length];
 }
 
@@ -242,8 +305,9 @@ const driSuffix = (e: Pick<StandupEntry, "blockerDri">) =>
  *     blockers' heading is "Problems" only when every update is one.
  *   - A blocker with a DRI ends " (DRI: Bo)".
  *   - "## Hand-overs" follows the blockers when anyone left one, from their
- *     place to the next one east to west.
- *   - With two places or more known, people go in the order the day
+ *     place to the next shift east to west (shiftChain: places on one
+ *     clock are one shift).
+ *   - With two shifts or more known, people go in the order the day
  *     reaches them; anyone with no place keeps their order, after them.
  *
  * Without those fields or places, the text is what it always was.
@@ -283,8 +347,7 @@ export function standupDigest(
   let people = Array.from(byMember.entries());
   if (chain.length >= 2) {
     const rank = (member: string) => {
-      const p = placeOf(member);
-      const at = p ? chain.findIndex((c) => c.label === p.label && c.zone === p.zone) : -1;
+      const at = shiftIndex(chain, placeOf(member));
       return at < 0 ? chain.length : at;
     };
     people = people

@@ -198,6 +198,36 @@ describe("async-standup.digest", () => {
     expect(input.notPosted).toEqual(["Kim"]);
   });
 
+  it("gives the AI one shift per clock, and each poster their shift's name", () => {
+    const places = placesOf([
+      ["Priya", { label: "London office", zone: "Europe/London" }],
+      ["Tom", LONDON],
+      ["Sky", SYDNEY],
+    ]);
+    const input = digestInput({
+      date: DAY,
+      places,
+      notPosted: [],
+      entries: [
+        entry("p", "Priya", { handoff: "Watch the deploy" }),
+        entry("t", "Tom"),
+        entry("s", "Sky", { handoff: "Build is green" }),
+      ],
+    });
+    expect(task.input.safeParse(input).success).toBe(true);
+    expect(input.shifts).toEqual(["Sydney", "London office / London"]);
+    expect(input.entries.map((e) => [e.member, e.site])).toEqual([
+      ["Sky", "Sydney"],
+      ["Priya", "London office / London"],
+      ["Tom", "London office / London"],
+    ]);
+    // Without AI: each hand-over goes to the other clock, never within one.
+    expect(digestFallback(input).handoffs).toEqual([
+      { from: "Sydney", to: "London office / London", text: "Build is green" },
+      { from: "London office / London", to: "Sydney", text: "Watch the deploy" },
+    ]);
+  });
+
   it("keeps 25 updates: everyone with a problem first", () => {
     const entries = Array.from({ length: 30 }, (_, i) =>
       entry(`e${i}`, `P${i}`, i >= 26 ? { blockers: `stuck ${i}` } : {})
@@ -276,7 +306,7 @@ describe("async-standup.digest", () => {
       "  Problems: Still waiting on sandbox keys from the payments team. (DRI: Priya (PM))"
     );
     expect(user).toContain("  Yesterday: Found the double charge.");
-    expect(user).toContain("Places east to west: Sydney, Cairo, London office, Toronto");
+    expect(user).toContain("Shifts east to west: Sydney, Cairo, London office, Toronto");
     expect(user).toContain("- Ana (Backend), 4 days: The index migration needs a DBA review.");
   });
 

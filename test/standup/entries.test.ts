@@ -4,9 +4,11 @@ import {
   entryFor,
   fromAsyncUpdate,
   isLegacyAsyncUpdate,
+  nextPlace,
   notPostedYet,
   postedEntry,
   previousEntry,
+  shiftChain,
   standupDigest,
   standupMode,
 } from "@/lib/standup/entries";
@@ -198,6 +200,52 @@ describe("digest: formats, DRIs, hand-overs and places", () => {
     // East to west, and anyone with no place after, in their own order.
     const order = lines.filter((l) => l.startsWith("## ") && !/Blockers|Hand-overs/.test(l));
     expect(order).toEqual(["## Sky", "## Lou", "## Tom", "## Nadia"]);
+  });
+
+  it("makes the places on one clock one shift, so a hand-over always goes to a later clock", () => {
+    // Priya's site and Tom's zone city: two labels, one clock.
+    const londonOnly = new Map([
+      [nameKey("Priya"), LONDON],
+      [nameKey("Tom"), { label: "London", zone: "Europe/London" }],
+    ]);
+    const one = shiftChain(londonOnly, "2026-10-23");
+    expect(one.map((s) => s.label)).toEqual(["London office / London"]);
+    expect(nextPlace(one, LONDON)).toBeNull();
+    const md = standupDigest(
+      [
+        entry("p", { member: "Priya", today: "Ship", handoff: "Watch the deploy" }),
+        entry("t", { member: "Tom", today: "Review" }),
+      ],
+      "2026-10-23",
+      { places: londonOnly }
+    );
+    expect(md).toContain("## Hand-overs\n- **Priya**: Watch the deploy");
+    expect(md).not.toContain("→");
+    // Berlin and Paris share an offset: one shift, after Sydney, before London.
+    const BERLIN = { label: "Berlin", zone: "Europe/Berlin" };
+    const PARIS = { label: "Paris", zone: "Europe/Paris" };
+    const team = new Map([
+      [nameKey("Ben"), BERLIN],
+      [nameKey("Pia"), PARIS],
+      [nameKey("Sky"), SYDNEY],
+      [nameKey("Lou"), LONDON],
+    ]);
+    const chain = shiftChain(team, "2026-10-23");
+    expect(chain.map((s) => s.label)).toEqual(["Sydney", "Berlin / Paris", "London office"]);
+    expect(chain[1].places).toEqual([BERLIN, PARIS]);
+    expect(nextPlace(chain, BERLIN)?.label).toBe("London office");
+    expect(nextPlace(chain, PARIS)?.label).toBe("London office");
+    expect(nextPlace(chain, SYDNEY)?.label).toBe("Berlin / Paris");
+    const routed = standupDigest(
+      [
+        entry("b", { member: "Ben", handoff: "Over to you" }),
+        entry("s", { member: "Sky", handoff: "Build is green" }),
+      ],
+      "2026-10-23",
+      { places: team }
+    );
+    expect(routed).toContain("- **Ben**, Berlin → London office: Over to you");
+    expect(routed).toContain("- **Sky**, Sydney → Berlin / Paris: Build is green");
   });
 
   it("keeps today's order with fewer than two places known, and the old text without the new fields", () => {

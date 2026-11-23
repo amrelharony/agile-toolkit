@@ -2,32 +2,37 @@
 
 import { Sun } from "lucide-react";
 import { SectionCard } from "@/components/shared/section-card";
-import { nextPlace, shiftChain, type StandupPlaces } from "@/lib/standup/entries";
+import {
+  shiftChain,
+  shiftIndex,
+  type StandupPlaces,
+  type StandupShift,
+} from "@/lib/standup/entries";
 import type { StandupEntry } from "@/lib/stores/workspace-types";
 import { nameKey } from "@/lib/team/names";
 import { localTimeText } from "@/lib/team-time/format";
-import type { StandupPlace } from "@/lib/team-time/sun";
 import { addDays } from "@/lib/impediments/model";
 
 export interface HandoverRow {
-  place: StandupPlace;
+  /** The shift: the places on one clock. */
+  place: StandupShift;
   /** Their clock now: "Tue 07:30". */
   localTime: string;
   /** The people Team Time puts there, as they post. */
   people: string[];
   /** Hand-overs left there today or yesterday, newest first. */
   notes: { member: string; date: string; text: string }[];
-  next: StandupPlace;
+  next: StandupShift;
   /** Someone at the next place has posted today. */
   nextPosted: boolean;
 }
 
 /**
- * The follow-the-sun chain for the Hand-overs panel: each place east to
- * west, its clock now, the hand-over notes from updates dated today or
- * yesterday, and whether the next place has posted today. Null unless Team
- * Time knows two places or more among the people posting (the roster and
- * today's and yesterday's posters).
+ * The follow-the-sun chain for the Hand-overs panel: each shift east to
+ * west (the places on one clock), its clock now, the hand-over notes from
+ * updates dated today or yesterday, and whether the next shift has posted
+ * today. Null unless Team Time knows two shifts or more among the people
+ * posting (the roster and today's and yesterday's posters).
  */
 export function handoverRows({
   entries,
@@ -50,26 +55,20 @@ export function handoverRows({
     const key = nameKey(n);
     if (key && !names.has(key)) names.set(key, n.trim());
   }
-  const placeKey = (p: StandupPlace) => `${p.label}|${p.zone}`;
-  const posting = new Set<string>();
+  const full = shiftChain(places, today);
+  const posting = new Set<number>();
   for (const key of Array.from(names.keys())) {
-    const p = places.get(key);
-    if (p) posting.add(placeKey(p));
+    const at = shiftIndex(full, places.get(key));
+    if (at >= 0) posting.add(at);
   }
   if (posting.size < 2) return null;
-  const chain = shiftChain(places, today).filter((p) => posting.has(placeKey(p)));
-  const at = (member: string) => {
-    const p = places.get(nameKey(member));
-    return p ? placeKey(p) : null;
-  };
-  return chain.map((place) => {
-    const here = placeKey(place);
-    const next = nextPlace(chain, place) as StandupPlace;
+  const chain = full.filter((_, i) => posting.has(i));
+  const at = (member: string) => shiftIndex(chain, places.get(nameKey(member)));
+  return chain.map((place, here) => {
+    const after = (here + 1) % chain.length;
+    const next = chain[after];
     const people = Array.from(names.entries())
-      .filter(([key]) => {
-        const p = places.get(key);
-        return p !== undefined && placeKey(p) === here;
-      })
+      .filter(([key]) => shiftIndex(chain, places.get(key)) === here)
       .map(([, name]) => name);
     const notes = recent
       .filter((e) => at(e.member) === here && (e.handoff ?? "").trim())
@@ -87,7 +86,7 @@ export function handoverRows({
       people,
       notes,
       next,
-      nextPosted: entries.some((e) => e.date === today && at(e.member) === placeKey(next)),
+      nextPosted: entries.some((e) => e.date === today && at(e.member) === after),
     };
   });
 }

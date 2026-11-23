@@ -6,7 +6,8 @@
  *
  *   - The input is one day's updates (people with a problem first, then in
  *     the order the day reaches them), who hasn't posted, older blockers
- *     still open and the team's places east to west.
+ *     still open and the team's shifts east to west (places on one clock
+ *     are one shift).
  *   - Nothing is saved from a summary; the page shows it and can copy it
  *     into the digest.
  */
@@ -17,7 +18,7 @@ import { isoDayNumber } from "@/lib/sprints/calendar";
 import { nameKey } from "@/lib/team/names";
 import type { StandupPlace } from "@/lib/team-time/sun";
 import { jsonBytes } from "@/lib/utils/json-bytes";
-import { hasBlocker, shiftChain } from "./entries";
+import { hasBlocker, shiftChain, shiftIndex } from "./entries";
 
 /** The task's caps, input and output. */
 export const DIGEST_MAX = {
@@ -54,7 +55,7 @@ export const DIGEST_TASK_ID = "async-standup.digest";
 export interface DigestEntryInput {
   member: string;
   format: StandupFormat;
-  /** Where they work (Team Time), when known. */
+  /** Their shift (Team Time), when known: one of `shifts`, the places on their clock. */
   site?: string;
   /** Yesterday, or Progress. */
   done: string;
@@ -75,7 +76,7 @@ export interface DigestInput {
   notPosted: string[];
   /** Blockers raised on earlier days and still open, oldest first. */
   olderBlockers: { member: string; text: string; ageDays: number; dri?: string }[];
-  /** The team's places, east to west. */
+  /** The team's shifts, east to west: the places on one clock are one shift. */
   shifts: string[];
 }
 
@@ -104,7 +105,7 @@ const daysApart = (from: string, to: string) => {
 /**
  * The summary's facts for `date`: the day's updates (open problems first,
  * then east to west, those with no known place last), who hasn't posted,
- * the older blockers still open (oldest first) and the team's places.
+ * the older blockers still open (oldest first) and the team's shifts.
  */
 export function digestInput({
   entries,
@@ -118,9 +119,9 @@ export function digestInput({
   notPosted: readonly string[];
 }): DigestInput {
   const chain = shiftChain(places, date);
+  const shiftOf = (member: string) => shiftIndex(chain, places?.get(nameKey(member)));
   const rank = (member: string) => {
-    const p = places?.get(nameKey(member));
-    const at = p ? chain.findIndex((c) => c.label === p.label && c.zone === p.zone) : -1;
+    const at = shiftOf(member);
     return at < 0 ? chain.length : at;
   };
   const day = entries
@@ -131,7 +132,8 @@ export function digestInput({
     )
     .slice(0, DIGEST_MAX.entries)
     .map(({ e, open }): DigestEntryInput => {
-      const site = places?.get(nameKey(e.member))?.label;
+      // The shift's label, so a hand-over's next place is read from `shifts`.
+      const site = chain[shiftOf(e.member)]?.label;
       const problem = open ? cutText(e.blockers, DIGEST_MAX.field) : "";
       const dri = problem ? cutText(e.blockerDri, DIGEST_MAX.dri) : "";
       const handoff = cutText(e.handoff, DIGEST_MAX.handoff);
