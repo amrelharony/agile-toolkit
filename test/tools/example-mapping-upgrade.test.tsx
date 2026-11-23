@@ -573,6 +573,30 @@ describe("Amr's help, and the export", () => {
     expect(stored()!.rules).toEqual([]);
   });
 
+  it("says why an accepted rule wasn't added to a full map, with no Undo claiming it was", () => {
+    const rules = Array.from({ length: 12 }, (_, i) => ({ id: `r${i}`, text: `Rule ${i}` }));
+    useWorkspaceStore.setState({
+      stories: [story({ acceptanceCriteria: "- The CVC is asked once per session" })],
+      exampleMaps: [map({ storyId: "st1", rules })],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest rules without AI" }));
+    const [first] = fallbackRules({
+      title: "Pay with a saved card",
+      notes: "",
+      criteria: "- The CVC is asked once per session",
+      rules: rules.map((r) => r.text),
+    }).rules;
+    fireEvent.click(screen.getByRole("button", { name: `Add: ${first.text}` }));
+    expect(stored()!.rules).toHaveLength(12);
+    expect(undo.all).toEqual([]);
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((el) => /A map holds 12 rules at most/.test(el.textContent ?? ""))
+    ).toBe(true);
+  });
+
   it("suggests examples for a rule without AI, keeping Given/When/Then", () => {
     useWorkspaceStore.setState({
       exampleMaps: [map({ rules: [{ id: "r1", text: "Refuse expired cards" }] })],

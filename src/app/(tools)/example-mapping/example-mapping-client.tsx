@@ -210,6 +210,13 @@ export function ExampleMappingClient() {
     announce(text);
   };
 
+  /** After a refused add: say why inline when the map had no room (a too-big map said so already). */
+  const sayNoRoom = (id: string, problem: (m: ExampleMap) => string | null) => {
+    const fresh = findMap(id);
+    const why = fresh ? problem(fresh) : null;
+    if (why) say(why);
+  };
+
   const openMap = (id: string) => {
     setCurrentId(id);
     setCreating(false);
@@ -293,7 +300,10 @@ export function ExampleMappingClient() {
   const addRule = (map: ExampleMap, text: string): string | null => {
     const id = `${CARD_ID_PREFIX.rule}${nanoid(8)}`;
     const saved = write(map.id, (m) => withRule(m, text, id, nowIso()));
-    if (!saved) return null;
+    if (!saved) {
+      sayNoRoom(map.id, ruleRoomProblem);
+      return null;
+    }
     record(map.id, EXAMPLE_MAPPING_ACTIONS.RULE_ADDED, { ruleId: id, rules: saved.rules.length });
     announce(`Added the rule “${shortText(text)}”`);
     return id;
@@ -332,7 +342,10 @@ export function ExampleMappingClient() {
   ): string | null => {
     const id = `${CARD_ID_PREFIX.example}${nanoid(8)}`;
     const saved = write(map.id, (m) => withExample(m, { ruleId, ...input }, id, nowIso()));
-    if (!saved) return null;
+    if (!saved) {
+      sayNoRoom(map.id, (m) => exampleRoomProblem(m, ruleId));
+      return null;
+    }
     const gwt = Boolean(input.given && input.when && input.then);
     record(map.id, EXAMPLE_MAPPING_ACTIONS.EXAMPLE_ADDED, { ruleId, exampleId: id, gwt });
     announce(`Added the example “${shortText(input.text)}”`);
@@ -375,7 +388,10 @@ export function ExampleMappingClient() {
   const addQuestion = (map: ExampleMap, v: { text: string; owner?: string; ruleId?: string }) => {
     const id = `${CARD_ID_PREFIX.question}${nanoid(8)}`;
     const saved = write(map.id, (m) => withQuestion(m, v, id, nowIso()));
-    if (!saved) return null;
+    if (!saved) {
+      sayNoRoom(map.id, questionRoomProblem);
+      return null;
+    }
     record(map.id, EXAMPLE_MAPPING_ACTIONS.QUESTION_ADDED, { questionId: id });
     announce(`Added the question “${shortText(v.text)}”`);
     return id;
@@ -821,18 +837,20 @@ interface BoardActions {
   splitRules: (map: ExampleMap, ruleIds: string[]) => number;
 }
 
-/** Undo for an accepted suggestion: take back the card it added, if it is still there. */
+/**
+ * An accepted suggestion, with Undo to take back the card it added. The
+ * card is added first: when the map has no room for it (or would pass one
+ * synced row), the add says why inline and no toast claims it was added.
+ */
 function acceptWithUndo(label: string, add: () => string | null, remove: (id: string) => void) {
-  let id: string | null = null;
+  const id = add();
+  if (!id) return;
   undoable({
     label,
     kind: "success",
-    apply: () => {
-      id = add();
-    },
-    revert: () => {
-      if (id) remove(id);
-    },
+    // Already added above.
+    apply: () => {},
+    revert: () => remove(id),
   });
 }
 
