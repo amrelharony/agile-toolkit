@@ -93,6 +93,17 @@ describe("extractByRules", () => {
     expect(extractByRules({ notes: "We will chase the vendor", date: FRI })).toEqual([]);
   });
 
+  it("reads 'went down well' as praise, and 'the site went down' as a blocker", () => {
+    const notes = [
+      "- The new search went down well with the three customers who came.",
+      "- The demo goes down really well every time",
+      "- The site went down twice on Monday",
+    ].join("\n");
+    expect(extractByRules({ notes, date: FRI }).map((i) => [i.kind, i.text])).toEqual([
+      ["impediment", "The site went down twice on Monday"],
+    ]);
+  });
+
   it("reads the end of the sprint from the running sprint", () => {
     const [item] = extractByRules({
       notes: "Action: merge the branch by end of sprint",

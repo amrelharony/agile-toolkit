@@ -122,6 +122,9 @@ function ownerIn(line: string): string | undefined {
   return undefined;
 }
 
+/** Something that "went down well" was liked: no blocker in it. */
+const DOWN_WELL = /\b(?:went|go(?:es|ne|ing)?) down (?:really |very )?well\b/gi;
+
 interface Rule {
   kind: MeetingNoteItemKind;
   /** Whether the line is this kind. */
@@ -155,7 +158,10 @@ const RULES: readonly Rule[] = [
   },
   {
     kind: "impediment",
-    test: (l) => /\bblocked\b/i.test(l) || routeByRules(l).destination === "impediment",
+    // "Went down well" is praise, not an outage: the phrase is taken out
+    // before Parking Lot's blocker words are read.
+    test: (l) =>
+      /\bblocked\b/i.test(l) || routeByRules(l.replace(DOWN_WELL, "")).destination === "impediment",
     strip: /^\s*(?:blocker|impediment|blocked)\s*:\s*/i,
   },
   {
