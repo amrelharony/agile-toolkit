@@ -83,8 +83,14 @@ describe("what the MCP handlers call", () => {
         "src/lib/facilitator-timers/settings.ts",
         "src/lib/facilitator-timers/model.ts",
         "src/lib/facilitator-timers/sounds.ts",
+        "src/lib/hill-chart/model.ts",
+        "src/lib/notes-to-actions/due.ts",
+        "src/lib/notes-to-actions/extract.ts",
+        "src/lib/notes-to-actions/model.ts",
         "src/lib/relative-sizing/model.ts",
         "src/lib/relative-sizing/state.ts",
+        "src/lib/releases/notes-steps.ts",
+        "src/lib/releases/notes.ts",
         "src/lib/test-sessions/model.ts",
       ].map(abs)
     );
@@ -106,7 +112,10 @@ describe("the action files", () => {
     "planning-poker",
     "example-mapping",
     "facilitator-timers",
+    "hill-chart",
+    "notes-to-actions",
     "relative-sizing",
+    "release-readiness",
     "test-sessions",
   ])("%s reaches no client module but the workspace store", (tool) => {
     const { seen, clients } = walk([abs(`src/lib/actions/tools/${tool}.ts`)]);

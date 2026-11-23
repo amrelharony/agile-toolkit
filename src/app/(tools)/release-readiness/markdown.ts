@@ -23,15 +23,18 @@ export interface ReleaseMarkdownInput {
   stats: ReleaseStats;
   skipped: readonly SkippedRow[];
   gates: readonly ReleaseGateDef[];
+  /** The newest release's notes as a Markdown section (releaseNotesMarkdown), when one has them. */
+  notes?: string;
 }
 
 /**
  * Release readiness for a release review or a go/no-go thread: the verdict,
  * the stats (the rate only once enough ships back it), every release with
- * its open gates by name, the most-skipped gates and the team's gate list.
+ * its open gates by name, the most-skipped gates and the team's gate list,
+ * then the release notes of the newest release that has them.
  */
 export function toMarkdown(input: ReleaseMarkdownInput): string {
-  const { today, verdict, releases, stats, skipped, gates } = input;
+  const { today, verdict, releases, stats, skipped, gates, notes } = input;
   const title = `# Release readiness — ${dayLabel(today, true)}`;
   if (releases.length === 0) return `${title}\n\nNo releases yet.\n`;
 
@@ -115,5 +118,6 @@ export function toMarkdown(input: ReleaseMarkdownInput): string {
         }`
     )
   );
+  if (notes && notes.trim()) lines.push("", notes.trim());
   return `${lines.join("\n")}\n`;
 }

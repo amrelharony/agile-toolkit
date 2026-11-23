@@ -12,13 +12,16 @@ import { bugTriageSeverityTask } from "./bug-triage";
 import { cardForMoodTask, generateCardsTask } from "./card-decks";
 import { mapExamplesTask, mapQuestionsTask, mapRulesTask } from "./example-mapping";
 import { agendaTask } from "./facilitator-timers";
+import { hillChartUpdateNoteTask } from "./hill-chart";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { meetingAuditSuggestTask } from "./meeting-audit";
+import { notesToActionsExtractTask } from "./notes-to-actions";
 import { parkingRouteTask } from "./parking-lot";
 import { themeNamesTask } from "./picker";
 import { pokerSimilarTask } from "./planning-poker";
 import { productGoalDraftTask } from "./product-goal";
 import { sizingDiscussTask, sizingSplitTask } from "./relative-sizing";
+import { releaseReadinessNotesTask } from "./release-readiness";
 import { groupTopicsTask, surprisePlanTask } from "./retro";
 import { retroActionsThemesTask } from "./retro-actions";
 import { categoriesTask, countermeasureTask, nextWhyTask } from "./root-cause";
@@ -42,14 +45,17 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   mapExamplesTask,
   mapQuestionsTask,
   agendaTask,
+  hillChartUpdateNoteTask,
   interruptClassifyTask,
   meetingAuditSuggestTask,
+  notesToActionsExtractTask,
   parkingRouteTask,
   themeNamesTask,
   pokerSimilarTask,
   productGoalDraftTask,
   sizingDiscussTask,
   sizingSplitTask,
+  releaseReadinessNotesTask,
   surprisePlanTask,
   groupTopicsTask,
   retroActionsThemesTask,

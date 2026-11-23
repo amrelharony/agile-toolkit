@@ -22,6 +22,15 @@
  *                       rolled-back one.
  *   7. set_gates      — replace the team's gate list (left-out gates are archived).
  *   8. remove_release — delete a release by id.
+ *   9. suggest_stories — the done stories a release could link (read).
+ *  10. link_stories   — link the stories a release ships (add, or set the list).
+ *  11. draft_notes    — release notes from the linked stories, by the
+ *                       template (read: nothing is saved).
+ *  12. set_notes      — save a release's notes (or clear them).
+ *
+ * The release-notes verbs read lib/releases/notes, the pure module the
+ * page uses, so a draft from Amr reads as the page's "Draft from the
+ * stories" does.
  *
  * Every number comes from lib/releases (gates, model, auto-gates), the same
  * functions the page uses, so an agent reports what the page shows. Entity
@@ -38,13 +47,16 @@ import {
   serverListEntities,
   serverUpsertEntity,
 } from "../server-store";
-import type {
-  DefinitionOfDone,
-  FeatureFlag,
-  Release,
-  ReleaseGateDef,
-  ReleaseReadiness,
-  Story,
+import {
+  TOOL_TEXT_MAX,
+  type DefinitionOfDone,
+  type Epic,
+  type EpicRoadmap,
+  type FeatureFlag,
+  type Release,
+  type ReleaseGateDef,
+  type ReleaseReadiness,
+  type Story,
 } from "@/lib/stores/workspace-types";
 import {
   DOD_DOC_ID,
@@ -77,12 +89,32 @@ import { normalizeFlags } from "@/lib/flags/model";
 import { enoughData, MIN_SAMPLE } from "@/lib/analytics/min-sample";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import { todayIso } from "@/lib/sprints/series";
+import { EPIC_ROADMAP_ID } from "@/lib/roadmap/epic-source";
+import { storyKind } from "@/lib/stories/kind";
+import { isExampleId } from "@/lib/utils/example-id";
+import {
+  LINKS_ROW_FULL,
+  NOTES_AUDIENCES,
+  NOTES_ROW_FULL,
+  draftReleaseNotes,
+  draftText,
+  growsPastRow,
+  linkedIds,
+  linkedStoriesOf,
+  newestDone,
+  notesStoryOf,
+  otherLinkedIds,
+  shipDayOf,
+  suggestReleaseStories,
+} from "@/lib/releases/notes";
 
 const KIND_RR = "workspace:releaseReadiness";
 /** MUST match registerCollection("featureFlag", …) in workspace-store.ts. */
 const KIND_FLAG = "workspace:featureFlag";
 /** MUST match registerCollection("story", …) in workspace-store.ts. */
 const KIND_STORY = "workspace:story";
+/** MUST match registerCollection("epicRoadmap", …) in workspace-store.ts. */
+const KIND_EPIC_ROADMAP = "workspace:epicRoadmap";
 
 const NAME_MAX = 200;
 const DESCRIPTION_MAX = 2000;
@@ -104,6 +136,8 @@ interface ReleaseStore {
   dod(): Promise<unknown>;
   /** The stories, so the DoD gate checks the ones a release links. */
   stories(): Promise<Story[]>;
+  /** The Epic Roadmap's epics, for the epic a story's release note names. */
+  epics(): Promise<Epic[]>;
 }
 
 /** The DoD builder's old blob as the page's usePersisted hydrates it, or null. */
@@ -124,6 +158,7 @@ const browserStore: ReleaseStore = {
     (ws().definitionsOfDone ?? []).find((d) => d.id === DOD_DOC_ID) ??
     (isMovedMarker(browserBlob(DOD_MOVED_KEY)) ? null : browserBlob(DOD_LEGACY_KEY)),
   stories: async () => ws().stories ?? [],
+  epics: async () => (ws().epicRoadmaps ?? []).find((d) => d.id === EPIC_ROADMAP_ID)?.epics ?? [],
 };
 
 function serverStore(userId: string): ReleaseStore {
@@ -140,6 +175,8 @@ function serverStore(userId: string): ReleaseStore {
         ? null
         : serverGetUserStateBlob(userId, DOD_LEGACY_KEY)),
     stories: async () => serverListEntities<Story>(userId, KIND_STORY),
+    epics: async () =>
+      (await serverGetEntity<EpicRoadmap>(userId, KIND_EPIC_ROADMAP, EPIC_ROADMAP_ID))?.epics ?? [],
   };
 }
 
@@ -206,6 +243,8 @@ async function listState(store: ReleaseStore) {
           ...(g.auto ? { auto: g.auto } : {}),
           ...(g.check ? { check: { passed: g.check.passed, detail: g.check.detail } } : {}),
         })),
+        storyIds: linkedIds(r),
+        hasNotes: Boolean(r.releaseNotes?.text?.trim()),
         previousShips: (r.previousShips ?? []).map((s: PlannedShip) => ({
           shippedDate: s.shippedDate,
           plannedDate: s.plannedDate ?? r.plannedDate,
@@ -233,7 +272,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise release readiness, with the same numbers as the page. Returns {exists, total, byStatus:{planning,shipped,rolled_back}, today, gates:{id,label,description?,auto?}[] (the team's list in order; auto 'flags' is checked from the Feature Flag Tracker, 'dod' from the DoD Builder: every done story the release links (storyIds) meets the Definition of Done, or with no linked stories the DoD's old team-level ticks while it still has them, else null: the gate takes a manual tick), archivedGates, releases:{id,name,status,plannedDate,shippedDate,rolledBackAt,description,gatesPassed,gatesTotal,allGatesPassed,gatesOpenAtShip,openGates:string[],gates:{id,label,passed,locked,auto?,check?:{passed:boolean|null,detail}}[],previousShips:{shippedDate,plannedDate (the plan it went out against),rolledBackAt,gatesOpenAtShip}[]}[], stats:{shipped (every ship, rolled-back and earlier ships of reopened releases included),onTime (each ship against the plan it went out against),pct (null with no ships),rolledBack,avgGatesOpen,skippedByGate:{gateId,label,skipped,of}[],minShipsForRates,ratesQuotable}}. A planning release reads the team's gates (an auto gate whose check can tell is decided by it: locked); a shipped one reads the gates frozen when it shipped.",
+    "Summarise release readiness, with the same numbers as the page. Returns {exists, total, byStatus:{planning,shipped,rolled_back}, today, gates:{id,label,description?,auto?}[] (the team's list in order; auto 'flags' is checked from the Feature Flag Tracker, 'dod' from the DoD Builder: every done story the release links (storyIds) meets the Definition of Done, or with no linked stories the DoD's old team-level ticks while it still has them, else null: the gate takes a manual tick), archivedGates, releases:{id,name,status,plannedDate,shippedDate,rolledBackAt,description,gatesPassed,gatesTotal,allGatesPassed,gatesOpenAtShip,openGates:string[],gates:{id,label,passed,locked,auto?,check?:{passed:boolean|null,detail}}[],storyIds (the stories it ships, see link_stories),hasNotes (it has release notes, see draft_notes and set_notes),previousShips:{shippedDate,plannedDate (the plan it went out against),rolledBackAt,gatesOpenAtShip}[]}[], stats:{shipped (every ship, rolled-back and earlier ships of reopened releases included),onTime (each ship against the plan it went out against),pct (null with no ships),rolledBack,avgGatesOpen,skippedByGate:{gateId,label,skipped,of}[],minShipsForRates,ratesQuotable}}. A planning release reads the team's gates (an auto gate whose check can tell is decided by it: locked); a shipped one reads the gates frozen when it shipped.",
   paramsSchema: z.object({}),
   handler: async () => listState(browserStore),
   mcpHandler: async (_params, ctx) => listState(serverStore(ctx.userId)),
@@ -577,4 +616,191 @@ registry.register({
   paramsSchema: z.object({ releaseId: z.string() }),
   handler: async (params) => removeRelease(browserStore, params.releaseId),
   mcpHandler: async (params, ctx) => removeRelease(serverStore(ctx.userId), params.releaseId),
+});
+
+/* ── Release notes: suggest_stories / link_stories / draft_notes / set_notes ── */
+
+const ReleaseIdParams = z.object({ releaseId: z.string().min(1).max(200) });
+
+/** The stories a release could link, as the page's "Add stories" suggests them. */
+async function suggestStories(store: ReleaseStore, params: z.infer<typeof ReleaseIdParams>) {
+  const doc = await store.getDoc();
+  const r = doc?.releases.find((x) => x.id === params.releaseId);
+  if (!doc || !r) return { found: false as const, reason: "No release with that id." };
+  const today = todayIso();
+  const stories = await store.stories();
+  return {
+    found: true as const,
+    shipDay: shipDayOf(r, today),
+    linked: linkedIds(r),
+    suggestions: suggestReleaseStories(r, doc, stories, today).map((s) => ({
+      id: s.id,
+      title: s.title,
+      doneAt: s.doneAt ?? null,
+      ticketKey: s.ticketKey ?? null,
+      kind: storyKind(s),
+    })),
+  };
+}
+
+registry.register({
+  id: "tool.release_readiness.suggest_stories",
+  toolId: "tool.release_readiness",
+  name: "suggest_stories",
+  category: "read",
+  description:
+    "Suggest the done stories a release could link (what the page's 'Add stories' offers): done since the previous ship of any release, up to this release's ship day (today for one not shipped), not linked by this or another release, newest done first, undated done stories last. kind is how release notes class it (new | fix | change). Only suggests: confirm with the user, then link_stories. Linked stories also drive the Definition of Done gate and DORA's lead time. Params: releaseId. Returns {found: true, shipDay, linked: string[], suggestions: {id, title, doneAt, ticketKey, kind}[]} or {found: false, reason}.",
+  paramsSchema: ReleaseIdParams,
+  handler: async (params) => suggestStories(browserStore, params),
+  mcpHandler: async (params, ctx) => suggestStories(serverStore(ctx.userId), params),
+});
+
+const LinkParams = z.object({
+  releaseId: z.string().min(1).max(200),
+  storyIds: z.array(z.string().min(1).max(200)).max(200),
+  mode: z
+    .enum(["add", "set"])
+    .optional()
+    .describe(
+      "add (default): add to the stories it links; set: replace the list ([] unlinks all)."
+    ),
+});
+
+async function linkStories(store: ReleaseStore, params: z.infer<typeof LinkParams>) {
+  const doc = await store.getDoc();
+  const r = doc?.releases.find((x) => x.id === params.releaseId);
+  if (!doc || !r) return { updated: false as const, reason: "No release with that id." };
+  const known = new Set((await store.stories()).filter((s) => !isExampleId(s.id)).map((s) => s.id));
+  const others = otherLinkedIds(doc, r.id);
+  const skipped: { id: string; reason: "unknown" | "linked_elsewhere" }[] = [];
+  const wanted: string[] = [];
+  for (const id of Array.from(new Set(params.storyIds))) {
+    if (!known.has(id)) skipped.push({ id, reason: "unknown" });
+    else if (others.has(id)) skipped.push({ id, reason: "linked_elsewhere" });
+    else wanted.push(id);
+  }
+  const before = linkedIds(r);
+  const ids = params.mode === "set" ? wanted : Array.from(new Set([...before, ...wanted]));
+  const next: Release = { ...r };
+  if (ids.length > 0) next.storyIds = ids;
+  else delete next.storyIds;
+  if (growsPastRow(doc, next)) {
+    return { updated: false as const, reason: "too_large", message: LINKS_ROW_FULL };
+  }
+  await store.putDoc(withRelease(doc, next));
+  return {
+    updated: true as const,
+    storyIds: ids,
+    added: ids.filter((id) => !before.includes(id)).length,
+    removed: before.filter((id) => !ids.includes(id)).length,
+    skipped,
+  };
+}
+
+registry.register({
+  id: "tool.release_readiness.link_stories",
+  toolId: "tool.release_readiness",
+  name: "link_stories",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Link the stories a release ships, as the page's 'Link N stories' does: mode add (default) adds to its list, set replaces it ([] unlinks all). A story another release links, an unknown id and an example story are skipped. Linking changes two numbers: for a release in planning, the Definition of Done gate checks the linked stories instead of the DoD's old team-level ticks, and DORA's lead time uses the link. Every release lives in one synced row, so a link that would grow it past the row's cap is refused (reason 'too_large'). Params: releaseId, storyIds, mode?. Returns {updated: true, storyIds, added, removed, skipped: {id, reason: 'unknown' | 'linked_elsewhere'}[]} or {updated: false, reason, message?}.",
+  paramsSchema: LinkParams,
+  handler: async (params) => linkStories(browserStore, params),
+  mcpHandler: async (params, ctx) => linkStories(serverStore(ctx.userId), params),
+});
+
+const DraftParams = z.object({
+  releaseId: z.string().min(1).max(200),
+  audience: z.enum(NOTES_AUDIENCES).describe("customers: no ticket keys; team: keys and epics."),
+  includeNotes: z.boolean().optional().describe("Use the stories' notes too (default false)."),
+});
+
+async function draftNotes(store: ReleaseStore, params: z.infer<typeof DraftParams>) {
+  const doc = await store.getDoc();
+  const r = doc?.releases.find((x) => x.id === params.releaseId);
+  if (!doc || !r) return { drafted: false as const, reason: "No release with that id." };
+  const [stories, epics] = await Promise.all([store.stories(), store.epics()]);
+  const { done, notDone } = linkedStoriesOf(r, stories);
+  if (done.length === 0) {
+    return {
+      drafted: false as const,
+      reason:
+        notDone.length > 0
+          ? "None of its linked stories is done yet."
+          : "It links no stories yet: link the stories it ships first (suggest_stories, link_stories).",
+    };
+  }
+  const epicTitle = new Map(epics.map((e) => [e.id, e.title]));
+  const input = {
+    release: r.name.slice(0, 200),
+    date: shipDayOf(r, todayIso()),
+    audience: params.audience,
+    rolledBack: r.status === "rolled_back",
+    stories: newestDone(done).map((s) =>
+      notesStoryOf(s, {
+        audience: params.audience,
+        includeNotes: params.includeNotes === true,
+        epicTitle: s.epicId ? epicTitle.get(s.epicId) : undefined,
+      })
+    ),
+  };
+  const draft = draftReleaseNotes(input);
+  return {
+    drafted: true as const,
+    audience: params.audience,
+    text: draftText(draft),
+    draft,
+    leftOut: notDone.map((s) => ({ id: s.id, title: s.title, status: s.status })),
+  };
+}
+
+registry.register({
+  id: "tool.release_readiness.draft_notes",
+  toolId: "tool.release_readiness",
+  name: "draft_notes",
+  category: "read",
+  description:
+    "Draft a release's notes from its linked done stories by the page's template (what 'Draft from the stories' gives): a headline, an intro, then New, Fixed and Changed (each story classed by its tags, origin and title), ticket keys only for the team. Linked stories not done yet are left out and listed. Nothing is saved: show the user, then set_notes. Params: releaseId, audience (customers | team), includeNotes?. Returns {drafted: true, audience, text, draft: {headline, intro, sections: {title, items: {text, storyIds}[]}[]}, leftOut: {id, title, status}[]} or {drafted: false, reason}.",
+  paramsSchema: DraftParams,
+  handler: async (params) => draftNotes(browserStore, params),
+  mcpHandler: async (params, ctx) => draftNotes(serverStore(ctx.userId), params),
+});
+
+const SetNotesParams = z.object({
+  releaseId: z.string().min(1).max(200),
+  audience: z.enum(NOTES_AUDIENCES),
+  text: z
+    .string()
+    .max(TOOL_TEXT_MAX.releaseNotes)
+    .describe("The notes as plain text, at most 3,000 characters; '' clears them."),
+});
+
+async function setNotes(store: ReleaseStore, params: z.infer<typeof SetNotesParams>) {
+  const doc = await store.getDoc();
+  const r = doc?.releases.find((x) => x.id === params.releaseId);
+  if (!doc || !r) return { updated: false as const, reason: "No release with that id." };
+  const text = params.text.trim();
+  const next: Release = { ...r };
+  if (text) {
+    next.releaseNotes = { audience: params.audience, text, updatedAt: new Date().toISOString() };
+  } else delete next.releaseNotes;
+  if (growsPastRow(doc, next)) {
+    return { updated: false as const, reason: "too_large", message: NOTES_ROW_FULL };
+  }
+  await store.putDoc(withRelease(doc, next));
+  return { updated: true as const, cleared: !text, length: text.length };
+}
+
+registry.register({
+  id: "tool.release_readiness.set_notes",
+  toolId: "tool.release_readiness",
+  name: "set_notes",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Save a release's notes, as the page's Save does: plain text for customers or for the team, stamped now. An empty text clears them. Reopening and shipping again keep the notes; the page then asks to check them before the next ship. Every release lives in one synced row, so notes that would grow it past the row's cap are refused (reason 'too_large': shorten them, or remove old releases). Params: releaseId, audience (customers | team), text (at most 3,000 characters). Returns {updated: true, cleared, length} or {updated: false, reason, message?}.",
+  paramsSchema: SetNotesParams,
+  handler: async (params) => setNotes(browserStore, params),
+  mcpHandler: async (params, ctx) => setNotes(serverStore(ctx.userId), params),
 });
