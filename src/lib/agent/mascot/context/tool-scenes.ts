@@ -449,6 +449,14 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   },
   // Items sent from the notes are a to-do taken, as in the Parking Lot.
   { toolId: "notes-to-actions", open: [], actions: { items_sent: ["todo.take"] } },
+  // A kickoff started is a charter being written. Agreeing one cheers ("kickoff",
+  // "agreed") in the same tick as kickoff_agreed, and the cheer outranks the
+  // action's scene, so the cheer carries the published charter.
+  {
+    toolId: "kickoff",
+    open: ["charter"],
+    actions: { kickoff_created: ["charter.write"], amr_cheer: ["charter.publish"] },
+  },
 
   // ── The expansion's tool lab (X025–X056) ──
   // One sheet per tool on the More tools shelf. Opening the tool plays its sheet as the
