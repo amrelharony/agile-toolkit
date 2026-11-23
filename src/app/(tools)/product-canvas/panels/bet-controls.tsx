@@ -244,9 +244,12 @@ export function BetControls({ pitch, writer }: { pitch: ProductCanvas; writer: B
 
   const onStatus = (next: ProductBetStatus) => {
     if (next === status) return;
-    // A bet needs its cycle: pick one first, unless the pitch has one already.
-    if (next === "bet" && pitch.bet?.cycle === undefined) {
-      setPlacing(true);
+    // A bet needs its cycle: pick one first, unless the pitch has one already,
+    // which it is bet on again (a pitch passed on in Cycle 4 goes back in it).
+    if (next === "bet") {
+      const cycle = pitch.bet?.cycle;
+      if (cycle === undefined) setPlacing(true);
+      else move({ status: "bet", cycle });
       return;
     }
     move({ status: next });

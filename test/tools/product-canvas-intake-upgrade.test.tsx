@@ -643,6 +643,26 @@ describe("the Shape Up pitch", () => {
     });
   });
 
+  it("bets a pitch passed on in a cycle back in that cycle from the select", async () => {
+    seed(
+      pitch("pcanvas_p", { status: "passed", cycle: 4, start: day(2), weeks: 6, decidedAt: STAMP })
+    );
+    renderPage();
+    fireEvent.change(await screen.findByLabelText("Where it stands"), { target: { value: "bet" } });
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(byId("pcanvas_p")!.bet).toMatchObject({
+      status: "bet",
+      cycle: 4,
+      start: day(2),
+      weeks: 6,
+    });
+    // Bet on again, in the cycle it was passed on in: logged as a bet.
+    expect(logs.at(-1)).toEqual({
+      action: PRODUCT_CANVAS_ACTIONS.BET_PLACED,
+      payload: { canvasId: "pcanvas_p", cycle: 4, weeks: 6 },
+    });
+  });
+
   it("moves a pitch with its status select, asking for a cycle before a bet", async () => {
     seed(pitch("pcanvas_p"));
     renderPage();
