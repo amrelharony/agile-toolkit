@@ -7,6 +7,7 @@ import "server-only";
 import type { AiTaskPrompt } from "../task-types";
 import { suggestOptionsPrompt } from "./_example.server";
 import { abPlanCheckPrompt } from "./ab-calculator.server";
+import { asyncStandupDigestPrompt } from "./async-standup.server";
 import { clusterPrompt, mergeQuestionsPrompt, toBacklogPrompt } from "./audience-wall.server";
 import { backlogHealthReviewPrompt } from "./backlog-health.server";
 import { bugTriageSeverityPrompt } from "./bug-triage.server";
@@ -53,6 +54,7 @@ import { testSessionsChartersPrompt } from "./test-sessions.server";
 export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   suggestOptionsPrompt,
   abPlanCheckPrompt,
+  asyncStandupDigestPrompt,
   clusterPrompt,
   mergeQuestionsPrompt,
   toBacklogPrompt,

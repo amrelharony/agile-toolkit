@@ -33,7 +33,7 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   };
 });
 
-import { registry } from "@/lib/actions/registry";
+import { registry, zodToJsonSchema } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { WorkingAgreement } from "@/lib/stores/workspace-types";
 import { todayIso } from "@/lib/sprints/series";
@@ -304,6 +304,233 @@ describe("rules, consent, check-ins and publish", () => {
     });
     expect(await call("list_state")).toMatchObject({ meta: { version: 0 }, needsSnapshot: false });
     expect(await call("publish")).toMatchObject({ published: true, version: 1 });
+  });
+});
+
+describe("charter templates", () => {
+  const LADDER = {
+    levels: [
+      {
+        label: "Emergency",
+        when: "Prod is down",
+        channel: "Page the on-call",
+        replyWithin: "15 minutes",
+      },
+      { label: "Normal", when: "Questions", channel: "Team thread", replyWithin: "1 working day" },
+    ],
+    afterHours: true,
+  };
+
+  it("registers list_templates as a read and apply_template as a write on both paths", () => {
+    expect(registry.get("tool.working_agreement.list_templates")?.category).toBe("read");
+    const apply = registry.get("tool.working_agreement.apply_template");
+    expect(apply?.category).toBe("write");
+    expect(apply?.mcpHandler).toBeTypeOf("function");
+    expect(apply?.requiresConfirmation).toBe(false);
+  });
+
+  it("converts apply_template's params to a JSON Schema object (not a union)", () => {
+    const json = zodToJsonSchema(
+      registry.get("tool.working_agreement.apply_template")!.paramsSchema
+    ) as { type?: string; properties?: Record<string, unknown> };
+    expect(json.type).toBe("object");
+    expect(Object.keys(json.properties ?? {}).sort()).toEqual([
+      "aiUse",
+      "coreHours",
+      "focusTime",
+      "template",
+      "urgencyLadder",
+    ]);
+  });
+
+  it("refuses a template without its answers, and answers past the caps", () => {
+    const schema = registry.get("tool.working_agreement.apply_template")!.paramsSchema;
+    expect(schema.safeParse({ template: "urgency-ladder" }).success).toBe(false);
+    expect(schema.safeParse({ template: "core-hours", urgencyLadder: LADDER }).success).toBe(false);
+    expect(schema.safeParse({ template: "urgency-ladder", urgencyLadder: LADDER }).success).toBe(
+      true
+    );
+    expect(
+      schema.safeParse({
+        template: "urgency-ladder",
+        urgencyLadder: { levels: [LADDER.levels[0]] },
+      }).success
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        template: "ai-use",
+        aiUse: { review: "as-any-work", tools: ["a", "b", "c", "d", "e", "f"] },
+      }).success
+    ).toBe(false);
+  });
+
+  it("applies a template, lists it, and applying again updates in place", async () => {
+    const first = await call<{ applied: boolean; added: string[]; ruleIds: string[] }>(
+      "apply_template",
+      { template: "urgency-ladder", urgencyLadder: LADDER }
+    );
+    expect(first.applied).toBe(true);
+    expect(first.added).toHaveLength(2);
+    expect(doc().rules.map((r) => r.template?.slot)).toEqual(["ladder", "after-hours"]);
+    const listed = await call<{ templates: { id: string; applied: boolean; ruleIds: string[] }[] }>(
+      "list_templates"
+    );
+    expect(listed.templates.map((t) => [t.id, t.applied, t.ruleIds.length])).toEqual([
+      ["urgency-ladder", true, 2],
+      ["core-hours", false, 0],
+      ["focus-time", false, 0],
+      ["ai-use", false, 0],
+    ]);
+    const again = await call<{ updated: string[]; removed: string[] }>("apply_template", {
+      template: "urgency-ladder",
+      urgencyLadder: { ...LADDER, afterHours: false },
+    });
+    expect(again.removed).toEqual([first.ruleIds[1]]);
+    expect(again.updated).toEqual([]);
+  });
+
+  it("skips a line already in the charter and reports invalid answers", async () => {
+    await call("add_rule", {
+      category: "work",
+      text: "A person reads anything customer-facing before it goes out",
+    });
+    const r = await call<{ skipped: { slot: string; reason: string }[] }>("apply_template", {
+      template: "ai-use",
+      aiUse: { review: "closer-look", customerFacing: true, neverIn: ["secrets"] },
+    });
+    expect(r.skipped.map((s) => [s.slot, s.reason])).toEqual([["customer-facing", "duplicate"]]);
+    expect(
+      await call("apply_template", {
+        template: "core-hours",
+        coreHours: {
+          start: "13:00",
+          end: "15:00",
+          timeZone: "Mars/Base",
+          days: [1],
+          purposes: ["meetings"],
+        },
+      })
+    ).toMatchObject({
+      applied: false,
+      reason: "invalid",
+      errors: { timeZone: expect.any(String) },
+    });
+    expect(
+      await call("apply_template", {
+        template: "ai-use",
+        aiUse: { review: "as-any-work", neverIn: [] },
+      })
+    ).toMatchObject({ applied: false, reason: "invalid" });
+  });
+
+  it("keeps the charter's answer for anything left out, and takes the page's defaults first", async () => {
+    // A first apply with only the review level: the page's defaults fill the rest.
+    const first = await call<{ applied: boolean }>("apply_template", {
+      template: "ai-use",
+      aiUse: { review: "as-any-work" },
+    });
+    expect(first.applied).toBe(true);
+    expect(doc().rules.map((r) => r.template?.slot)).toEqual([
+      "never-in",
+      "review",
+      "customer-facing",
+    ]);
+    // Changing only the review keeps the customer-facing rule.
+    const again = await call<{ removed: string[] }>("apply_template", {
+      template: "ai-use",
+      aiUse: { review: "closer-look", neverIn: ["secrets"] },
+    });
+    expect(again.removed).toEqual([]);
+    expect(doc().templates?.aiUse).toMatchObject({
+      review: "closer-look",
+      neverIn: ["secrets"],
+      customerFacing: true,
+    });
+    // Said out loud, it goes.
+    const off = await call<{ removed: string[] }>("apply_template", {
+      template: "ai-use",
+      aiUse: { review: "closer-look", customerFacing: false },
+    });
+    expect(off.removed).toHaveLength(1);
+    expect(doc().rules.map((r) => r.template?.slot)).toEqual(["never-in", "review"]);
+
+    // The ladder keeps its after-hours line, core hours their zone and office days.
+    await call("apply_template", { template: "urgency-ladder", urgencyLadder: LADDER });
+    const levelsOnly = await call<{ removed: string[] }>("apply_template", {
+      template: "urgency-ladder",
+      urgencyLadder: { levels: LADDER.levels },
+    });
+    expect(levelsOnly.removed).toEqual([]);
+    expect(doc().templates?.urgencyLadder?.afterHours).toBe(true);
+    const hours = {
+      start: "13:00",
+      end: "15:00",
+      days: [1, 2, 3, 4],
+      purposes: ["meetings"],
+    };
+    await call("apply_template", {
+      template: "core-hours",
+      coreHours: {
+        ...hours,
+        timeZone: "Europe/London",
+        anchorDays: [{ site: "HQ", days: [2] }],
+      },
+    });
+    await call("apply_template", { template: "core-hours", coreHours: { ...hours, end: "16:00" } });
+    expect(doc().templates?.coreHours).toMatchObject({
+      end: "16:00",
+      timeZone: "Europe/London",
+      anchorDays: [{ site: "HQ", days: [2] }],
+    });
+    await call("apply_template", {
+      template: "core-hours",
+      coreHours: { ...hours, anchorDays: [] },
+    });
+    expect(doc().templates?.coreHours).not.toHaveProperty("anchorDays");
+    // Focus time's weekly minimum stays until null takes it out.
+    await call("apply_template", {
+      template: "focus-time",
+      focusTime: { days: [2], start: "09:00", end: "11:00", weeklyMinHours: 4 },
+    });
+    await call("apply_template", {
+      template: "focus-time",
+      focusTime: { days: [2, 4], start: "09:00", end: "11:00" },
+    });
+    expect(doc().templates?.focusTime?.weeklyMinHours).toBe(4);
+    await call("apply_template", {
+      template: "focus-time",
+      focusTime: { days: [2, 4], start: "09:00", end: "11:00", weeklyMinHours: null },
+    });
+    expect(doc().templates?.focusTime).not.toHaveProperty("weeklyMinHours");
+  });
+
+  it("defaults core hours to UTC over MCP and writes the server's document", async () => {
+    const r = await callMcp<{ applied: boolean }>("apply_template", {
+      template: "core-hours",
+      coreHours: { start: "13:00", end: "15:00", days: [1, 2, 3, 4], purposes: ["meetings"] },
+    });
+    expect(r.applied).toBe(true);
+    const stored = normalizeAgreement(rows.get(`${WA_KIND}/${WA_ID}`));
+    expect(stored.templates?.coreHours?.timeZone).toBe("UTC");
+    expect(stored.rules[0].text).toBe(
+      "Our core hours are 13:00–15:00 UTC, Mon–Thu: we keep meetings inside them."
+    );
+    const listed = await callMcp<{ templates: { id: string; applied: boolean }[] }>(
+      "list_templates"
+    );
+    expect(listed.templates.find((t) => t.id === "core-hours")?.applied).toBe(true);
+  });
+
+  it("update_rule detaches a template's rule, as a hand edit on the page does", async () => {
+    const { ruleIds } = await call<{ ruleIds: string[] }>("apply_template", {
+      template: "focus-time",
+      focusTime: { days: [2], start: "09:00", end: "11:00" },
+    });
+    expect(doc().rules[0].template).toEqual({ id: "focus-time", slot: "focus" });
+    expect(doc().rules[0].text).toContain("on each person's own clock");
+    await call("update_rule", { ruleId: ruleIds[0], category: "meetings" });
+    expect(doc().rules[0]).not.toHaveProperty("template");
+    expect(doc().rules[0].category).toBe("meetings");
   });
 });
 

@@ -107,6 +107,30 @@ describe("hand-off and backlog link fields survive agent updates", () => {
     expect(useWorkspaceStore.getState().standupEntries![0].sentTo).toEqual([link]);
   });
 
+  it("standup_entry format, blockerDri and handoff (the Async Standup's PPP and hand-overs)", async () => {
+    const entry: StandupEntry = {
+      id: "s-2",
+      member: "Lee",
+      date: "2026-10-18",
+      yesterday: "Wired the button",
+      today: "Test it",
+      blockers: "Waiting on keys",
+      timestamp: 1,
+      mode: "async",
+      format: "ppp",
+      blockerDri: "Priya",
+      handoff: "Build is on staging",
+    };
+    useWorkspaceStore.setState({ standupEntries: [entry] });
+    await update("standup_entry", "s-2", { blockerResolved: true });
+    expect(useWorkspaceStore.getState().standupEntries![0]).toMatchObject({
+      format: "ppp",
+      blockerDri: "Priya",
+      handoff: "Build is on staging",
+      blockerResolved: true,
+    });
+  });
+
   it("retro_board.previousRetroId and card links", async () => {
     const board = {
       id: "retro:current",

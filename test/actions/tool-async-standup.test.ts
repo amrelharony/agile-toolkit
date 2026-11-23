@@ -9,10 +9,28 @@
  *      (and returns a "No updates posted" stub for an empty day)
  */
 
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
+
+// The MCP path talks to the server store: an in-memory row per kind + id.
+const rows = vi.hoisted(() => new Map<string, unknown>());
+vi.mock("@/lib/actions/server-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
+  return {
+    ...actual,
+    serverListEntities: vi.fn(async (_u: string, kind: string) =>
+      Array.from(rows.entries())
+        .filter(([k]) => k.startsWith(`${kind}/`))
+        .map(([, v]) => v)
+    ),
+    serverUpsertEntity: vi.fn(async (_u: string, kind: string, entity: { id: string }) => {
+      rows.set(`${kind}/${entity.id}`, entity);
+    }),
+  };
+});
+
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { AsyncUpdate } from "@/lib/stores/workspace-types";
+import type { AsyncUpdate, StandupEntry, TeamTimePerson } from "@/lib/stores/workspace-types";
 
 import "@/lib/actions/tools/async-standup";
 
@@ -137,5 +155,129 @@ describe("tool.async_standup.digest", () => {
     expect(r.updateCount).toBe(1);
     expect(r.markdown).toContain("## Old");
     expect(r.markdown).not.toContain("## Alice");
+  });
+});
+
+describe("formats, DRIs and hand-overs (P2.9)", () => {
+  const person = (id: string, name: string, timeZone: string, site?: string): TeamTimePerson => ({
+    id,
+    name,
+    timeZone,
+    start: "09:00",
+    end: "17:00",
+    workingDays: [1, 2, 3, 4, 5],
+    ...(site ? { site } : {}),
+    createdAt: "2026-11-01T00:00:00.000Z",
+    updatedAt: "2026-11-01T00:00:00.000Z",
+  });
+  const call = <T>(
+    path: "handler" | "mcpHandler",
+    verb: string,
+    params: Record<string, unknown>
+  ) => {
+    const action = registry.get(`tool.async_standup.${verb}`)!;
+    return action[path]!(action.paramsSchema.parse(params), ctx()) as Promise<T>;
+  };
+  const stored = (id: string) =>
+    (useWorkspaceStore.getState().standupEntries ?? []).find((e) => e.id === id);
+
+  beforeEach(() => {
+    rows.clear();
+    useWorkspaceStore.setState({
+      asyncUpdates: [],
+      standupEntries: [],
+      teamMembers: [{ id: "m1", name: "Sky" }],
+      teamTimePeople: [
+        { ...person("p1", "Sky (old name)", "Australia/Sydney"), teamMemberId: "m1" },
+        person("p2", "Lou", "Europe/London", "London office"),
+        person("example-x", "Ex", "Asia/Tokyo"),
+      ],
+    });
+  });
+
+  it("posts the ppp format, the DRI with a blocker and the hand-over; a classic post stores none", async () => {
+    const r = await call<{ id: string }>("handler", "post", {
+      member: "Sky",
+      date: "2026-11-17",
+      yesterday: "Progress",
+      today: "Plans",
+      blockers: "Keys",
+      format: "ppp",
+      dri: " Bo ",
+      handoff: "Build on staging",
+    });
+    expect(stored(r.id)).toMatchObject({
+      format: "ppp",
+      blockerDri: "Bo",
+      handoff: "Build on staging",
+    });
+    const plain = await call<{ id: string }>("handler", "post", {
+      member: "Lou",
+      date: "2026-11-17",
+      yesterday: "y",
+      today: "t",
+      format: "classic",
+      dri: "Bo",
+    });
+    const e = stored(plain.id) as StandupEntry;
+    expect(e).not.toHaveProperty("format");
+    expect(e).not.toHaveProperty("blockerDri");
+    expect(e).not.toHaveProperty("handoff");
+    expect(() =>
+      registry.get("tool.async_standup.post")!.paramsSchema.parse({
+        member: "A",
+        yesterday: "",
+        today: "t",
+        dri: "x".repeat(121),
+      })
+    ).toThrow();
+  });
+
+  it("digests with Team Time's places, as the page does, and counts the hand-overs", async () => {
+    await call("handler", "post", {
+      member: "Sky",
+      date: "2026-11-17",
+      yesterday: "y",
+      today: "t",
+      handoff: "Build on staging",
+    });
+    await call("handler", "post", {
+      member: "Lou",
+      date: "2026-11-17",
+      yesterday: "y",
+      today: "t",
+    });
+    const r = await call<{ markdown: string; handoffCount: number }>("handler", "digest", {
+      date: "2026-11-17",
+    });
+    expect(r.handoffCount).toBe(1);
+    expect(r.markdown).toContain(
+      "## Hand-overs\n- **Sky**, Sydney → London office: Build on staging"
+    );
+    expect(r.markdown).not.toContain("Tokyo");
+  });
+
+  it("reads the places from the server on the MCP path", async () => {
+    rows.set("workspace:teamMember/m1", { id: "m1", name: "Sky" });
+    rows.set("workspace:teamTimePerson/p1", {
+      ...person("p1", "Sky (old)", "Australia/Sydney"),
+      teamMemberId: "m1",
+    });
+    rows.set("workspace:teamTimePerson/p2", person("p2", "Lou", "Europe/London", "London office"));
+    rows.set("workspace:teamTimePerson/bad", { id: "bad", timeZone: "Mars/Base" });
+    await call("mcpHandler", "post", {
+      member: "Lou",
+      date: "2026-11-17",
+      yesterday: "y",
+      today: "t",
+      handoff: "Over to Sydney",
+    });
+    const r = await call<{ markdown: string; handoffCount: number }>("mcpHandler", "digest", {
+      date: "2026-11-17",
+    });
+    expect(r.handoffCount).toBe(1);
+    expect(r.markdown).toContain("- **Lou**, London office → Sydney: Over to Sydney");
+    // The browser store saw none of it.
+    expect(useWorkspaceStore.getState().standupEntries).toEqual([]);
   });
 });

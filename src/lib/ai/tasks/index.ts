@@ -7,6 +7,7 @@
 import type { AiTaskDef } from "../task-types";
 import { suggestOptionsTask } from "./_example";
 import { abPlanCheckTask } from "./ab-calculator";
+import { asyncStandupDigestTask } from "./async-standup";
 import { clusterTask, mergeQuestionsTask, toBacklogTask } from "./audience-wall";
 import { backlogHealthReviewTask } from "./backlog-health";
 import { bugTriageSeverityTask } from "./bug-triage";
@@ -49,6 +50,7 @@ import { testSessionsChartersTask } from "./test-sessions";
 export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   suggestOptionsTask,
   abPlanCheckTask,
+  asyncStandupDigestTask,
   clusterTask,
   mergeQuestionsTask,
   toBacklogTask,

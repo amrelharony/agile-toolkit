@@ -5,6 +5,10 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 type Row = Pick<StandupEntry, "member" | "yesterday" | "today" | "blockers"> & {
   /** Added in async mode, where people write a line of context. */
   note?: string;
+  /** Async mode: who can clear the blocker. */
+  dri?: string;
+  /** Async mode: a hand-over to the next time zone. */
+  handoff?: string;
 };
 
 /**
@@ -30,12 +34,16 @@ const ROWS: Row[] = [
     yesterday: "Added the wallet payments button to the cart, behind a feature flag.",
     today: "Connect the button to the payments sandbox.",
     blockers: "Still waiting on wallet payments sandbox keys from the payments team.",
+    dri: "Priya (PM)",
+    handoff:
+      "The wallet button build is on staging behind its flag. Ana, the retry fix can go out with it.",
   },
   {
     member: "Ana (Backend)",
     yesterday: "Found the double charge: retries don't reuse the idempotency key.",
     today: "Ship the fix to staging and add a test for a retry after a timeout.",
     blockers: "The migration that adds the idempotency key index needs a DBA review.",
+    handoff: "Retry fix is on staging. Priya, please check it against the holiday release plan.",
   },
 ];
 
@@ -50,13 +58,16 @@ export const EXAMPLE_MEMBERS: readonly string[] = ROWS.map((r) => r.member);
 export function buildExample(now: Date = new Date(), mode: StandupMode = "live"): StandupEntry[] {
   const date = todayLocalISO(now);
   // A few minutes apart, in speaking order.
-  return ROWS.map(({ note, ...r }, i) => ({
+  return ROWS.map(({ note, dri, handoff, ...r }, i) => ({
     ...r,
     id: exampleId(`standup-${i + 1}`),
     date,
     timestamp: now.getTime() - (ROWS.length - i) * 2 * 60_000,
     mode,
     ...(mode === "async" && note ? { description: note } : {}),
+    // The written standup's DRI and hand-overs; the live rows stay as they were.
+    ...(mode === "async" && dri ? { blockerDri: dri } : {}),
+    ...(mode === "async" && handoff ? { handoff } : {}),
   }));
 }
 
