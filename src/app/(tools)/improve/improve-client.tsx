@@ -136,7 +136,7 @@ export function startFromAnalysis(
       : `${brings.slice(0, -1).join(", ")} and ${brings[brings.length - 1]}`;
   return {
     initial: { title: a.title.slice(0, TOOL_TEXT_MAX.short), method: "a3" },
-    label: `From the Root Cause analysis “${short(a.title, 60)}”: ${list} come along.`,
+    label: `From the Root Cause analysis “${short(a.title, 60)}”: ${list} ${brings.length === 1 ? "comes" : "come"} along.`,
     seed: {
       background: a.problem,
       ...(a.rootCause?.trim() ? { analysis: a.rootCause } : {}),

@@ -72,7 +72,7 @@ vi.mock("next/navigation", () => ({
 // Recharts has nothing to measure in jsdom: the chart's sentence and table are tested.
 vi.mock("@/app/(tools)/improve/readings-chart", () => ({ ReadingsChart: () => null }));
 
-import { ImproveClient } from "@/app/(tools)/improve/improve-client";
+import { ImproveClient, startFromAnalysis } from "@/app/(tools)/improve/improve-client";
 import { CountermeasureIdeas } from "@/app/(tools)/improve/a3-view";
 import { CoachWalk } from "@/app/(tools)/improve/coach-walk";
 import { NextExperimentIdeas } from "@/app/(tools)/improve/kata-view";
@@ -443,6 +443,16 @@ describe("?from= a Root Cause analysis", () => {
       expect(screen.getByRole("heading", { name: "Planned from it" })).toBeInTheDocument()
     );
     expect(screen.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
+  });
+
+  it("says what comes along in a sentence that agrees, one thing or several", () => {
+    const only = analysis({ id: "rca_2", title: "Slow reviews" });
+    expect(startFromAnalysis(only, [], "s1").label).toBe(
+      "From the Root Cause analysis “Slow reviews”: its problem comes along."
+    );
+    expect(startFromAnalysis({ ...only, rootCause: "One reviewer" }, [], "s1").label).toBe(
+      "From the Root Cause analysis “Slow reviews”: its problem and root cause come along."
+    );
   });
 
   it("ignores an example analysis or one that isn't there", () => {
