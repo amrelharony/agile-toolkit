@@ -78,6 +78,11 @@ describe("what the MCP handlers call", () => {
         "src/lib/facilitator-timers/settings.ts",
         "src/lib/facilitator-timers/model.ts",
         "src/lib/facilitator-timers/sounds.ts",
+        "src/lib/flow/blocks.ts",
+        "src/lib/flow/distribution.ts",
+        "src/lib/flow/stability.ts",
+        "src/lib/impediments/blockers.ts",
+        "src/lib/impediments/clusters.ts",
       ].map(abs)
     );
     expect(clients).toEqual([]);
@@ -95,6 +100,8 @@ describe("the action files", () => {
     // One tool id per line, so tools added side by side merge cleanly.
     "parking-lot",
     "facilitator-timers",
+    "flow-insights",
+    "impediments",
   ])("%s reaches no client module but the workspace store", (tool) => {
     const { seen, clients } = walk([abs(`src/lib/actions/tools/${tool}.ts`)]);
     expect(clients).toEqual([]);
