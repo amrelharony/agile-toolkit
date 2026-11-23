@@ -169,8 +169,12 @@ export function EbmDashboardClient() {
 
   /* ── Measures ───────────────────────────────────────────────────── */
 
-  const writeProblem = (row: ProductMetric): string | null => {
-    const problems = metricRuleProblems(row, currentMetrics());
+  /** Why `row` can't be written beside `all` (the stored rows by default), or null. */
+  const writeProblem = (
+    row: ProductMetric,
+    all: readonly ProductMetric[] = currentMetrics()
+  ): string | null => {
+    const problems = metricRuleProblems(row, all);
     const source = row.source && row.kva ? sourceProblem(row.kva, row.source, row.direction) : null;
     if (source) problems.push(source);
     if (problems.length > 0) return problems.join(" ");
@@ -199,7 +203,7 @@ export function EbmDashboardClient() {
   const addIdeas = (area: EbmValueArea, ideas: readonly IdeaLike[]) => {
     const now = new Date().toISOString();
     const taken = new Set(byArea[area].map((m) => nameKey(m.name)));
-    const rows = ideas
+    const candidates = ideas
       .filter((i) => !taken.has(nameKey(i.name)))
       .map((i) => {
         // A suggestion (with or without AI) that is one of our ideas keeps
@@ -219,8 +223,15 @@ export function EbmDashboardClient() {
           createdAt: now,
           updatedAt: now,
         });
-      })
-      .filter((r) => writeProblem(r) === null);
+      });
+    // Each row is checked beside the ones before it, so "Add all" keeps the 60-metric cap.
+    let all: readonly ProductMetric[] = currentMetrics();
+    const rows: ProductMetric[] = [];
+    for (const r of candidates) {
+      if (writeProblem(r, all) !== null) continue;
+      rows.push(r);
+      all = [...all, r];
+    }
     if (rows.length === 0) return 0;
     undoable({
       label: rows.length === 1 ? `Added “${rows[0].name}”` : `Added ${rows.length} measures`,

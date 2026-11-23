@@ -547,6 +547,21 @@ describe("more of the contract", () => {
     undoLast();
     expect(metrics()).toEqual([]);
   });
+
+  it("keeps the 60-metric cap when every suggestion is added at once", async () => {
+    useWorkspaceStore.setState({
+      productMetrics: Array.from({ length: 58 }, (_, i) =>
+        metric({ id: `metric_${i}`, name: `Metric ${i}` })
+      ),
+    });
+    renderPage();
+    const uv = await screen.findByRole("region", { name: "Unrealized Value" });
+    fireEvent.click(within(uv).getByRole("button", { name: "Suggest measures" }));
+    const list = await within(uv).findByRole("region", { name: "Measures for Unrealized Value" });
+    fireEvent.click(within(list).getByRole("button", { name: /^Add all/ }));
+    expect(metrics()).toHaveLength(60);
+    expect(metrics().filter((m) => m.kva === "unrealized-value")).toHaveLength(2);
+  });
 });
 
 describe("the export", () => {
