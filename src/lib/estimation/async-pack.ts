@@ -477,10 +477,15 @@ export function encodeReply(reply: AsyncReplyCode): string {
   return `${REPLY_PREFIX}${encodeJson(body)}`;
 }
 
-/** The reply codes in pasted text (a code, a link holding one, or several), at most 20. */
+/**
+ * The reply codes in pasted text (a code, a link holding one, or several),
+ * each once, at most 20. A message often holds a code and the link it came
+ * in: that's one reply, not two.
+ */
 export function findReplyCodes(text: unknown): string[] {
   if (typeof text !== "string" || text.length > PASTE_MAX_CHARS) return [];
-  return Array.from(text.matchAll(REPLY_CODE_RE), (m) => m[0]).slice(0, POKER_ASYNC_MAX.replies);
+  const codes = new Set(Array.from(text.matchAll(REPLY_CODE_RE), (m) => m[0]));
+  return Array.from(codes).slice(0, POKER_ASYNC_MAX.replies);
 }
 
 const REPLY_KEYS = ["v", "r", "n", "e", "c"] as const;
@@ -548,6 +553,41 @@ export function replyClash(
   return round.replies.find((r) => r.name !== "" && nameKey(r.name) === key) ?? null;
 }
 
+/** A reply's cards and notes as the round holds them, under its story ids. */
+function replyContent(
+  reply: AsyncReplyCode,
+  round: PokerAsyncRound
+): Pick<PokerAsyncReply, "votes"> & { notes: NonNullable<PokerAsyncReply["notes"]> } {
+  const votes: PokerAsyncReply["votes"] = [];
+  Array.from(reply.cards).forEach((c, i) => {
+    if (c === "-") return;
+    votes.push({ storyId: round.stories[i].id, card: round.deck[parseInt(c, 16)] });
+  });
+  const notes = reply.notes.map((n) => ({ storyId: round.stories[n.story].id, text: n.text }));
+  return { votes, notes };
+}
+
+/** A name without the " (2)" Keep both gave it. */
+const baseNameKey = (name: string) => nameKey(name.replace(/ \(\d+\)$/, ""));
+
+/**
+ * Whether `round` already holds this very reply: the same person (by name,
+ * or the "Lee (2)" Keep both made) with the same cards and notes. Pasting
+ * the same message twice adds nothing and asks nothing.
+ */
+export function isReplyIn(reply: AsyncReplyCode, round: PokerAsyncRound): boolean {
+  if (replyProblem(reply, round)) return false;
+  const key = nameKey(reply.name);
+  const { votes, notes } = replyContent(reply, round);
+  const same = JSON.stringify([votes, notes]);
+  return round.replies.some(
+    (r) =>
+      r.name !== "" &&
+      (nameKey(r.name) === key || baseNameKey(r.name) === key) &&
+      JSON.stringify([r.votes, r.notes ?? []]) === same
+  );
+}
+
 /** "Lee (2)", "Lee (3)" … : the first name with a number that no reply has. */
 export function keepBothName(name: string, replies: readonly PokerAsyncReply[]): string {
   const taken = new Set(replies.map((r) => nameKey(r.name)));
@@ -582,12 +622,7 @@ export function addReply(
     name = keepBothName(reply.name, replies);
   }
   if (replies.length >= POKER_ASYNC_MAX.replies) return round;
-  const votes: PokerAsyncReply["votes"] = [];
-  Array.from(reply.cards).forEach((c, i) => {
-    if (c === "-") return;
-    votes.push({ storyId: round.stories[i].id, card: round.deck[parseInt(c, 16)] });
-  });
-  const notes = reply.notes.map((n) => ({ storyId: round.stories[n.story].id, text: n.text }));
+  const { votes, notes } = replyContent(reply, round);
   const added: PokerAsyncReply = {
     id: opts.id,
     name,

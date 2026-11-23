@@ -289,6 +289,30 @@ describe("pasting reply codes", () => {
     ]);
   });
 
+  it("adds a code pasted with its link once, and skips the same reply pasted again", () => {
+    const r = round();
+    useWorkspaceStore.setState({ pokerAsyncRounds: [r] });
+    render(<AsyncRoundsPanel hostName="Priya" />);
+    const code = codeFor(r, "Lee", ["5", "8"]);
+    const paste = (value: string) => {
+      fireEvent.change(within(article()).getByLabelText("Paste reply codes"), {
+        target: { value },
+      });
+      fireEvent.click(within(article()).getByRole("button", { name: "Add replies" }));
+    };
+
+    paste(`My cards: ${code}\nor open https://x.test/planning-poker#reply=${code}`);
+    expect(rounds()[0].replies.map((x) => x.name)).toEqual(["Lee"]);
+    expect(article().textContent).toContain("Added Lee.");
+    expect(article().textContent).not.toContain("This replaces");
+
+    paste(code);
+    expect(rounds()[0].replies).toHaveLength(1);
+    expect(article().textContent).not.toContain("This replaces");
+    expect(article().textContent).toContain("Already in with the same cards: Lee.");
+    expect(within(article()).queryByRole("button", { name: "Keep both" })).toBeNull();
+  });
+
   it("says why a code can't go in: unreadable, another round, or off the deck", () => {
     const r = round();
     useWorkspaceStore.setState({ pokerAsyncRounds: [r] });

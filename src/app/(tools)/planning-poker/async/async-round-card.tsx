@@ -40,6 +40,7 @@ import {
   estimateLink,
   expectedReplied,
   findReplyCodes,
+  isReplyIn,
   packFor,
   readReply,
   replyClash,
@@ -98,6 +99,9 @@ function dayLabel(day: string): string {
 }
 
 const people = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** What a paste did: who went in, who was in already with the same cards, what couldn't. */
+type Tally = { names: string[]; already: string[]; notes: string[] };
 
 export function AsyncRoundCard({
   round,
@@ -254,37 +258,54 @@ function OpenRound({
     return name;
   };
 
-  /** Add replies in turn, stopping at the first whose name is already in. */
-  const run = (queue: AsyncReplyCode[], notes: string[], names: string[]) => {
+  /** What a paste did so far: who went in, who was in already, what couldn't. */
+  const tally = (): Tally => ({ names: [], already: [], notes: [] });
+  const report = ({ names, already, notes }: Tally) => {
+    setProblems(notes);
+    const parts = [
+      ...(names.length > 0 ? [`Added ${names.join(", ")}.`] : []),
+      ...(already.length > 0 ? [`Already in with the same cards: ${already.join(", ")}.`] : []),
+    ];
+    if (parts.length > 0) say(parts.join(" "));
+  };
+
+  /**
+   * Add replies in turn, stopping at the first whose name is already in
+   * with other cards. One already in with the same cards is skipped.
+   */
+  const run = (queue: AsyncReplyCode[], t: Tally) => {
     const rest = [...queue];
     while (rest.length > 0) {
       const reply = rest[0];
       const current = roundById(round.id);
       if (reply.roundId !== round.id) {
-        notes.push(`${reply.name}'s reply is for another round. Paste it on that round.`);
+        t.notes.push(`${reply.name}'s reply is for another round. Paste it on that round.`);
         rest.shift();
         continue;
       }
       const problem = replyProblem(reply, current);
       if (problem) {
-        notes.push(problem);
+        t.notes.push(problem);
+        rest.shift();
+        continue;
+      }
+      if (current && isReplyIn(reply, current)) {
+        t.already.push(reply.name);
         rest.shift();
         continue;
       }
       if (current && replyClash(reply, current)) {
         setWaiting(rest);
-        setProblems(notes);
-        if (names.length > 0) say(`Added ${names.join(", ")}.`);
+        report(t);
         return;
       }
       const res = addReplyToRound(reply, "replace");
-      if (res.ok) names.push(added(res.name, res.round.replies.length));
-      else notes.push(res.problem);
+      if (res.ok) t.names.push(added(res.name, res.round.replies.length));
+      else t.notes.push(res.problem);
       rest.shift();
     }
     setWaiting([]);
-    setProblems(notes);
-    if (names.length > 0) say(`Added ${names.join(", ")}.`);
+    report(t);
   };
 
   const addPasted = () => {
@@ -294,27 +315,26 @@ function OpenRound({
       return;
     }
     const queue: AsyncReplyCode[] = [];
-    const notes: string[] = [];
+    const t = tally();
     for (const code of codes) {
       const reply = readReply(code);
       if (reply) queue.push(reply);
-      else notes.push("A code couldn't be read. Ask for it again, copied in full.");
+      else t.notes.push("A code couldn't be read. Ask for it again, copied in full.");
     }
     setPasted("");
-    run(queue, notes, []);
+    run(queue, t);
   };
 
   const decide = (mode: "replace" | "keep-both" | "ignore") => {
     const [first, ...rest] = waiting;
     if (!first) return;
-    const names: string[] = [];
-    const notes: string[] = [];
+    const t = tally();
     if (mode !== "ignore") {
       const res = addReplyToRound(first, mode);
-      if (res.ok) names.push(added(res.name, res.round.replies.length));
-      else notes.push(res.problem);
+      if (res.ok) t.names.push(added(res.name, res.round.replies.length));
+      else t.notes.push(res.problem);
     }
-    run(rest, notes, names);
+    run(rest, t);
   };
 
   const addOwn = () => {
@@ -329,7 +349,7 @@ function OpenRound({
     setOwnError(null);
     setOwnOpen(false);
     setOwnPicks(round.stories.map(() => null));
-    run([made.values.reply], [], []);
+    run([made.values.reply], tally());
   };
 
   const reveal = () => {

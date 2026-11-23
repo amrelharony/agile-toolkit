@@ -21,6 +21,7 @@ import {
   findReplyCodes,
   hasNames,
   heldStoryIds,
+  isReplyIn,
   isReadyToReveal,
   keepUntil,
   needsTalk,
@@ -207,7 +208,17 @@ describe("the reply code", () => {
     expect(readReply(`https://x.test/planning-poker#reply=${made.values.code}`)?.name).toBe(
       "Lee Park"
     );
-    expect(findReplyCodes(`one ${made.values.code}\nthen ${made.values.code}`)).toHaveLength(2);
+    // The same code twice, or a code and the link it came in, is one reply.
+    const link = `https://x.test/planning-poker#reply=${made.values.code}`;
+    expect(findReplyCodes(`one ${made.values.code}\nthen ${made.values.code}`)).toEqual([
+      made.values.code,
+    ]);
+    expect(findReplyCodes(`${made.values.code}\n${link}`)).toEqual([made.values.code]);
+    const other = encodeReply({ roundId: r.id, name: "Bo", cards: "0--", notes: [] });
+    expect(findReplyCodes(`${made.values.code} ${other} ${link}`)).toEqual([
+      made.values.code,
+      other,
+    ]);
   });
 
   it("fits 20 cards, a 40-character name and 5 full notes in a non-Latin script", () => {
@@ -367,6 +378,25 @@ describe("adding a reply to the host's round", () => {
     const l2 = addReply(l1, reply(r0, long, ["2", null, null]), "keep-both", opts("b"));
     expect(l2.replies[1].name.length).toBe(POKER_ASYNC_MAX.name);
     expect(l2.replies[1].name.endsWith(" (2)")).toBe(true);
+  });
+
+  it("knows a reply already in with the same cards and notes, under its name or 'Lee (2)'", () => {
+    const r = round();
+    const lee = reply(r, "Lee", ["5", null, "8"], [{ story: 2, text: "Bank API" }]);
+    const one = addReply(r, lee, "replace", opts("a"));
+    expect(isReplyIn(lee, one)).toBe(true);
+    expect(isReplyIn({ ...lee, name: "lee" }, one)).toBe(true);
+    // Other cards or notes are a new reply, which asks first.
+    expect(isReplyIn(reply(r, "Lee", ["5", null, "13"]), one)).toBe(false);
+    expect(isReplyIn(reply(r, "Lee", ["5", null, "8"]), one)).toBe(false);
+    expect(isReplyIn(reply(r, "Bo", ["5", null, "8"], [{ story: 2, text: "Bank API" }]), one)).toBe(
+      false
+    );
+    const second = reply(r, "Lee", ["1", "1", "1"]);
+    const both = addReply(one, second, "keep-both", opts("b"));
+    expect(both.replies.map((x) => x.name)).toEqual(["Lee", "Lee (2)"]);
+    expect(isReplyIn(second, both)).toBe(true);
+    expect(isReplyIn(lee, closeRound(one, LATER))).toBe(false);
   });
 
   it("holds at most 20 replies, but a replacement still goes in", () => {
