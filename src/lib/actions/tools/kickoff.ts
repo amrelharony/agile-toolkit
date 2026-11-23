@@ -47,6 +47,7 @@ import { KICKOFF_FORMAT_DEFS, kickoffSection } from "@/lib/kickoff/formats";
 import {
   answerOf,
   blankKickoff,
+  changedSinceAgreed,
   coveredWorry,
   coveringItems,
   cutLine,
@@ -405,7 +406,10 @@ async function setStatus(store: Store, params: z.infer<typeof SetStatusParams>) 
   const found = await writable(store, params.kickoffId);
   if (!("kickoff" in found)) return { updated: false as const, reason: found.reason };
   const k = found.kickoff;
-  if (k.status === params.status) return { updated: true as const, status: k.status };
+  // Nothing to do only when nothing would change: an agreed kickoff whose
+  // words changed since is agreed again, as the page's Agree again does.
+  const same = k.status === params.status && (params.status === "draft" || !changedSinceAgreed(k));
+  if (same) return { updated: true as const, status: k.status };
   await store.put(withStatus(k, params.status, nowIso()));
   return { updated: true as const, status: params.status };
 }
@@ -418,7 +422,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Mark a kickoff agreed (the team agrees it), or put it back to draft. Returns {updated: true, status}, or {updated: false, reason: 'not_found' | 'example'}.",
+    "Mark a kickoff agreed (the team agrees it), or put it back to draft. An agreed kickoff whose words changed since is agreed again (its agreed day moves to now). Returns {updated: true, status}, or {updated: false, reason: 'not_found' | 'example'}.",
   paramsSchema: SetStatusParams,
   handler: (params) => setStatus(browserStore, params),
   mcpHandler: (params, ctx) => setStatus(serverStore(ctx.userId), params),

@@ -29,6 +29,7 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
 
 import * as serverStore from "@/lib/actions/server-store";
 import { registry } from "@/lib/actions/registry";
+import { changedSinceAgreed, normalizeKickoff } from "@/lib/kickoff/model";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   KICKOFF_KIND,
@@ -462,6 +463,36 @@ describe("tool.kickoff.set_sliders and set_status", () => {
     expect(
       await run("tool.kickoff.set_status", { kickoffId: exampleId("t"), status: "agreed" })
     ).toEqual({ updated: false, reason: "example" });
+  });
+
+  it("agrees again a kickoff changed since it was agreed, and leaves one that wasn't", async () => {
+    const changed = kickoff({
+      id: "changed",
+      format: "alignment-map",
+      status: "agreed",
+      agreedAt: AT,
+      updatedAt: LATER,
+    });
+    const settled = kickoff({
+      id: "settled",
+      format: "alignment-map",
+      status: "agreed",
+      agreedAt: LATER,
+      updatedAt: LATER,
+    });
+    useWorkspaceStore.setState({ kickoffs: [changed, settled] });
+    expect(
+      await run("tool.kickoff.set_status", { kickoffId: "changed", status: "agreed" })
+    ).toEqual({ updated: true, status: "agreed" });
+    const again = stored("changed")!;
+    expect(again.agreedAt).not.toBe(AT);
+    expect(again.updatedAt).toBe(again.agreedAt);
+    expect(changedSinceAgreed(normalizeKickoff(again)!)).toBe(false);
+    // Nothing changed since: no write.
+    expect(
+      await run("tool.kickoff.set_status", { kickoffId: "settled", status: "agreed" })
+    ).toEqual({ updated: true, status: "agreed" });
+    expect(stored("settled")).toEqual(settled);
   });
 });
 
