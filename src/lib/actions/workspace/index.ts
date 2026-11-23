@@ -4851,6 +4851,11 @@ const ExampleMapSchema = z
     createdAt: StampedAt,
     updatedAt: StampedAt,
   })
+  // The page reads a map with readMap, which drops an example whose rule isn't on the
+  // map, so the next save would delete it with no word: refuse it here instead.
+  .refine((m) => m.examples.every((e) => m.rules.some((r) => r.id === e.ruleId)), {
+    message: "Every example goes under a rule on the map.",
+  })
   .refine(fitsRow, tooBigToSave("example map")) as unknown as z.ZodType<ExampleMap>;
 
 defineCrudActions<ExampleMap>({
