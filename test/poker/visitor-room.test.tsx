@@ -374,6 +374,24 @@ describe("Start a live room (host, tool page)", () => {
     expect(h.log).not.toHaveBeenCalled();
   });
 
+  it("shows the host no similar stories from this browser while live", async () => {
+    useWorkspaceStore.setState({
+      stories: [{ id: "d1", title: "Checkout flow for gift cards", points: 5, status: "done" }],
+    });
+    try {
+      await startLiveRoom();
+      addStory("Checkout flow");
+      const deck = screen.getByRole("radiogroup", { name: "Your vote" });
+      fireEvent.click(within(deck).getByRole("radio", { name: "5" }));
+      fireEvent.click(screen.getByRole("button", { name: /Reveal/ }));
+      expect(screen.getByRole("button", { name: "Accept 5" })).toBeInTheDocument();
+      expect(screen.queryByRole("region", { name: "Like this one" })).toBeNull();
+      expect(screen.queryByText("Checkout flow for gift cards")).toBeNull();
+    } finally {
+      useWorkspaceStore.setState({ stories: [] });
+    }
+  });
+
   it("takes a queue of fully described stories without going over the room's size limit", async () => {
     // 40 backlog stories with full notes and acceptance criteria: about
     // 160,000 characters of description, more than the room sends at once.

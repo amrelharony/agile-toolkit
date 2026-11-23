@@ -52,6 +52,8 @@ import { DEFAULT_SESSION_NAME, buildExample, isExampleSession } from "./example"
 import { LobbyScreen, type StartData } from "./lobby-screen";
 import { loggedQueueStoryIds, planBacklogSave, planSize, savedCount } from "./backlog";
 import { useCardReferences } from "./use-card-references";
+import type { SimilarSource } from "@/components/stories/similar-stories";
+import { estimateCards } from "@/lib/estimation/consensus";
 import { toMarkdown } from "./markdown";
 import { pokerCsv, sessionTicketKeys } from "./csv";
 import { generateRoomCode } from "./room-code";
@@ -481,6 +483,16 @@ export function PlanningPokerClient() {
     [session, queue, loggedEstimates, backlogStories, fromQueue]
   );
   const references = useCardReferences(session?.scaleType, session?.scale);
+  // "Like this one" after Reveal: the workspace's finished stories, else
+  // the guide's reference stories on this deck's cards.
+  const deckKey = session?.scale.join("\n") ?? "";
+  const similarSource = useMemo<SimilarSource>(
+    () => ({
+      stories: backlogStories ?? [],
+      references: { cards: estimateCards(deckKey.split("\n")), lookup: references },
+    }),
+    [backlogStories, deckKey, references]
+  );
 
   // ─── AI prompt config (owner only, derived from current session) ───
   const workspace = useWorkspaceStore(
@@ -628,6 +640,7 @@ export function PlanningPokerClient() {
               // workspace or logged to history.
               onEstimateAccepted={visitorRoom ? undefined : handleEstimateAccepted}
               references={visitorRoom ? undefined : references}
+              similar={visitorRoom ? undefined : similarSource}
               backlog={
                 visitorRoom || !backlogPlan
                   ? undefined
