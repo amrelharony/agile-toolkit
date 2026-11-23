@@ -8,6 +8,7 @@ import {
   isStuck,
   lastCheckIn,
   localDay,
+  movedAgoText,
   movement,
   movementText,
   scopeMismatch,
@@ -50,7 +51,7 @@ export function hillChartMarkdown(
       const move = moves.get(s.id);
       return `| ${md(s.title)} | ${SIDE_LABEL[sideOf(s.position)]} | ${s.position} | ${
         move ? movementText(move) : ""
-      } | ${days === 0 ? "today" : `${days} days ago`} | ${md(flag)} |`;
+      } | ${movedAgoText(days)} | ${md(flag)} |`;
     })
   );
   const log = checkInsNewestFirst(chart).slice(0, MARKDOWN_CHECK_INS);

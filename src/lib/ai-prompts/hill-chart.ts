@@ -1,5 +1,6 @@
 import type { PromptDefinition } from "./types";
 import { buildPreamble, sanitizePromptCell, wrapUserContent } from "./prompt-utils";
+import { movedAgoText } from "@/lib/hill-chart/model";
 
 interface HillChartPromptData {
   title: string;
@@ -30,7 +31,7 @@ export function generateHillChartPrompts(data: HillChartPromptData): PromptDefin
         .slice(0, 30)
         .map(
           (s) =>
-            `- ${sanitizePromptCell(s.title, 120)}: ${s.position} (${s.side}), moved ${s.daysSinceMove} days ago${s.stuck ? ", stuck" : ""}`
+            `- ${sanitizePromptCell(s.title, 120)}: ${s.position} (${s.side}), moved ${movedAgoText(s.daysSinceMove)}${s.stuck ? ", stuck" : ""}`
         ),
       "",
       "**Check-ins:**",

@@ -24,6 +24,7 @@ import {
   MISMATCH_TEXT,
   SIDE_LABEL,
   SIDE_WORD,
+  movedAgoText,
   sideOf,
   type ScopeMismatch,
   type ScopeValues,
@@ -157,10 +158,7 @@ function ScopeView({
               </Badge>
             )}
             <span className="text-sub">
-              Moved{" "}
-              {daysSinceMove === 0
-                ? "today"
-                : `${daysSinceMove} ${daysSinceMove === 1 ? "day" : "days"} ago`}
+              Moved {movedAgoText(daysSinceMove)}
               {since ? `; ${since}` : ""}
             </span>
           </div>

@@ -442,7 +442,7 @@ describe("charts", () => {
     expect(md).toContain(
       "| Scope s1 | Still working it out | 30 | not moved | 9 days ago | Stuck |"
     );
-    expect(md).toContain("| Scope s2 | Getting it done | 60 | forward 20 | 1 days ago |  |");
+    expect(md).toContain("| Scope s2 | Getting it done | 60 | forward 20 | 1 day ago |  |");
     expect(md).toMatch(/## Check-ins\n\n- \d{4}-\d{2}-\d{2}: Week one/);
   });
 

@@ -105,6 +105,10 @@ export function daysSinceMove(scope: Pick<HillScope, "movedAt">, now: Date): num
   return Math.min(3650, daysSince(scope.movedAt, now));
 }
 
+/** When a scope last moved, in words: "today", "1 day ago", "9 days ago". */
+export const movedAgoText = (days: number): string =>
+  days === 0 ? "today" : `${days} ${days === 1 ? "day" : "days"} ago`;
+
 /** Uphill and not moved for STUCK_DAYS or more. */
 export function isStuck(scope: Pick<HillScope, "position" | "movedAt">, now: Date): boolean {
   return sideOf(scope.position) === "uphill" && daysSinceMove(scope, now) >= STUCK_DAYS;

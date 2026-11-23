@@ -18,6 +18,7 @@ import {
   hillY,
   isStuck,
   lastCheckIn,
+  movedAgoText,
   movement,
   movementText,
   moveScope,
@@ -169,6 +170,10 @@ describe("the stuck rule", () => {
     const late = new Date(2026, 10, 22, 23, 30).toISOString();
     expect(daysSinceMove({ movedAt: late }, new Date(2026, 10, 23, 0, 15))).toBe(1);
     expect(daysSinceMove({ movedAt: "not a time" }, NOW)).toBe(0);
+  });
+
+  it("says when a scope moved in words, one day singular", () => {
+    expect([0, 1, 9].map(movedAgoText)).toEqual(["today", "1 day ago", "9 days ago"]);
   });
 });
 
