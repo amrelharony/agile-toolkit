@@ -136,8 +136,8 @@ export function DraftPanel({
   return (
     <div className="space-y-3">
       <p className="text-sm text-sub">
-        Amr suggests lines from the kickoff&apos;s name and brief. Nothing is added until you accept
-        it.
+        Amr suggests lines from the kickoff&apos;s name, brief and what it already holds, with the
+        Product Goal and vision. Nothing is added until you accept it.
       </p>
       <div ref={buttonWrap} className="flex flex-wrap items-center gap-2">
         <AiButton
