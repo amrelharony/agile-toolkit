@@ -25,7 +25,11 @@ import {
   loopLinksTask,
   nextWhyTask,
 } from "@/lib/ai/tasks/root-cause";
-import { loopLinksTask as loopLinksRef } from "@/lib/ai/tasks/root-cause.lite";
+import {
+  fitCategoriesInput,
+  fitNextWhyInput,
+  loopLinksTask as loopLinksRef,
+} from "@/lib/ai/tasks/root-cause.lite";
 import {
   categoriesPrompt,
   countermeasurePrompt,
@@ -149,6 +153,51 @@ describe("root-cause.countermeasure", () => {
       expect(c.check.length).toBeGreaterThan(10);
     }
     expect(out[1].text).toContain("“No owner for staging data”");
+  });
+});
+
+describe("the largest inputs in 3-byte text", () => {
+  const wide = (n: number) => "界".repeat(n);
+  const fits = (task: string, input: unknown) => jsonBytes({ task, input }) <= TOOL_AI_BODY_BUDGET;
+
+  it("next_why: a full chain is trimmed from its oldest whys, keeping the problem and the last", () => {
+    const largest = {
+      problem: wide(1000),
+      whys: Array.from({ length: 20 }, (_, i) => `${i}`.padEnd(1000, "界")),
+    };
+    expect(nextWhyTask.input.safeParse(largest).success).toBe(true);
+    expect(fits(nextWhyTask.id, largest)).toBe(false);
+    const fitted = fitNextWhyInput(largest);
+    expect(fits(nextWhyTask.id, fitted)).toBe(true);
+    expect(fitted.problem).toBe(largest.problem);
+    expect(fitted.whys[fitted.whys.length - 1]).toBe(largest.whys[19]);
+    expect(fitted.whys.length).toBeGreaterThan(15);
+    // A chain that fits goes as it is.
+    const small = nextWhyTask.input.parse(nextWhyTask.sample);
+    expect(fitNextWhyInput(small)).toBe(small);
+  });
+
+  it("categories: a full board is trimmed from its end, keeping at least one cause", () => {
+    const largest = {
+      problem: wide(1000),
+      categories: Array.from({ length: 12 }, (_, i) => `${i}`.padEnd(60, "界")),
+      causes: Array.from({ length: 100 }, (_, i) => ({
+        id: `${i}`.padEnd(64, "界"),
+        text: wide(1000),
+        category: wide(60),
+      })),
+    };
+    expect(categoriesTask.input.safeParse(largest).success).toBe(true);
+    expect(fits(categoriesTask.id, largest)).toBe(false);
+    const fitted = fitCategoriesInput(largest);
+    expect(fits(categoriesTask.id, fitted)).toBe(true);
+    expect(categoriesTask.input.safeParse(fitted).success).toBe(true);
+    expect(fitted.causes[0]).toBe(largest.causes[0]);
+    // It keeps as many as fit: one more would not.
+    const more = { ...fitted, causes: largest.causes.slice(0, fitted.causes.length + 1) };
+    expect(fits(categoriesTask.id, more)).toBe(false);
+    const small = categoriesTask.input.parse(categoriesTask.sample);
+    expect(fitCategoriesInput(small)).toBe(small);
   });
 });
 

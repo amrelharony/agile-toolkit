@@ -27,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import { BlurTextarea } from "@/components/shared/blur-fields";
 import { AiButton, AiSuggestions } from "@/components/ai";
 import { countermeasureTask } from "@/lib/ai/tasks/root-cause.lite";
+import { fitCountermeasureInput } from "@/lib/ai/tasks/improve.lite";
 import type { AiSource } from "@/lib/ai/task-types";
 import { liveLink, getHandoffRoute } from "@/lib/handoffs/registry";
 import { IMPROVE_TOOL, newestFirst, readImprovements } from "@/lib/improve/model";
@@ -138,15 +139,18 @@ export function Outcome({
             <div ref={askRef}>
               <AiButton
                 task={countermeasureTask}
-                input={() => ({
-                  problem: [analysis.title, analysis.problem]
-                    .filter((s) => s.trim())
-                    .join(". ")
-                    .slice(0, 1000),
-                  rootCause: root.slice(0, 1000),
-                  whys: whyLines(analysis.whys).map((w) => w.slice(0, 1000)),
-                  causes: analysis.causes.slice(0, 20).map((c) => c.text.slice(0, 300)),
-                })}
+                input={() =>
+                  // The same fitter an A3 uses: causes go first, then the whys from the last.
+                  fitCountermeasureInput({
+                    problem: [analysis.title, analysis.problem]
+                      .filter((s) => s.trim())
+                      .join(". ")
+                      .slice(0, 1000),
+                    rootCause: root.slice(0, 1000),
+                    whys: whyLines(analysis.whys).map((w) => w.slice(0, 1000)),
+                    causes: analysis.causes.slice(0, 20).map((c) => c.text.slice(0, 300)),
+                  })
+                }
                 label="Ask Amr for countermeasures"
                 fallbackLabel="Suggest countermeasures without AI"
                 onResult={(data, meta) => {

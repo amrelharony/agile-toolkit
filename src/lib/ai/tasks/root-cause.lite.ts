@@ -5,6 +5,8 @@
  */
 
 import { lazyAiTask } from "../task-ref";
+import { TOOL_AI_BODY_BUDGET } from "../contract";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 import type {
   CategoriesInput,
   CategoriesOutput,
@@ -66,6 +68,25 @@ export function fallbackNextWhys(problem: string, whys: readonly string[]): stri
 export const nextWhyFallback = ({ problem, whys }: NextWhyInput): NextWhyOutput => ({
   whys: fallbackNextWhys(problem, whys),
 });
+
+/**
+ * The next-why input, trimmed until its request (`{task, input}`) fits
+ * `budget` bytes: at its caps (20 whys of 1,000 characters) it can pass the
+ * body budget. The oldest whys go first; the problem and the last why,
+ * which the next one answers, always stay. The input as it is when it
+ * already fits.
+ */
+export function fitNextWhyInput(
+  input: NextWhyInput,
+  budget: number = TOOL_AI_BODY_BUDGET
+): NextWhyInput {
+  const size = (x: NextWhyInput) => jsonBytes({ task: "root-cause.next_why", input: x });
+  let next = input;
+  while (next.whys.length > 1 && size(next) > budget) {
+    next = { ...next, whys: next.whys.slice(1) };
+  }
+  return next;
+}
 
 export const nextWhyTask = lazyAiTask<NextWhyInput, NextWhyOutput>(
   { id: "root-cause.next_why", toolId: "root-cause", fallback: nextWhyFallback },
@@ -136,6 +157,26 @@ export function fallbackCategoryMoves(
 export const categoriesFallback = ({ categories, causes }: CategoriesInput): CategoriesOutput => ({
   moves: fallbackCategoryMoves(categories, causes),
 });
+
+/**
+ * The categories input, trimmed until its request fits `budget` bytes: at
+ * its caps (100 causes of 1,000 characters) it passes the body budget many
+ * times over. Causes go from the end of the board, keeping at least one,
+ * so the moves cover the causes sent. The input as it is when it fits.
+ */
+export function fitCategoriesInput(
+  input: CategoriesInput,
+  budget: number = TOOL_AI_BODY_BUDGET
+): CategoriesInput {
+  let bytes = jsonBytes({ task: "root-cause.categories", input });
+  let keep = input.causes.length;
+  // Measured once, then each cause taken off with the comma before it.
+  while (keep > 1 && bytes > budget) {
+    bytes -= jsonBytes(input.causes[keep - 1]) + 1;
+    keep--;
+  }
+  return keep === input.causes.length ? input : { ...input, causes: input.causes.slice(0, keep) };
+}
 
 export const categoriesTask = lazyAiTask<CategoriesInput, CategoriesOutput>(
   { id: "root-cause.categories", toolId: "root-cause", fallback: categoriesFallback },
