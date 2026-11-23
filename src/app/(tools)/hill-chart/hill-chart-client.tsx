@@ -161,7 +161,10 @@ export function HillChartClient() {
     [stories]
   );
   const epicOptions: LinkOption[] = useMemo(
-    () => epics.map((e) => ({ id: e.id, label: short(e.title || "Untitled epic", 60) })),
+    () =>
+      epics
+        .filter((e) => !isExampleId(e.id))
+        .map((e) => ({ id: e.id, label: short(e.title || "Untitled epic", 60) })),
     [epics]
   );
   const sprintOptions: LinkOption[] = useMemo(

@@ -5,6 +5,8 @@ import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { HillChart, HillScope } from "@/lib/stores/workspace-types";
+import { EPIC_ROADMAP_ID } from "@/lib/roadmap/epic-source";
+import { exampleId } from "@/lib/utils/example-id";
 
 /**
  * Hill Chart (tools plan, phase 2, N04): scopes on a hill, moved by drag,
@@ -292,6 +294,26 @@ describe("scopes", () => {
     expect(stored()?.scopes.at(-1)).toMatchObject({ title: "Emails", position: 10 });
     const [payload] = logged("scope_added");
     expect(payload).toEqual({ chartId: "hill_a", scopeId: stored()?.scopes.at(-1)?.id });
+  });
+
+  it("offers the Epic Roadmap's real epics only, never its example's", () => {
+    seed([chart()], {
+      epicRoadmaps: [
+        {
+          id: EPIC_ROADMAP_ID,
+          epics: [
+            { id: "ep_real", title: "Refunds epic" },
+            { id: exampleId("epic-checkout"), title: "Example checkout epic" },
+          ],
+        },
+      ],
+    });
+    renderPage();
+    const card = screen.getByRole("region", { name: "Add a scope" });
+    const options = within(within(card).getByLabelText(/^Epic/))
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(options).toEqual(["No epic", "Refunds epic"]);
   });
 
   it("edits a scope in place", () => {
