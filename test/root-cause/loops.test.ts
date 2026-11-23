@@ -7,6 +7,8 @@
  * the busiest thing and the layout.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   LOOPS_SHOWN,
@@ -19,6 +21,7 @@ import {
   loopKeyDrawn,
   loopLayout,
   loopPath,
+  loopToAct,
   readLoop,
   withLoopLink,
   withLoopLinkPatch,
@@ -30,12 +33,8 @@ import {
   withoutLoopLink,
   withoutLoopNode,
 } from "@/lib/root-cause/loops";
-import {
-  busiestNode as busiestFromModel,
-  findLoops as findFromModel,
-  loopToAct,
-  readAnalysis,
-} from "@/lib/root-cause/model";
+import { readAnalysis, readAnalyses } from "@/lib/root-cause/model";
+import * as nextStep from "@/lib/root-cause/next-step";
 import { buildExample } from "@/app/(tools)/root-cause/example";
 import {
   ENTITY_ROW_MAX_BYTES,
@@ -180,9 +179,13 @@ describe("findLoops", () => {
     expect(findLoops(loopOf(twelve, ring12)).loops).toHaveLength(1);
   });
 
-  it("is re-exported from the model, which the next-step rule loads", () => {
-    expect(findFromModel).toBe(findLoops);
-    expect(busiestFromModel).toBe(busiestNode);
+  it("loads with the next-step rule, not with the model every hand-off page reads", () => {
+    expect(nextStep.loopToAct).toBe(loopToAct);
+    expect(nextStep.readAnalyses).toBe(readAnalyses);
+    // The model reads a stored loop through loop-read.ts only.
+    const model = readFileSync(join(process.cwd(), "src/lib/root-cause/model.ts"), "utf8");
+    expect(model).toMatch(/from "\.\/loop-read"/);
+    expect(model).not.toMatch(/from "\.\/loops"/);
   });
 });
 

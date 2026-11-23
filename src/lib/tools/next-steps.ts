@@ -2392,7 +2392,7 @@ const RULES: Record<string, NextStepRule<object>> = {
 
   // Tools plan, phase 1: a named root cause wants a countermeasure, and an
   // agreed one goes to Retro Actions, where someone owns it.
-  "root-cause": lazyRule(() => import("@/lib/root-cause/model"), {
+  "root-cause": lazyRule(() => import("@/lib/root-cause/next-step"), {
     select: (ws) => ({ analyses: ws.rootCauseAnalyses, boards: ws.retroBoards }),
     steps: ({ analyses, boards }, { liveOnBoards, loopToAct, readAnalyses, sentLink }) => {
       const steps: NextStep[] = [];

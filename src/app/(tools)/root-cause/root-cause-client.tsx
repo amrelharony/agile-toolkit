@@ -51,7 +51,6 @@ import {
   blankAnalysis,
   cleanText,
   countermeasureSource,
-  findLoops,
   liveOnBoards,
   newestFirst,
   readAnalysis,
@@ -65,6 +64,7 @@ import {
   withWhyText,
   type NewCause,
 } from "@/lib/root-cause/model";
+import { findLoops } from "@/lib/root-cause/loops";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   TOOL_TEXT_MAX,

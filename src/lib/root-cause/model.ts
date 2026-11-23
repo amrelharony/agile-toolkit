@@ -7,8 +7,10 @@
  * Pure: no store, no browser globals. Every write goes through the caps the
  * workspace CRUD validates against (TOOL_TEXT_MAX, TOOL_LIST_MAX), so a
  * record the page saved is always one an agent can update, and the other
- * way round. The causal loop's rules live in `loops.ts`; `findLoops` and
- * `busiestNode` are re-exported here for the lazy next-step rule.
+ * way round. The causal loop's rules live in `loops.ts`. This file reads a
+ * stored loop with `loop-read.ts` only: every page with the hand-off routes
+ * loads it (through the root-cause target), and none of them needs the loop
+ * finder. Root Cause's next step loads that from `next-step.ts`.
  */
 
 import {
@@ -20,14 +22,11 @@ import {
   type HandoffRef,
   type RootCauseAnalysis,
   type RootCauseCause,
-  type RootCauseLoopNode,
   type RootCauseMethod,
   type RootCauseWhy,
 } from "@/lib/stores/workspace-types";
 import { hashSeed } from "@/lib/utils/random";
-import { busiestNode, findLoops, readLoop } from "./loops";
-
-export { busiestNode, findLoops } from "./loops";
+import { readLoop } from "./loop-read";
 
 /** Every analysis id starts with this, as the workspace CRUD makes them. */
 export const ROOT_CAUSE_ID_PREFIX = "rca_";
@@ -563,28 +562,4 @@ export function readAnalyses(raw: unknown): RootCauseAnalysis[] {
     const a = readAnalysis(r);
     return a ? [a] : [];
   });
-}
-
-/** An analysis whose causal loop closes but has no root cause yet: where to act. */
-export interface LoopToAct {
-  analysis: RootCauseAnalysis;
-  /** Loops its arrows close (at most the shown ones). */
-  loops: number;
-  /** The thing in the most loops, from two loops; else null. */
-  busiest: RootCauseLoopNode | null;
-}
-
-/**
- * The first of `analyses` (in the order given: the next step passes them
- * newest first) whose causal loop closes at least one loop and that names
- * no root cause yet, with its busiest thing; null when none does.
- */
-export function loopToAct(analyses: readonly RootCauseAnalysis[]): LoopToAct | null {
-  for (const a of analyses) {
-    if (!a.loop || a.loop.nodes.length < 2 || a.rootCause?.trim()) continue;
-    const found = findLoops(a.loop);
-    if (found.loops.length === 0) continue;
-    return { analysis: a, loops: found.loops.length, busiest: busiestNode(a.loop, found) };
-  }
-  return null;
 }

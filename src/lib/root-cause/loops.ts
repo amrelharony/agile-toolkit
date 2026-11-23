@@ -12,8 +12,9 @@
  * Pure: no store, no browser globals. Every write keeps the caps the
  * workspace CRUD validates against (TOOL_LIST_MAX.loop*, LOOP_TEXT_MAX), so
  * what the page saves is what an agent can update, and the other way round.
- * `findLoops` and `busiestNode` are re-exported from `model.ts`, which the
- * lazy next-step rule loads.
+ * Root Cause's next step reads `loopToAct` through `next-step.ts`, which
+ * its lazy rule loads; `model.ts` reads a stored loop with `loop-read.ts`
+ * only, so pages that read analyses don't carry this file.
  */
 
 import {
@@ -29,6 +30,7 @@ import {
   type RootCauseLoopNode,
 } from "@/lib/stores/workspace-types";
 import { jsonBytes } from "@/lib/utils/json-bytes";
+import { loopLine, loopOf } from "./loop-read";
 
 /** Loops found before the search stops (then `truncated`). */
 export const LOOP_FIND_MAX = 200;
@@ -38,10 +40,6 @@ export const LOOP_STEP_BUDGET = 50_000;
 export const LOOPS_SHOWN = 20;
 /** The most things one loop goes through. */
 export const LOOP_LENGTH_MAX = 12;
-/** An id on the loop, as the CRUD takes it. */
-export const LOOP_ID_MAX = 64;
-/** A loop's key, as the CRUD takes it. */
-export const LOOP_KEY_MAX = 1000;
 
 export type LoopKind = "reinforcing" | "balancing";
 
@@ -78,96 +76,22 @@ export interface LoopsFound {
 /** "There may be more loops than shown." when `truncated`. */
 export const LOOPS_TRUNCATED_NOTE = "There may be more loops than shown.";
 
-/* ── Reading ────────────────────────────────────────────────────────── */
+/* ── Reading ──────────────────────────────────────────────────────── */
 
-/** One line, trimmed and capped (an ellipsis marks a cut). */
-export function loopLine(value: unknown, max: number): string {
-  if (typeof value !== "string") return "";
-  const t = value.replace(/\s+/g, " ").trim();
-  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
-}
-
-const isId = (v: unknown): v is string =>
-  typeof v === "string" && v.length > 0 && v.length <= LOOP_ID_MAX;
+// The reader lives in loop-read.ts, so model.ts can read a loop without the
+// rest of this file; these names stay importable from here.
+export {
+  EMPTY_LOOP,
+  LOOP_ID_MAX,
+  LOOP_KEY_MAX,
+  hasLoop,
+  loopLine,
+  loopOf,
+  readLoop,
+} from "./loop-read";
 
 const isPolarity = (v: unknown): v is LoopPolarity =>
   typeof v === "string" && (LOOP_POLARITIES as readonly string[]).includes(v);
-
-/** The empty loop: nothing on it yet. */
-export const EMPTY_LOOP: RootCauseLoop = { nodes: [], links: [] };
-
-/**
- * A stored loop made safe to read: things with an id and words (one line,
- * capped; the first of two with one id), arrows between two different
- * things that are there (the first of two from→to; an unknown sign reads as
- * "same"), names with a key and words, each list cut to its cap. It doesn't
- * look for loops: a name whose loop is gone is kept and simply never shown.
- * Undefined for something that isn't a loop at all.
- */
-export function readLoop(raw: unknown): RootCauseLoop | undefined {
-  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
-  const r = raw as Record<string, unknown>;
-  const nodes: RootCauseLoopNode[] = [];
-  const ids = new Set<string>();
-  for (const n of Array.isArray(r.nodes) ? r.nodes : []) {
-    if (nodes.length >= TOOL_LIST_MAX.loopNodes) break;
-    const o = n as Record<string, unknown> | null;
-    if (!o || typeof o !== "object" || !isId(o.id) || ids.has(o.id)) continue;
-    const text = loopLine(o.text, LOOP_TEXT_MAX.node);
-    if (!text) continue;
-    ids.add(o.id);
-    nodes.push({ id: o.id, text });
-  }
-  const links: RootCauseLoopLink[] = [];
-  const linkIds = new Set<string>();
-  const pairs = new Set<string>();
-  for (const l of Array.isArray(r.links) ? r.links : []) {
-    if (links.length >= TOOL_LIST_MAX.loopLinks) break;
-    const o = l as Record<string, unknown> | null;
-    if (!o || typeof o !== "object" || !isId(o.id) || linkIds.has(o.id)) continue;
-    if (!isId(o.from) || !isId(o.to) || o.from === o.to) continue;
-    if (!ids.has(o.from) || !ids.has(o.to)) continue;
-    const pair = `${o.from}\u0000${o.to}`;
-    if (pairs.has(pair)) continue;
-    linkIds.add(o.id);
-    pairs.add(pair);
-    links.push({
-      id: o.id,
-      from: o.from,
-      to: o.to,
-      polarity: isPolarity(o.polarity) ? o.polarity : "same",
-      ...(o.delay === true ? { delay: true } : {}),
-    });
-  }
-  const out: RootCauseLoop = { nodes, links };
-  if (Array.isArray(r.names)) {
-    const names: RootCauseLoopName[] = [];
-    const keys = new Set<string>();
-    for (const n of r.names) {
-      if (names.length >= TOOL_LIST_MAX.loopNames) break;
-      const o = n as Record<string, unknown> | null;
-      if (!o || typeof o !== "object") continue;
-      if (typeof o.key !== "string" || !o.key || o.key.length > LOOP_KEY_MAX || keys.has(o.key))
-        continue;
-      const name = loopLine(o.name, LOOP_TEXT_MAX.name);
-      if (!name) continue;
-      keys.add(o.key);
-      names.push({ key: o.key, name });
-    }
-    out.names = names;
-  }
-  return out;
-}
-
-/** The analysis's loop, or the empty one. */
-export function loopOf(a: Pick<RootCauseAnalysis, "loop">): RootCauseLoop {
-  return a.loop ?? EMPTY_LOOP;
-}
-
-/** Whether the analysis has anything on a causal loop. */
-export function hasLoop(a: Pick<RootCauseAnalysis, "loop">): boolean {
-  return (a.loop?.nodes.length ?? 0) > 0;
-}
 
 /* ── Finding the loops ─────────────────────────────────────────────── */
 
@@ -342,6 +266,30 @@ export function busiestNode(
     }
   }
   return best?.node ?? null;
+}
+
+/** An analysis whose causal loop closes but has no root cause yet: where to act. */
+export interface LoopToAct {
+  analysis: RootCauseAnalysis;
+  /** Loops its arrows close (at most the shown ones). */
+  loops: number;
+  /** The thing in the most loops, from two loops; else null. */
+  busiest: RootCauseLoopNode | null;
+}
+
+/**
+ * The first of `analyses` (in the order given: the next step passes them
+ * newest first) whose causal loop closes at least one loop and that names
+ * no root cause yet, with its busiest thing; null when none does.
+ */
+export function loopToAct(analyses: readonly RootCauseAnalysis[]): LoopToAct | null {
+  for (const a of analyses) {
+    if (!a.loop || a.loop.nodes.length < 2 || a.rootCause?.trim()) continue;
+    const found = findLoops(a.loop);
+    if (found.loops.length === 0) continue;
+    return { analysis: a, loops: found.loops.length, busiest: busiestNode(a.loop, found) };
+  }
+  return null;
 }
 
 /* ── Changes (pure: each returns the next analysis, or why it can't) ── */
