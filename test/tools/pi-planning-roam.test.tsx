@@ -595,6 +595,43 @@ describe("Predictability", () => {
     expect(stored().history).toEqual([]);
   });
 
+  it("warns before closing an unchanged PI a second time", () => {
+    const s = scoredBoard();
+    s.objectives![0].actualBusinessValue = 9;
+    seedBoard(s);
+    renderBoard();
+    const card = section("Predictability");
+    const openClose = () =>
+      fireEvent.click(within(card).getByRole("button", { name: "Close this PI" }));
+    openClose();
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("already in the history");
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Close this PI" })
+    );
+    expect(stored().history).toHaveLength(1);
+
+    // The board stays as it was, so closing again would only repeat it.
+    openClose();
+    const dialog = screen.getByRole("dialog");
+    expect(dialog).toHaveTextContent(
+      "PI 2026.4 is already in the history with these numbers. Closing it again keeps a second copy, which counts twice in the average."
+    );
+    expect(within(dialog).getByRole("button", { name: "Close it again" })).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(stored().history).toHaveLength(1);
+
+    // A changed score is something new to keep: no warning.
+    fireEvent.change(within(card).getByLabelText("Actual value of Guests check out"), {
+      target: { value: "10" },
+    });
+    openClose();
+    expect(screen.getByRole("dialog")).not.toHaveTextContent("already in the history");
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Close this PI" })
+    );
+    expect(stored().history?.map((r) => r.teams[0].actualBv)).toEqual([9, 10]);
+  });
+
   it("closes a 13th PI over the cap, and Undo brings back the one the cap dropped", () => {
     const twelve = Array.from({ length: 12 }, (_, i) => ({
       id: `h${i + 1}`,

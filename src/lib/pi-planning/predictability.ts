@@ -163,6 +163,28 @@ export function recordFrom(
   return { id: meta.id, name: meta.name, closedAt: meta.closedAt, teams };
 }
 
+/**
+ * The newest closed PI when closing now would only repeat it: the same
+ * teams with the same planned and actual value, under the same name when
+ * the PI has one. Closing keeps the board as it is, so pressing it again
+ * would keep the same PI twice and count it twice in the average. Null
+ * when closing now keeps something new.
+ */
+export function repeatedClose(state: PiState): PiRecord | null {
+  const history = state.history ?? [];
+  const newest = history[history.length - 1];
+  if (!newest) return null;
+  const record = recordFrom(state, { id: "", name: "", closedAt: "" });
+  if (!record || record.teams.length !== newest.teams.length) return null;
+  const same = record.teams.every((t, i) => {
+    const n = newest.teams[i];
+    return n.teamId === t.teamId && n.plannedBv === t.plannedBv && n.actualBv === t.actualBv;
+  });
+  if (!same) return null;
+  const name = state.name?.trim();
+  return !name || name === newest.name ? newest : null;
+}
+
 /** A closed PI's predictability: its teams together, or null when it planned nothing. */
 export function recordPct(record: Pick<PiRecord, "teams">): number | null {
   const planned = record.teams.reduce((a, t) => a + t.plannedBv, 0);

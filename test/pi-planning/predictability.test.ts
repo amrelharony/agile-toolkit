@@ -18,6 +18,7 @@ import {
   predictabilityVerdict,
   recordFrom,
   recordPct,
+  repeatedClose,
   teamPctText,
   teamPredictability,
 } from "@/lib/pi-planning/predictability";
@@ -195,5 +196,23 @@ describe("closed PIs", () => {
     });
     // A record that planned nothing has no number, and doesn't count toward the three.
     expect(historyAverage([rec("1", 10, 8), rec("2", 0, 0), rec("3", 10, 10)])).toBeNull();
+  });
+
+  it("know when closing again would only repeat the newest one", () => {
+    const kept = recordFrom(s, { id: "h1", name: "PI 2026.4", closedAt: "2026-11-23" })!;
+    expect(repeatedClose(s)).toBeNull();
+    expect(repeatedClose({ ...s, history: [kept] })).toBe(kept);
+    expect(repeatedClose({ ...s, name: "PI 2026.4", history: [kept] })).toBe(kept);
+    // Renamed since, a score changed, or an older record: something new to keep.
+    expect(repeatedClose({ ...s, name: "PI 2027.1", history: [kept] })).toBeNull();
+    const rescored = board([
+      obj("o1", "a", { businessValue: 10, actualBusinessValue: 8 }),
+      obj("o2", "b", { businessValue: 5 }),
+    ]);
+    expect(repeatedClose({ ...rescored, history: [kept] })).toBeNull();
+    const other = { ...kept, id: "h2", teams: [{ ...kept.teams[0], actualBv: 3 }] };
+    expect(repeatedClose({ ...s, history: [kept, other] })).toBeNull();
+    // Nothing scored: nothing to close at all.
+    expect(repeatedClose({ ...board([]), history: [kept] })).toBeNull();
   });
 });

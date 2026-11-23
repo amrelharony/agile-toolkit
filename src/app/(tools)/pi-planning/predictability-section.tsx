@@ -37,6 +37,7 @@ import {
   predictabilityVerdict,
   recordFrom,
   recordPct,
+  repeatedClose,
   teamPctText,
   type TeamPredictability,
 } from "@/lib/pi-planning/predictability";
@@ -471,12 +472,21 @@ export function PredictabilitySection({
     cheer("pi-planning", "milestone");
   };
 
+  // Closing keeps the board, so a second close of an unchanged PI would keep it twice.
+  const repeat = repeatedClose(state);
+
   const closeText = () => {
-    const parts = [
+    const parts: string[] = [];
+    if (repeat) {
+      parts.push(
+        `${repeat.name || "This PI"} is already in the history with these numbers. Closing it again keeps a second copy, which counts twice in the average.`
+      );
+    }
+    parts.push(
       `It keeps ${listAnd(scored.map((t) => `${t.name || "a team"} (${t.pct}%)`))}${
         p.total && p.total.teams > 1 ? `, ${p.total.pct}% for the train,` : ""
-      } in the history below.`,
-    ];
+      } in the history below.`
+    );
     if (waiting.length > 0) {
       parts.push(
         `${listAnd(waiting.map((t) => t.name || "A team"))} ${
@@ -572,7 +582,7 @@ export function PredictabilitySection({
         onOpenChange={setConfirming}
         title="Close this PI?"
         description={confirming ? closeText() : undefined}
-        confirmLabel="Close this PI"
+        confirmLabel={repeat ? "Close it again" : "Close this PI"}
         tone="default"
         onConfirm={closePi}
       />
