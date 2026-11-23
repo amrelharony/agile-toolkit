@@ -5,11 +5,14 @@ import {
   fromAsyncUpdate,
   isLegacyAsyncUpdate,
   notPostedYet,
+  postedEntry,
   previousEntry,
   standupDigest,
   standupMode,
 } from "@/lib/standup/entries";
 import type { AsyncUpdate, StandupEntry } from "@/lib/stores/workspace-types";
+import { nameKey } from "@/lib/team/names";
+import { standupPlaces } from "@/lib/team-time/sun";
 
 /** Live and async standups share StandupEntry; old async updates read alongside. */
 
@@ -119,5 +122,148 @@ describe("digest", () => {
       ].join("\n")
     );
     expect(standupDigest([], "2026-10-23")).toBe("# Standup — 2026-10-23\n\nNo updates posted.");
+  });
+});
+
+describe("digest: formats, DRIs, hand-overs and places", () => {
+  const SYDNEY = { label: "Sydney", zone: "Australia/Sydney" };
+  const LONDON = { label: "London office", zone: "Europe/London" };
+  const TORONTO = { label: "Toronto", zone: "America/Toronto" };
+  const places = new Map([
+    [nameKey("Tom"), TORONTO],
+    [nameKey("Lou"), LONDON],
+    [nameKey("Sky"), SYDNEY],
+  ]);
+
+  it("prints Progress, Plans and Problems, and Problems as the heading only when every update is one", () => {
+    const ppp = { format: "ppp" as const };
+    const all = standupDigest(
+      [
+        entry("a", {
+          ...ppp,
+          yesterday: "Spike",
+          today: "Build",
+          blockers: "Keys",
+          blockerDri: "Bo",
+        }),
+      ],
+      "2026-10-23"
+    );
+    expect(all).toBe(
+      [
+        "# Standup — 2026-10-23",
+        "",
+        "## Problems",
+        "- **Alice**: Keys (DRI: Bo)",
+        "",
+        "## Alice",
+        "- **Progress**: Spike",
+        "- **Plans**: Build",
+        "- **Problems**: Keys (DRI: Bo)",
+      ].join("\n")
+    );
+    const mixed = standupDigest(
+      [entry("a", { ...ppp, blockers: "Keys" }), entry("b", { member: "Bo", today: "Tests" })],
+      "2026-10-23"
+    );
+    expect(mixed).toContain("## Blockers\n- **Alice**: Keys");
+    expect(mixed).toContain("## Bo\n- **Today**: Tests");
+  });
+
+  it("lists hand-overs after the blockers, from the poster's place to the next one", () => {
+    const md = standupDigest(
+      [
+        entry("t", { member: "Tom", today: "Ship", handoff: "Watch the deploy" }),
+        entry("l", { member: "Lou", today: "Review", blockers: "Review queue", blockerDri: "Tom" }),
+        entry("s", { member: "Sky", today: "Test", handoff: "Build is\non staging" }),
+        entry("n", { member: "Nadia", today: "Docs", handoff: "Docs need a look" }),
+      ],
+      "2026-10-23",
+      { places }
+    );
+    const lines = md.split("\n");
+    expect(lines.slice(0, 11)).toEqual([
+      "# Standup — 2026-10-23",
+      "",
+      "## Blockers",
+      "- **Lou**: Review queue (DRI: Tom)",
+      "",
+      "## Hand-overs",
+      "- **Tom**, Toronto → Sydney: Watch the deploy",
+      "- **Sky**, Sydney → London office: Build is on staging",
+      "- **Nadia**: Docs need a look",
+      "",
+      "## Sky",
+    ]);
+    // East to west, and anyone with no place after, in their own order.
+    const order = lines.filter((l) => l.startsWith("## ") && !/Blockers|Hand-overs/.test(l));
+    expect(order).toEqual(["## Sky", "## Lou", "## Tom", "## Nadia"]);
+  });
+
+  it("keeps today's order with fewer than two places known, and the old text without the new fields", () => {
+    const one = new Map([[nameKey("Tom"), TORONTO]]);
+    const day = [
+      entry("b", { member: "Bo", today: "B" }),
+      entry("t", { member: "Tom", today: "T" }),
+    ];
+    expect(standupDigest(day, "2026-10-23", { places: one })).toBe(
+      standupDigest(day, "2026-10-23")
+    );
+    expect(standupDigest(day, "2026-10-23", { places })).toBe(
+      standupDigest(day, "2026-10-23").replace(
+        "## Bo\n- **Today**: B\n\n## Tom\n- **Today**: T",
+        "## Tom\n- **Today**: T\n\n## Bo\n- **Today**: B"
+      )
+    );
+  });
+
+  it("gives the Standup's own example the Team Time example's places, and real rows win", () => {
+    const example = [
+      entry("example-1", { member: "Lee (iOS)", today: "x" }),
+      entry("example-2", { member: "Priya (PM)", today: "y" }),
+    ];
+    const fromExample = standupPlaces([], [], example);
+    expect(fromExample.get(nameKey("Lee (iOS)"))?.label).toBe("Sydney");
+    expect(fromExample.get(nameKey("Priya (PM)"))?.label).toBe("London office");
+    // A real entry from the same name: no example place.
+    const real = standupPlaces([], [], [...example, entry("real-1", { member: "Lee (iOS)" })]);
+    expect(real.has(nameKey("Lee (iOS)"))).toBe(false);
+    const md = standupDigest(
+      [...example.slice(0, 1), entry("example-3", { member: "Priya (PM)", handoff: "Go" })],
+      "2026-10-23",
+      { places: fromExample }
+    );
+    expect(md).toContain("- **Priya (PM)**, London office → Sydney: Go");
+  });
+
+  it("posts the new fields only when set: the DRI only with a blocker, a classic post as before", () => {
+    const base = { member: "Al", date: "2026-10-23", yesterday: "y", today: "t" };
+    expect(postedEntry(undefined, base, "async", "id1", 5)).toEqual({
+      id: "id1",
+      member: "Al",
+      date: "2026-10-23",
+      yesterday: "y",
+      today: "t",
+      blockers: "",
+      timestamp: 5,
+      mode: "async",
+    });
+    const full = postedEntry(
+      undefined,
+      { ...base, blockers: "Keys", format: "ppp", dri: " Bo ", handoff: " Over to you " },
+      "async",
+      "id2",
+      5
+    );
+    expect(full).toMatchObject({ format: "ppp", blockerDri: "Bo", handoff: "Over to you" });
+    const noBlocker = postedEntry(
+      undefined,
+      { ...base, format: "classic", dri: "Bo" },
+      "async",
+      "id3",
+      5
+    );
+    expect(noBlocker).not.toHaveProperty("blockerDri");
+    expect(noBlocker).not.toHaveProperty("format");
   });
 });
