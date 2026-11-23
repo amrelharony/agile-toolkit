@@ -41,9 +41,8 @@ import {
   type HandoffLink,
   type TestSession,
 } from "@/lib/stores/workspace-types";
-import type { HandoffSource } from "@/lib/handoffs/types";
 import { withLink } from "@/lib/handoffs/links";
-import { bugHref, bugRoute, buildBugReport } from "@/lib/handoffs/targets/bug";
+import { bugHref, buildBugReport, newBugId } from "@/lib/handoffs/targets/bug";
 import { isExampleId } from "@/lib/utils/example-id";
 import {
   DEFAULT_SESSION_MINUTES,
@@ -76,16 +75,16 @@ interface SessionStore {
   put(session: TestSession): Promise<void>;
   /** Bug Triage's bugs, to read where a note went. */
   bugs(): Promise<BugReport[]>;
-  /** Log a bug in Bug Triage; returns its id. */
-  addBug(src: HandoffSource): Promise<string>;
+  /** Log a bug, built with its id already minted, in Bug Triage. */
+  addBug(bug: BugReport): Promise<void>;
 }
 
 const browserStore: SessionStore = {
   sessions: async () => readSessions(ws().testSessions),
   put: async (session) => ws().upsertTestSession(session),
   bugs: async () => ws().bugReports ?? [],
-  // The route itself, as the page's send calls it (no toast: an agent has no Undo).
-  addBug: async (src) => bugRoute.send(src),
+  // The write the bug route's send makes (no toast: an agent has no Undo).
+  addBug: async (bug) => ws().upsertBugReport(bug),
 };
 
 function serverStore(userId: string): SessionStore {
@@ -96,10 +95,8 @@ function serverStore(userId: string): SessionStore {
       await serverUpsertEntity<TestSession>(userId, TEST_SESSION_KIND, session);
     },
     bugs: () => serverListEntities<BugReport>(userId, BUG_REPORT_KIND),
-    addBug: async (src) => {
-      const bug = buildBugReport(src);
+    addBug: async (bug) => {
       await serverUpsertEntity<BugReport>(userId, BUG_REPORT_KIND, bug);
-      return bug.id;
     },
   };
 }
@@ -404,16 +401,28 @@ async function sendBugs(store: SessionStore, p: z.infer<typeof SendParams>): Pro
     (n) => !p.noteIds || p.noteIds.includes(n.id)
   );
   if (todo.length === 0) return { sent: 0, reason: "none" };
-  const made: { noteId: string; bugId: string; href: string }[] = [];
-  let notes = session.notes;
-  for (const n of todo) {
-    const bugId = await store.addBug(noteToBug(n, session));
-    const link: HandoffLink = { route: "bug", targetId: bugId, at: nowIso() };
-    notes = notes.map((x) => (x.id === n.id ? { ...x, sentTo: withLink(x.sentTo, link) } : x));
-    made.push({ noteId: n.id, bugId, href: bugHref(bugId) });
-  }
+  // Safe to retry: the ids are minted first and the session keeps every
+  // note's link before any bug is written. A bug whose write fails leaves
+  // its note linked to a bug that isn't there, which unsentBugNotes counts
+  // as unsent, so the next send logs only the missing ones, never twice.
+  const at = nowIso();
+  const made = todo.map((n) => ({
+    noteId: n.id,
+    bug: buildBugReport(noteToBug(n, session), newBugId(), at),
+  }));
+  const bugOf = new Map(made.map((m) => [m.noteId, m.bug.id]));
+  const notes = session.notes.map((x) => {
+    const targetId = bugOf.get(x.id);
+    if (!targetId) return x;
+    const link: HandoffLink = { route: "bug", targetId, at };
+    return { ...x, sentTo: withLink(x.sentTo, link) };
+  });
   await store.put(stamped({ ...session, notes }));
-  return { sent: made.length, bugs: made };
+  for (const m of made) await store.addBug(m.bug);
+  return {
+    sent: made.length,
+    bugs: made.map((m) => ({ noteId: m.noteId, bugId: m.bug.id, href: bugHref(m.bug.id) })),
+  };
 }
 
 registry.register({
@@ -423,7 +432,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Log a test session's bug notes in Bug Triage, as the page's 'Log all bugs' does: each becomes a new bug to triage, titled by the note's first line, with the whole note as what happened, the tester as who found it and the session's area; the bug links back to the session, and the note records the bug. Notes already there are skipped. Example sessions never send. Params: id, noteIds?. Returns {sent, bugs: {noteId, bugId, href}[]} or {sent: 0, reason: 'not_found' | 'example' | 'none'}.",
+    "Log a test session's bug notes in Bug Triage, as the page's 'Log all bugs' does: each becomes a new bug to triage, titled by the note's first line, with the whole note as what happened, the tester as who found it and the session's area; the bug links back to the session, and the note records the bug. Notes already there are skipped, so after a failed send a retry logs only the bugs that are missing. Example sessions never send. Params: id, noteIds?. Returns {sent, bugs: {noteId, bugId, href}[]} or {sent: 0, reason: 'not_found' | 'example' | 'none'}.",
   paramsSchema: SendParams,
   handler: async (p) => sendBugs(browserStore, p),
   mcpHandler: async (p, ctx) => sendBugs(serverStore(ctx.userId), p),

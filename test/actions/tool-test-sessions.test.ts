@@ -7,14 +7,19 @@
  *      the example's sessions left out (never start, never block); add_note needs a started session and stamps minutes in; end_session
  *      takes a debrief whose split adds up to 100.
  *   4. send_bugs makes bugs in Bug Triage linked both ways, skips the ones
- *      there, never sends the example; over MCP the bugs are the user's rows.
+ *      there, never sends the example; over MCP the bugs are the user's rows,
+ *      and a send that fails part way is retried without a duplicate.
  *   5. suggest_charters — the lenses, past charters skipped.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { BugReport, TestSession } from "@/lib/stores/workspace-types";
 
-const server = vi.hoisted(() => ({ rows: new Map<string, { id: string }>() }));
+const server = vi.hoisted(() => ({
+  rows: new Map<string, { id: string }>(),
+  /** When a number, that many bug writes go through, then the next one throws once. */
+  failBugAfter: null as number | null,
+}));
 
 vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
@@ -27,6 +32,13 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
         .map(([, v]) => v)
     ),
     serverUpsertEntity: vi.fn(async (_u: string, kind: string, e: { id: string }) => {
+      if (kind === "workspace:bugReport" && server.failBugAfter !== null) {
+        if (server.failBugAfter === 0) {
+          server.failBugAfter = null;
+          throw new Error("A transient write error");
+        }
+        server.failBugAfter -= 1;
+      }
       server.rows.set(key(kind, e.id), e);
     }),
   };
@@ -64,6 +76,7 @@ const stored = (id: string) => (ws().testSessions ?? []).find((s) => s.id === id
 
 beforeEach(() => {
   server.rows.clear();
+  server.failBugAfter = null;
   useDockTimer.setState({ timer: null });
   useWorkspaceStore.setState({ testSessions: [], bugReports: [] });
 });
@@ -305,6 +318,51 @@ describe("send_bugs", () => {
     }>("tool.test_sessions.list_state", {}, true);
     expect(list.sessions[0].unsentBugs).toBe(0);
     expect(list.sessions[0].notes[0].bug).toMatchObject({ state: "open" });
+  });
+
+  it("over MCP a failed bug write is retried without logging any bug twice", async () => {
+    const third = {
+      id: "n4",
+      at: "2026-11-20T09:30:00Z",
+      kind: "bug" as const,
+      text: "The map pin is off",
+    };
+    const s = withBugs();
+    server.rows.set("workspace:testSession/tsess_a", { ...s, notes: [...s.notes, third] });
+    server.failBugAfter = 1;
+    await expect(run("tool.test_sessions.send_bugs", { id: "tsess_a" }, true)).rejects.toThrow(
+      "A transient write error"
+    );
+    const bugRows = () =>
+      Array.from(server.rows.entries())
+        .filter(([k]) => k.startsWith("workspace:bugReport/"))
+        .map(([, v]) => v as BugReport);
+    expect(bugRows()).toHaveLength(1);
+    const between = await run<{ sessions: { unsentBugs: number }[] }>(
+      "tool.test_sessions.list_state",
+      {},
+      true
+    );
+    expect(between.sessions[0].unsentBugs).toBe(2);
+
+    const retry = await run<{ sent: number }>(
+      "tool.test_sessions.send_bugs",
+      { id: "tsess_a" },
+      true
+    );
+    expect(retry.sent).toBe(2);
+    const bugs = bugRows();
+    expect(bugs).toHaveLength(3);
+    expect(new Set(bugs.map((b) => b.sourceRef?.id))).toEqual(new Set(["n1", "n2", "n4"]));
+    const back = server.rows.get("workspace:testSession/tsess_a") as TestSession;
+    const ids = new Set(bugs.map((b) => b.id));
+    for (const n of back.notes.filter((x) => x.kind === "bug")) {
+      expect(ids.has(n.sentTo?.[0]?.targetId ?? ""), n.id).toBe(true);
+    }
+    expect(await run("tool.test_sessions.send_bugs", { id: "tsess_a" }, true)).toEqual({
+      sent: 0,
+      reason: "none",
+    });
   });
 });
 
