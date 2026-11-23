@@ -52,7 +52,7 @@ import { BOARD_WORKFLOW, SPRINT_WORKFLOW } from "@/lib/flow/workflows";
 import { cardItems, storyItems } from "@/lib/flow/items";
 import { cycleSummary, finishedItems } from "@/lib/flow/cycle";
 import { dailyCounts, wipOf } from "@/lib/flow/counts";
-import { throughputByWeek } from "@/lib/flow/throughput";
+import { weekOf } from "@/lib/flow/throughput";
 import { addDays, dayNumber } from "@/lib/flow/days";
 import type { FlowItem, FlowWorkflow } from "@/lib/flow/types";
 
@@ -591,7 +591,11 @@ export function sleFromHistory(
 export interface DeliveryToday {
   /** Items finished, all time. */
   finished: number;
-  /** Items finished per week over the last `weeks` ISO weeks; null under 2 weeks of history. */
+  /**
+   * Items finished per week over the last `weeks` whole ISO weeks before
+   * this one (quiet weeks count as 0); null under 2 such weeks since the
+   * first finish.
+   */
   perWeek: number | null;
   weeks: number;
   /** 85% of finished items took this many days or less; null under MIN_SAMPLE.distribution. */
@@ -603,19 +607,41 @@ export interface DeliveryToday {
 /** The last 8 weeks at most, for the throughput figure. */
 const DELIVERY_WEEKS = 8;
 
-export function deliveryToday(items: readonly FlowItem[]): DeliveryToday {
+/**
+ * What the board delivers as of `today` (local "YYYY-MM-DD"). The weekly
+ * rate reads the whole ISO weeks up to the one before today's, so a team
+ * that has finished nothing lately reads 0 rather than the rate it had
+ * when it last finished, and this week's few days don't count as a week.
+ */
+export function deliveryToday(
+  items: readonly FlowItem[],
+  today: string = todayIso()
+): DeliveryToday {
   const done = items.filter((i) => i.doneOn !== null);
-  const series = throughputByWeek(done).slice(-DELIVERY_WEEKS);
+  const byWeek = new Map<string, number>();
+  let first: string | null = null;
+  for (const item of done) {
+    const week = weekOf(item.doneOn);
+    if (!week) continue;
+    byWeek.set(week, (byWeek.get(week) ?? 0) + 1);
+    if (first === null || week < first) first = week;
+  }
+  // Week labels ("2026-W42") sort as text in time order.
+  const weeks: string[] = [];
+  for (let back = DELIVERY_WEEKS; back >= 1; back--) {
+    const week = weekOf(addDays(today, -7 * back));
+    if (week && first !== null && week >= first) weeks.push(week);
+  }
   const timed = finishedItems(items);
   const p85 =
     timed.length >= MIN_SAMPLE.distribution ? cycleSummary(timed.map((f) => f.days)).p85 : null;
   return {
     finished: done.length,
     perWeek:
-      series.length >= 2
-        ? round1(series.reduce((sum, p) => sum + p.value, 0) / series.length)
+      weeks.length >= 2
+        ? round1(weeks.reduce((sum, w) => sum + (byWeek.get(w) ?? 0), 0) / weeks.length)
         : null,
-    weeks: series.length,
+    weeks: weeks.length,
     p85,
     timed: timed.length,
   };

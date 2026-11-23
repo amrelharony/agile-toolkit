@@ -383,6 +383,30 @@ describe("boards, stages and policies", () => {
       timed: 0,
     });
   });
+
+  it("reads the weekly rate up to today, not up to the last finish", () => {
+    // Wednesdays, from 5 Aug: `count` items finished on each.
+    const weekly = (from: string, weeks: number, count: number, tag: string) =>
+      Array.from({ length: weeks }, (_, w) => {
+        const day = new Date(`${from}T12:00:00`);
+        day.setDate(day.getDate() + 7 * w);
+        const end = `${day.getFullYear()}-${String(day.getMonth() + 1).padStart(2, "0")}-${String(day.getDate()).padStart(2, "0")}`;
+        return Array.from({ length: count }, (_, i) => done(`${tag}${w}-${i}`, "2026-07-01", end));
+      }).flat();
+    const today = "2026-11-20";
+    // Six a week until early September, nothing since: 0 a week over the last 8.
+    const stalled = deliveryToday(items(weekly("2026-08-05", 5, 6, "s")), today);
+    expect(stalled).toMatchObject({ finished: 30, perWeek: 0, weeks: 8 });
+    // Three a week for the 8 weeks before this one; this week's 5 don't count yet.
+    const steady = deliveryToday(
+      items([...weekly("2026-09-23", 8, 3, "t"), ...weekly("2026-11-18", 1, 5, "n")]),
+      today
+    );
+    expect(steady).toMatchObject({ perWeek: 3, weeks: 8 });
+    // Under two whole weeks since the first finish: not enough weeks yet.
+    const fresh = deliveryToday(items(weekly("2026-11-11", 2, 2, "f")), today);
+    expect(fresh).toMatchObject({ perWeek: null, weeks: 1 });
+  });
 });
 
 describe("the block note's history payload", () => {
