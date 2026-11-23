@@ -40,6 +40,7 @@ registry.register({
   toolId: "intent",
   name: "plan_sprint",
   category: "intent",
+  confirmLabel: "Plan the sprint",
   description:
     "Propose a sprint plan: select backlog stories that fit within the sprint's capacity, in the Sprint Planning page's order (the decided rank each story's backlog item holds now, then the priority score). Returns the proposed selection. Pass commit=true to assign them to the sprint.",
   paramsSchema: z.object({

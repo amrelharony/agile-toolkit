@@ -12,7 +12,7 @@ import {
 import { createClickInteraction } from "@/components/agent/mascot/engine/interactions/clicks";
 import { pickPastime } from "@/components/agent/mascot/engine/interactions/context";
 import { createDirector } from "@/components/agent/mascot/engine/director";
-import { helloFor } from "@/components/agent/mascot/engine/senses";
+import { chatBusy, helloFor } from "@/components/agent/mascot/engine/senses";
 import {
   HIDE_MS,
   POKE_MEMORY_MS,
@@ -50,7 +50,8 @@ import {
   recentlyDid,
   takeArrival,
 } from "@/lib/agent/mascot/mind";
-import type { MascotHold, MascotReaction } from "@/lib/agent/mascot/store";
+import { useMascotStore, type MascotHold, type MascotReaction } from "@/lib/agent/mascot/store";
+import { useAgentStore } from "@/lib/agent/store";
 
 describe("his inner state", () => {
   const brainAt = (hour = 10) => {
@@ -405,6 +406,28 @@ describe("his mind, for this tab", () => {
     expect(helloFor({ kind: "next-day", streak: 2 })).toBe("wave");
     expect(helloFor({ kind: "next-day", streak: 3 })).toBe("cheer");
     expect(helloFor({ kind: "next-day", streak: 7 })).toBe("cheer");
+  });
+});
+
+describe("when the chat has him busy", () => {
+  afterEach(() => {
+    useAgentStore.setState({ open: false, streaming: false });
+    useMascotStore.getState().setTalking(false);
+  });
+
+  it("counts a turn that runs with the panel shut, not only while his words stream", () => {
+    useAgentStore.setState({ open: false, streaming: false });
+    useMascotStore.getState().setTalking(false);
+    expect(chatBusy()).toBe(false);
+    // A tool running, the gap between rounds, or a card waiting for the OK:
+    // the turn outlived the panel and no words stream, but he's at work.
+    useAgentStore.setState({ streaming: true });
+    expect(chatBusy()).toBe(true);
+    useAgentStore.setState({ streaming: false, open: true });
+    expect(chatBusy()).toBe(true);
+    useAgentStore.setState({ open: false });
+    useMascotStore.getState().setTalking(true);
+    expect(chatBusy()).toBe(true);
   });
 });
 

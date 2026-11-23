@@ -8,7 +8,7 @@
  * bottom of the screen; anywhere, he may pass the time with a scene of the day
  * or a game first (`play`, engine/interactions/context.ts).
  *
- * The ladder pauses while the panel is open, a reply streams or he's carried,
+ * The ladder pauses while the panel is open, a chat turn runs or he's carried,
  * and while the tab is hidden. Pure apart from the clock, which is injected.
  */
 
@@ -20,7 +20,7 @@ export interface IdleHooks {
   playNow(r: MascotReaction): void;
   hold(h: MascotHold, on: boolean): void;
   allow(name: string, cooldownMs?: number): boolean;
-  /** Someone's engaged with him: the panel is open, a reply streams, he's carried. */
+  /** Someone's engaged with him: the panel is open, a chat turn runs, he's carried. */
   busy(): boolean;
   /** A stroll is possible now (desktop, parked at the bottom, motion allowed). */
   canStroll(): boolean;

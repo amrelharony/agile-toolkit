@@ -1,6 +1,6 @@
 /**
  * The chat's side of the companion scenes: Amr holds out two options and waits
- * while a visitor's Approve or Deny card waits for them, and a no from the
+ * while a visitor's confirm card (its verb or Not now) waits for them, and a no from the
  * visitor is answered like any answer (a nod), not like a failure.
  */
 
@@ -25,7 +25,13 @@ const card = (): PendingToolUse => ({
   actionId: "workspace_card_add",
   resolvedActionId: "workspace.card.add",
   input: {},
-  summary: "Add a card",
+  prompt: {
+    verb: "Add card",
+    title: "Workspace",
+    question: "Add a card to your workspace?",
+    detail: "",
+    destructive: false,
+  },
   resolve: () => undefined,
 });
 
@@ -93,21 +99,25 @@ describe("the chat and the companion scenes", () => {
     expect(holding()).toBe(false);
   });
 
+  // He answers only a result the live turn adds (a loaded thread's are history),
+  // so each of these starts a turn first, which he meets with a thinking look.
   it("nods at a no from the visitor: a choice, not a failure", () => {
     renderHook(() => useMascotChatReactions());
+    act(() => useAgentStore.getState().setStreaming(true));
     act(() =>
       useAgentStore
         .getState()
         .appendMessage(toolResult("User denied execution of workspace.card.add.", true))
     );
-    expect(queue()).toEqual(["nod"]);
+    expect(queue()).toEqual(["thinking", "nod"]);
     expect(troubleRecent()).toBe(false);
   });
 
   it("still shakes his head at a real failure, and keeps the light-hearted scenes away", () => {
     renderHook(() => useMascotChatReactions());
+    act(() => useAgentStore.getState().setStreaming(true));
     act(() => useAgentStore.getState().appendMessage(toolResult("Invalid input: title", true)));
-    expect(queue()).toEqual(["headShake"]);
+    expect(queue()).toEqual(["thinking", "headShake"]);
     expect(troubleRecent()).toBe(true);
   });
 });

@@ -13,12 +13,16 @@ import ts from "typescript";
  * dynamic import.
  *
  * Visitor AI keeps the same line. The panel (visitor-panel), the tool
- * finder (visitor-guide) and the consent card ship with the page; the
- * visitor's chat (visitor-agent-panel) is its own chunk, reached only by a
- * dynamic import; and the runtime behind it (lib/agent/visitor-runtime: the
- * registry and the client) loads only on the visitor's first message, by
- * another dynamic import. No visitor file reaches the owner's Supabase
- * persistence.
+ * finder (visitor-guide) and the consent card are one chunk of their own
+ * (visitor-body), which Amr's chunk reaches only by a dynamic import
+ * (lazy-visitor-body) and fetches ahead on every visitor's page, so the walk
+ * keeps it to the every-page rules; the visitor's chat (visitor-agent-panel)
+ * is a further chunk, reached only by a dynamic import; and the runtime
+ * behind it (lib/agent/visitor-runtime: the registry and the client) loads
+ * only on the visitor's first message, by another dynamic import, of
+ * mascot/visitor-chat-runtime, which brings the strip kit (chat/strip-kit:
+ * the parts that draw messages) with it. No visitor file reaches the owner's
+ * Supabase persistence.
  *
  * The chat revamp adds two folders. src/components/agent/comic/ holds the
  * runtime-free comic parts (balloons, captions), which every page may use;
@@ -42,11 +46,15 @@ const APP_SHELL = "src/components/layout/app-shell.tsx";
 const HEADER = "src/components/layout/header.tsx";
 const MASCOT = "src/components/agent/mascot/mascot-assistant.tsx";
 const MOMENT_CHIP = "src/components/notify/moment-chip.tsx";
+const VISITOR_BODY = "src/components/agent/mascot/visitor-body.tsx";
+const VISITOR_BODY_LOADER = "src/components/agent/mascot/lazy-visitor-body.tsx";
 const VISITOR_PANEL = "src/components/agent/mascot/visitor-panel.tsx";
 const VISITOR_GUIDE = "src/components/agent/mascot/visitor-guide.tsx";
 const VISITOR_CONSENT = "src/components/agent/mascot/visitor-ai-consent.tsx";
 const VISITOR_CHAT = "src/components/agent/mascot/visitor-agent-panel.tsx";
 const VISITOR_RUNTIME = "src/lib/agent/visitor-runtime.ts";
+/** What the visitor's chat loads on its first message: the runtime and the strip kit. */
+const VISITOR_CHAT_RUNTIME = "src/components/agent/mascot/visitor-chat-runtime.ts";
 const OWNER_PANEL = "src/components/agent/mascot/owner-agent-panel.tsx";
 const REGISTER_ALL = "src/lib/actions/register-all.ts";
 const AGENT_CLIENT = "src/lib/agent/client.ts";
@@ -55,15 +63,33 @@ const MARKDOWN_VIEW = "src/components/agent/markdown.tsx";
 const MARKDOWN_PARSER = "src/lib/agent/markdown.ts";
 const UTILS = "src/lib/utils.ts";
 const COMIC_DIR = "src/components/agent/comic/";
+const STRIP_PARTS = `${COMIC_DIR}strip-parts.tsx`;
 const CHAT_DIR = "src/components/agent/chat/";
+const STRIP_KIT = `${CHAT_DIR}strip-kit.ts`;
+const OWNER_CHAT = "src/components/agent/agent-conversation.tsx";
 const INK_DIRS = ["src/components/ink/", "src/lib/ink/"];
 
 /**
  * The modules on every page. The app shell loads mascot-assistant with
  * next/dynamic, so the walk would stop there, but Amr mounts on every page:
- * it is a root of its own.
+ * it is a root of its own. So is the visitor body: Amr's chunk loads it with
+ * a dynamic import, but fetches it ahead on every visitor's page.
  */
-const EVERY_PAGE = [APP_SHELL, HEADER, MASCOT];
+const EVERY_PAGE = [APP_SHELL, HEADER, MASCOT, VISITOR_BODY];
+
+/**
+ * What the visitor body takes out of Amr's own chunk (every page loads that
+ * one, and its budget is tight): the visitor views and the guide's data.
+ */
+const VISITOR_BODY_MODULES = [
+  VISITOR_BODY,
+  VISITOR_PANEL,
+  VISITOR_GUIDE,
+  VISITOR_CONSENT,
+  "src/lib/constants/jobs.ts",
+  "src/lib/search/tool-search.ts",
+  "src/lib/tools/guides/index.ts",
+];
 
 /** The first-load shell, without what it loads through next/dynamic. */
 const STATIC_SHELL = [APP_SHELL, HEADER, MOMENT_CHIP];
@@ -81,6 +107,19 @@ const OWNER_RUNTIME = [
   "src/components/agent/agent-conversation.tsx",
   "src/components/agent/conversation-list.tsx",
 ];
+
+/**
+ * Amr's geometry: his panel, sheet and dock maths and the figure's metrics.
+ * The static shell takes only amr-corner.ts (no imports) for his corner and
+ * his button's place; webpack keeps every used export of a module in the chunk
+ * that holds it, so one shell import from amr-geometry ships all of it on
+ * every first paint.
+ */
+const AMR_GEOMETRY = [
+  "src/components/agent/mascot/amr-geometry.ts",
+  "src/components/agent/mascot/engine/figure-metrics.ts",
+];
+const AMR_CORNER = "src/components/agent/mascot/amr-corner.ts";
 
 /** Amr's sprite engine: the scene tables, the pose maths, the clips and the packs. */
 const HEAVY_ENGINE = [
@@ -333,6 +372,7 @@ const SUPABASE: Ban = {
 };
 
 let everyPage: Closure;
+let mascotChunk: Closure;
 let staticShell: Closure;
 let visitorPanel: Closure;
 let visitorChat: Closure;
@@ -342,6 +382,7 @@ let utilsPackages: string[];
 
 beforeAll(() => {
   everyPage = closure(EVERY_PAGE);
+  mascotChunk = closure([MASCOT]);
   staticShell = closure(STATIC_SHELL);
   visitorPanel = closure([VISITOR_PANEL]);
   visitorChat = closure([VISITOR_CHAT]);
@@ -403,17 +444,24 @@ describe("import graph walk (self-tests)", () => {
     const mascot = importsOf(MASCOT);
     expect(mascot.static).toEqual(
       expect.arrayContaining([
-        "next/dynamic",
+        "react",
         "./mascot-bubble",
-        "./visitor-guide",
-        "./visitor-panel",
+        "./panel-parts",
+        "./lazy-visitor-body",
         "./engine/figure-metrics",
         "./mascot-assistant.module.css",
       ])
     );
+    // React.lazy, through loaders that can try again after a failed import.
     expect(mascot.lazy).toEqual(expect.arrayContaining(["./mascot-sprite", "./owner-agent-panel"]));
     expect(mascot.static).not.toContain("./owner-agent-panel");
     expect(mascot.static).not.toContain("./mascot-sprite");
+    for (const spec of ["./visitor-body", "./visitor-guide", "./visitor-panel"]) {
+      expect(mascot.static, spec).not.toContain(spec);
+    }
+    // A loader function's import(): the visitor body.
+    expect(importsOf(VISITOR_BODY_LOADER).lazy).toEqual(["./visitor-body"]);
+    expect(importsOf(VISITOR_BODY_LOADER).static).not.toContain("./visitor-body");
 
     // Multi-line named imports.
     expect(importsOf(HEADER).static).toEqual(
@@ -454,16 +502,20 @@ describe("import graph walk (self-tests)", () => {
 
   it("resolves every repo import the walks meet, static and dynamic", () => {
     // A specifier that resolves nowhere would drop its whole subtree unseen.
-    for (const c of [everyPage, staticShell, visitorPanel, visitorChat, comic]) {
+    const walks = [everyPage, mascotChunk, staticShell, visitorPanel, visitorChat, comic];
+    for (const c of [...walks, closure([VISITOR_CHAT_RUNTIME]), closure([OWNER_CHAT])]) {
       for (const file of Array.from(c.files.keys())) lazyTargets(file);
     }
     expect(Array.from(unresolved)).toEqual([]);
   });
 
-  it("walks into mascot-assistant on every page, though the shell loads it lazily", () => {
+  it("walks into mascot-assistant and the visitor body on every page, though both load lazily", () => {
     expect(lazyTargets(APP_SHELL)).toContain(MASCOT);
     expect(staticTargets(APP_SHELL)).not.toContain(MASCOT);
     expect(everyPage.files.has(MASCOT)).toBe(true);
+    expect(staticTargets(MASCOT)).toContain(VISITOR_BODY_LOADER);
+    expect(lazyTargets(VISITOR_BODY_LOADER)).toContain(VISITOR_BODY);
+    expect(everyPage.files.has(VISITOR_BODY)).toBe(true);
     for (const file of [
       "src/components/agent/mascot/mascot-bubble.tsx",
       VISITOR_PANEL,
@@ -488,13 +540,21 @@ describe("import graph walk (self-tests)", () => {
   });
 
   it("names real files in every ban, and walks the modules the bans are about", () => {
-    for (const file of [...OWNER_RUNTIME, ...HEAVY_ENGINE, MARKDOWN_VIEW, MARKDOWN_PARSER]) {
+    for (const file of [
+      ...OWNER_RUNTIME,
+      ...HEAVY_ENGINE,
+      ...AMR_GEOMETRY,
+      AMR_CORNER,
+      ...VISITOR_BODY_MODULES,
+      MARKDOWN_VIEW,
+      MARKDOWN_PARSER,
+    ]) {
       expect(isFile(path.join(ROOT, file)), `${file} exists`).toBe(true);
     }
-    // The owner chunk is where the runtime lives, so banning it means something.
-    expect(staticTargets(OWNER_PANEL)).toEqual(
-      expect.arrayContaining([REGISTER_ALL, AGENT_CLIENT])
-    );
+    // The owner chunk is where the runtime lives, so banning it means something:
+    // it loads the registry itself, and its chat reaches the client.
+    expect(staticTargets(OWNER_PANEL)).toContain(REGISTER_ALL);
+    expect(closure([OWNER_PANEL]).files.has(AGENT_CLIENT)).toBe(true);
     // Amr's own chunk uses the engine the static shell must not carry.
     expect(staticTargets(MASCOT)).toEqual(
       expect.arrayContaining([
@@ -502,8 +562,16 @@ describe("import graph walk (self-tests)", () => {
         "src/components/agent/mascot/engine/scenes.ts",
       ])
     );
-    // The visitor's chat renders markdown, so its walk reaches the renderer.
-    expect(visitorChat.files.has(MARKDOWN_VIEW)).toBe(true);
+    // The owner's chat renders markdown, so its walk reaches the renderer; a
+    // visitor's gets it with the strip kit, on the first message.
+    expect(closure([OWNER_CHAT]).files.has(MARKDOWN_VIEW)).toBe(true);
+    expect(closure([VISITOR_CHAT_RUNTIME]).files.has(MARKDOWN_VIEW)).toBe(true);
+    expect(visitorChat.files.has(MARKDOWN_VIEW)).toBe(false);
+    // And it reads messages, so it reaches the parser; a visitor's gets that
+    // with the strip kit too.
+    expect(closure([OWNER_CHAT]).files.has(MARKDOWN_PARSER)).toBe(true);
+    expect(closure([VISITOR_CHAT_RUNTIME]).files.has(MARKDOWN_PARSER)).toBe(true);
+    expect(visitorChat.files.has(MARKDOWN_PARSER)).toBe(false);
     expect(visitorPanel.files.has(VISITOR_GUIDE)).toBe(true);
     expect(visitorPanel.files.has(VISITOR_CONSENT)).toBe(true);
     expect(comicFiles).toContain("src/components/agent/comic/comic-parts.tsx");
@@ -517,6 +585,7 @@ describe("every-page bundle", () => {
     const bans = [
       ...OWNER_BANS,
       exactly(VISITOR_CHAT),
+      exactly(VISITOR_CHAT_RUNTIME),
       under(CHAT_DIR),
       {
         label: "src/components/agent/markdown.*",
@@ -527,12 +596,263 @@ describe("every-page bundle", () => {
     expect(violations(everyPage, bans)).toEqual([]);
   });
 
+  it("keeps the visitor body out of Amr's own chunk: only a dynamic import reaches it", () => {
+    expect(violations(mascotChunk, VISITOR_BODY_MODULES.map(exactly))).toEqual([]);
+    // The walk sees the views once it follows that import, so the ban above bites.
+    expect(closure([VISITOR_BODY]).files.has(VISITOR_GUIDE)).toBe(true);
+  });
+
   it("keeps Amr's sprite engine out of the static shell", () => {
     expect(violations(staticShell, HEAVY_ENGINE.map(exactly))).toEqual([]);
   });
 
+  it("keeps Amr's geometry out of the static shell: it takes only amr-corner, which imports nothing", () => {
+    expect(violations(staticShell, AMR_GEOMETRY.map(exactly))).toEqual([]);
+    // The shell's two users read his corner and button from the leaf, so the
+    // ban above bites on something real.
+    expect(staticShell.files.has(AMR_CORNER)).toBe(true);
+    expect(staticTargets(MOMENT_CHIP)).toContain(AMR_CORNER);
+    expect(staticTargets("src/components/layout/amr-boundary.tsx")).toContain(AMR_CORNER);
+    expect(staticTargets(AMR_CORNER)).toEqual([]);
+    // Amr's own chunk still reaches the whole geometry.
+    expect(mascotChunk.files.has(AMR_GEOMETRY[0])).toBe(true);
+  });
+
   it("reaches the owner's chat only through a dynamic import in mascot-assistant", () => {
     expect(lazyTargets(MASCOT)).toContain(OWNER_PANEL);
+  });
+});
+
+describe("the chat strip (chat/)", () => {
+  const STRIP = [
+    `${CHAT_DIR}chat-strip.tsx`,
+    `${CHAT_DIR}chat-frame.tsx`,
+    `${CHAT_DIR}chat-log.tsx`,
+    `${CHAT_DIR}thinking-item.tsx`,
+    `${CHAT_DIR}strip-kit-ref.ts`,
+    `${CHAT_DIR}chat-context.tsx`,
+    `${CHAT_DIR}chat-empty.tsx`,
+    `${CHAT_DIR}suggestion-chips.tsx`,
+    `${CHAT_DIR}use-stick-to-bottom.ts`,
+    `${CHAT_DIR}use-turn-announcer.ts`,
+    `${CHAT_DIR}chat-composer.tsx`,
+    `${CHAT_DIR}use-autosize.ts`,
+  ];
+
+  it("is what both chats draw, reached by a static import from each container", () => {
+    const ownerChat = closure([OWNER_CHAT]);
+    for (const file of STRIP) {
+      expect(isFile(path.join(ROOT, file)), `${file} exists`).toBe(true);
+      expect(visitorChat.files.has(file), `the visitor's chat reaches ${file}`).toBe(true);
+      expect(ownerChat.files.has(file), `the owner's chat reaches ${file}`).toBe(true);
+    }
+    expect(staticTargets(VISITOR_CHAT)).toContain(`${CHAT_DIR}chat-strip.tsx`);
+    expect(staticTargets(OWNER_CHAT)).toContain(`${CHAT_DIR}chat-strip.tsx`);
+  });
+
+  /**
+   * The strip kit: the parts that draw and read messages, which the strip,
+   * the log, the status line and the announcer take from the kit's holder
+   * (strip-kit-ref) instead of importing.
+   */
+  const KIT = [
+    `${CHAT_DIR}chat-items.tsx`,
+    `${CHAT_DIR}tool-steps.tsx`,
+    `${CHAT_DIR}confirm-card.tsx`,
+    STRIP_KIT,
+    MARKDOWN_VIEW,
+    "src/lib/agent/tool-label.ts",
+    // The follow-ups' rules, which name tools with tool-label: the reply's end takes them from here.
+    "src/lib/agent/follow-ups.ts",
+    // The reading layer: the chat view, the parser, the results' words, the spoken words.
+    "src/lib/agent/chat-view.ts",
+    MARKDOWN_PARSER,
+    "src/lib/agent/tool-result-text.ts",
+    `${CHAT_DIR}spoken-text.ts`,
+  ];
+
+  it("hands the parts that draw and read messages to the owner's chat statically, and to a visitor's only with the runtime", () => {
+    const ownerChat = closure([OWNER_CHAT]);
+    const withRuntime = closure([VISITOR_CHAT_RUNTIME]);
+    for (const file of KIT) {
+      expect(isFile(path.join(ROOT, file)), `${file} exists`).toBe(true);
+      expect(ownerChat.files.has(file), `the owner's chat reaches ${file}`).toBe(true);
+      expect(withRuntime.files.has(file), `the visitor's runtime brings ${file}`).toBe(true);
+      expect(visitorChat.files.has(file), `the visitor's first paint never carries ${file}`).toBe(
+        false
+      );
+    }
+    // The owner's chat imports the kit itself, so it fills the holder on its first render.
+    expect(staticTargets(OWNER_CHAT)).toContain(STRIP_KIT);
+    // The parser above all: a visitor's first paint never carries it.
+    expect(visitorChat.files.has(MARKDOWN_PARSER)).toBe(false);
+    // The holder is all the strip, its log, its status line and its announcer
+    // import: React and the kit's type.
+    expect(staticTargets(`${CHAT_DIR}strip-kit-ref.ts`)).toEqual(["react"]);
+    for (const file of [
+      `${CHAT_DIR}chat-strip.tsx`,
+      `${CHAT_DIR}chat-log.tsx`,
+      `${CHAT_DIR}chat-status.tsx`,
+      `${CHAT_DIR}use-turn-announcer.ts`,
+    ]) {
+      expect(staticTargets(file), file).toContain(`${CHAT_DIR}strip-kit-ref.ts`);
+    }
+    // The kit draws messages only: it never reaches the registry or the client.
+    expect(violations(closure([STRIP_KIT]), [...OWNER_BANS, SUPABASE])).toEqual([]);
+  });
+
+  it("is reached from no every-page root: the ban covers every file in the folder", () => {
+    const chatFiles = filesUnder(CHAT_DIR);
+    expect(chatFiles).toEqual(expect.arrayContaining(STRIP));
+    for (const file of chatFiles) {
+      expect(everyPage.files.has(file), `${file} stays off every page`).toBe(false);
+      expect(staticShell.files.has(file), `${file} stays out of the static shell`).toBe(false);
+    }
+  });
+
+  it("keeps the chat's own comic parts off every page, though both chats reach them", () => {
+    // webpack keeps each export a chunk uses inside the module that holds it,
+    // so a part in comic-parts.tsx (which every-page code imports) would ship
+    // on every page once the chat drew it. The chat-only parts live apart.
+    expect(comicFiles).toContain(STRIP_PARTS);
+    expect(everyPage.files.has(STRIP_PARTS), "strip-parts stays off every page").toBe(false);
+    expect(staticShell.files.has(STRIP_PARTS), "strip-parts stays out of the static shell").toBe(
+      false
+    );
+    expect(visitorChat.files.has(STRIP_PARTS)).toBe(true);
+    expect(closure([OWNER_CHAT]).files.has(STRIP_PARTS)).toBe(true);
+    // A visitor's first paint reaches them through the thinking balloon, which
+    // takes its balloon from strip-parts, never comic-parts.
+    const thinking = staticTargets(`${CHAT_DIR}thinking-item.tsx`);
+    expect(thinking).toContain(STRIP_PARTS);
+    expect(thinking).not.toContain(`${COMIC_DIR}comic-parts.tsx`);
+  });
+
+  it("draws one composer in both chats, and each container's form is gone", () => {
+    // The key rule is plain code with no imports, which both reach.
+    const keys = "src/lib/agent/composer-keys.ts";
+    expect(staticTargets(`${CHAT_DIR}chat-composer.tsx`)).toContain(keys);
+    expect(staticTargets(keys)).toEqual([]);
+    expect(visitorChat.files.has(keys)).toBe(true);
+    for (const container of [OWNER_CHAT, VISITOR_CHAT]) {
+      expect(staticTargets(container)).toContain(`${CHAT_DIR}chat-composer.tsx`);
+      const source = readFileSync(path.join(ROOT, container), "utf8");
+      expect(source, container).not.toMatch(/<form\b|<textarea\b/);
+    }
+  });
+
+  it("keeps the chat commands off every page: only the chat imports them, not the Konami module", () => {
+    const commands = "src/components/agent/mascot/engine/customization/chat-commands.ts";
+    expect(everyPage.files.has(commands), "chat-commands stays off every page").toBe(false);
+    expect(mascotChunk.files.has(commands)).toBe(false);
+    expect(visitorChat.files.has(commands)).toBe(true);
+    expect(closure([OWNER_CHAT]).files.has(commands)).toBe(true);
+  });
+
+  it("hands both chats the mic, and keeps it off every page", () => {
+    const ownerChat = closure([OWNER_CHAT]);
+    for (const file of [
+      `${CHAT_DIR}dictate-button.tsx`,
+      "src/lib/agent/mascot/use-voice-input.ts",
+    ]) {
+      expect(ownerChat.files.has(file), `the owner's chat reaches ${file}`).toBe(true);
+      expect(visitorChat.files.has(file), `the visitor's chat reaches ${file}`).toBe(true);
+      expect(everyPage.files.has(file), `${file} stays off every page`).toBe(false);
+      expect(staticShell.files.has(file), `${file} stays out of the static shell`).toBe(false);
+    }
+    expect(staticTargets(OWNER_CHAT)).toContain(`${CHAT_DIR}dictate-button.tsx`);
+    expect(staticTargets(VISITOR_CHAT)).toContain(`${CHAT_DIR}dictate-button.tsx`);
+  });
+
+  it("hands the owner's chat the reply's end, and loads it for a visitor only as the first message goes out", () => {
+    const end = `${CHAT_DIR}reply-end.tsx`;
+    // What rides with it: the clipboard helper.
+    const withIt = ["src/lib/utils/clipboard.ts"];
+    expect(staticTargets(end)).toEqual(expect.arrayContaining(withIt));
+    // Not the follow-ups' rules or the tools' names: it takes them from the
+    // strip kit's holder, so a visitor, who loads it beside the runtime that
+    // brings the kit, never downloads tool-label twice.
+    expect(staticTargets(end)).toContain(`${CHAT_DIR}strip-kit-ref.ts`);
+    const endReaches = closure([end]);
+    for (const file of ["src/lib/agent/follow-ups.ts", "src/lib/agent/tool-label.ts", STRIP_KIT]) {
+      expect(endReaches.files.has(file), `the reply's end never reaches ${file}`).toBe(false);
+    }
+    // The owner's chat imports it; the strip both chats share only draws what it is handed.
+    expect(staticTargets(OWNER_CHAT)).toContain(end);
+    for (const file of filesUnder(CHAT_DIR)) {
+      expect(staticTargets(file), `${file} imports no reply end`).not.toContain(end);
+    }
+    // Not in the visitor's chat chunk, which paints before any reply: a dynamic import.
+    for (const file of [end, ...withIt]) {
+      expect(visitorChat.files.has(file), `the visitor's chat chunk never carries ${file}`).toBe(
+        false
+      );
+      expect(everyPage.files.has(file), `${file} stays off every page`).toBe(false);
+    }
+    expect(lazyTargets(VISITOR_CHAT)).toContain(end);
+  });
+
+  it("loads a visitor's voice notice only on a press of the mic: a dynamic import, from the visitor's chat alone", () => {
+    const notice = "src/components/agent/mascot/voice-notice.tsx";
+    const consent = "src/lib/agent/mascot/voice-consent.ts";
+    expect(isFile(path.join(ROOT, notice)), `${notice} exists`).toBe(true);
+    // Not in the visitor's chat chunk: the mic's handler imports it.
+    expect(visitorChat.files.has(notice), "the visitor's chat chunk never carries it").toBe(false);
+    expect(lazyTargets(VISITOR_CHAT)).toContain(notice);
+    // Nowhere else, statically or lazily: the owner never downloads it.
+    const ownerChat = closure([OWNER_CHAT]);
+    const anyRoot = [everyPage, mascotChunk, staticShell, visitorPanel, ownerChat];
+    for (const c of anyRoot) expect(c.files.has(notice)).toBe(false);
+    const loaders = new Set([
+      ...Array.from(everyPage.files.keys()),
+      ...Array.from(visitorPanel.files.keys()),
+      ...Array.from(visitorChat.files.keys()),
+      ...Array.from(ownerChat.files.keys()),
+    ]);
+    const lazyFrom = Array.from(loaders).filter((file) => lazyTargets(file).includes(notice));
+    expect(lazyFrom).toEqual([VISITOR_CHAT]);
+    // Its words come from their own module, with no imports, not through
+    // disclosures.ts: that one rides in chunks the comics pages and the tool
+    // finder load, which would then carry the text too.
+    const words = "src/lib/site/voice-disclosure.ts";
+    expect(staticTargets(notice)).toContain(words);
+    expect(staticTargets(notice)).not.toContain("src/lib/site/disclosures.ts");
+    expect(staticTargets(words)).toEqual([]);
+    // The yes it asks for is the visitor's chat's to keep: the owner's never asks.
+    expect(staticTargets(VISITOR_CHAT)).toContain(consent);
+    expect(ownerChat.files.has(consent), "the owner's chat never reaches it").toBe(false);
+    expect(everyPage.files.has(consent), `${consent} stays off every page`).toBe(false);
+  });
+
+  it("keeps the owner's step Details out of the visitor's chat: only the owner's chat imports it", () => {
+    const owned = [`${CHAT_DIR}step-details.tsx`];
+    const ownerChat = closure([OWNER_CHAT]);
+    for (const file of owned) {
+      expect(isFile(path.join(ROOT, file)), `${file} exists`).toBe(true);
+      expect(ownerChat.files.has(file), `the owner's chat reaches ${file}`).toBe(true);
+      expect(visitorChat.files.has(file), `the visitor's chat never reaches ${file}`).toBe(false);
+    }
+    expect(staticTargets(OWNER_CHAT)).toContain(`${CHAT_DIR}step-details.tsx`);
+  });
+
+  it("gives each chat its own empty-chat words: the owner's never reach the visitor's chat", () => {
+    const owner = "src/lib/agent/owner-starters.ts";
+    const visitor = "src/lib/agent/visitor-starters.ts";
+    expect(staticTargets(OWNER_CHAT)).toContain(owner);
+    expect(staticTargets(VISITOR_CHAT)).toContain(visitor);
+    expect(visitorChat.files.has(owner), "the visitor's chat never reaches the owner's").toBe(
+      false
+    );
+    expect(closure([OWNER_CHAT]).files.has(visitor)).toBe(false);
+  });
+
+  it("replaced message-bubble: no file is left, and nothing imports it", () => {
+    expect(isFile(path.join(ROOT, "src/components/agent/message-bubble.tsx"))).toBe(false);
+    const reached = new Set([
+      ...Array.from(visitorChat.files.keys()),
+      ...Array.from(closure([OWNER_CHAT]).files.keys()),
+    ]);
+    expect(Array.from(reached).filter((f) => /message-bubble/.test(f))).toEqual([]);
   });
 });
 
@@ -571,7 +891,35 @@ describe("visitor bundle", () => {
   });
 
   it("loads the agent runtime only with a dynamic import, from the visitor's chat", () => {
-    expect(lazyTargets(VISITOR_CHAT)).toContain(VISITOR_RUNTIME);
+    // One import brings the runtime and the strip kit, so they share a chunk.
+    expect(lazyTargets(VISITOR_CHAT)).toContain(VISITOR_CHAT_RUNTIME);
+    expect(staticTargets(VISITOR_CHAT_RUNTIME)).toEqual(
+      expect.arrayContaining([VISITOR_RUNTIME, STRIP_KIT])
+    );
+    for (const file of [VISITOR_CHAT_RUNTIME, VISITOR_RUNTIME, STRIP_KIT]) {
+      expect(visitorChat.files.has(file), `the visitor's chat chunk never carries ${file}`).toBe(
+        false
+      );
+    }
+  });
+
+  it("imports the runtime with its kit from the visitor's chat alone, and only lazily", () => {
+    const ownerChat = closure([OWNER_CHAT]);
+    expect(ownerChat.files.has(VISITOR_CHAT_RUNTIME)).toBe(false);
+    const files = new Set([
+      ...Array.from(everyPage.files.keys()),
+      ...Array.from(visitorPanel.files.keys()),
+      ...Array.from(visitorChat.files.keys()),
+      ...Array.from(ownerChat.files.keys()),
+    ]);
+    const staticFrom = Array.from(files).filter((file) =>
+      staticTargets(file).includes(VISITOR_CHAT_RUNTIME)
+    );
+    expect(staticFrom).toEqual([]);
+    const lazyFrom = Array.from(files).filter((file) =>
+      lazyTargets(file).includes(VISITOR_CHAT_RUNTIME)
+    );
+    expect(lazyFrom).toEqual([VISITOR_CHAT]);
   });
 
   it("keeps the runtime the only place the visitor chat gets the registry from", () => {
@@ -591,6 +939,26 @@ describe("visitor bundle", () => {
 
   it("keeps the panel, tool finder and consent card off the owner's persistence", () => {
     expect(violations(visitorPanel, [exactly(PERSIST), SUPABASE])).toEqual([]);
+  });
+
+  it("loads Clear chat's Undo and the read-only footer only from the visitor's chat, by a dynamic import, under the chat's bans", () => {
+    const ownerChat = closure(["src/components/agent/agent-conversation.tsx"]);
+    for (const part of [
+      "src/components/agent/mascot/visitor-clear-chat.tsx",
+      "src/components/agent/mascot/visitor-chat-footer.tsx",
+    ]) {
+      expect(isFile(path.join(ROOT, part)), `${part} exists`).toBe(true);
+      // Not in the visitor chat's first paint: it loads with the first message.
+      expect(visitorChat.files.has(part), `${part} stays out of the chat's chunk`).toBe(false);
+      expect(lazyTargets(VISITOR_CHAT)).toContain(part);
+      for (const c of [everyPage, mascotChunk, staticShell, visitorPanel, ownerChat]) {
+        expect(c.files.has(part), `${part} stays off every other root`).toBe(false);
+      }
+      expect(violations(closure([part]), [...OWNER_BANS, SUPABASE])).toEqual([]);
+    }
+    // The allowance's words are the visitor's: the owner's chat never carries them.
+    expect(visitorChat.files.has("src/lib/visitor-ai/allowance.ts")).toBe(true);
+    expect(ownerChat.files.has("src/lib/visitor-ai/allowance.ts")).toBe(false);
   });
 
   it("never loads the owner's persistence or Supabase from a visitor file, even lazily", () => {

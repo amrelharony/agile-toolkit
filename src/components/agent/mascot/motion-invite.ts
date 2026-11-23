@@ -8,8 +8,8 @@
  * browser's prompt from that very tap.
  *
  * He asks once, ever (store.motionAsked): not again after an answer, and not
- * again if the bubble was left alone. The switch in his panel stays for a change
- * of mind. Never under reduced motion, and never where the phone sends motion
+ * again if the bubble was left alone. The tilt switch in his panel's More menu
+ * stays for a change of mind. Never under reduced motion, and never where the phone sends motion
  * without asking (there he feels it from the start). On Quiet, in Focus and in
  * the quiet hours he holds the question for another time (lib/agent/mascot/say.ts).
  */

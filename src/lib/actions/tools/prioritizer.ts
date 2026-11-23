@@ -344,6 +344,7 @@ registry.register({
   name: "set_order",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Save the backlog order",
   description:
     "Save the backlog's decided order, as the Prioritizer's 'Save order' does: rank 1..N to the ids given (in that order), and every item not listed back to Not ordered yet. Unknown ids are refused and nothing is changed. Sprint Planning imports in this order. Returns {ranked, unranked, changed}.",
   paramsSchema: SetOrderSchema,

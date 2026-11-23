@@ -402,7 +402,7 @@ Not for the image model. This is how each input becomes a reaction. Existing row
 | Phone rotated                         | `orientationchange` / screen orientation                    |         | ✓      | S01 surprised, then a look around                          |
 | Fast scroll                           | scroll speed above about 2,500 px/s                         | ✓       | ✓      | S08 wind loop until scrolling stops                        |
 | End of the page                       | scrolled to the bottom                                      | ✓       | ✓      | S03 point up, offering "back to top"                       |
-| Visitor typing                        | `focusin` and `input` on fields                             | ✓       |        | S08 watching (phones already step aside for the keyboard)  |
+| Visitor typing                        | `focusin` and `input` on fields                             | ✓       |        | S08 watching (on phones he stays; his bubble waits)        |
 | Copied text                           | `copy` event                                                | ✓       | ✓      | Existing thumbs-up                                         |
 | Offline / back online                 | `offline` / `online` events                                 | ✓       | ✓      | S08 downcast / S08 small victory                           |
 | Back after a while                    | `visibilitychange`, away more than 2 minutes                | ✓       | ✓      | Existing wave                                              |

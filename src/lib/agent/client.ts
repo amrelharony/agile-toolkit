@@ -15,7 +15,7 @@ import {
   type VisitorRequestBody,
   type VisitorWireMessage,
 } from "@/lib/visitor-ai/contract";
-import { useAgentStore } from "./store";
+import { useAgentStore, type AgentNotice, type TurnAbort } from "./store";
 import { buildSystemPrompt } from "./system-prompt";
 import { composeGrounding } from "./grounding";
 import { resolvePageTool } from "./page-tool";
@@ -30,8 +30,14 @@ import { parseRateLimitHeaders, parseVisitorQuota } from "./rate-limit";
 import { executeToolUse } from "./execute-tool";
 import { buildVisitorTurnTools } from "./visitor-tools";
 import { inLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
-import { appendMessages, recordChatUsage } from "./persist";
-import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "./types";
+import { appendMessages, deleteMessagesBetween, recordChatUsage } from "./persist";
+import type {
+  ChatMessage,
+  ConfirmPrompt,
+  ContentBlock,
+  ToolResultBlock,
+  ToolUseBlock,
+} from "./types";
 
 /** Text of the most recent user message (joined text blocks), or "" if none. */
 function lastUserText(messages: ChatMessage[]): string {
@@ -83,14 +89,223 @@ const OWNER_MAX_TOKENS = 8192;
 const WRAP_UP_MAX_TOKENS = 4096;
 /** generateTitle: a 3-6 word title, plus low-effort reasoning. */
 const TITLE_MAX_TOKENS = 1024;
-/** Told to the model on the wrap-up turn, after the round budget is spent. */
-const WRAP_UP_INSTRUCTION =
-  "IMPORTANT: You have used every tool-use round for this turn. You cannot call any more tools — a tool call now is ignored. Answer the user now, in plain text: summarise what you accomplished, what failed, and what remains.";
+/**
+ * Told to the model on the wrap-up turn, after the round budget is spent. Its
+ * answer is the reply, so like the prompt it has no dashes (the model copies
+ * what it reads). Exported for tests.
+ */
+export const WRAP_UP_INSTRUCTION =
+  "You have used every tool round for this turn. You cannot call any more tools: a tool call now is ignored. Answer the user now, in plain text: say what you did, what failed, and what remains.";
 /** Guard against schema-violation wedges: if the same action returns
  *  is_error twice in a row with the same arg-shape, stop retrying. */
 const MAX_SAME_ERROR_REPEATS = 2;
 
-interface StreamOptions {
+/**
+ * What a notice is about (AgentNotice.kind): the chat decides from it which
+ * button to offer ("Try again" when nothing ran, "Go on" after an answer that
+ * stops short) and whether Amr frowns.
+ *
+ *  - Notes, gentle: "cut_off" (an answer that stops short), "no_answer" (a
+ *    round with no reply), "round_limit" (every tool round used),
+ *    "repeated_failure" (an action kept failing, so the turn stopped),
+ *    "cant_do_here" and "live_room" (visitors).
+ *  - Errors, real failures: the rest. A refusal of the visitor route keeps
+ *    its own code as its kind ("round_limit" is a note there too).
+ */
+export type ChatNoticeKind =
+  | "cut_off"
+  | "no_answer"
+  | "round_limit"
+  | "repeated_failure"
+  | "cant_do_here"
+  | "live_room"
+  | "stream_failed"
+  | "too_large"
+  | "signed_out"
+  | "key_refused"
+  | "usage_limit"
+  | "upstream_busy"
+  | "upstream_error"
+  | "timeout"
+  | "request_failed"
+  | "unreachable"
+  | "no_key"
+  | VisitorErrorCode;
+
+/** A notice this client shows, typed by its kind. */
+export interface ChatNotice extends AgentNotice {
+  kind: ChatNoticeKind;
+}
+
+const asNote = (kind: ChatNoticeKind, text: string): ChatNotice => ({ tone: "note", kind, text });
+const asError = (kind: ChatNoticeKind, text: string): ChatNotice => ({
+  tone: "error",
+  kind,
+  text,
+});
+
+/**
+ * What a visitor is told for each refusal the visitor route can send.
+ * Exported for test/agent/notice-copy.test.ts.
+ */
+export const VISITOR_ERROR_TEXT: Record<VisitorErrorCode, string> = {
+  disabled: "Amr's AI is switched off right now.",
+  forbidden: "That request didn't come from this site, so Amr couldn't answer it.",
+  slow_down: "That's a lot of messages at once. Wait a few seconds, then try again.",
+  too_large: "That conversation got too long to send. Clear the chat and ask again.",
+  bad_request: "Amr couldn't read that request. Clear the chat and try again.",
+  round_limit: "That took Amr too many steps. Ask again in smaller pieces.",
+  meter_unavailable: "Amr can't check today's message count right now.",
+  visitor_limit: "You've used all of today's messages with Amr.",
+  visitor_peak_limit: "You've used all your messages for these busy hours.",
+  site_limit: "Amr has answered all he can for today.",
+  site_peak_limit: "Amr has answered all he can for these busy hours.",
+  site_busy: "Amr is too busy to answer right now.",
+  upstream_busy: "Amr's AI service is busy. Try again in a minute.",
+  upstream_error: "Amr's AI service hit an error. Try again in a moment.",
+  timeout: "Amr's AI service took too long to answer. Try again in a moment.",
+};
+
+/**
+ * The chat's own lines, for the owner and visitors alike. They are narration
+ * about Amr, in the third person, never his words: none says I, me or my, and
+ * none uses a dash (test/agent/notice-copy.test.ts). The technical detail
+ * behind an error goes to the console, never here.
+ */
+export const NOTICE_TEXT = {
+  /**
+   * A request that never got through, or a stream that broke half way. It may
+   * be the reader's connection or the server's side (a gateway gone silent),
+   * so it blames neither.
+   */
+  streamFailed:
+    "Amr couldn't finish answering. Try again, and check your connection if it keeps happening.",
+  cutShort: "Amr's answer was cut short. Ask him to go on.",
+  timeCut: "Amr ran out of time, so his answer stops here. Ask him to go on.",
+  mayBeCut: "Amr's answer may have been cut off. Ask him to go on.",
+  noRoom: "Amr ran out of room thinking before he could answer. Try a shorter or simpler question.",
+  noTime: "Amr ran out of time before he could answer. Try a shorter or simpler question.",
+  noAnswer: "Amr didn't manage an answer that time. Try asking again.",
+  repeatedFailure: "An action kept failing the same way, so Amr stopped. Try asking another way.",
+  cantDoHere: "Amr tried something he can't do here. Try asking another way.",
+  /**
+   * Shown when this browser has a visitor live room open and Amr asks for a
+   * tool, or a room opened while he was using them.
+   */
+  liveRoom: "Amr uses no tools while you're in a live room.",
+  tooLarge:
+    "That conversation got too long for Amr. Start a new chat, or shorten the message, and ask again.",
+  signedOut: "Amr couldn't confirm it's you. Sign out and back in, then try again.",
+  keyRefused:
+    "The AI service turned down the GLM key in AI Settings. Check the key there, then try again.",
+  usageLimit: "You've reached Amr's usage limit for now. Try again later.",
+  requestFailed: "Amr couldn't answer that. Try again in a moment.",
+  unreachable: "Amr can't reach the server right now. Try again in a moment.",
+  noKey: "Amr has no AI key to answer with. Add a GLM key in AI Settings, then try again.",
+} as const;
+
+/**
+ * The note for an owner's turn that used every tool round, beside the
+ * wrap-up or roundLimitNote's facts when they stand in. A visitor's stand-in
+ * says it all itself.
+ */
+export function roundLimitNotice(rounds: number = MAX_TOOL_USE_ROUNDS): ChatNotice {
+  return asNote(
+    "round_limit",
+    `Amr reached his limit of ${rounds} tool rounds for one request. Send a follow-up and he'll carry on.`
+  );
+}
+
+/**
+ * finish_reasons that mean the reply was stopped before its end by something
+ * other than its length: OpenAI's "content_filter", and GLM's own "sensitive"
+ * and "network_error" (the model's side failed half way).
+ */
+const STOPPED_EARLY: ReadonlySet<string> = new Set([
+  "content_filter",
+  "sensitive",
+  "network_error",
+]);
+
+/**
+ * The note for a round that ended without a usable answer, or with one that
+ * stops short, or null. An answer stops short when the model ran out of
+ * tokens ("length"), when the visitor route ended it at its time limit
+ * (VISITOR_TIME_LIMIT_FINISH, visitors only), when the model's side stopped
+ * it early (STOPPED_EARLY), or when the stream just ended (`cut`: no
+ * finish_reason, and either no [DONE], so something between the model and the
+ * browser closed it, or an error event of the stream's own). With no text at
+ * all (all reasoning, or a call cut off half way) it says there was no
+ * answer. Exported for tests.
+ */
+export function endNoteFor(round: {
+  hasText: boolean;
+  finishReason: string | null;
+  cut: boolean;
+  visitor: boolean;
+}): ChatNotice | null {
+  const { hasText, finishReason, cut, visitor } = round;
+  const timeLimit = visitor && finishReason === VISITOR_TIME_LIMIT_FINISH;
+  if (!hasText) {
+    if (finishReason === "length") return asNote("no_answer", NOTICE_TEXT.noRoom);
+    if (timeLimit) return asNote("no_answer", NOTICE_TEXT.noTime);
+    return asNote("no_answer", NOTICE_TEXT.noAnswer);
+  }
+  if (finishReason === "length") return asNote("cut_off", NOTICE_TEXT.cutShort);
+  if (timeLimit) return asNote("cut_off", NOTICE_TEXT.timeCut);
+  if (cut || (finishReason !== null && STOPPED_EARLY.has(finishReason))) {
+    return asNote("cut_off", NOTICE_TEXT.mayBeCut);
+  }
+  return null;
+}
+
+/**
+ * The owner's notice for a response the agent route refused, by its status,
+ * or, with a key of the owner's own (`byok`), one GLM refused. `code` is the
+ * route's own error code from the body, when it sent one: "upstream" means
+ * the gateway behind the route refused, so a 429 is the AI service being busy
+ * rather than the owner's usage limit, and a 401 is not the owner's sign-in.
+ * Exported for tests.
+ */
+export function ownerRefusalNotice(
+  status: number,
+  byok: boolean,
+  code: string | null = null
+): ChatNotice {
+  const upstream = byok || code === "upstream";
+  if (status === 413) return asError("too_large", NOTICE_TEXT.tooLarge);
+  if (status === 401 || status === 403) {
+    if (byok) return asError("key_refused", NOTICE_TEXT.keyRefused);
+    return upstream
+      ? asError("request_failed", NOTICE_TEXT.requestFailed)
+      : asError("signed_out", NOTICE_TEXT.signedOut);
+  }
+  if (status === 429) {
+    return upstream
+      ? asError("upstream_busy", VISITOR_ERROR_TEXT.upstream_busy)
+      : asError("usage_limit", NOTICE_TEXT.usageLimit);
+  }
+  if (status === 504) return asError("timeout", VISITOR_ERROR_TEXT.timeout);
+  if (status >= 500) return asError("upstream_error", VISITOR_ERROR_TEXT.upstream_error);
+  return asError("request_failed", NOTICE_TEXT.requestFailed);
+}
+
+/**
+ * A visitor's notice for a refusal of the visitor route: its code's text, or,
+ * with no code, by its status. "round_limit" (the turn took too many steps)
+ * is a note, not a failure. Exported for tests.
+ */
+export function visitorRefusalNotice(code: VisitorErrorCode | null, status: number): ChatNotice {
+  if (code === "round_limit") return asNote("round_limit", VISITOR_ERROR_TEXT.round_limit);
+  if (code) return asError(code, VISITOR_ERROR_TEXT[code]);
+  if (status >= 500) return asError("upstream_error", VISITOR_ERROR_TEXT.upstream_error);
+  return asError("request_failed", NOTICE_TEXT.requestFailed);
+}
+
+/** What "Go on" sends: a real message of the user's (see goOn). */
+export const GO_ON_TEXT = "Go on";
+
+export interface StreamOptions {
   userId: string;
   toolId?: string | null;
   /** When provided, the client persists every new message into this
@@ -107,16 +322,22 @@ interface StreamOptions {
   profile?: "owner" | "visitor";
 }
 
-/** Module-scoped abort controller for the current in-flight send. Cleared
- *  on completion. UI callers (sheet close, route change, unmount) call
- *  `abortInFlight()` to terminate the stream. (BUG-G4) */
+/**
+ * Module-scoped abort controller for the current in-flight send, cleared on
+ * completion (BUG-G4). Each send also registers its abort with the store
+ * (setAbortTurn), so New chat, a thread switch, sign-out and a profile change
+ * stop the turn without importing this module. Closing the panel never does:
+ * an answer goes on with the panel shut.
+ */
 let currentController: AbortController | null = null;
+
+/** Stop the live turn (the Stop button): it ends where it is, and a waiting card is denied. */
 export function abortInFlight(): void {
+  // Runs the turn's registered abort once and denies a waiting card, so a
+  // stale card doesn't survive the abort (BUG-G18).
+  useAgentStore.getState().abortTurn("stop");
   currentController?.abort();
   currentController = null;
-  // Clear pending confirmation so a stale card doesn't survive the abort.
-  // (BUG-G18)
-  useAgentStore.getState().setPendingToolUse(null);
 }
 
 /**
@@ -134,6 +355,128 @@ export function ownsStreamingReset(
 }
 
 export async function sendUserMessage(text: string, opts: StreamOptions): Promise<void> {
+  const visitor = opts.profile === "visitor";
+  const userMsg: ChatMessage = {
+    id: msgId(),
+    role: "user",
+    // The visitor route refuses a longer message, so keep what's shown and
+    // what's sent the same.
+    content: [{ type: "text", text: visitor ? text.slice(0, VISITOR_LIMITS.userChars) : text }],
+    createdAt: new Date().toISOString(),
+  };
+  await runTurn(opts, userMsg);
+}
+
+/**
+ * "Go on", after an answer that stops short: sends the user's own "Go on", so
+ * the model picks up where it stopped. It is a real message, never a resend
+ * of the last turn: the visitor route takes only a body that ends on the
+ * user's message or a tool result (request.ts), and both meters count it as a
+ * new turn. Resolves false, sending nothing, while a turn is still running.
+ */
+export async function goOn(opts: StreamOptions): Promise<boolean> {
+  if (useAgentStore.getState().streaming || currentController) return false;
+  await sendUserMessage(GO_ON_TEXT, opts);
+  return true;
+}
+
+/** Index of the chat's last user message, or -1. */
+function lastUserIndex(messages: ChatMessage[]): number {
+  return messages.map((m) => m.role).lastIndexOf("user");
+}
+
+/**
+ * Whether a tool result says its action ran: it answered, or it failed inside
+ * its handler, which may have written before it failed. A call that was
+ * denied, refused, or never valid ran nothing (see executeToolUse).
+ */
+function resultRan(c: ToolResultBlock): boolean {
+  if (!c.is_error) return true;
+  const text = typeof c.content === "string" ? c.content : c.content.map((b) => b.text).join("");
+  return text.startsWith("Handler error:");
+}
+
+/**
+ * Whether the chat's last turn may run again (retryLastTurn): there is a
+ * question, and nothing after it ran a change. Reads may run again; a write
+ * or an intent that ran (or an action the registry no longer knows) may not,
+ * so trying again never repeats a change. Exported for the chat's "Try again".
+ *
+ * Each result is read against the calls of the assistant message just before
+ * it, never a call anywhere in the turn: an id can come back in a later round
+ * (a gateway that sends none gets `tc_0` every round), and a write's result
+ * must not pass for a later read's.
+ */
+export function canRetryLastTurn(messages: ChatMessage[]): boolean {
+  const at = lastUserIndex(messages);
+  if (at === -1) return false;
+  /** The calls of the latest assistant message: the only ones the tool messages after it answer. */
+  let nameOf = new Map<string, string>();
+  for (const m of messages.slice(at + 1)) {
+    if (m.role === "assistant") {
+      nameOf = new Map();
+      for (const c of m.content) if (c.type === "tool_use") nameOf.set(c.id, c.name);
+      continue;
+    }
+    if (m.role !== "tool") continue;
+    for (const c of m.content) {
+      if (c.type !== "tool_result" || !resultRan(c)) continue;
+      const name = nameOf.get(c.tool_use_id);
+      if (!name || registry.resolve(name)?.category !== "read") return false;
+    }
+  }
+  return true;
+}
+
+/** The latest of these messages' times, as ISO 8601, or null when one can't be read. */
+function latestTime(messages: ChatMessage[]): string | null {
+  let latest = -Infinity;
+  for (const m of messages) {
+    const t = Date.parse(m.createdAt);
+    if (Number.isNaN(t)) return null;
+    latest = Math.max(latest, t);
+  }
+  return Number.isFinite(latest) ? new Date(latest).toISOString() : null;
+}
+
+/**
+ * "Try again": run the chat's last turn again from its question, without a
+ * second copy of it. What the turn left after the question (a reply cut
+ * short, the reads it ran) goes, from the chat and from the owner's saved
+ * thread, and the question goes out as it did. Only a turn that ran no change
+ * may run again (canRetryLastTurn). It counts as a new turn: the owner's
+ * meter, the visitor's allowance. Resolves false, doing nothing, when it may
+ * not, while a turn is running, or when the chat on screen is the other
+ * profile's; true once the new turn is over.
+ */
+export async function retryLastTurn(opts: StreamOptions): Promise<boolean> {
+  const store = useAgentStore.getState();
+  const visitor = opts.profile === "visitor";
+  if (store.streaming || currentController) return false;
+  if (store.chatProfile !== (visitor ? "visitor" : "owner")) return false;
+  const { messages } = store;
+  const at = lastUserIndex(messages);
+  if (at === -1 || !canRetryLastTurn(messages)) return false;
+  const question = messages[at];
+  const after = messages.slice(at + 1);
+  for (const m of after) store.removeMessage(m.id);
+  // The saved thread loses the same messages: everything after the question,
+  // up to the last of them. A message of the new turn is later than that, so
+  // the delete never takes it, whenever it lands. Best-effort, like every write.
+  const through = latestTime(after);
+  const since = latestTime([question]);
+  if (!visitor && opts.conversationId && after.length > 0 && through && since) {
+    void deleteMessagesBetween(opts.conversationId, since, through);
+  }
+  await runTurn(opts, null);
+  return true;
+}
+
+/**
+ * Run one turn: with `userMsg`, a new question added to the chat (and saved);
+ * with null, the chat's last question again (retryLastTurn).
+ */
+async function runTurn(opts: StreamOptions, userMsg: ChatMessage | null): Promise<void> {
   const store = useAgentStore.getState();
   const visitor = opts.profile === "visitor";
   store.setChatProfile(visitor ? "visitor" : "owner");
@@ -150,6 +493,11 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
     if (opts.signal.aborted) controller.abort();
     else opts.signal.addEventListener("abort", () => controller.abort(), { once: true });
   }
+  // The store stops this turn on Stop, New chat, a thread switch, sign-out and
+  // a profile change, before it swaps the chat out: whatever the turn does
+  // after that is told by its signal.
+  const abortTurn: TurnAbort = () => controller.abort();
+  store.setAbortTurn(abortTurn);
   // A visitor's chat lives in memory only: no conversation to write to.
   const optsWithSignal: StreamOptions = {
     ...opts,
@@ -157,19 +505,13 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
     ...(visitor ? { conversationId: null } : {}),
   };
 
-  const userMsg: ChatMessage = {
-    id: msgId(),
-    role: "user",
-    // The visitor route refuses a longer message, so keep what's shown and
-    // what's sent the same.
-    content: [{ type: "text", text: visitor ? text.slice(0, VISITOR_LIMITS.userChars) : text }],
-    createdAt: new Date().toISOString(),
-  };
-  store.appendMessage(userMsg);
-  store.setError(null);
+  if (userMsg) store.appendMessage(userMsg);
+  store.setNotice(null);
   store.setStreaming(true);
 
-  if (optsWithSignal.conversationId) void appendMessages(optsWithSignal.conversationId, [userMsg]);
+  if (userMsg && optsWithSignal.conversationId) {
+    void appendMessages(optsWithSignal.conversationId, [userMsg]);
+  }
 
   try {
     await (visitor ? runVisitorLoop(optsWithSignal) : runToolUseLoop(optsWithSignal));
@@ -184,15 +526,22 @@ export async function sendUserMessage(text: string, opts: StreamOptions): Promis
     const stopped =
       controller.signal.aborted || (err instanceof Error && err.name === "AbortError");
     if (!stopped) {
-      // A visitor's request that never got through, or an answer whose stream
-      // broke half way (their network, or the route's 30 s without a chunk),
-      // reaches here as the browser's own "Failed to fetch" / "network error".
-      // Say what happened in plain words instead; any text that did arrive
-      // stays. The real error goes to the console, for whoever is looking into it.
-      if (visitor) console.warn("[visitor-ai] the answer stopped:", msg);
-      store.setError(visitor ? VISITOR_STREAM_FAILED_TEXT : msg);
+      // A request that never got through, or an answer whose stream broke
+      // half way (the network, or the route's 30 s without a chunk), reaches
+      // here as the browser's own "Failed to fetch" / "network error", or the
+      // stream's own words ("upstream_idle_timeout"). Say what happened in
+      // plain words instead; any text that did arrive stays. The real error
+      // goes to the console, for whoever is looking into it.
+      console.warn(
+        visitor ? "[visitor-ai] the answer stopped:" : "[agent] the answer stopped:",
+        msg
+      );
+      store.setNotice(asError("stream_failed", NOTICE_TEXT.streamFailed));
     }
   } finally {
+    // The turn is over: the store has nothing of it left to stop (a newer
+    // send's abort, registered since, stays).
+    useAgentStore.getState().clearAbortTurn(abortTurn);
     // Only clear streaming if no newer send has taken over (otherwise we'd flip
     // the flag off mid-stream for that send — see ownsStreamingReset).
     if (ownsStreamingReset(currentController, controller)) {
@@ -275,8 +624,49 @@ async function ownerGrounding(
   }
 }
 
+/** Whether AI Settings holds a GLM key of the owner's own (openStream's BYOK). */
+function hasByokGlm(): boolean {
+  return getActiveConfig()?.provider === "glm";
+}
+
+/**
+ * The owner's backend for this turn, or null when there is none to send to,
+ * and the chat says why: the route has no AI key and AI Settings no GLM key,
+ * or the route couldn't be reached (asked twice: one failed probe is often a
+ * cold start) and there is no key of the owner's to fall back on. The setup
+ * detail goes to the console.
+ */
+async function ownerBackend(signal: AbortSignal | undefined): Promise<ModeProbe | null> {
+  let probe = await detectMode();
+  if (probe.mode === "server" || hasByokGlm()) return probe;
+  if (probe.failed !== undefined) {
+    probe = await detectMode();
+    if (probe.mode === "server") return probe;
+  }
+  if (signal?.aborted) return null;
+  const { failed } = probe;
+  if (failed === undefined) {
+    console.warn(
+      "[agent] no AI key: the agent route has none (GLM_API_KEY on the server) and AI Settings has no GLM key"
+    );
+    useAgentStore.getState().setNotice(asError("no_key", NOTICE_TEXT.noKey));
+  } else {
+    console.warn(`[agent] the agent route's probe failed (${failed || "no answer"})`);
+    useAgentStore
+      .getState()
+      .setNotice(
+        failed === 401 || failed === 403
+          ? asError("signed_out", NOTICE_TEXT.signedOut)
+          : asError("unreachable", NOTICE_TEXT.unreachable)
+      );
+  }
+  return null;
+}
+
 async function runToolUseLoop(opts: StreamOptions): Promise<void> {
-  const { mode, serverModel } = await detectMode();
+  const backend = await ownerBackend(opts.signal);
+  if (!backend) return;
+  const { mode, serverModel } = backend;
   const model = pickModel(mode, serverModel);
   // One canonical id for the prompt, the grounding and the tool selection: a
   // path or slug (as older conversations stored it) resolves to the tool's id.
@@ -312,7 +702,15 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     void recordChatUsage(turnTokens, model);
   };
 
+  // Every message of this turn is saved to the conversation it started in,
+  // whatever the chat shows by the time it lands.
+  const conversationId = opts.conversationId ?? null;
+
   for (let round = 0; round < MAX_TOOL_USE_ROUNDS; round++) {
+    // Stopped, or the chat changed under the turn (New chat, another thread)
+    // while it got ready or between rounds: the chat now showing is not this
+    // turn's to send.
+    if (opts.signal?.aborted) return;
     const history = useAgentStore.getState().messages;
     const messages = wireMessages(history, system);
     const body = withTools(
@@ -330,7 +728,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
 
     // Meter only the first round: a turn's later tool-use rounds are
     // continuations of an already-allowed turn (see the route's x-agent-new-turn).
-    const { stopReason, assistantId } = await openOneTurn(
+    const { stopReason, assistantId, finishReason, cut } = await openOneTurn(
       mode,
       body,
       opts.signal,
@@ -343,13 +741,22 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
       // Without this, reload yields invalid wire format (orphan tool_result
       // blocks referencing tool_call_ids that don't exist in any preceding
       // assistant message).
-      persistAssistant(opts.conversationId, assistantId);
+      persistAssistant(conversationId, assistantId);
+      // An answer that stops short, or none at all (all reasoning, or a call
+      // cut off), says so, as a visitor's does: otherwise the owner can't tell
+      // it from a finished one, or sees nothing. A refusal (no assistantId)
+      // has said why already, and Stop (or the chat moving on) needs nothing.
+      const endNote =
+        assistantId && !opts.signal?.aborted
+          ? roundEndNote(assistantId, finishReason ?? null, cut === true, false)
+          : null;
+      if (endNote) useAgentStore.getState().setNotice(endNote);
       return;
     }
 
     // BUG-G6: persist the assistant message so its tool_call_ids are
     // recoverable on reload, before we append the tool-role response.
-    persistAssistant(opts.conversationId, assistantId);
+    persistAssistant(conversationId, assistantId);
 
     // Collect the tool_use blocks the streaming parser captured — from THIS
     // round's assistant message (looked up by id, not a reverse role scan).
@@ -365,7 +772,17 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
     const toolUses = lastAssistant.content.filter(
       (c): c is ToolUseBlock => c.type === "tool_use" && !isPartialInput(c.input)
     );
-    if (toolUses.length === 0) return;
+    if (toolUses.length === 0) {
+      // Asked for tools, but no call parsed: nothing ran and nothing goes
+      // back. Say so, as a visitor's chat does, rather than end on a raw call:
+      // "no answer" (Try again) without text, "may have been cut off" (Go on)
+      // with it.
+      if (!opts.signal?.aborted) {
+        const note = roundEndNote(lastAssistant.id, null, true, false);
+        if (note) useAgentStore.getState().setNotice(note);
+      }
+      return;
+    }
 
     // Execute each tool_use in order, accumulating results as a single
     // tool-role message. wireMessages will fan this out to one OpenAI
@@ -393,10 +810,17 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
       content: results,
       createdAt: new Date().toISOString(),
     };
+    // The calls were saved with their conversation (above), so their results
+    // go there too, even when the chat moved on while a tool ran or waited for
+    // its card: the saved thread keeps every call answered.
+    if (conversationId) void appendMessages(conversationId, [toolMsg]);
+    // New chat or another thread while a tool ran or waited: the calls are
+    // gone from the chat on screen, so their results would only be strays in
+    // it (and the next request there would fail on them).
+    if (!chatStillHas(lastAssistant.id)) return;
     useAgentStore.getState().appendMessage(toolMsg);
-    if (opts.conversationId) void appendMessages(opts.conversationId, [toolMsg]);
 
-    // Panel closed mid-round: every tool_call now has a result (above), so the
+    // Stopped mid-round: every tool_call now has a result (above), so the
     // transcript is valid — just don't open another streaming round.
     if (opts.signal?.aborted) return;
 
@@ -406,11 +830,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
       if (n >= MAX_SAME_ERROR_REPEATS) wedged = true;
     });
     if (wedged) {
-      useAgentStore
-        .getState()
-        .setError(
-          "An action kept failing the same way; stopping the tool-use loop to avoid burning tokens. Refine your request and try again."
-        );
+      useAgentStore.getState().setNotice(asNote("repeated_failure", NOTICE_TEXT.repeatedFailure));
       return;
     }
   }
@@ -435,6 +855,7 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   // reasoning; then the wrap-up has no text and a local note (roundLimitNote)
   // stands in, so the turn never ends on an empty reply.
   let wrapUpId: string | null = null;
+  if (opts.signal?.aborted) return;
   try {
     const history = useAgentStore.getState().messages;
     const messages = wireMessages(history, `${system}\n\n${WRAP_UP_INSTRUCTION}`);
@@ -460,12 +881,19 @@ async function runToolUseLoop(opts: StreamOptions): Promise<void> {
   } catch {
     /* best-effort wrap-up; the note below stands in for it */
   }
-  // Panel closed: nobody reads a note, so keep only what the model wrote.
-  if (!opts.signal?.aborted) wrapUpId = withWrapUpText(wrapUpId);
-  persistAssistant(opts.conversationId, wrapUpId);
-  useAgentStore
-    .getState()
-    .setError("Reached tool-use round limit (10). Send a follow-up if more is needed.");
+  // Stopped, or the chat changed under the wrap-up: keep only what the model
+  // wrote, and leave no note in a chat that may not be this turn's.
+  if (opts.signal?.aborted) {
+    persistAssistant(conversationId, wrapUpId);
+    return;
+  }
+  // A stand-in keeps to the facts: the notice below says once that a
+  // follow-up carries on, beside its Go on.
+  wrapUpId = withWrapUpText(wrapUpId, MAX_TOOL_USE_ROUNDS, false);
+  persistAssistant(conversationId, wrapUpId);
+  // Replaces whatever the wrap-up's own round said (a refusal of it included):
+  // the turn's end is the round limit, and a follow-up carries on.
+  useAgentStore.getState().setNotice(roundLimitNotice());
 }
 
 /** Stands in for the part of a visitor's text that was cut. */
@@ -691,66 +1119,19 @@ function chatStillHas(id: string): boolean {
 }
 
 /**
- * What a visitor is told when a request fails outright or its stream breaks
- * half way. It may be their connection or the server's side (the route gave up
- * on a silent gateway), so it blames neither.
+ * The note for a round that just ended (see endNoteFor), read from its reply
+ * in the store: settleAssistant has removed a reply with nothing to show.
  */
-const VISITOR_STREAM_FAILED_TEXT =
-  "Amr couldn't finish answering. Try again, and check your connection if it keeps happening.";
-
-/**
- * finish_reasons that mean the reply was stopped before its end by something
- * other than its length: OpenAI's "content_filter", and GLM's own "sensitive"
- * and "network_error" (the model's side failed half way).
- */
-const VISITOR_STOPPED_EARLY: ReadonlySet<string> = new Set([
-  "content_filter",
-  "sensitive",
-  "network_error",
-]);
-
-/**
- * The visitor's note for a round that ended without a usable answer, or with
- * one that stops short, or null. An answer stops short when the model ran out
- * of tokens ("length"), when the route ended it at its time limit
- * (VISITOR_TIME_LIMIT_FINISH), when the model's side stopped it early
- * (VISITOR_STOPPED_EARLY), or when the stream just ended (`cut`: no
- * finish_reason, and either no [DONE], so something between the model and the
- * browser closed it, or an error event of the stream's own).
- */
-function visitorEndNote(
+function roundEndNote(
   assistantId: string,
   finishReason: string | null,
-  cut: boolean
-): string | null {
+  cut: boolean,
+  visitor: boolean
+): ChatNotice | null {
   const msg = useAgentStore.getState().messages.find((m) => m.id === assistantId);
   const hasText = msg?.content.some((c) => c.type === "text" && c.text.trim().length > 0) ?? false;
-  const timeLimit = finishReason === VISITOR_TIME_LIMIT_FINISH;
-  if (!hasText) {
-    // All reasoning and no reply (the reply plus reasoning budget, or the time,
-    // ran out), or a tool call cut off half-way: settleAssistant removed the
-    // empty message.
-    if (finishReason === "length") {
-      return "Amr ran out of room thinking before he could answer. Try a shorter or simpler question.";
-    }
-    if (timeLimit) {
-      return "Amr ran out of time before he could answer. Try a shorter or simpler question.";
-    }
-    return "Amr didn't manage an answer that time. Try asking again.";
-  }
-  if (finishReason === "length") return "Amr's answer was cut short. Ask him to go on.";
-  if (timeLimit) return "Amr ran out of time, so his answer stops here. Ask him to go on.";
-  if (cut || (finishReason !== null && VISITOR_STOPPED_EARLY.has(finishReason))) {
-    return "Amr's answer may have been cut off. Ask him to go on.";
-  }
-  return null;
+  return endNoteFor({ hasText, finishReason, cut, visitor });
 }
-
-/**
- * Shown when this browser has a visitor live room open and Amr asks for a
- * tool, or a room opened while he was using them.
- */
-const LIVE_ROOM_NOTE = "Amr uses no tools while you're in a live room.";
 
 /** The tool id a visitor's request names: a released tool's, never a VIP one. */
 function visitorContextToolId(toolId: string | null | undefined): string | undefined {
@@ -780,7 +1161,7 @@ function visitorContextToolId(toolId: string | null | undefined): string | undef
  *    another (lib/realtime/live-visitor-room.ts), no tools are offered and
  *    none runs: not one offered before the room opened, and not one whose
  *    confirmation was still waiting. The turn stops there with
- *    LIVE_ROOM_NOTE. Amr still answers questions.
+ *    NOTICE_TEXT.liveRoom. Amr still answers questions.
  */
 async function runVisitorLoop(opts: StreamOptions): Promise<void> {
   const toolId = resolvePageTool(opts.toolId)?.id ?? null;
@@ -789,9 +1170,11 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
   const errorRepeats = new Map<string, number>();
 
   for (let round = 0; round < VISITOR_LIMITS.maxToolRounds; round++) {
+    // As for the owner: a stopped turn sends nothing more from the chat now showing.
+    if (opts.signal?.aborted) return;
     const history = trimVisitorHistory(useAgentStore.getState().messages);
     if (overVisitorLimits(history)) {
-      useAgentStore.getState().setError(VISITOR_ERROR_TEXT.round_limit);
+      useAgentStore.getState().setNotice(asNote("round_limit", VISITOR_ERROR_TEXT.round_limit));
       return;
     }
     const tools = buildVisitorTurnTools(rankText, history, toolId);
@@ -813,11 +1196,11 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
       // reply that stops short: the visitor can't tell it from a finished one.
       // A refusal (no assistantId) has already said why, and a visitor who
       // pressed Stop knows.
-      const note =
+      const endNote =
         assistantId && !opts.signal?.aborted
-          ? visitorEndNote(assistantId, finishReason ?? null, cut === true)
+          ? roundEndNote(assistantId, finishReason ?? null, cut === true, true)
           : null;
-      if (note) useAgentStore.getState().setError(note);
+      if (endNote) useAgentStore.getState().setNotice(endNote);
       return;
     }
 
@@ -837,8 +1220,10 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
       // the visitor's message and count as a new one. Stop here instead.
       useAgentStore
         .getState()
-        .setError(
-          live ? LIVE_ROOM_NOTE : "Amr tried something he can't do here. Try asking another way."
+        .setNotice(
+          live
+            ? asNote("live_room", NOTICE_TEXT.liveRoom)
+            : asNote("cant_do_here", NOTICE_TEXT.cantDoHere)
         );
       return;
     }
@@ -881,7 +1266,7 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
     // offer no tools, so it would leave this round's calls out and end on the
     // visitor's message, which counts as a new one. Stop and say why instead.
     if (inLiveVisitorRoom()) {
-      useAgentStore.getState().setError(LIVE_ROOM_NOTE);
+      useAgentStore.getState().setNotice(asNote("live_room", NOTICE_TEXT.liveRoom));
       return;
     }
 
@@ -890,38 +1275,46 @@ async function runVisitorLoop(opts: StreamOptions): Promise<void> {
       if (n >= MAX_SAME_ERROR_REPEATS) wedged = true;
     });
     if (wedged) {
-      useAgentStore
-        .getState()
-        .setError("An action kept failing the same way, so Amr stopped. Try asking another way.");
+      useAgentStore.getState().setNotice(asNote("repeated_failure", NOTICE_TEXT.repeatedFailure));
       return;
     }
   }
 
   // Every round ran tools: say what happened instead of asking for a wrap-up.
-  if (!opts.signal?.aborted) withWrapUpText(null, VISITOR_LIMITS.maxToolRounds);
+  // The stand-in says it once, with its follow-up line, and no notice repeats
+  // it: a visitor's round_limit offers no Go on (notice-actions).
+  if (opts.signal?.aborted) return;
+  withWrapUpText(null, VISITOR_LIMITS.maxToolRounds);
 }
 
 /**
  * The note shown when a round-limit turn's wrap-up wrote no text: how many
  * tool calls this turn ran and which actions failed, read from the transcript
- * since the last user message. Exported for tests.
+ * since the last user message. It is narration about Amr, in the third
+ * person, not his own words. `followUp` ends it with the line that a
+ * follow-up carries on; the owner's turn leaves that to its round-limit
+ * notice, so the chat says it once. Exported for tests.
  */
 export function roundLimitNote(
   messages: ChatMessage[],
-  rounds: number = MAX_TOOL_USE_ROUNDS
+  rounds: number = MAX_TOOL_USE_ROUNDS,
+  followUp = true
 ): string {
-  const turn = messages.slice(messages.map((m) => m.role).lastIndexOf("user") + 1);
-  const actionOf = new Map<string, string>();
-  for (const m of turn) {
-    if (m.role !== "assistant") continue;
-    for (const c of m.content) {
-      if (c.type === "tool_use") actionOf.set(c.id, registry.resolve(c.name)?.id ?? c.name);
-    }
-  }
+  const turn = messages.slice(lastUserIndex(messages) + 1);
+  // As in canRetryLastTurn, each result is named from the calls of the
+  // assistant message just before it: an id can come back in a later round.
+  let actionOf = new Map<string, string>();
   let ran = 0;
   let failed = 0;
   const failedActions = new Set<string>();
   for (const m of turn) {
+    if (m.role === "assistant") {
+      actionOf = new Map();
+      for (const c of m.content) {
+        if (c.type === "tool_use") actionOf.set(c.id, registry.resolve(c.name)?.id ?? c.name);
+      }
+      continue;
+    }
     if (m.role !== "tool") continue;
     for (const c of m.content) {
       if (c.type !== "tool_result") continue;
@@ -939,20 +1332,29 @@ export function roundLimitNote(
       : `${failed} failed (${Array.from(failedActions)
           .map((a) => `\`${a}\``)
           .join(", ")})`;
-  return `I used all ${rounds} tool rounds for this request before I could write a summary. This turn ran ${calls}; ${failures}. Send a follow-up and I'll carry on from there.`;
+  const facts = `Amr used all ${rounds} tool rounds for this request before he could sum up. This turn ran ${calls}; ${failures}.`;
+  return followUp ? `${facts} Send a follow-up and he'll carry on.` : facts;
 }
 
 /**
  * The wrap-up's message id, made to carry text: its own when the model wrote
  * some, otherwise roundLimitNote — in the wrap-up's message if it is still
  * there, or in a new assistant message when the wrap-up never made one (it
- * failed, or settleAssistant removed it as empty).
+ * failed, or settleAssistant removed it as empty). `followUp` as for
+ * roundLimitNote.
  */
-function withWrapUpText(assistantId: string | null, rounds: number = MAX_TOOL_USE_ROUNDS): string {
+function withWrapUpText(
+  assistantId: string | null,
+  rounds: number = MAX_TOOL_USE_ROUNDS,
+  followUp = true
+): string {
   const store = useAgentStore.getState();
   const msg = assistantId ? store.messages.find((m) => m.id === assistantId) : undefined;
   if (msg?.content.some((c) => c.type === "text" && c.text.trim().length > 0)) return msg.id;
-  const note: ContentBlock[] = [{ type: "text", text: roundLimitNote(store.messages, rounds) }];
+  // Narration, not Amr's words: marked, so the chat draws it as a caption.
+  const note: ContentBlock[] = [
+    { type: "text", text: roundLimitNote(store.messages, rounds, followUp), note: true },
+  ];
   if (msg) {
     store.patchMessage(msg.id, note);
     return msg.id;
@@ -996,6 +1398,13 @@ interface TurnOutcome {
  * `ignoreToolCalls` (the wrap-up turn) keeps only the text: tool-call deltas
  * are dropped and the turn always ends, so no tool_call is left in the
  * transcript without a result.
+ *
+ * The reply is written by its id only (the store's streamingMessageId points
+ * at it while it streams), so a chat that changed under the turn never gets
+ * it. Writes are coalesced to one per animation frame (frameFlusher), and the
+ * final state is written at once when the stream ends, before the reply is
+ * settled. A round that was stopped never ends in "tool_use": its calls are
+ * dropped unrun with it.
  */
 async function openOneTurn(
   mode: AgentMode,
@@ -1010,11 +1419,17 @@ async function openOneTurn(
   const early =
     mode === "visitor"
       ? await handleVisitorResponse(response, signal)
-      : await handleOwnerResponse(response);
+      : await handleOwnerResponse(response, signal, mode);
   if (early) return early;
   // Both checks end the round on a response without a body; this only narrows the type.
   const stream = response.body;
   if (!stream) return { stopReason: "end_turn", assistantId: null };
+  // Stopped (or the chat changed) while the response was on its way: no reply
+  // goes into the chat now showing, not even an empty one for a moment.
+  if (signal?.aborted) {
+    void stream.cancel().catch(() => {});
+    return { stopReason: "end_turn", assistantId: null };
+  }
 
   const assistantMsg: ChatMessage = {
     id: msgId(),
@@ -1022,7 +1437,9 @@ async function openOneTurn(
     content: [],
     createdAt: new Date().toISOString(),
   };
-  useAgentStore.getState().appendMessage(assistantMsg);
+  const store = useAgentStore.getState();
+  store.appendMessage(assistantMsg);
+  store.setStreamingMessageId(assistantMsg.id);
 
   // OpenAI / GLM streaming parser:
   //   data: {"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}
@@ -1038,10 +1455,12 @@ async function openOneTurn(
   /** Text accumulates as a single content block (OpenAI emits one
    *  content stream, not multiple addressable blocks like Anthropic). */
   const wip: WipState = {
-    textParts: [],
+    text: "",
     toolCalls: new Map(),
     ignoreToolCalls: turnOpts.ignoreToolCalls === true,
+    dirty: false,
   };
+  const flusher = frameFlusher(() => flushAssistant(wip, assistantMsg.id));
 
   // BUG-G8: release the body's reader lock in finally so the stream
   // doesn't sit half-locked until GC after we return.
@@ -1083,7 +1502,7 @@ async function openOneTurn(
         buf = buf.slice(nl + 2);
         const sr = handleSseChunk(chunk, wip);
         if (sr) stopReason = sr;
-        flushAssistant(wip);
+        if (wip.dirty) flusher.schedule();
       }
     }
     // Tail flush in case the server closed without a trailing \n\n.
@@ -1091,10 +1510,12 @@ async function openOneTurn(
       const sr = handleSseChunk(buf, wip);
       if (sr) stopReason = sr;
     }
-    flushAssistant(wip);
+    // The stream is over: every call's arguments are as whole as they will get.
+    closeToolCalls(wip);
+    flusher.flush();
     // Usage is optional: a backend that never sends it just records nothing.
     if (wip.usage !== undefined && wip.usage > 0) onUsage?.(wip.usage);
-    if (wip.ignoreToolCalls) stopReason = "end_turn";
+    if (wip.ignoreToolCalls || signal?.aborted) stopReason = "end_turn";
     settleAssistant(assistantMsg.id, stopReason === "tool_use");
     return {
       stopReason,
@@ -1105,10 +1526,15 @@ async function openOneTurn(
   } catch (err) {
     // The stream failed mid-way, before its [DONE] (network error, the route's
     // idle timeout), or was stopped: whatever tool call it carried never gets
-    // a result.
+    // a result. What did arrive is written first, so the text stays.
+    flusher.flush();
     settleAssistant(assistantMsg.id, false);
     throw err;
   } finally {
+    // No frame may write after the reply was settled.
+    flusher.cancel();
+    const s = useAgentStore.getState();
+    if (s.streamingMessageId === assistantMsg.id) s.setStreamingMessageId(null);
     try {
       reader.releaseLock();
     } catch {
@@ -1117,64 +1543,94 @@ async function openOneTurn(
   }
 }
 
+/** How long a write waits when no animation frame will come (a hidden tab, or no rAF). */
+const HIDDEN_FLUSH_MS = 50;
+
+interface Flusher {
+  /** Write on the next animation frame (or after HIDDEN_FLUSH_MS); one write however often it's asked. */
+  schedule(): void;
+  /** Write now, instead of the one waiting. */
+  flush(): void;
+  /** Drop the write that is waiting. */
+  cancel(): void;
+}
+
+/**
+ * Coalesce a stream's writes to the store to one per animation frame. A tab
+ * that is hidden gets no frames, so a timer stands in, also for a frame asked
+ * for before the tab was hidden; whichever comes first writes.
+ */
+function frameFlusher(write: () => void): Flusher {
+  let frame: number | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const cancel = () => {
+    if (frame !== null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
+    if (timer !== null) clearTimeout(timer);
+    frame = null;
+    timer = null;
+  };
+  const flush = () => {
+    cancel();
+    write();
+  };
+  return {
+    schedule() {
+      const hidden = typeof document !== "undefined" && document.hidden;
+      if (!hidden && typeof requestAnimationFrame === "function") {
+        if (frame === null && timer === null) frame = requestAnimationFrame(flush);
+        return;
+      }
+      if (timer === null) timer = setTimeout(flush, HIDDEN_FLUSH_MS);
+    },
+    flush,
+    cancel,
+  };
+}
+
+/**
+ * The error code a refusal's JSON body names (`{"error": "…"}`), or null when
+ * the body is not JSON or names none.
+ */
+function refusalCode(body: string): string | null {
+  try {
+    const json = JSON.parse(body) as { error?: unknown } | null;
+    return typeof json?.error === "string" ? json.error : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The owner's response checks, before its stream is read: update the usage bar
  * from the route's X-RateLimit-* headers (server mode, turn start), and turn a
- * refusal into a message. Returns the round's outcome when it ends here, or
- * null to read the stream.
+ * refusal into a notice in plain words (ownerRefusalNotice), with its status
+ * and body for the console only. Returns the round's outcome when it ends
+ * here, or null to read the stream. A refusal that lands after the turn was
+ * stopped says nothing: the chat on screen may not be this turn's any more.
  */
-async function handleOwnerResponse(response: Response): Promise<TurnOutcome | null> {
-  // A 429 means a window cap was hit — surface it gently and stop the loop
-  // instead of throwing the generic "stream failed" error.
-  const rl = parseRateLimitHeaders(response.headers, response.status === 429);
-  if (rl) useAgentStore.getState().setRateLimit(rl);
-  if (response.status === 429) {
-    useAgentStore
-      .getState()
-      .setError("You've reached the agent usage limit for now. Please try again later.");
-    return { stopReason: "end_turn", assistantId: null };
+async function handleOwnerResponse(
+  response: Response,
+  signal: AbortSignal | undefined,
+  mode: AgentMode
+): Promise<TurnOutcome | null> {
+  const store = useAgentStore.getState();
+  if (response.ok && response.body) {
+    const rl = parseRateLimitHeaders(response.headers);
+    if (rl) store.setRateLimit(rl);
+    return null;
   }
-
-  if (!response.ok || !response.body) {
-    const detail = await response.text().catch(() => "");
-    // Map the common upstream failures to a message a user can act on, instead
-    // of dumping the raw `agent stream failed (NNN): {json}` developer string
-    // into the chat's error banner.
-    const friendly =
-      response.status === 413
-        ? "That request was too large for the agent. Start a new conversation or shorten your message, then try again."
-        : response.status === 401 || response.status === 403
-          ? "The agent could not authenticate. Try signing out and back in."
-          : response.status >= 500
-            ? "The assistant is temporarily unavailable. Please try again in a moment."
-            : null;
-    if (friendly) {
-      useAgentStore.getState().setError(friendly);
-      return { stopReason: "end_turn", assistantId: null };
-    }
-    throw new Error(`agent stream failed (${response.status}): ${detail.slice(0, 200)}`);
-  }
-  return null;
+  const detail = await response.text().catch(() => "");
+  const code = refusalCode(detail);
+  // A 429 of the route's own means a window cap was hit; one the gateway
+  // behind it passed on ("upstream") is the AI service being busy.
+  const limited = response.status === 429 && code !== "upstream";
+  const rl = parseRateLimitHeaders(response.headers, limited);
+  if (rl) store.setRateLimit(rl);
+  if (signal?.aborted) return { stopReason: "end_turn", assistantId: null };
+  console.warn(`[agent] the request was refused (${response.status}):`, detail.slice(0, 200));
+  store.setNotice(ownerRefusalNotice(response.status, mode === "client", code));
+  return { stopReason: "end_turn", assistantId: null };
 }
-
-/** What a visitor is told for each refusal the visitor route can send. */
-const VISITOR_ERROR_TEXT: Record<VisitorErrorCode, string> = {
-  disabled: "Amr's AI is switched off right now.",
-  forbidden: "That request didn't come from this site, so Amr couldn't answer it.",
-  slow_down: "That's a lot of messages at once. Wait a few seconds, then try again.",
-  too_large: "That conversation got too long to send. Clear the chat and ask again.",
-  bad_request: "Amr couldn't read that request. Clear the chat and try again.",
-  round_limit: "That took Amr too many steps. Ask again in smaller pieces.",
-  meter_unavailable: "Amr can't check today's message count right now.",
-  visitor_limit: "You've used all of today's messages with Amr.",
-  visitor_peak_limit: "You've used all your messages for these busy hours.",
-  site_limit: "Amr has answered all he can for today.",
-  site_peak_limit: "Amr has answered all he can for these busy hours.",
-  site_busy: "Amr is too busy to answer right now.",
-  upstream_busy: "Amr's AI service is busy. Try again in a minute.",
-  upstream_error: "Amr's AI service hit an error. Try again in a moment.",
-  timeout: "Amr's AI service took too long to answer. Try again in a moment.",
-};
 
 function isVisitorErrorCode(v: unknown): v is VisitorErrorCode {
   return typeof v === "string" && Object.prototype.hasOwnProperty.call(VISITOR_ERROR_TEXT, v);
@@ -1186,11 +1642,11 @@ function isVisitorErrorCode(v: unknown): v is VisitorErrorCode {
  * response without them keeps the last one). A refusal whose code means "no
  * more AI for now" (VISITOR_FALLBACK_CODES) sets visitorFallback, so the panel
  * goes back to the tool finder; every other refusal (a busy or failing AI
- * service, a timeout, a bad request) only shows an error. A visitor who
- * pressed Stop while the refusal was still arriving is told nothing: they know
- * why there is no answer, and the abort has usually taken the refusal's reason
- * with it. Returns the round's outcome when it ends here, or null to read the
- * stream.
+ * service, a timeout, a bad request) only shows a notice (visitorRefusalNotice).
+ * A visitor who pressed Stop while the refusal was still arriving is told
+ * nothing: they know why there is no answer, and the abort has usually taken
+ * the refusal's reason with it. Returns the round's outcome when it ends here,
+ * or null to read the stream.
  */
 async function handleVisitorResponse(
   response: Response,
@@ -1209,32 +1665,43 @@ async function handleVisitorResponse(
     /* not JSON: fall back to the status below */
   }
   if (signal?.aborted) return { stopReason: "end_turn", assistantId: null };
-  if (code && VISITOR_FALLBACK_CODES.has(code)) {
-    store.setVisitorFallback(code);
-    store.setError(VISITOR_ERROR_TEXT[code]);
-    return { stopReason: "end_turn", assistantId: null };
-  }
-  const text = code
-    ? VISITOR_ERROR_TEXT[code]
-    : response.status >= 500
-      ? VISITOR_ERROR_TEXT.upstream_error
-      : `Amr couldn't answer that (error ${response.status}). Try again in a moment.`;
-  store.setError(text);
+  const fallback = !!code && VISITOR_FALLBACK_CODES.has(code);
+  if (fallback) store.setVisitorFallback(code);
+  // A refusal with no code of the route's own: its status is for the console.
+  if (!code) console.warn(`[visitor-ai] the request was refused (${response.status})`);
+  // "No more AI for now" is said by what takes the composer's place (the
+  // read-only footer) or the guide's note, so the chat's announcer stays quiet.
+  // The notice stays, for Amr's look and for what clears it by its kind.
+  const notice = visitorRefusalNotice(code, response.status);
+  store.setNotice(fallback ? { ...notice, quiet: true } : notice);
   return { stopReason: "end_turn", assistantId: null };
 }
 
 interface WipToolCall {
   id: string;
   name: string;
+  /** The arguments JSON as streamed so far: kept here, never in the store. */
   jsonAccum: string;
+  /**
+   * The call's block is over (a later call started, the stream finished or
+   * ended): `input` holds its arguments, parsed once. A call that streams
+   * more after that opens again.
+   */
+  closed: boolean;
+  input: Record<string, unknown>;
+  /** The block last written to the store, kept while nothing about it changes. */
+  block: ToolUseBlock | null;
 }
 
 interface WipState {
-  textParts: string[];
+  /** The reply's text so far. */
+  text: string;
   /** Keyed by the streaming index (NOT the registry id). OpenAI emits
    *  tool_calls in sparse order — each chunk targets an index that
    *  refers back to the same call as previous chunks. */
   toolCalls: Map<number, WipToolCall>;
+  /** Something the store shows changed since the last write. */
+  dirty: boolean;
   /** Total tokens from the stream's usage, if any chunk carried it. */
   usage?: number;
   /** Drop tool-call deltas (the wrap-up turn keeps only text). */
@@ -1330,26 +1797,49 @@ function handleSseChunk(raw: string, wip: WipState): string | null {
 
   // Text deltas.
   if (typeof delta.content === "string" && delta.content.length > 0) {
-    wip.textParts.push(delta.content);
+    wip.text += delta.content;
+    wip.dirty = true;
   }
 
   // Tool-call deltas. Each entry refers to a specific call by index;
-  // we accumulate `id`, `name`, and a JSON string for `arguments`.
+  // we accumulate `id`, `name`, and a JSON string for `arguments`. The
+  // arguments are parsed once, when the call's block closes, never per chunk.
   if (Array.isArray(delta.tool_calls) && !wip.ignoreToolCalls) {
     for (const tc of delta.tool_calls) {
-      const existing = wip.toolCalls.get(tc.index) ?? {
-        id: "",
-        name: "",
-        jsonAccum: "",
-      };
-      if (tc.id) existing.id = tc.id;
-      if (tc.function?.name) existing.name = tc.function.name;
-      if (tc.function?.arguments) existing.jsonAccum += tc.function.arguments;
-      wip.toolCalls.set(tc.index, existing);
+      let call = wip.toolCalls.get(tc.index);
+      if (!call) {
+        call = { id: "", name: "", jsonAccum: "", closed: false, input: {}, block: null };
+        wip.toolCalls.set(tc.index, call);
+        wip.dirty = true;
+      }
+      if (tc.id && tc.id !== call.id) {
+        call.id = tc.id;
+        call.block = null;
+        wip.dirty = true;
+      }
+      if (tc.function?.name && tc.function.name !== call.name) {
+        call.name = tc.function.name;
+        call.block = null;
+        wip.dirty = true;
+      }
+      if (tc.function?.arguments) {
+        call.jsonAccum += tc.function.arguments;
+        // More of a call already taken as whole (a gateway that interleaves).
+        if (call.closed) {
+          call.closed = false;
+          call.block = null;
+          wip.dirty = true;
+        }
+      }
+      // Calls stream one after another, so one that starts ends those before it.
+      wip.toolCalls.forEach((other, i) => {
+        if (i < tc.index) closeToolCall(other, wip);
+      });
     }
   }
 
   if (choice.finish_reason) {
+    closeToolCalls(wip);
     // The visitor route ends a too-long answer with its own "time_limit". When
     // its clock ran out between the model's finish and [DONE], the answer (or
     // its tool calls) was already complete: keep the model's finish.
@@ -1414,34 +1904,68 @@ function settleAssistant(id: string, keepToolCalls: boolean): void {
   else if (content.length !== msg.content.length) store.patchMessage(id, content);
 }
 
-function flushAssistant(wip: WipState): void {
+/**
+ * A tool call's arguments, parsed once its block is over. Arguments that
+ * don't parse to an object (cut off, or not JSON) keep the `_partial` marker:
+ * such a call is never run and never sent back (see isPartialInput).
+ */
+function parseToolArguments(json: string): Record<string, unknown> {
+  if (!json) return {};
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (parsed === null) return {};
+    if (typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* cut off, or not JSON */
+  }
+  return { _partial: true };
+}
+
+/** Close one call's block: its arguments are as whole as they will get. */
+function closeToolCall(call: WipToolCall, wip: WipState): void {
+  if (call.closed) return;
+  call.closed = true;
+  call.input = parseToolArguments(call.jsonAccum);
+  call.block = null;
+  wip.dirty = true;
+}
+
+/** Close every call's block (the stream finished or ended). */
+function closeToolCalls(wip: WipState): void {
+  wip.toolCalls.forEach((call) => closeToolCall(call, wip));
+}
+
+/**
+ * Write the reply so far to its own message, by id: a chat that no longer
+ * holds it (New chat, another thread) gets nothing. A call whose block is
+ * still open shows the cheap `{_partial: true}` marker instead of its
+ * arguments; each block is built once and kept while nothing about it
+ * changes.
+ */
+function flushAssistant(wip: WipState, id: string): void {
+  if (!wip.dirty) return;
+  wip.dirty = false;
   const content: ContentBlock[] = [];
-  const text = wip.textParts.join("");
-  if (text.length > 0) {
-    content.push({ type: "text", text });
+  if (wip.text.length > 0) {
+    content.push({ type: "text", text: wip.text });
   }
   // Tool calls in stream-index order.
   const indices = Array.from(wip.toolCalls.keys()).sort((a, b) => a - b);
   for (const i of indices) {
     const tc = wip.toolCalls.get(i);
     if (!tc) continue;
-    let input: Record<string, unknown> = {};
-    if (tc.jsonAccum) {
-      try {
-        input = JSON.parse(tc.jsonAccum);
-      } catch {
-        // Mid-stream — render the partial JSON so the UI shows progress.
-        input = { _partial: tc.jsonAccum };
-      }
-    }
-    content.push({
+    tc.block ??= {
       type: "tool_use",
       id: tc.id || `tc_${i}`,
       name: tc.name,
-      input,
-    });
+      input: tc.closed ? tc.input : { _partial: true },
+    };
+    content.push(tc.block);
   }
-  useAgentStore.getState().patchLastAssistant(content);
+  if (!chatStillHas(id)) return;
+  useAgentStore.getState().patchMessage(id, content);
 }
 
 async function openStream(
@@ -1505,6 +2029,11 @@ type AgentMode = "server" | "client" | "visitor";
 interface ModeProbe {
   mode: AgentMode;
   serverModel: string | null;
+  /**
+   * The probe failed (then mode is "client", the fallback): the status it was
+   * refused with, or 0 when it got no answer at all.
+   */
+  failed?: number;
 }
 
 /**
@@ -1516,8 +2045,10 @@ interface ModeProbe {
 let cachedProbe: ModeProbe | null = null;
 async function detectMode(): Promise<ModeProbe> {
   if (cachedProbe) return cachedProbe;
+  let failed = 0;
   try {
     const res = await fetch("/api/agent/stream", { method: "GET" });
+    failed = res.status;
     if (res.ok) {
       const json = (await res.json()) as { mode?: string; model?: string | null };
       cachedProbe = {
@@ -1533,7 +2064,9 @@ async function detectMode(): Promise<ModeProbe> {
   // whole page session to BYOK after one cold-start 502 / transient offline /
   // expired session, throwing "No GLM key available…" on every send until a
   // reload. `use-agent-backend.ts` caches on success only for the same reason.
-  return { mode: "client", serverModel: null };
+  // `failed` lets an owner's turn with no key of its own ask once more, and
+  // then say the server couldn't be reached rather than that no key is set.
+  return { mode: "client", serverModel: null, failed };
 }
 
 function pickModel(mode: AgentMode, serverModel: string | null): string {
@@ -1556,12 +2089,23 @@ function pickModel(mode: AgentMode, serverModel: string | null): string {
  *
  * The system prompt becomes the first message (OpenAI doesn't have a
  * separate `system` field like Anthropic).
+ *
+ * Every tool_call goes out with its result, and every result with its call:
+ * a call is sent only when a tool message right after its assistant message
+ * answers it, and a result only when it answers a call of the assistant
+ * message just before it. An orphan either way (a turn stopped between the
+ * two, a thread saved before this rule, an id a gateway reused in a later
+ * round) is left out, since the endpoint rejects the whole request over it.
  */
 function wireMessages(messages: ChatMessage[], system: string): Array<Record<string, unknown>> {
   const out: Array<Record<string, unknown>> = [{ role: "system", content: system }];
+  /** The calls of the assistant message just sent, still waiting for their results. */
+  let pending = new Set<string>();
 
-  for (const m of messages) {
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
     if (m.role === "user") {
+      pending = new Set();
       const text = m.content
         .filter((c): c is { type: "text"; text: string } => c.type === "text")
         .map((c) => c.text)
@@ -1571,6 +2115,8 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
     }
 
     if (m.role === "assistant") {
+      const answered = resultIdsAfter(messages, i);
+      const sent = new Set<string>();
       const textParts: string[] = [];
       const toolCalls: Array<{
         id: string;
@@ -1584,10 +2130,12 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
           // (length-truncated mid-stream). Re-serialising the partial JSON
           // string as `arguments` causes the next turn to send an orphan
           // tool_call that the API rejects with 400. (Their tool_results are
-          // never produced either — see BUG-H1 in runToolUseLoop.)
-          if (isPartialInput(c.input)) {
+          // never produced either — see BUG-H1 in runToolUseLoop.) A call
+          // with no result after it, or one already sent, goes the same way.
+          if (isPartialInput(c.input) || !answered.has(c.id) || sent.has(c.id)) {
             continue;
           }
+          sent.add(c.id);
           const input = (c.input ?? {}) as Record<string, unknown>;
           toolCalls.push({
             id: c.id,
@@ -1602,6 +2150,7 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
           });
         }
       }
+      pending = sent;
       const msg: Record<string, unknown> = { role: "assistant" };
       msg.content = textParts.join("") || null;
       if (toolCalls.length > 0) msg.tool_calls = toolCalls;
@@ -1615,9 +2164,10 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
       continue;
     }
 
-    // role "tool" — fan out one OpenAI tool message per result block.
+    // role "tool" — fan out one OpenAI tool message per result block that
+    // answers a call just sent (each once).
     for (const c of m.content) {
-      if (c.type !== "tool_result") continue;
+      if (c.type !== "tool_result" || !pending.delete(c.tool_use_id)) continue;
       const content =
         typeof c.content === "string" ? c.content : c.content.map((b) => b.text).join("");
       out.push({
@@ -1631,8 +2181,18 @@ function wireMessages(messages: ChatMessage[], system: string): Array<Record<str
   return out;
 }
 
-function makeConfirmHandler(block: ToolUseBlock): (summary: string) => Promise<boolean> {
-  return async (summary: string) => {
+/** The ids the tool messages right after `messages[i]` answer (until the next other message). */
+function resultIdsAfter(messages: ChatMessage[], i: number): Set<string> {
+  const ids = new Set<string>();
+  for (let j = i + 1; j < messages.length && messages[j].role === "tool"; j++) {
+    for (const c of messages[j].content) if (c.type === "tool_result") ids.add(c.tool_use_id);
+  }
+  return ids;
+}
+
+/** The confirm card's handler for one call: it shows `prompt` (execute-tool's words) and waits for the answer. */
+function makeConfirmHandler(block: ToolUseBlock): (prompt: ConfirmPrompt) => Promise<boolean> {
+  return async (prompt: ConfirmPrompt) => {
     const store = useAgentStore.getState();
     return await new Promise<boolean>((resolve) => {
       const dotted = registry.resolve(block.name)?.id ?? block.name;
@@ -1652,7 +2212,7 @@ function makeConfirmHandler(block: ToolUseBlock): (summary: string) => Promise<b
         actionId: block.name,
         resolvedActionId: dotted,
         input: block.input,
-        summary,
+        prompt,
         resolve: settle,
       });
     });
@@ -1764,7 +2324,7 @@ export async function generateTitle(
         {
           role: "system",
           content:
-            "You title conversations. Reply with ONLY a 3-6 word title — no quotes, no preamble, no trailing punctuation.",
+            "You title conversations. Reply with only a 3 to 6 word title, with no quotes, no preamble and no trailing punctuation.",
         },
         {
           role: "user",

@@ -7,6 +7,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { navPathname } from "@/lib/comics/entry";
 import { usePersisted } from "@/lib/utils/use-persisted";
+import { APP_RAIL_EVENT, APP_RAIL_VAR } from "@/lib/layout/amr-sheet";
 import { getToolById, getToolByPath, type ToolDefinition } from "@/lib/constants/tools";
 import { isVipHidden } from "@/lib/tools/catalog";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
@@ -269,6 +270,26 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
     else aside.removeAttribute("inert");
   }, [isDesktop, mobileOpen]);
 
+  // From md Amr stands clear of the rail on his left: its right edge goes on
+  // <html> as it pins, widens on hover or meets a notch (lib/layout/amr-sheet).
+  useEffect(() => {
+    const aside = asideRef.current;
+    if (!isDesktop || !aside || typeof ResizeObserver !== "function") return;
+    const root = document.documentElement.style;
+    const ro = new ResizeObserver(() => {
+      const { right, width } = aside.getBoundingClientRect();
+      // Not drawn (presentation mode hides it): no rail.
+      if (width) root.setProperty(APP_RAIL_VAR, `${right}px`);
+      else root.removeProperty(APP_RAIL_VAR);
+      document.dispatchEvent(new Event(APP_RAIL_EVENT));
+    });
+    ro.observe(aside, { box: "border-box" });
+    return () => {
+      ro.disconnect();
+      root.removeProperty(APP_RAIL_VAR);
+    };
+  }, [isDesktop]);
+
   useEffect(() => {
     if (!mobileOpen) return;
     if (typeof document === "undefined") return;
@@ -353,9 +374,12 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         // overlay. Leaving the area collapses back to the rail. We don't
         // change `collapsed` itself so the user's pinned preference is
         // preserved. Touch users get no hover effect — they can pin via
-        // the chevron at the bottom, or use the mobile drawer flow.
+        // the chevron at the bottom, or use the mobile drawer flow. Not
+        // with a button held either: a mouse carrying something past the
+        // rail (Amr in a drag, a text selection) leaves it still, so Amr is
+        // never carried under it and lands clear of it.
         onPointerEnter={(e) => {
-          if (e.pointerType === "mouse" && collapsed) setHoverExpanded(true);
+          if (e.pointerType === "mouse" && !e.buttons && collapsed) setHoverExpanded(true);
         }}
         onPointerLeave={() => setHoverExpanded(false)}
         className={cn(
