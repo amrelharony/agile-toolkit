@@ -7,6 +7,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { TestSession } from "@/lib/stores/workspace-types";
 import { TEST_SESSIONS_ACTIONS } from "@/lib/history/event-actions";
 import { countdown, useDockTimer } from "@/lib/timer/dock-timer";
+import { VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION } from "@/lib/visitor-ai/consent";
 
 /**
  * Test Sessions on workspace.testSessions: planning from a charter (nothing
@@ -133,6 +134,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
 });
 
 describe("an empty page and the example", () => {
@@ -207,6 +209,45 @@ describe("planning", () => {
     });
     undoLast();
     expect(sessions()).toEqual([]);
+  });
+
+  it("shows an AI charter at the length Plan will make, the nearest the form offers", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+    localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            source: "ai",
+            data: {
+              charters: [
+                {
+                  target: "Saved addresses",
+                  using: "a long list",
+                  toLearn: "how the list scrolls",
+                  minutes: 240,
+                  why: "Lists that grow break first.",
+                },
+              ],
+            },
+          }),
+          { status: 200 }
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    renderPage();
+    await screen.findByText(/No sessions yet/);
+    fireEvent.change(screen.getByRole("textbox", { name: /^Look at…/ }), {
+      target: { value: "Saved addresses" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Ask Amr for charters" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(within(list).getByText("2 hours. Lists that grow break first.")).toBeInTheDocument();
+    expect(within(list).queryByText(/4 hours/)).toBeNull();
+    fireEvent.click(within(list).getByRole("button", { name: /^Plan/ }));
+    expect(sessions()[0]).toMatchObject({ minutes: 120, status: "planned" });
   });
 
   it("asks for a target before suggesting", async () => {

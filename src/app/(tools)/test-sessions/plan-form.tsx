@@ -23,6 +23,7 @@ import {
   CHARTER_LABEL,
   EMPTY_CHARTER_DRAFT,
   SESSION_LENGTHS,
+  nearestLength,
   validateCharter,
   type CharterDraft,
   type CharterValues,
@@ -232,7 +233,8 @@ export const PlanForm = forwardRef<
           acceptLabel="Plan"
           render={(c) => ({
             title: `Look at ${c.target}, using ${c.using}, to learn ${c.toLearn}`,
-            detail: `${lengthText(c.minutes)}. ${c.why}`,
+            // The length Plan makes: the nearest one the form offers.
+            detail: `${lengthText(nearestLength(c.minutes))}. ${c.why}`,
           })}
           onAccept={(c) => onAccept(c, draft)}
           onDismiss={() => setIdeas(null)}
