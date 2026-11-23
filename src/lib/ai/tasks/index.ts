@@ -14,6 +14,7 @@ import { interruptClassifyTask } from "./interrupt-buffer";
 import { meetingAuditSuggestTask } from "./meeting-audit";
 import { parkingRouteTask } from "./parking-lot";
 import { themeNamesTask } from "./picker";
+import { pokerSimilarTask } from "./planning-poker";
 import { productGoalDraftTask } from "./product-goal";
 import { groupTopicsTask, surprisePlanTask } from "./retro";
 import { retroActionsThemesTask } from "./retro-actions";
@@ -37,6 +38,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   meetingAuditSuggestTask,
   parkingRouteTask,
   themeNamesTask,
+  pokerSimilarTask,
   productGoalDraftTask,
   surprisePlanTask,
   groupTopicsTask,
