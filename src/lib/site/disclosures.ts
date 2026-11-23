@@ -85,6 +85,18 @@ export const WALL_ROOM_CONSENT_TEXT =
   "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
   "Share the link only with your team.";
 
+// ── Estimate without a meeting (app/(tools)/planning-poker/async/estimate-view.tsx)
+
+/**
+ * The header of the estimator's page, /planning-poker/estimate. `{name}` is
+ * the facilitator's name from the link (the page puts "the facilitator" when
+ * the link has none). The facilitator's page drops names and notes when the
+ * round closes, or 14 days after its due day (lib/estimation/async-rounds,
+ * POKER_ASYNC_MAX.keepDays). The wording is a draft the owner approves.
+ */
+export const ASYNC_ESTIMATE_NOTICE =
+  "Made in Planning Poker by {name}. Nothing you pick leaves this page until you copy your reply. If you send it, {name}'s toolkit keeps your name, cards and notes until the round closes, at most 14 days after it's due.";
+
 // ── Amr's AI for visitors ──────────────────────────────────────────────────
 // The card in the mascot panel (components/agent/mascot/visitor-ai-consent.tsx)
 // and the compact one before a tool's first Ask Amr
