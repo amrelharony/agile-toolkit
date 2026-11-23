@@ -766,6 +766,25 @@ describe("the betting table", () => {
     expect(container.querySelectorAll(".grid-cols-2, .grid-cols-4")).toHaveLength(0);
   });
 
+  it("wraps a new cycle's fields by the room in their column, never in screen-wide columns", async () => {
+    seed(pitch("pcanvas_c", undefined, { appetiteWeeks: 6 }));
+    useProductCanvasPrefs.setState({ lastFormat: "shape-up" });
+    const { container } = renderPage();
+    const table = await screen.findByRole("region", { name: /^On the table 1/ });
+    fireEvent.click(within(table).getByRole("button", { name: "Place in a cycle" }));
+    expect(within(table).getByLabelText("Cycle")).toHaveValue("new");
+    const fields = container.querySelector<HTMLElement>('[data-field="new-cycle"]')!;
+    expect(table.contains(fields)).toBe(true);
+    // A table column is narrow at every width: sm:grid-cols-3 squeezed the date out of view.
+    expect(fields.className).toContain("flex-wrap");
+    expect(fields.className).not.toMatch(/grid-cols/);
+    const date = within(fields).getByLabelText("Starts on");
+    expect(date.closest(".basis-44")).not.toBeNull();
+    for (const label of [/^Number/, /^Weeks/]) {
+      expect(within(fields).getByLabelText(label).closest(".basis-28")).not.toBeNull();
+    }
+  });
+
   it("changes a cycle's dates for every bet in it, with one Undo", async () => {
     seed(...pitches());
     useProductCanvasPrefs.setState({ lastFormat: "shape-up" });

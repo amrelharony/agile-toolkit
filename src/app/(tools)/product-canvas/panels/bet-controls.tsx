@@ -173,8 +173,10 @@ function CycleForm({
         )}
       </Field>
       {choice === NEW && (
-        <div className="grid gap-2 sm:grid-cols-3">
-          <Field label="Number" hint={`1 to ${CYCLE_MAX}`}>
+        // The form sits in a betting-table column as narrow as a phone: the
+        // fields wrap by the room they have, never by the screen's width.
+        <div className="flex flex-wrap gap-2" data-field="new-cycle">
+          <Field label="Number" hint={`1 to ${CYCLE_MAX}`} className="min-w-0 flex-1 basis-28">
             {(props) => (
               <Input
                 {...props}
@@ -187,7 +189,7 @@ function CycleForm({
               />
             )}
           </Field>
-          <Field label="Starts on">
+          <Field label="Starts on" className="min-w-0 flex-1 basis-44">
             {(props) => (
               <Input
                 {...props}
@@ -197,7 +199,7 @@ function CycleForm({
               />
             )}
           </Field>
-          <Field label="Weeks" hint={`1 to ${WEEKS_MAX}`}>
+          <Field label="Weeks" hint={`1 to ${WEEKS_MAX}`} className="min-w-0 flex-1 basis-28">
             {(props) => (
               <Input
                 {...props}
