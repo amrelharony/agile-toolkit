@@ -3,11 +3,14 @@
  * round's stories out, the short reply code that carries each person's
  * cards back, and what the host makes of the replies.
  *
- * There is no server, room or migration. The host's page packs the round
+ * There is no live room and no migration. The host's page packs the round
  * into a link (`#estimate=`, a fragment, so browsers never send it to the
  * server); the estimator's page (/planning-poker/estimate) shows the stories,
  * keeps the picks in memory and makes a reply code; the estimator sends the
- * code to the host however they like, and the host pastes it in.
+ * code to the host however they like, and the host pastes it in. The rounds,
+ * with the replies pasted into them, are a synced workspace collection, so
+ * they live in the host's workspace (ASYNC_ESTIMATE_NOTICE says so to the
+ * estimator) until the round closes or expires.
  *
  * - **Pack**: base64url JSON `{v:1, r, t, h?, d[], s[], due?, m?}`, at most
  *   PACK_MAX_CHARS. `r` is the round id, `t` its title, `h` the host's name,

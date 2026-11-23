@@ -111,8 +111,8 @@ export function AsyncRoundsPanel({
       }
     >
       <p className="text-sm text-sub">
-        Send the team a link. Each person picks a card per story by the due day and sends you a
-        short reply code to paste here. Nothing goes through a server.
+        No live room needed: send the team a link. Each person picks a card per story by the due day
+        and sends you a short reply code to paste here.
       </p>
       {creating && (
         <NewRoundForm

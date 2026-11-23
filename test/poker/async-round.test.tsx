@@ -187,6 +187,15 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
+describe("the panel", () => {
+  it("makes no claim about where replies are kept: they sync with the workspace", () => {
+    render(<AsyncRoundsPanel hostName="Priya" />);
+    const intro = screen.getByText(/send the team a link/);
+    expect(intro.textContent).toContain("No live room needed");
+    expect(intro.textContent).not.toMatch(/server|stored|online/i);
+  });
+});
+
 describe("a round before Reveal", () => {
   it("is blind: who replied and how many cards, never which", () => {
     useWorkspaceStore.setState({
