@@ -423,6 +423,87 @@ describe("charter templates", () => {
     ).toMatchObject({ applied: false, reason: "invalid" });
   });
 
+  it("keeps the charter's answer for anything left out, and takes the page's defaults first", async () => {
+    // A first apply with only the review level: the page's defaults fill the rest.
+    const first = await call<{ applied: boolean }>("apply_template", {
+      template: "ai-use",
+      aiUse: { review: "as-any-work" },
+    });
+    expect(first.applied).toBe(true);
+    expect(doc().rules.map((r) => r.template?.slot)).toEqual([
+      "never-in",
+      "review",
+      "customer-facing",
+    ]);
+    // Changing only the review keeps the customer-facing rule.
+    const again = await call<{ removed: string[] }>("apply_template", {
+      template: "ai-use",
+      aiUse: { review: "closer-look", neverIn: ["secrets"] },
+    });
+    expect(again.removed).toEqual([]);
+    expect(doc().templates?.aiUse).toMatchObject({
+      review: "closer-look",
+      neverIn: ["secrets"],
+      customerFacing: true,
+    });
+    // Said out loud, it goes.
+    const off = await call<{ removed: string[] }>("apply_template", {
+      template: "ai-use",
+      aiUse: { review: "closer-look", customerFacing: false },
+    });
+    expect(off.removed).toHaveLength(1);
+    expect(doc().rules.map((r) => r.template?.slot)).toEqual(["never-in", "review"]);
+
+    // The ladder keeps its after-hours line, core hours their zone and office days.
+    await call("apply_template", { template: "urgency-ladder", urgencyLadder: LADDER });
+    const levelsOnly = await call<{ removed: string[] }>("apply_template", {
+      template: "urgency-ladder",
+      urgencyLadder: { levels: LADDER.levels },
+    });
+    expect(levelsOnly.removed).toEqual([]);
+    expect(doc().templates?.urgencyLadder?.afterHours).toBe(true);
+    const hours = {
+      start: "13:00",
+      end: "15:00",
+      days: [1, 2, 3, 4],
+      purposes: ["meetings"],
+    };
+    await call("apply_template", {
+      template: "core-hours",
+      coreHours: {
+        ...hours,
+        timeZone: "Europe/London",
+        anchorDays: [{ site: "HQ", days: [2] }],
+      },
+    });
+    await call("apply_template", { template: "core-hours", coreHours: { ...hours, end: "16:00" } });
+    expect(doc().templates?.coreHours).toMatchObject({
+      end: "16:00",
+      timeZone: "Europe/London",
+      anchorDays: [{ site: "HQ", days: [2] }],
+    });
+    await call("apply_template", {
+      template: "core-hours",
+      coreHours: { ...hours, anchorDays: [] },
+    });
+    expect(doc().templates?.coreHours).not.toHaveProperty("anchorDays");
+    // Focus time's weekly minimum stays until null takes it out.
+    await call("apply_template", {
+      template: "focus-time",
+      focusTime: { days: [2], start: "09:00", end: "11:00", weeklyMinHours: 4 },
+    });
+    await call("apply_template", {
+      template: "focus-time",
+      focusTime: { days: [2, 4], start: "09:00", end: "11:00" },
+    });
+    expect(doc().templates?.focusTime?.weeklyMinHours).toBe(4);
+    await call("apply_template", {
+      template: "focus-time",
+      focusTime: { days: [2, 4], start: "09:00", end: "11:00", weeklyMinHours: null },
+    });
+    expect(doc().templates?.focusTime).not.toHaveProperty("weeklyMinHours");
+  });
+
   it("defaults core hours to UTC over MCP and writes the server's document", async () => {
     const r = await callMcp<{ applied: boolean }>("apply_template", {
       template: "core-hours",

@@ -39,6 +39,7 @@ import {
   type CharterCheckInResult,
   type CharterRule,
   type CharterRuleCategory,
+  type CharterTemplateId,
   type Sprint,
   type TeamMember,
   type WorkingAgreement,
@@ -47,7 +48,9 @@ import { TIME_PATTERN } from "@/lib/sprints/cadence";
 import { findRosterMember } from "@/lib/team/names";
 import {
   TEMPLATE_KEY,
+  appliedValues,
   applyTemplate,
+  templateDefaults,
   templatesSummary,
   validateTemplate,
 } from "@/lib/working-agreement/templates";
@@ -610,7 +613,13 @@ const ApplyTemplateParams = z
         timeZone: Zone.nullable()
           .optional()
           .describe("One shared zone, or null (the default) for each person's own clock."),
-        weeklyMinHours: z.number().min(M.weeklyMinHoursMin).max(M.weeklyMinHours).optional(),
+        weeklyMinHours: z
+          .number()
+          .min(M.weeklyMinHoursMin)
+          .max(M.weeklyMinHours)
+          .nullable()
+          .optional()
+          .describe("null takes the weekly minimum out."),
       })
       .optional(),
     aiUse: z
@@ -638,6 +647,29 @@ const browserZone = () => {
   }
 };
 
+/**
+ * The answers to check: each one the agent gave, and for each one it left
+ * out, the charter's own (the template's stored answers) or, on a first
+ * apply, the page's default (core hours on `defaultZone`). So leaving
+ * `afterHours`, `customerFacing` or `anchorDays` out never turns a line
+ * off; false, [], "" or null do.
+ */
+function answersFor(
+  doc: WorkingAgreement,
+  id: CharterTemplateId,
+  given: Record<string, unknown>,
+  defaultZone: string
+): Record<string, unknown> {
+  const stored = appliedValues(doc, id);
+  const base: Record<string, unknown> = stored
+    ? { ...stored }
+    : { ...templateDefaults(id, { timeZone: defaultZone }) };
+  delete base.appliedAt;
+  const out = { ...base };
+  for (const [key, value] of Object.entries(given)) if (value !== undefined) out[key] = value;
+  return out;
+}
+
 async function applyTemplateVerb(
   store: AgreementStore,
   params: z.infer<typeof ApplyTemplateParams>,
@@ -645,16 +677,12 @@ async function applyTemplateVerb(
 ) {
   const id = params.template;
   const given = (params[TEMPLATE_KEY[id]] ?? {}) as Record<string, unknown>;
-  const raw =
-    id === "core-hours"
-      ? { ...given, timeZone: given.timeZone ?? defaultZone }
-      : id === "focus-time"
-        ? { ...given, timeZone: given.timeZone ?? null }
-        : given;
-  const checked = validateTemplate(id, raw);
-  if (!checked.ok) return { applied: false, reason: "invalid", errors: checked.errors };
   const at = new Date().toISOString();
-  return change(store, (doc) => {
+  return change<Record<string, unknown>>(store, (doc) => {
+    // Checked against the stored charter, so an answer left out keeps its value.
+    const checked = validateTemplate(id, answersFor(doc, id, given, defaultZone));
+    if (!checked.ok)
+      return { refuse: { applied: false, reason: "invalid", errors: checked.errors } };
     const out = applyTemplate(doc, id, checked.values, () => crypto.randomUUID(), at);
     return {
       doc: out.doc,
@@ -678,7 +706,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Apply a charter template, as the page's Templates do: the answers are saved with the charter and turned into two or three plain rules (eight at most for all four templates). Params: template (urgency-ladder | core-hours | focus-time | ai-use) and its answers under the matching key: urgencyLadder {levels: {label, when, channel, replyWithin}[] (2–6, most urgent first), afterHours?}; coreHours {start, end (HH:MM), timeZone? (default the browser's, UTC over MCP), days (0 Sunday–6 Saturday), purposes (meetings | quick-replies | pairing, at least one), anchorDays?: {site, days}[] (at most 4)}; focusTime {days, start, end, timeZone? (null, the default: each person's own clock), weeklyMinHours? (1–40)}; aiUse {neverIn? (customer-data | secrets | confidential), neverInOther?, review (as-any-work | closer-look | not-production), customerFacing?, tools? (at most 5, kept with the charter, not as rules), shareWhere?}. Applying again matches the template's rules by line: the same rule is updated in place and keeps its consent (ask the team again if the change matters), a new line is added, a line no longer written is removed; a rule edited by hand is the team's own and isn't touched. A line whose text is already in the charter (a Kickoff rule included) is skipped. Focus time's rule names the ladder's top two levels, so applying the urgency ladder rewords it too while it is still the template's own. Returns {applied: true, added, updated, removed (rule ids), skipped: {slot, reason: 'duplicate', ruleId}[], ruleIds (the template's rules now), also: {ruleId, template}[] (another template's rules it reworded; their ids are in updated too)}, or {applied: false, reason: 'invalid', errors (by field)}.",
+    "Apply a charter template, as the page's Templates do: the answers are saved with the charter and turned into two or three plain rules (eight at most for all four templates). Params: template (urgency-ladder | core-hours | focus-time | ai-use) and its answers under the matching key: urgencyLadder {levels: {label, when, channel, replyWithin}[] (2–6, most urgent first), afterHours?}; coreHours {start, end (HH:MM), timeZone?, days (0 Sunday–6 Saturday), purposes (meetings | quick-replies | pairing, at least one), anchorDays?: {site, days}[] (at most 4)}; focusTime {days, start, end, timeZone? (null: each person's own clock), weeklyMinHours? (1–40, null for none)}; aiUse {neverIn? (customer-data | secrets | confidential), neverInOther?, review (as-any-work | closer-look | not-production), customerFacing?, tools? (at most 5, kept with the charter, not as rules), shareWhere?}. An answer left out keeps the one the charter already has for that template; on a first apply it takes the page's default (afterHours and customerFacing on, all three neverIn kinds, no tools or anchor days, core hours on the browser's zone (UTC over MCP), focus time on each person's own clock). To turn a line off, say so: afterHours or customerFacing false, anchorDays [], neverInOther or shareWhere '', weeklyMinHours null. Applying again matches the template's rules by line: the same rule is updated in place and keeps its consent (ask the team again if the change matters), a new line is added, a line no longer written is removed; a rule edited by hand is the team's own and isn't touched. A line whose text is already in the charter (a Kickoff rule included) is skipped. Focus time's rule names the ladder's top two levels, so applying the urgency ladder rewords it too while it is still the template's own. Returns {applied: true, added, updated, removed (rule ids), skipped: {slot, reason: 'duplicate', ruleId}[], ruleIds (the template's rules now), also: {ruleId, template}[] (another template's rules it reworded; their ids are in updated too)}, or {applied: false, reason: 'invalid', errors (by field)}.",
   paramsSchema: ApplyTemplateParams,
   handler: async (params) => applyTemplateVerb(browserStore, params, browserZone()),
   mcpHandler: async (params, ctx) => applyTemplateVerb(serverStore(ctx.userId), params, "UTC"),
