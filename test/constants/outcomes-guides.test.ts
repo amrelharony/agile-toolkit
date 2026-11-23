@@ -115,6 +115,7 @@ describe("the Outcomes, quality & library guides describe the pages as they are 
       "opportunity-tree": "the Opportunity Tree",
       cynefin: "Cynefin",
       "design-sprint": "a Design Sprint",
+      "product-canvas": "Product Canvas",
     };
     expect(Array.from(senders).sort()).toEqual(Object.keys(named).sort());
     expect(allText(guide("hypothesis-tracker"))).toContain(
