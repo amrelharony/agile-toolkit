@@ -345,7 +345,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Paste a meeting's notes into Notes to Actions, as the page's paste box does. The text is kept until it is forgotten (forget_text); names and private details in it stay in the user's own workspace. Params: text (at most 12,000 characters), meeting?, date? (YYYY-MM-DD, default today). Returns {added: true, noteId, date, textLength}. Then find_items, keep_items and send.",
+    "Paste a meeting's notes into Notes to Actions, as the page's paste box does. The text is kept in the user's own workspace until it is forgotten (forget_text). find_items returns lines of it, with any names in them, to whoever calls it. Params: text (at most 12,000 characters), meeting?, date? (YYYY-MM-DD, default today). Returns {added: true, noteId, date, textLength}. Then find_items, keep_items and send.",
   paramsSchema: AddParams,
   handler: async (params) => addNotes(browserStore, params),
   mcpHandler: async (params, ctx) => addNotes(serverStore(ctx.userId), params),
