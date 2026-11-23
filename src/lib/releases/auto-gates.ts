@@ -382,9 +382,15 @@ function planOf(ship: ReleaseShip): string | undefined {
  * reads again, and when it can't tell, the gate waits for a tick of this
  * round. A rollback recorded before rollback days were kept has no day: it
  * is dated its ship day, the earliest it can have been, since a kept ship
- * without one would read as never rolled back.
+ * without one would read as never rolled back. Given `now`, the kept ship
+ * is stamped `reopenedAt`, so notes saved before the reopen read as
+ * written for that ship (lib/releases/notes `notesOutdatedFor`).
  */
-export function reopenRelease(release: Release, doc?: Pick<ReleaseReadiness, "gates">): Release {
+export function reopenRelease(
+  release: Release,
+  doc?: Pick<ReleaseReadiness, "gates">,
+  now?: Date
+): Release {
   const { shippedDate, rolledBackAt, gateIds, gatesOpenAtShip, ...rest } = release;
   if (!wentOut(release) || !shippedDate) return { ...rest, status: "planning" };
   const ship: PlannedShip = {
@@ -396,6 +402,7 @@ export function reopenRelease(release: Release, doc?: Pick<ReleaseReadiness, "ga
     ...(gateIds ? { gateIds: [...gateIds] } : {}),
     gates: { ...(release.gates ?? {}) },
     ...(gatesOpenAtShip !== undefined ? { gatesOpenAtShip } : {}),
+    ...(now ? { reopenedAt: now.toISOString() } : {}),
   };
   // The auto gates it shipped with, and the ones the next try will check.
   const auto = new Set(

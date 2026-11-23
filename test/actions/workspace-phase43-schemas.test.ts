@@ -501,6 +501,23 @@ describe("the fields Phase 43 adds to existing records", () => {
       withNotes({ ...release.releaseNotes, text: "x".repeat(TOOL_TEXT_MAX.releaseNotes) })
     );
   });
+
+  it("keep a reopened ship's reopen time, an ISO time", async () => {
+    const [release] = RELEASES_WITH_NOTES.releases;
+    const withShip = (ship: unknown) => ({
+      ...RELEASES_WITH_NOTES,
+      releases: [{ ...release, previousShips: [ship] }],
+    });
+    const kept = withShip({ shippedDate: "2026-11-10", reopenedAt: "2026-11-15T09:30:00.000Z" });
+    accepts("workspace.release_readiness", kept);
+    expect(
+      unstamped((await update("workspace.release_readiness", "releaseReadinesses", kept))!)
+    ).toEqual(unstamped(kept));
+    rejects(
+      "workspace.release_readiness",
+      withShip({ shippedDate: "2026-11-10", reopenedAt: "15 Nov" })
+    );
+  });
 });
 
 describe("P2.2 bug reports", () => {

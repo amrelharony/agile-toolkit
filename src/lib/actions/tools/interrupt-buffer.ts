@@ -127,7 +127,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Read a sprint's interrupt buffer as the page shows it. Returns {sprint: {id, name, status, buffer (label)} | null, status: {bufferPoints | null, usedPoints, leftPoints | null, usedShare | null, state: none|ok|watch|over, over, total, open, resolved, emergencies, unsized, byKind, summary} | null, emergencyProcedure: {id, title, detail}[] | null (when over), interrupts: InterruptItem[] (newest first), unassigned (logged with no sprint), history: {sprintId, name, bufferPoints, usedPoints, total, state}[]}. Every interrupt in the sprint uses the buffer, open or resolved.",
+    "Read a sprint's interrupt buffer as the page shows it. Returns {sprint: {id, name, status, buffer (label)} | null, status: {bufferPoints | null, usedPoints, leftPoints | null, usedShare | null, state: none|ok|watch|over, over, total, open, resolved, emergencies, unsized, byKind, summary} | null, emergencyProcedure: {id, title, detail}[] | null (when over), interrupts: InterruptItem[] (newest first; one sent from another tool carries sourceRef {tool, id}, e.g. tool 'bug-triage' with the bug's id for a bug fixed now), unassigned (logged with no sprint), history: {sprintId, name, bufferPoints, usedPoints, total, state}[]}. Every interrupt in the sprint uses the buffer, open or resolved.",
   paramsSchema: z.object({ sprintId: SprintIdParam }),
   handler: async ({ sprintId }) => listState(browserStore, sprintId),
   mcpHandler: async ({ sprintId }, ctx) => listState(serverStore(ctx.userId), sprintId),

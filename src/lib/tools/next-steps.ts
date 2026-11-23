@@ -4317,7 +4317,7 @@ const RULES: Record<string, NextStepRule<object>> = {
     steps: (s, m) => m.hillChartSteps(s, new Date()),
   }),
   "test-sessions": lazyRule(() => import("@/lib/test-sessions/model"), {
-    select: (ws) => ({ sessions: ws.testSessions }),
+    select: (ws) => ({ sessions: ws.testSessions, bugs: ws.bugReports }),
     steps: (s, m) => m.testSessionsSteps(s, new Date()),
   }),
   "notes-to-actions": lazyRule(() => import("@/lib/notes-to-actions/model"), {

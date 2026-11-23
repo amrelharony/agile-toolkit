@@ -103,10 +103,13 @@ describe("native selects styled to match <Input>", () => {
   // They sit beside Inputs in the same forms: a plain md:h-9 left them 36px
   // on touch at md+ while the Input stayed 44px, 8px out of line.
   const FILES = [
+    "src/app/(tools)/bug-triage/fields.tsx",
     "src/app/(tools)/dependency-map/fields.tsx",
     "src/app/(tools)/feature-flag-tracker/flag-fields.tsx",
+    "src/app/(tools)/hill-chart/fields.tsx",
     "src/app/(tools)/hypothesis-tracker/hypothesis-fields.tsx",
     "src/app/(tools)/impediments/components/impediment-fields.tsx",
+    "src/app/(tools)/notes-to-actions/item-row.tsx",
     "src/app/(tools)/riskiest-assumption/assumption-card.tsx",
     "src/app/(tools)/user-interviews/quote-card.tsx",
     "src/app/(tools)/epic-roadmap/epic-stories.tsx",
@@ -114,6 +117,7 @@ describe("native selects styled to match <Input>", () => {
     "src/app/(tools)/planning-poker/three-point-check.tsx",
     "src/app/(tools)/premortem/components/premortem-form.tsx",
     "src/app/(tools)/premortem/premortem-client.tsx",
+    "src/app/(tools)/test-sessions/fields.tsx",
     "src/components/shared/quarter-picker.tsx",
   ];
 
