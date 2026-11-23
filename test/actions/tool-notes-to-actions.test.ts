@@ -217,7 +217,7 @@ describe("send", () => {
       { noteId: "mnote_a", itemId: "a1", route: "retro-action" }
     );
     expect(out.sent).toBe(true);
-    const card = ws().retroBoards[0].cards.find((c) => c.id === out.targetId);
+    const card = (ws().retroBoards ?? [])[0]?.cards.find((c) => c.id === out.targetId);
     expect(card).toMatchObject({
       text: "Item a1",
       assignee: "Ana",
