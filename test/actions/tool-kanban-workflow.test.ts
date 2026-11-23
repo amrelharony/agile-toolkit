@@ -28,7 +28,7 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   };
 });
 
-import { registry } from "@/lib/actions/registry";
+import { registry, zodToJsonSchema } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   KANBAN_BOARD_ID,
@@ -104,7 +104,13 @@ describe("registration", () => {
       expect(a?.mcpHandler, name).toBeTypeOf("function");
       expect(a?.visitor, name).not.toBe(false);
       if (category === "write") expect(a?.requiresConfirmation, name).toBe(false);
+      // Agents get a real schema, not the permissive {} a failed conversion leaves.
+      expect(Object.keys(zodToJsonSchema(a!.paramsSchema)), name).toContain("type");
     }
+    const update = zodToJsonSchema(registry.get("tool.kanban.update_workflow")!.paramsSchema);
+    expect(Object.keys((update as { properties: object }).properties)).toEqual(
+      expect.arrayContaining(["policies", "sle", "statik", "cadences", "targetSplit"])
+    );
   });
 });
 

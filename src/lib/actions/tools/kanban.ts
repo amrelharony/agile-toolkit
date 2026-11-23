@@ -328,12 +328,7 @@ registry.register({
 
 const optText = (max: number = WORKFLOW_TEXT_MAX) => z.string().max(max).nullable().optional();
 
-const SlePct = z
-  .number()
-  .int()
-  .refine((n) => (WORKFLOW_SLE_PERCENTILES as readonly number[]).includes(n), {
-    message: `one of ${WORKFLOW_SLE_PERCENTILES.join(", ")}`,
-  });
+const SlePct = z.literal(WORKFLOW_SLE_PERCENTILES).describe("Cycle Time's percentiles.");
 
 const UpdateWorkflowParams = z.object({
   board: z.enum(["sprint", "flow"]).nullable().optional().describe("The board it describes."),
