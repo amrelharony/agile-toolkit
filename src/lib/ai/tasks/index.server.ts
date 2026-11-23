@@ -14,8 +14,10 @@ import { cardForMoodPrompt, generateCardsPrompt } from "./card-decks.server";
 import { ebmMeasuresPrompt } from "./ebm-dashboard.server";
 import { mapExamplesPrompt, mapQuestionsPrompt, mapRulesPrompt } from "./example-mapping.server";
 import { agendaPrompt } from "./facilitator-timers.server";
+import { flowInsightsClassifyPrompt } from "./flow-insights.server";
 import { hillChartUpdateNotePrompt } from "./hill-chart.server";
 import { impactMapDraftPrompt } from "./impact-map.server";
+import { impedimentsClusterPrompt } from "./impediments.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { kanbanPoliciesPrompt } from "./kanban.server";
 import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
@@ -55,8 +57,10 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   mapExamplesPrompt,
   mapQuestionsPrompt,
   agendaPrompt,
+  flowInsightsClassifyPrompt,
   hillChartUpdateNotePrompt,
   impactMapDraftPrompt,
+  impedimentsClusterPrompt,
   interruptClassifyPrompt,
   kanbanPoliciesPrompt,
   meetingAuditSuggestPrompt,

@@ -26,6 +26,7 @@ import { MIN_SAMPLE, enoughData } from "@/lib/analytics/min-sample";
 import { plural } from "@/lib/charts/chart-text";
 import { IMPEDIMENT_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { BLOCKER_WINDOWS, lastDays, readBlockers } from "@/lib/impediments/blockers";
 import { hasLegacyImpediments } from "@/lib/impediments/legacy-key";
 import {
   IMPEDIMENT_CATEGORIES,
@@ -45,16 +46,20 @@ import {
 } from "@/lib/impediments/model";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { KANBAN_BOARD_ID } from "@/lib/stores/workspace-types";
 import type {
   Impediment,
   ImpedimentCategory,
   ImpedimentSeverity,
+  KanbanBoard,
+  Story,
   WhiteboardObject,
 } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { undoable } from "@/lib/utils/undoable";
 import { analyseImpediments } from "./analysis";
 import { ImpedimentsAdvanced } from "./advanced";
+import { BlockersSection } from "./blockers-section";
 import { ImpedimentCard } from "./components/impediment-card";
 import { LogForm } from "./components/log-form";
 import { buildExample, exampleRows } from "./example";
@@ -90,6 +95,8 @@ const WeeklyImpedimentsChart = dynamic(
 // A stable empty list: zustand re-renders forever on a selector that
 // returns a fresh array each call.
 const NONE: Impediment[] = [];
+const NO_STORIES: Story[] = [];
+const NO_BOARDS: KanbanBoard[] = [];
 
 /** Fewer weeks than this and the weekly chart is a bar or two: the verdict says it better. */
 const CHART_MIN_WEEKS = 3;
@@ -175,7 +182,22 @@ export function ImpedimentsClient() {
   const upsert = useWorkspaceStore((s) => s.upsertImpediment);
   const removeOne = useWorkspaceStore((s) => s.removeImpediment);
   const list = useMemo(() => usableImpediments(stored), [stored]);
+  // The Blockers section and its export read blocked stories and cards too.
+  const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
+  const boards = useWorkspaceStore((s) => s.kanbanBoards) ?? NO_BOARDS;
+  const cards = useMemo(() => boards.find((b) => b.id === KANBAN_BOARD_ID)?.cards ?? [], [boards]);
+  const [now] = useState(() => Date.now());
   const today = todayLocalISO();
+  // With no impediment logged, the Blockers section still shows once a story
+  // or a card was blocked in the widest window it offers.
+  const blockedBeforeLog = useMemo(
+    () =>
+      list.length === 0 &&
+      readBlockers(stories, cards, list, lastDays(Math.max(...BLOCKER_WINDOWS), today, now), {
+        includeExamples: true,
+      }).rows.length > 0,
+    [list, stories, cards, today, now]
+  );
   const { log } = useHistoryLogger("impediments");
   const announce = useAnnounce();
   const legacyPending = useLegacyMovePending();
@@ -223,6 +245,23 @@ export function ImpedimentsClient() {
     const at = ordered.findIndex((i) => i.id === id);
     const near = at >= 0 ? (ordered[at + 1] ?? ordered[at - 1]) : undefined;
     focusSoon(() => (near && editButtonOf(near.id)) || clearFiltersRef.current || logStart());
+  }
+
+  /**
+   * Take the person to the card for `id` (a raised cluster's impediment, from
+   * the Blockers section): clear the filters when they hide it, then scroll
+   * to it and focus its Edit button.
+   */
+  function showImpediment(id: string) {
+    const row = list.find((i) => i.id === id);
+    if (!row) return;
+    if (!matchesFilters(row, filters, today)) setFilters(NO_FILTERS);
+    focusSoon(() => {
+      const edit = editButtonOf(id);
+      // jsdom has no scrollIntoView.
+      edit?.scrollIntoView?.({ block: "center" });
+      return edit;
+    });
   }
 
   /* ── Changes ── */
@@ -410,13 +449,29 @@ export function ImpedimentsClient() {
         </div>
 
         {list.length === 0 ? (
-          !legacyPending && (
-            <EmptyState icon={AlertTriangle} action={<LoadExampleButton onLoad={loadExample} />}>
-              No impediments logged. Use “Log impediment” for anything in the team’s way, or load an
-              example to see the tracker filled in. Blockers sent from Standup, Retro and Scrum of
-              Scrums land here too.
-            </EmptyState>
-          )
+          <>
+            {!legacyPending && (
+              <EmptyState icon={AlertTriangle} action={<LoadExampleButton onLoad={loadExample} />}>
+                No impediments logged. Use “Log impediment” for anything in the team’s way, or load
+                an example to see the tracker filled in. Blockers sent from Standup, Retro and Scrum
+                of Scrums land here too.
+              </EmptyState>
+            )}
+            {/* Blocked stories and cards count from day one, before any impediment is logged. */}
+            {blockedBeforeLog && (
+              <BlockersSection
+                impediments={list}
+                today={today}
+                actions={
+                  <ExportButton
+                    filename="impediments"
+                    markdown={toMarkdown(list, today, { stories, cards, now })}
+                    targetRef={exportRef}
+                  />
+                }
+              />
+            )}
+          </>
         ) : (
           <>
             <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -451,7 +506,7 @@ export function ImpedimentsClient() {
                     filename="impediments"
                     csvData={csvData}
                     jsonData={list}
-                    markdown={toMarkdown(list, today)}
+                    markdown={toMarkdown(list, today, { stories, cards, now })}
                     targetRef={exportRef}
                   />
                   {/* Confirm, then Undo, as ResetButton does; see deleteAll for why not it. */}
@@ -594,6 +649,8 @@ export function ImpedimentsClient() {
                 </ChartFigure>
               </SectionCard>
             )}
+
+            <BlockersSection impediments={list} today={today} onShowImpediment={showImpediment} />
 
             <ImpedimentsAdvanced analysis={analysis} />
           </>

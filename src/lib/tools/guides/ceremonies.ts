@@ -269,25 +269,25 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "impediments",
     summary:
-      "An impediment is anything slowing the team down that it can't easily remove on its own. The tracker keeps each one with a severity, owner and due date, flags old and overdue ones, and measures how long they take to resolve.",
+      "An impediment is anything slowing the team down that it can't easily remove on its own. The tracker keeps each one with a severity, owner and due date, flags old and overdue ones, and shows which blockers cost the most time.",
     whenToUse: [
       "When blockers raised at the Daily Scrum need follow-up.",
       "When the same problems keep coming back and you need evidence to escalate them.",
       "Before a retro, to see what got in the team's way and how fast it was cleared.",
     ],
     steps: [
-      "Click Log impediment. Write what is in the way under Impediment and pick a Severity. Both are required. Add a Category and a Description if they help.",
-      "Pick the Owner and Raised by from the team, or type a name. Move Raised on back if it started before today, and set Due by. Once 3 are resolved, a button under Due by offers a date from your average. Click Log impediment to save.",
-      "Review open items at the Daily Scrum or weekly. The sentence above the list names the one to chase first. The age badge turns amber at 3 days old and red at 7, and past its due date a card says Overdue by N days.",
-      "Click Escalate when the team can't remove it alone; De-escalate moves it back to open. Click Resolve when it's gone, move Resolved on back if it went before today, then click Mark resolved. Click Reopen if it comes back.",
-      "Use Show (All, Open, Escalated, Overdue, Resolved) and the Category and Severity filters to spot recurring problems. Once the list spans three weeks, Raised per week compares new impediments with those open at week end.",
-      "Click Export, then Copy as Markdown for the team channel or a status report, or Export CSV. Both include every impediment, filtered or not.",
+      "Click Log impediment. Write what is in the way under Impediment and pick a Severity; both are required. Add a Category, a Cluster (the kind of blocker) and a Description if they help.",
+      "Pick the Owner and Raised by from the team, or type a name. Move Raised on back if it started before today, and set Due by. Click Log impediment to save.",
+      "Review open items at the Daily Scrum or weekly. The sentence above the list names the one to chase first; the age badge turns amber at 3 days and red at 7.",
+      "Click Escalate when the team can't remove it alone, Resolve when it's gone, and Reopen if it comes back.",
+      "Under Blockers: where the time goes, see which clusters cost the most, inside the team or outside it. Pick a cluster for each blocker not clustered yet and click Set, or name a new one as inside or outside the team. Cluster with AI groups them for you to accept; Group by keywords works without AI. Raise a top cluster as one impediment, or open the one already raised. Blocked stories and cards show here even before any impediment is logged.",
+      "Click Export, then Copy as Markdown for the team channel or a status report, or Export CSV.",
     ],
     tips: [
       "Describe the blocker, not a person: “test environment down for two days”, not “Ops is slow”.",
       "Every impediment needs an owner, even if their job is only to escalate it. A card without one says Nobody yet.",
+      "Blocked time counts from the day tracking began; items blocked before then say so and aren't counted.",
       "Items sent from Standup, Retro, Retro Actions and Scrum of Scrums arrive at Medium severity with no category, so check both. Resolving one sent from a retro closes that action.",
-      "The Sprint Cockpit's Open blockers card lists the unresolved ones in the sprint's way. Deleting a card offers Undo.",
     ],
     scales: [
       {

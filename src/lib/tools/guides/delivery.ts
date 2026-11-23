@@ -332,13 +332,16 @@ export const GUIDES: ToolGuide[] = [
       "After people joined or left the team.",
     ],
     steps: [
-      "Pick the board or the sprints to read.",
-      "Sort the finished items by type, each with a guess from its tags and title.",
-      "Set the target mix: four numbers that add up to 100.",
-      "Read the mix, the repeat work and the team stability rows, and the verdict under them.",
-      "Ask Amr sorts the unsorted items for you to accept, and the guesses work without AI.",
+      "Pick the Sprint board (per finished sprint) or the Flow board (per week), and how many to read under Window.",
+      "Read the verdict and the tiles, then the work mix: one bar per sprint or week, guesses striped, each split in words.",
+      "Click Set a target and give four numbers that add up to 100. Kanban's Definition of Workflow shares the target.",
+      "Under Sort the work, pick a type for a row and click Set, or click Accept all guesses. Mark Repeat work where an item fixed or redid earlier work. Sort with AI suggests types for you to accept; Sort by keywords works without AI. Every change has Undo.",
+      "Read Repeat work and Team stability. Take repeat work to Root Cause or the retro, and record who's in each sprint in the Capacity Planner.",
     ],
-    tips: ["Repeat work above a fifth of what you finish is worth a retro."],
+    tips: [
+      "Repeat work above a fifth of what you finish is worth a retro.",
+      "A guess comes from a story's Fix or Bug title, its tags or the tool it came from; pick a type to make it yours.",
+    ],
     timebox: "Ten minutes a sprint.",
   },
 ];
