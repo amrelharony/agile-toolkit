@@ -239,6 +239,39 @@ describe("the live round", () => {
       null,
     ]);
   });
+
+  it("settles a card the room agrees on from Talk about it: its moves start again", () => {
+    let b = board(1, { moveLimit: 3 });
+    for (const label of ["3", "5", "8", "3"]) {
+      b = moveItem(b, "c1", { kind: "bucket", bucketId: bucket(b, label) }, NOW).board;
+    }
+    expect(b.items[0]).toMatchObject({ moves: 3, contested: true });
+    const labels = b.buckets.map((x) => x.label);
+    const result: VoteRoundResult = {
+      roundId: "round_2",
+      tool: "relative-sizing",
+      questionnaireId: "q",
+      title: "Checkout",
+      scale: { id: "buckets", points: labels.map((label, i) => ({ value: i + 1, label })) },
+      closedAt: NOW,
+      minN: 3,
+      ballots: 3,
+      source: "live",
+      questions: [{ id: "c1", text: "Story 1", responses: 3, distribution: [0, 0, 0, 3, 0, 0, 0] }],
+    };
+    let settled = placementsFromRound(result, b, NOW).board;
+    expect(settled.items[0]).toMatchObject({ bucketId: bucket(b, "5"), moves: 0 });
+    expect(settled.items[0].contested).toBeUndefined();
+    // It takes the board's move limit in new moves to go back to Talk about it.
+    for (const label of ["8", "13"]) {
+      const r = moveItem(settled, "c1", { kind: "bucket", bucketId: bucket(b, label) }, NOW);
+      expect(r.toTalk).toBe(false);
+      settled = r.board;
+    }
+    expect(moveItem(settled, "c1", { kind: "bucket", bucketId: bucket(b, "5") }, NOW).toTalk).toBe(
+      true
+    );
+  });
 });
 
 describe("Save sizes", () => {

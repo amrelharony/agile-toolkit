@@ -134,7 +134,8 @@ export interface RoundPlacements {
 
 /**
  * A revealed round applied to the board: agree and close place the card in
- * the suggested bucket (settled: not contested, no move counted), spread
+ * the suggested bucket (settled: not contested, no move counted, and a card
+ * from Talk about it starts its moves again), spread
  * sends it to Talk about it; both keep the room's totals on the card. A
  * withheld story (fewer than minN placed it) stays where it was. Returns
  * the round as it is kept: totals only, no member ids.
@@ -172,6 +173,8 @@ export function placementsFromRound(
       bucketId: v.bucketId,
       room: { counts, responses: q.responses, level: v.level },
     };
+    // Settled from Talk about it, as moveItem settles one: its moves start again.
+    if (item.contested) out.moves = 0;
     delete out.contested;
     return out;
   });
