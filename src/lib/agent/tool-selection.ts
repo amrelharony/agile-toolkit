@@ -243,6 +243,8 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
 export const PAGE_READ_GROUPS: Readonly<Record<string, readonly string[]>> = {
   "bug-triage": ["workspace.sprint"],
   "ebm-dashboard": ["tool.product_goal"],
+  // Its Three-point check reads Planning Poker's three_point verb.
+  "estimation-guide": ["tool.planning_poker"],
   "flow-insights": [
     "workspace.story",
     "workspace.sprint",
