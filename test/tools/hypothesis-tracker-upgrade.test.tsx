@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { AbTest, Hypothesis, ProductMetric } from "@/lib/stores/workspace-types";
+import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
+import { TRACKER_FULL } from "@/lib/hypotheses/value";
 import { addDays } from "@/lib/flow/days";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { isExampleId } from "@/lib/utils/example-id";
@@ -866,6 +869,54 @@ describe("value checks, the A/B line and the kind filter", () => {
     // Checked now: it leaves the list.
     expect(screen.queryByRole("list", { name: "Shipped work to check" })).toBeNull();
     expect(within(card(h.believe)).getByText(/^Shipped “Bulk invite” on/)).toBeInTheDocument();
+  });
+
+  /** A row that leaves `room` bytes in the tracker's one synced row beside `others`. */
+  const nearlyFull = (others: Hypothesis[] = [], room = 100): Hypothesis => {
+    const pad = (padding: string) => ({ ...hyp("big", { believe: "a big one" }), padding });
+    const used = jsonBytes({ id: HYPOTHESIS_TRACKER_ID, hypotheses: [...others, pad("")] });
+    return pad("x".repeat(ENTITY_ROW_MAX_BYTES - room - used)) as Hypothesis;
+  };
+
+  it("keeps a value check out of a full tracker, saying so and keeping what was typed", () => {
+    useWorkspaceStore.setState({
+      stories: [
+        { id: "s-new", title: "Bulk invite", status: "done", doneAt: `${ago(3)}T12:00:00` },
+      ],
+    });
+    const big = nearlyFull();
+    seed(big);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Check its value: Bulk invite" }));
+    fireEvent.change(screen.getByLabelText("How you'll tell"), {
+      target: { value: "fewer invite questions" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add value check" }));
+    expect(stored()).toEqual([big]);
+    expect(screen.getByRole("alert")).toHaveTextContent(TRACKER_FULL);
+    expect(screen.getByLabelText("How you'll tell")).toHaveValue("fewer invite questions");
+    expect(logged("value_check_added")).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps an A/B result out of a full tracker, and says so", async () => {
+    useWorkspaceStore.setState({ abTests: [abTest()] });
+    const h = hyp("h-ab", {
+      believe: "short forms convert",
+      status: "running",
+      target: { direction: "increase", value: 11.5, unit: "%", baseline: 10 },
+    });
+    seed(h, nearlyFull([h]));
+    renderPage();
+    fireEvent.click(
+      within(card("short forms convert")).getByRole("button", {
+        name: "Use the A/B result: “short forms convert”",
+      })
+    );
+    expect(one("h-ab")).not.toHaveProperty("outcome");
+    expect(logged("ab_result_used")).toEqual([]);
+    await waitFor(() => expect(screen.getByTestId("live-polite")).toHaveTextContent(TRACKER_FULL));
   });
 
   it("marks a check Due past its day, and reads the metric into the result with Undo", () => {

@@ -29,6 +29,7 @@ import type {
 import { HYPOTHESIS_TEXT_MAX, HYPOTHESIS_UNIT_MAX } from "@/lib/hypotheses/model";
 import {
   MEASURED_NOTE_MAX,
+  TRACKER_FULL,
   VALUE_CHECK_DAYS,
   keyResultRef,
   measureDefaults,
@@ -260,10 +261,13 @@ export function ShippedWork({
   today: string;
   metrics: readonly ProductMetric[];
   okrs: readonly Okr[];
-  onAdd: (values: ValueCheckValues) => void;
+  /** Saves the check: its new id, or null when the tracker has no room (nothing saved). */
+  onAdd: (values: ValueCheckValues) => string | null;
 }) {
   const [openId, setOpenId] = useState<string | null>(null);
   const [all, setAll] = useState(false);
+  /** The open form whose save the tracker refused, being full. */
+  const [full, setFull] = useState<string | null>(null);
   if (candidates.length === 0) return null;
   const shown = all ? candidates : candidates.slice(0, SHOWN);
   const keyOf = (c: ShippedCandidate) => `${c.kind}:${c.id}`;
@@ -282,17 +286,32 @@ export function ShippedWork({
         {shown.map((c) => (
           <li key={keyOf(c)} className="min-w-0 rounded-md border border-border bg-surface p-2.5">
             {openId === keyOf(c) && open ? (
-              <ValueCheckForm
-                candidate={open}
-                today={today}
-                metrics={metrics}
-                okrs={okrs}
-                onSave={(values) => {
-                  onAdd(values);
-                  setOpenId(null);
-                }}
-                onCancel={() => setOpenId(null)}
-              />
+              <>
+                <ValueCheckForm
+                  candidate={open}
+                  today={today}
+                  metrics={metrics}
+                  okrs={okrs}
+                  onSave={(values) => {
+                    // Refused: the form stays open with what was typed, and says why.
+                    if (onAdd(values) === null) {
+                      setFull(keyOf(c));
+                      return;
+                    }
+                    setFull(null);
+                    setOpenId(null);
+                  }}
+                  onCancel={() => {
+                    setFull(null);
+                    setOpenId(null);
+                  }}
+                />
+                {full === keyOf(c) && (
+                  <p role="alert" className="mt-2 break-words text-sm text-danger">
+                    {TRACKER_FULL}
+                  </p>
+                )}
+              </>
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="min-w-0">
@@ -346,6 +365,8 @@ function ValueCheckForm({
     initial: () => valueCheckDraft(candidate, today),
     validate: (d) => validateValueCheck(d, today, sources),
     onSave,
+    // A save closes the form; one the tracker refuses keeps what was typed.
+    resetOnSave: false,
   });
   const { draft, update, errors, formRef } = form;
   useEffect(() => {

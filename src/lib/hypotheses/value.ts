@@ -25,12 +25,13 @@ import type {
   Hypothesis,
   HypothesisMeasuredBy,
   HypothesisShipped,
+  HypothesisTracker,
   MeasuredByKind,
   MetricDirection,
   ShippedKind,
   Story,
 } from "@/lib/stores/workspace-types";
-import { MEASURED_BY_KINDS } from "@/lib/stores/workspace-types";
+import { ENTITY_ROW_MAX_BYTES, MEASURED_BY_KINDS } from "@/lib/stores/workspace-types";
 import { addDays } from "@/lib/flow/days";
 import { doneOn } from "@/lib/flow/items";
 import { epicRollup, linkedStories } from "@/lib/roadmap/rollup";
@@ -38,6 +39,7 @@ import { EPIC_ROADMAP_ID } from "@/lib/roadmap/epic-source";
 import { testSummary, tooEarlyText } from "@/lib/experiments/model";
 import { isExampleId } from "@/lib/utils/example-id";
 import type { FormErrors, Validation } from "@/lib/utils/form";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 import {
   HYPOTHESIS_TEXT_MAX,
   applyHypothesisValues,
@@ -380,6 +382,21 @@ export function validateValueCheck(
     },
   };
 }
+
+/* ── The one row ─────────────────────────────────────────────────────── */
+
+/**
+ * Whether the tracker still fits its one synced row (hypothesisTracker:
+ * current, up to ENTITY_ROW_MAX_BYTES of JSON): every hypothesis lives in
+ * it, so a write that grows it (a value check, an A/B result) checks the
+ * row it would save first. Past the limit the database refuses the row,
+ * and every later tracker write would then fail to sync.
+ */
+export const trackerFits = (doc: HypothesisTracker) => jsonBytes(doc) <= ENTITY_ROW_MAX_BYTES;
+
+/** Why a write that would take the tracker past its row did nothing, in the page's words. */
+export const TRACKER_FULL =
+  "The Hypothesis Tracker is full: delete some old value checks or hypotheses first. Nothing was saved.";
 
 /** The value check saved: a running hypothesis with what shipped, its check day and its measure. */
 export function applyValueCheck(

@@ -15,9 +15,12 @@ import type {
   ProductMetric,
   Story,
 } from "@/lib/stores/workspace-types";
+import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 import { validateHypothesis, hypothesisDraftFrom } from "@/lib/hypotheses/model";
 import {
   AB_RESULT_REASON,
+  TRACKER_FULL,
   abResultUpdate,
   applyValueCheck,
   isDue,
@@ -30,6 +33,7 @@ import {
   readingOnOrBefore,
   shippedCandidates,
   shippedText,
+  trackerFits,
   validateValueCheck,
   valueCheckDraft,
   valueCheckSteps,
@@ -487,6 +491,22 @@ describe("Use the A/B result", () => {
       reason: "too_long",
     });
     expect(AB_RESULT_REASON.no_test).toBe("No A/B test is linked to it.");
+  });
+});
+
+describe("the one row", () => {
+  it("fits while the tracker's JSON is within ENTITY_ROW_MAX_BYTES, counted in bytes", () => {
+    const doc = (description: string) => ({
+      id: "hypothesisTracker:current",
+      hypotheses: [hyp("big", { description })],
+    });
+    const room = ENTITY_ROW_MAX_BYTES - jsonBytes(doc(""));
+    expect(trackerFits(doc("x".repeat(room)))).toBe(true);
+    expect(trackerFits(doc("x".repeat(room + 1)))).toBe(false);
+    // 3-byte text counts three bytes a character.
+    expect(trackerFits(doc("界".repeat(Math.floor(room / 3))))).toBe(true);
+    expect(trackerFits(doc("界".repeat(Math.floor(room / 3) + 1)))).toBe(false);
+    expect(TRACKER_FULL).toMatch(/^The Hypothesis Tracker is full/);
   });
 });
 

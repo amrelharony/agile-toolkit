@@ -55,12 +55,14 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import {
   AB_RESULT_REASON,
+  TRACKER_FULL,
   abResultUpdate,
   applyValueCheck,
   isValueCheck,
   measuredByText,
   readMeasure,
   shippedCandidates,
+  trackerFits,
   valueSummary,
   valueSummaryText,
   withMeasuredBy,
@@ -237,10 +239,16 @@ export function HypothesisTrackerClient() {
     announce(`Added “${titleOf(h)}”`);
   }
 
-  /** "Check its value": a running hypothesis that follows the shipped work. */
-  function addValueCheck(values: ValueCheckValues) {
+  /**
+   * "Check its value": a running hypothesis that follows the shipped work.
+   * Its id, or null when it would take the tracker past its one synced row
+   * (nothing saved; the form says so and keeps what was typed).
+   */
+  function addValueCheck(values: ValueCheckValues): string | null {
     const h = applyValueCheck({ id: nanoid(8) }, values);
-    put(h);
+    const doc = withHypothesis(current(), h);
+    if (!trackerFits(doc)) return null;
+    ws().upsertHypothesisTracker(doc);
     record(h.id, HYPOTHESIS_ACTIONS.VALUE_CHECK_ADDED, {
       hypothesisId: h.id,
       kind: values.shipped.kind,
@@ -248,6 +256,7 @@ export function HypothesisTrackerClient() {
     });
     reveal(h);
     announce(`Added a value check for “${values.shipped.title}”, to look at on ${values.checkOn}`);
+    return h.id;
   }
 
   /**
@@ -293,6 +302,10 @@ export function HypothesisTrackerClient() {
     const r = test ? abResultUpdate(prev, test) : null;
     if (!test || !r || !r.ok) {
       announce(AB_RESULT_REASON[!test ? "no_test" : r && !r.ok ? r.reason : "no_result"]);
+      return;
+    }
+    if (!trackerFits(withHypothesis(current(), r.next))) {
+      announce(TRACKER_FULL);
       return;
     }
     undoable({

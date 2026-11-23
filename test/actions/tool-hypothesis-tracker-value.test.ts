@@ -38,7 +38,10 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
 
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 import { HYPOTHESIS_TRACKER_ID } from "@/lib/hypotheses/model";
+import { TRACKER_FULL } from "@/lib/hypotheses/value";
 import { addDays } from "@/lib/flow/days";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import "@/lib/actions/tools/hypothesis-tracker";
@@ -131,6 +134,14 @@ const serverDoc = () =>
       | HypothesisTracker
       | undefined
   )?.hypotheses ?? [];
+/** A hypothesis that leaves `room` bytes in the tracker's one row beside `others`. */
+const nearlyFull = (others: Hypothesis[] = [], room = 100): Hypothesis => {
+  const doc = (description: string) => ({
+    id: HYPOTHESIS_TRACKER_ID,
+    hypotheses: [...others, hyp("big", { description })],
+  });
+  return hyp("big", { description: "x".repeat(ENTITY_ROW_MAX_BYTES - room - jsonBytes(doc(""))) });
+};
 
 beforeEach(() => {
   server.rows.clear();
@@ -332,6 +343,32 @@ describe("list_value_candidates and add_value_check", () => {
     expect(local.added).toBe(false);
     expect(Object.values(local.errors).join(" ")).toMatch(/hasn't happened yet/);
   });
+
+  it("refuses a check that would take the tracker past its one row, in the browser and over MCP", async () => {
+    const big = nearlyFull();
+    seed([big], { stories: [story("s1")] });
+    const params = {
+      kind: "story",
+      id: "s1",
+      measuredBy: { kind: "words", note: "fewer tickets" },
+    };
+    expect(await run("add_value_check", params)).toEqual({
+      added: false,
+      reason: "too_large",
+      message: TRACKER_FULL,
+    });
+    expect(list()).toEqual([big]);
+    server.rows.set(`workspace:hypothesisTracker/${HYPOTHESIS_TRACKER_ID}`, {
+      id: HYPOTHESIS_TRACKER_ID,
+      hypotheses: [big],
+    } as HypothesisTracker);
+    server.rows.set("workspace:story/s1", story("s1"));
+    expect(await run("add_value_check", params, true)).toMatchObject({
+      added: false,
+      reason: "too_large",
+    });
+    expect(serverDoc()).toEqual([big]);
+  });
 });
 
 describe("set_measured_by", () => {
@@ -437,6 +474,17 @@ describe("use_ab_result", () => {
     );
     expect(one("h1")?.outcome).toBe(r.sentence);
     expect(one("h1")).not.toHaveProperty("actual");
+  });
+
+  it("refuses a result that would take the tracker past its one row", async () => {
+    const big = nearlyFull([pct]);
+    seed([pct, big], { abTests: [abTest()] });
+    expect(await run("use_ab_result", { hypothesisId: "h1" })).toEqual({
+      updated: false,
+      reason: "too_large",
+      message: TRACKER_FULL,
+    });
+    expect(one("h1")).not.toHaveProperty("outcome");
   });
 
   it("refuses with no test or no counts", async () => {

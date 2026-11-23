@@ -69,6 +69,7 @@ import { testForHypothesis } from "@/lib/experiments/model";
 import {
   AB_RESULT_REASON,
   DEFAULT_LOOK_AFTER,
+  TRACKER_FULL,
   MEASURED_NOTE_MAX,
   SHIPPED_TITLE_MAX,
   VALUE_CHECK_DAYS,
@@ -80,6 +81,7 @@ import {
   measuredByOf,
   readMeasure,
   shippedCandidates,
+  trackerFits,
   validateValueCheck,
   valueCheckDraft,
   valueSummary,
@@ -744,7 +746,9 @@ async function addValueCheck(store: TrackerStore, p: z.infer<typeof AddValueChec
     return { added: false, reason: "invalid", errors };
   }
   const h = applyValueCheck({ id: nanoid(8) }, checked.values);
-  await store.put(withHypothesis(doc, h));
+  const next = withHypothesis(doc, h);
+  if (!trackerFits(next)) return { added: false, reason: "too_large", message: TRACKER_FULL };
+  await store.put(next);
   return { added: true, id: h.id, checkOn: h.checkOn, shipped: h.shipped };
 }
 
@@ -755,7 +759,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Check the value of shipped work, as the page's 'Check its value' form does: a running hypothesis that follows a story or epic from list_value_candidates, first in the list. Params: kind, id, doneAt? (the ship day; needed when the candidate has none), lookAfterDays? (7, 14, 30, 60 or 90; default 30; checkOn = doneAt + these days, never before the ship day), measuredBy {kind: metric (metricId) | key-result (okrId, keyResultId) | words (note ≤200)}, target? (needed for a metric or a key result: {direction, value, unit?, baseline?}), and the four lines believe, willDo, toLearn, successMetric (each optional, pre-filled from the title as on the page). Returns {added: true, id, checkOn, shipped} or {added: false, reason: 'already_checked' | 'not_found' | 'needs_day' (with a message) | 'invalid' (with errors: {param: message})}.",
+    "Check the value of shipped work, as the page's 'Check its value' form does: a running hypothesis that follows a story or epic from list_value_candidates, first in the list. Params: kind, id, doneAt? (the ship day; needed when the candidate has none), lookAfterDays? (7, 14, 30, 60 or 90; default 30; checkOn = doneAt + these days, never before the ship day), measuredBy {kind: metric (metricId) | key-result (okrId, keyResultId) | words (note ≤200)}, target? (needed for a metric or a key result: {direction, value, unit?, baseline?}), and the four lines believe, willDo, toLearn, successMetric (each optional, pre-filled from the title as on the page). Returns {added: true, id, checkOn, shipped} or {added: false, reason: 'already_checked' | 'not_found' | 'needs_day' (with a message) | 'invalid' (with errors: {param: message}) | 'too_large' (the tracker's one synced row has no room: the user deletes old value checks or hypotheses first; with a message)}.",
   paramsSchema: AddValueCheckSchema,
   handler: async (params) => addValueCheck(browserStore, params),
   mcpHandler: async (params, ctx) => addValueCheck(serverStore(ctx.userId), params),
@@ -852,7 +856,9 @@ async function applyAbResult(store: TrackerStore, p: z.infer<typeof HypothesisId
   if (!test) return { updated: false, reason: "no_test", message: AB_RESULT_REASON.no_test };
   const r = abResultUpdate(h, test);
   if (!r.ok) return { updated: false, reason: r.reason, message: AB_RESULT_REASON[r.reason] };
-  await store.put(withHypothesis(doc, r.next));
+  const next = withHypothesis(doc, r.next);
+  if (!trackerFits(next)) return { updated: false, reason: "too_large", message: TRACKER_FULL };
+  await store.put(next);
   return {
     updated: true,
     testId: test.id,
@@ -870,7 +876,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Use a hypothesis's A/B test result, as the card's 'Use the A/B result' does: the test linked to it in the A/B Calculator (hypothesisId; the most recently updated one) adds its result sentence to what we learned, on its own line and once; below the plan's sample a version the line starts 'Too early to call: <smaller> of <planned> per variant. So far:', so an early look is never written as a result. It sets the measured result (B's rate in %) only when the target's unit is '%', the test has its planned sample a version and the result is significant at the plan's confidence. It never sets the status: apply suggestedVerdict with set_status once the user agrees. Returns {updated: true, testId, sentence, actualSet, actual?, suggestedVerdict | null} or {updated: false, reason: 'not_found' | 'no_test' | 'no_result' (no counts yet) | 'already_used' | 'too_long' (what we learned has no room), message?}.",
+    "Use a hypothesis's A/B test result, as the card's 'Use the A/B result' does: the test linked to it in the A/B Calculator (hypothesisId; the most recently updated one) adds its result sentence to what we learned, on its own line and once; below the plan's sample a version the line starts 'Too early to call: <smaller> of <planned> per variant. So far:', so an early look is never written as a result. It sets the measured result (B's rate in %) only when the target's unit is '%', the test has its planned sample a version and the result is significant at the plan's confidence. It never sets the status: apply suggestedVerdict with set_status once the user agrees. Returns {updated: true, testId, sentence, actualSet, actual?, suggestedVerdict | null} or {updated: false, reason: 'not_found' | 'no_test' | 'no_result' (no counts yet) | 'already_used' | 'too_long' (what we learned has no room) | 'too_large' (the tracker's one synced row has no room), message?}.",
   paramsSchema: HypothesisIdSchema,
   handler: async (params) => applyAbResult(browserStore, params),
   mcpHandler: async (params, ctx) => applyAbResult(serverStore(ctx.userId), params),
