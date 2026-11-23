@@ -2,12 +2,7 @@
 
 import { Sun } from "lucide-react";
 import { SectionCard } from "@/components/shared/section-card";
-import {
-  shiftChain,
-  shiftIndex,
-  type StandupPlaces,
-  type StandupShift,
-} from "@/lib/standup/entries";
+import { shiftIndex, type StandupPlaces, type StandupShift } from "@/lib/standup/entries";
 import type { StandupEntry } from "@/lib/stores/workspace-types";
 import { nameKey } from "@/lib/team/names";
 import { localTimeText } from "@/lib/team-time/format";
@@ -29,25 +24,30 @@ export interface HandoverRow {
 
 /**
  * The follow-the-sun chain for the Hand-overs panel: each shift east to
- * west (the places on one clock), its clock now, the hand-over notes from
+ * west (the places on one clock), its clock now, the people there (from the
+ * roster and today's and yesterday's posters), the hand-over notes from
  * updates dated today or yesterday, and whether the next shift has posted
- * today. Null unless Team Time knows two shifts or more among the people
- * posting (the roster and today's and yesterday's posters).
+ * today. `chain` is the page's one chain (shiftChain over Team Time's
+ * places, today), the one the form's hint, the digest and Amr read, so a
+ * hand-over names the same next place everywhere. Null with fewer than two
+ * shifts.
  */
 export function handoverRows({
   entries,
   places,
+  chain,
   roster,
   today,
   now,
 }: {
   entries: readonly StandupEntry[];
   places: StandupPlaces | undefined;
+  chain: readonly StandupShift[];
   roster: readonly string[];
   today: string;
   now: Date;
 }): HandoverRow[] | null {
-  if (!places) return null;
+  if (!places || chain.length < 2) return null;
   const yesterday = addDays(today, -1);
   const recent = entries.filter((e) => e.date === today || e.date === yesterday);
   const names = new Map<string, string>();
@@ -55,14 +55,6 @@ export function handoverRows({
     const key = nameKey(n);
     if (key && !names.has(key)) names.set(key, n.trim());
   }
-  const full = shiftChain(places, today);
-  const posting = new Set<number>();
-  for (const key of Array.from(names.keys())) {
-    const at = shiftIndex(full, places.get(key));
-    if (at >= 0) posting.add(at);
-  }
-  if (posting.size < 2) return null;
-  const chain = full.filter((_, i) => posting.has(i));
   const at = (member: string) => shiftIndex(chain, places.get(nameKey(member)));
   return chain.map((place, here) => {
     const after = (here + 1) % chain.length;

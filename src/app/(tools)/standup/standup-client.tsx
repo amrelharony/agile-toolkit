@@ -578,8 +578,10 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
     personKey(form.draft.member) !== personKey(wanted)
   );
 
-  // A hand-over is offered when Team Time knows two places or more and where
-  // the poster works; it goes to the next place east to west.
+  // A hand-over is offered when Team Time knows two shifts or more and where
+  // the poster works; it goes to the next shift east to west. This one chain
+  // feeds the form's hint and the Hand-overs panel; the digests and Amr build
+  // the same one from the same places and day.
   const chain = useMemo(() => shiftChain(places, today), [places, today]);
   const posterPlace = places.get(nameKey(form.draft.member));
   const handoffOffer = {
@@ -587,7 +589,7 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
     to: nextPlace(chain, posterPlace)?.label ?? null,
   };
   const handovers = isAsync
-    ? handoverRows({ entries, places, roster: rosterNames, today, now: new Date() })
+    ? handoverRows({ entries, places, chain, roster: rosterNames, today, now: new Date() })
     : null;
 
   /** A digest summary was made: the day, where it came from and the counts, never the text. */

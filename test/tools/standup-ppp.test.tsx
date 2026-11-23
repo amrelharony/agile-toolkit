@@ -281,6 +281,30 @@ describe("follow the sun", () => {
     ).toBeInTheDocument();
   });
 
+  it("names the same next place in the panel, the form's hint and the digest", () => {
+    // Bea is in Team Time only: not on the roster, and she hasn't posted.
+    useWorkspaceStore.setState({
+      teamTimePeople: [...PEOPLE, person("p3", "Bea", "Asia/Kolkata")],
+      standupEntries: [
+        entry("s1", "Sky", { handoff: "Build is on staging" }),
+        entry("l1", "Lou", { timestamp: 1 }),
+      ],
+    });
+    renderStandup();
+    const panel = document.querySelector("[data-handovers]") as HTMLElement;
+    expect(
+      within(panel).getByText("Sydney → Kolkata → London office → back to Sydney")
+    ).toBeInTheDocument();
+    expect(within(panel).getByText(/to Kolkata: Build is on staging/)).toBeInTheDocument();
+    fireEvent.change(memberInput(), { target: { value: "Sky" } });
+    expect(
+      screen.getByText("Kolkata starts next: say what to pick up, and where it is.")
+    ).toBeInTheDocument();
+    expect(exported.byName.get(`standup-digest-${TODAY}`)).toContain(
+      "- **Sky**, Sydney → Kolkata: Build is on staging"
+    );
+  });
+
   it("isn't there with one place, or in the live standup", () => {
     useWorkspaceStore.setState({ teamTimePeople: PEOPLE.slice(0, 1) });
     const view = renderStandup();
