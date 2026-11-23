@@ -500,7 +500,7 @@ describe("the business case", () => {
   it("cheers a go and logs it as the milestone; any other verdict is logged as decided", async () => {
     seed(bizCase("pcanvas_case"));
     renderPage();
-    fireEvent.click(await screen.findByRole("radio", { name: "Go" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Go" }));
     expect(byId("pcanvas_case")!.decision).toMatchObject({ verdict: "go" });
     expect(logs.at(-1)).toEqual({
       action: PRODUCT_CANVAS_ACTIONS.CASE_APPROVED,
@@ -508,12 +508,36 @@ describe("the business case", () => {
     });
     expect(cheerSpy).toHaveBeenCalledWith("product-canvas", "milestone");
     expect(screen.getByText(/^Decided on \d{4}-\d{2}-\d{2}\.$/)).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("radio", { name: "Change and come back" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change and come back" }));
     expect(logs.at(-1)).toEqual({
       action: PRODUCT_CANVAS_ACTIONS.CASE_DECIDED,
       payload: { canvasId: "pcanvas_case", verdict: "change" },
     });
     expect(cheerSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("records a verdict only when one is pressed, never on the way past it with the keys", async () => {
+    seed(bizCase("pcanvas_case"));
+    renderPage();
+    const group = await screen.findByRole("group", { name: "The verdict" });
+    // Toggle buttons, not radios: moving between them records nothing.
+    expect(within(group).queryAllByRole("radio")).toEqual([]);
+    const pending = within(group).getByRole("button", { name: "Not decided yet" });
+    expect(pending).toHaveAttribute("aria-pressed", "true");
+    pending.focus();
+    fireEvent.keyDown(pending, { key: "ArrowRight" });
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" });
+    expect(byId("pcanvas_case")!).not.toHaveProperty("decision");
+    expect(logs).toEqual([]);
+    expect(cheerSpy).not.toHaveBeenCalled();
+    fireEvent.click(within(group).getByRole("button", { name: "No go" }));
+    expect(byId("pcanvas_case")!.decision).toMatchObject({ verdict: "no-go" });
+    expect(within(group).getByRole("button", { name: "No go" })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(actions()).toEqual([PRODUCT_CANVAS_ACTIONS.CASE_DECIDED]);
+    expect(cheerSpy).not.toHaveBeenCalled();
   });
 
   it("keeps a note on why when its field is left", async () => {
@@ -531,7 +555,7 @@ describe("the business case", () => {
   it("records the case in the Decision Log as a proposal, with its options and verdict", async () => {
     seed(bizCase("pcanvas_case", { decision: { verdict: "go" } }));
     renderPage();
-    await screen.findByRole("radio", { name: "Go" });
+    await screen.findByRole("button", { name: "Go" });
     send(/^Send to… Business case: Every payment/, "Record in the Decision Log");
     const record = (ws().decisions ?? [])[0];
     expect(record).toMatchObject({
@@ -551,7 +575,7 @@ describe("the business case", () => {
   it("asks for early signs and the smallest version in its Check panel", async () => {
     seed(bizCase("pcanvas_case"));
     renderPage();
-    await screen.findByRole("radio", { name: "Go" });
+    await screen.findByRole("button", { name: "Go" });
     const check = screen.getByRole("list", { name: "What the canvas still lacks" });
     expect(within(check).getByText(/No early signs yet/)).toBeInTheDocument();
     expect(
@@ -798,9 +822,9 @@ describe("the example", () => {
     seed(...buildExample());
     useProductCanvasPrefs.setState({ lastFormat: "business-case" });
     renderPage();
-    await screen.findByRole("radio", { name: "Go" });
+    await screen.findByRole("button", { name: "Go" });
     expect(screen.getByRole("button", { name: /^Send to… Business case/ })).toBeDisabled();
-    fireEvent.click(screen.getByRole("radio", { name: "Go" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go" }));
     expect(actions()).toEqual([]);
     expect(cheerSpy).not.toHaveBeenCalled();
     cleanup();

@@ -3,7 +3,8 @@
 /**
  * A lean business case's decision: the verdict (not decided yet, go, no go,
  * or change and come back), a note on why, and the day it was decided,
- * stamped when the verdict changes. "Record in the Decision Log" adds a
+ * stamped when the verdict changes. Each verdict is a toggle button, so
+ * one is recorded only when it is pressed, never on the way past it. "Record in the Decision Log" adds a
  * proposed record there: "Business case: {epic}", what we expect as its
  * context, the three options weighed and the verdict as the proposal; the
  * team accepts it in the log.
@@ -17,6 +18,7 @@ import { useState } from "react";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
 import { BlurTextarea } from "@/components/shared/blur-fields";
 import { SectionCard } from "@/components/shared/section-card";
+import { Button } from "@/components/ui/button";
 import { cheer } from "@/lib/celebrate/cheer";
 import { PRODUCT_CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { NOTE_MAX, VERDICT_LABEL, verdictOf } from "@/lib/product-canvas/fields";
@@ -27,16 +29,12 @@ import { PRODUCT_CASE_VERDICTS, type ProductCaseVerdict } from "@/lib/stores/wor
 import { isExampleId } from "@/lib/utils/example-id";
 import type { CanvasHandle } from "../boxes";
 
-const CHIP =
-  "min-touch-coarse inline-flex items-center rounded-md border border-border px-2.5 py-1 text-sm text-sub transition-colors peer-checked:border-accent peer-checked:bg-accent/10 peer-checked:text-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent";
-
 export function DecisionPanel({ handle }: { handle: CanvasHandle }) {
   const { canvas, write, log } = handle;
   const [problem, setProblem] = useState<string | null>(null);
   const example = isExampleId(canvas.id);
   const verdict = verdictOf(canvas);
   const day = canvas.decision?.decidedAt?.slice(0, 10);
-  const name = `pc-verdict-${canvas.id}`;
 
   const decide = (next: ProductCaseVerdict) => {
     if (next === verdict) return;
@@ -69,21 +67,27 @@ export function DecisionPanel({ handle }: { handle: CanvasHandle }) {
 
   return (
     <SectionCard title="Decision" contentClassName="space-y-3">
-      <fieldset className="space-y-1.5">
-        <legend className="text-sm font-medium text-text">The verdict</legend>
-        <div className="flex flex-wrap gap-2">
+      <div className="space-y-1.5">
+        <p id={`pc-verdict-${canvas.id}`} className="text-sm font-medium text-text">
+          The verdict
+        </p>
+        {/* Toggle buttons, not radios: arrow keys would record each verdict on the way. */}
+        <div
+          role="group"
+          aria-labelledby={`pc-verdict-${canvas.id}`}
+          className="flex flex-wrap gap-2"
+        >
           {PRODUCT_CASE_VERDICTS.map((v) => (
-            <label key={v} className="relative inline-flex cursor-pointer">
-              <input
-                type="radio"
-                name={name}
-                value={v}
-                checked={verdict === v}
-                onChange={() => decide(v)}
-                className="peer sr-only"
-              />
-              <span className={CHIP}>{VERDICT_LABEL[v]}</span>
-            </label>
+            <Button
+              key={v}
+              type="button"
+              size="sm"
+              variant={verdict === v ? "toolkit" : "outline"}
+              aria-pressed={verdict === v}
+              onClick={() => decide(v)}
+            >
+              {VERDICT_LABEL[v]}
+            </Button>
           ))}
         </div>
         {verdict !== "pending" && day && (
@@ -91,7 +95,7 @@ export function DecisionPanel({ handle }: { handle: CanvasHandle }) {
             Decided on {day}.
           </p>
         )}
-      </fieldset>
+      </div>
       <div className="space-y-1">
         <label htmlFor={`pc-verdict-note-${canvas.id}`} className="text-sm text-text">
           Why
