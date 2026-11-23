@@ -24,7 +24,14 @@ import { completionPct } from "@/lib/sprints/metrics";
 import { todayIso } from "@/lib/sprints/series";
 import { storyProgress } from "@/lib/sprints/progress";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
-import type { DodCriterion, KanbanColumnId, Sprint, Story } from "@/lib/stores/workspace-types";
+import type {
+  DodCriterion,
+  KanbanColumnId,
+  Sprint,
+  Story,
+  WorkflowDefinition,
+} from "@/lib/stores/workspace-types";
+import { describedBoard, sleText, stagePolicy } from "@/lib/kanban/workflow";
 import { checkedOf, openCriteria } from "@/lib/dod/model";
 import { cn } from "@/lib/utils";
 import { emit as sonify } from "@/lib/sonification/emit";
@@ -32,7 +39,15 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
 import { useReturnFocus } from "@/hooks/use-return-focus";
-import { AgeBadge, BlockedBadge, BlockedToggle, DodChecklist, PersonInPlace } from "./card-parts";
+import {
+  AgeBadge,
+  BlockedBadge,
+  BlockedToggle,
+  ColumnPolicy,
+  DodChecklist,
+  PersonInPlace,
+} from "./card-parts";
+import { BlockWhy } from "./block-note-dialog";
 import { BoardDnd, DragPreview, DraggableCard, DropColumn } from "./board-dnd";
 import { WipLimitInput, clampWipLimit } from "./wip-limit-input";
 import { useNow } from "./use-now";
@@ -90,6 +105,11 @@ export interface SprintBoardProps {
    * to Done with required criteria open says so (it never blocks).
    */
   dod?: readonly DodCriterion[];
+  /**
+   * The Definition of Workflow: when it describes the Sprint board, its
+   * column policies fold under the headers and its SLE shows in the header.
+   */
+  definition?: WorkflowDefinition | null;
 }
 
 /**
@@ -109,6 +129,7 @@ export function SprintBoard({
   onExample,
   example = false,
   dod = NO_CRITERIA,
+  definition = null,
 }: SprintBoardProps) {
   const announce = useAnnounce();
   const { log } = useHistoryLogger("kanban");
@@ -127,6 +148,9 @@ export function SprintBoard({
   const pct = completionPct(progress.done, progress.scope);
 
   const titleOf = (id: string) => writer.story(id)?.title ?? "story";
+  // Policies and the SLE belong to the board the definition describes.
+  const workflow = describedBoard(definition) === "sprint" ? definition : null;
+  const sle = sleText(workflow?.sle);
 
   /**
    * Move a story with Undo. The message says where it went and, when the
@@ -214,6 +238,7 @@ export function SprintBoard({
         {verdict}
         <span className="ml-2 font-normal text-sub">{sprintDayLine(sprint, todayIso(now))}</span>
       </p>
+      {sle && <p className="text-xs font-medium text-sub">{sle}</p>}
       {sprint.goal?.trim() && (
         <p className="flex items-start gap-1.5 text-xs text-sub">
           <Target className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -353,6 +378,9 @@ export function SprintBoard({
                       onCommit={(n) => onWipChange(col.wipKey, clampWipLimit(n))}
                     />
                   )}
+                  {workflow && col.id !== "done" && (
+                    <ColumnPolicy column={col.label} {...stagePolicy(workflow, col.id)} />
+                  )}
                 </div>
                 <DropColumn
                   id={col.id}
@@ -368,6 +396,19 @@ export function SprintBoard({
                       moveRef={refFor(`move:${story.id}`)}
                       onMove={(to) => move(story.id, to)}
                       onToggleBlocked={() => toggleBlocked(story)}
+                      blockWhy={
+                        example || closed ? null : (
+                          <BlockWhy
+                            item={story}
+                            idKey="storyId"
+                            fresh={() => writer.story(story.id)}
+                            writeNote={(note) => writer.setBlockNote(story.id, note)}
+                            restoreLog={(blockLog) => writer.setBlockLog(story.id, blockLog)}
+                            log={log}
+                            extra={{ board: "sprint" }}
+                          />
+                        )
+                      }
                       onOwner={(name) => setOwner(story, name)}
                       dod={dod}
                       onDodCheck={(id, checked) => {
@@ -395,6 +436,7 @@ function StoryCard({
   moveRef,
   onMove,
   onToggleBlocked,
+  blockWhy,
   onOwner,
   dod,
   onDodCheck,
@@ -407,6 +449,8 @@ function StoryCard({
   moveRef: (el: HTMLElement | null) => void;
   onMove: (to: SprintColumnId) => void;
   onToggleBlocked: () => void;
+  /** "Add why" for a blocked story (none on an example or a closed sprint's board). */
+  blockWhy: ReactNode;
   onOwner: (name: string) => void;
   dod: readonly DodCriterion[];
   onDodCheck: (criterionId: string, checked: boolean) => void;
@@ -439,6 +483,7 @@ function StoryCard({
           </div>
           <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
             {blocked && <BlockedBadge />}
+            {blocked && blockWhy}
             <AgeBadge days={days} column={SPRINT_COLUMN_LABEL[column]} />
             <SourceLink sourceRef={story.sourceRef} />
           </div>

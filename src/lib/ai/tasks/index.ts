@@ -17,6 +17,7 @@ import { agendaTask } from "./facilitator-timers";
 import { hillChartUpdateNoteTask } from "./hill-chart";
 import { impactMapDraftTask } from "./impact-map";
 import { interruptClassifyTask } from "./interrupt-buffer";
+import { kanbanPoliciesTask } from "./kanban";
 import { meetingAuditSuggestTask } from "./meeting-audit";
 import { notesToActionsExtractTask } from "./notes-to-actions";
 import { parkingRouteTask } from "./parking-lot";
@@ -57,6 +58,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   hillChartUpdateNoteTask,
   impactMapDraftTask,
   interruptClassifyTask,
+  kanbanPoliciesTask,
   meetingAuditSuggestTask,
   notesToActionsExtractTask,
   parkingRouteTask,

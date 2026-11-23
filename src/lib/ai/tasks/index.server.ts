@@ -17,6 +17,7 @@ import { agendaPrompt } from "./facilitator-timers.server";
 import { hillChartUpdateNotePrompt } from "./hill-chart.server";
 import { impactMapDraftPrompt } from "./impact-map.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
+import { kanbanPoliciesPrompt } from "./kanban.server";
 import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
 import { notesToActionsExtractPrompt } from "./notes-to-actions.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
@@ -56,6 +57,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   hillChartUpdateNotePrompt,
   impactMapDraftPrompt,
   interruptClassifyPrompt,
+  kanbanPoliciesPrompt,
   meetingAuditSuggestPrompt,
   notesToActionsExtractPrompt,
   parkingRoutePrompt,

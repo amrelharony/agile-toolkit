@@ -124,6 +124,43 @@ export function PersonInPlace({
   );
 }
 
+/**
+ * A column's policy from the Definition of Workflow, folded under its
+ * header: shown only when that stage has one, on the board it describes.
+ */
+export function ColumnPolicy({
+  column,
+  enter,
+  exit,
+}: {
+  column: string;
+  enter?: string;
+  exit?: string;
+}) {
+  if (!enter && !exit) return null;
+  return (
+    <details className="mt-1 text-xs">
+      <summary className="min-touch-coarse cursor-pointer select-none rounded-sm text-sub hover:text-text focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+        Policy<span className="sr-only"> for {column}</span>
+      </summary>
+      <dl className="mt-1 space-y-1 text-text">
+        {enter && (
+          <div>
+            <dt className="inline font-medium">Enters when: </dt>
+            <dd className="inline break-words">{enter}</dd>
+          </div>
+        )}
+        {exit && (
+          <div>
+            <dt className="inline font-medium">Leaves when: </dt>
+            <dd className="inline break-words">{exit}</dd>
+          </div>
+        )}
+      </dl>
+    </details>
+  );
+}
+
 /** "Blocked", in the danger colour and in words, so it never relies on colour alone. */
 export function BlockedBadge() {
   return (
