@@ -267,6 +267,7 @@ function detail(
     required: def.required,
     marksFacts: Boolean(def.evidence),
     asksQuestions: Boolean(def.qa),
+    marksNiceToHave: Boolean(def.niceToHave),
     linksTo: def.linksTo ?? [],
     lines: itemsOf(c, def.id).map((i) => ({
       id: i.id,
@@ -275,6 +276,7 @@ function detail(
       ...(i.detail ? { answer: i.detail } : {}),
       ...(i.links ? { links: i.links } : {}),
       ...(i.promptId ? { hardQuestion: i.promptId } : {}),
+      ...(i.niceToHave ? { niceToHave: true } : {}),
       test: linkedTest(i.sentTo, hypotheses).state,
     })),
   }));
@@ -376,7 +378,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Read Product Canvas: a product idea on one page, as a vision with its pitch, a Value Proposition, an idea in the inbox, a Lean UX canvas, a PR/FAQ, a lean business case or a Shape Up pitch. Returns {goal: {id, statement} | null (the active Product Goal), vision (the Product Goal page's vision, '' when none), formats: {id, name}[], total (canvases, examples left out), inbox: {open, new, assessing, accepted, declined, merged} (ideas by status, examples left out), cycles: {number, name, start, weeks, end, bets: {id, title, status}[]}[] (the betting table's cycles, newest first)} and, without `id`, canvases: {id, example, format, formatName, title, boxes: {filled, total}, lines, gaps (how many), productGoalId | null, updatedAt, and by format: intake {status, demand, source, requesters (how many), mergedInto (the idea it ended up in) | null, note?} (an idea), decision {verdict, note?, decidedAt?} (a business case), appetiteWeeks | null and bet {status, cycle, start, weeks, end} (a Shape Up pitch)}[] newest first. With `id`: {found, canvas} where canvas adds boxes: {id, label, kind ('list' | 'single' | 'long'), max, required, marksFacts, asksQuestions, linksTo, lines: {id, text, evidence?, answer?, links?, hardQuestion?, test ('none' | 'testing' | 'tested')}[]}[], gapList: {box | null, text}[], and per format: pitch (a vision), fit (a Value Proposition: pains eased, gains added, idle offer lines, confirmed), hypotheses (Lean UX, each with its picks, learn-first and smallest test), release {words, headline} and hardQuestions {id, text, asked, answered}[] (PR/FAQ), requesters (who asked) and similar {id, title}[] (open ideas that look like it) for an idea, circuitBreaker {due, end?} for a pitch (due: bet on a cycle that has ended). Create, rename or delete a canvas with workspace.product_canvas.*; sends (to the Hypothesis Tracker, the backlog, the Opportunity Tree, the Decision Log) are made on the page.",
+    "Read Product Canvas: a product idea on one page, as a vision with its pitch, a Value Proposition, an idea in the inbox, a Lean UX canvas, a PR/FAQ, a lean business case or a Shape Up pitch. Returns {goal: {id, statement} | null (the active Product Goal), vision (the Product Goal page's vision, '' when none), formats: {id, name}[], total (canvases, examples left out), inbox: {open, new, assessing, accepted, declined, merged} (ideas by status, examples left out), cycles: {number, name, start, weeks, end, bets: {id, title, status}[]}[] (the betting table's cycles, newest first)} and, without `id`, canvases: {id, example, format, formatName, title, boxes: {filled, total}, lines, gaps (how many), productGoalId | null, updatedAt, and by format: intake {status, demand, source, requesters (how many), mergedInto (the idea it ended up in) | null, note?} (an idea), decision {verdict, note?, decidedAt?} (a business case), appetiteWeeks | null and bet {status, cycle, start, weeks, end} (a Shape Up pitch)}[] newest first. With `id`: {found, canvas} where canvas adds boxes: {id, label, kind ('list' | 'single' | 'long'), max, required, marksFacts, asksQuestions, marksNiceToHave (a Shape Up pitch's scopes), linksTo, lines: {id, text, evidence?, answer?, links?, hardQuestion?, niceToHave? (a scope marked nice to have, shown with ~), test ('none' | 'testing' | 'tested')}[]}[], gapList: {box | null, text}[], and per format: pitch (a vision), fit (a Value Proposition: pains eased, gains added, idle offer lines, confirmed), hypotheses (Lean UX, each with its picks, learn-first and smallest test), release {words, headline} and hardQuestions {id, text, asked, answered}[] (PR/FAQ), requesters (who asked) and similar {id, title}[] (open ideas that look like it) for an idea, circuitBreaker {due, end?} for a pitch (due: bet on a cycle that has ended). Create, rename or delete a canvas with workspace.product_canvas.*; sends (to the Hypothesis Tracker, the backlog, the Opportunity Tree, the Decision Log) are made on the page.",
   paramsSchema: ListParams,
   handler: (params) => listState(browserStore, params),
   mcpHandler: (params, ctx) => listState(serverStore(ctx.userId), params),
@@ -535,6 +537,12 @@ const UpdateItemParams = z.object({
     .describe(
       "The lines it links to, replacing its links ([] clears): a pain an ease takes away, a gain it adds, the hypothesis a learn-first or a smallest test is for."
     ),
+  niceToHave: z
+    .boolean()
+    .optional()
+    .describe(
+      "A Shape Up scope: true marks it nice to have (shown with ~), false clears the mark; refused on other boxes."
+    ),
 });
 
 async function updateItem(store: Store, p: z.infer<typeof UpdateItemParams>) {
@@ -548,6 +556,7 @@ async function updateItem(store: Store, p: z.infer<typeof UpdateItemParams>) {
       ...(p.detail !== undefined ? { detail: p.detail || null } : {}),
       ...(p.evidence !== undefined ? { evidence: p.evidence } : {}),
       ...(p.links !== undefined ? { links: p.links } : {}),
+      ...(p.niceToHave !== undefined ? { niceToHave: p.niceToHave } : {}),
     },
     nowIso()
   );
@@ -564,7 +573,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Change one line on a product canvas: its words, a question's answer, its fact-or-guess mark, or the lines it links to (checked against the boxes it may link to). Fields left out stay. New words go only on a list box's line: a one-line or paragraph box (the launch date among them) is set with set_field, and its words here are refused as 'not_a_list'. Returns {updated: true}, or {updated: false, reason: 'not_found' | 'not_a_list' | 'blank' | 'too_long' | 'bad_field' | 'too_big', message}.",
+    "Change one line on a product canvas: its words, a question's answer, its fact-or-guess mark, the lines it links to (checked against the boxes it may link to), or a Shape Up scope's nice-to-have mark. Fields left out stay. New words go only on a list box's line: a one-line or paragraph box (the launch date among them) is set with set_field, and its words here are refused as 'not_a_list'. Returns {updated: true}, or {updated: false, reason: 'not_found' | 'not_a_list' | 'blank' | 'too_long' | 'bad_field' | 'too_big', message}.",
   paramsSchema: UpdateItemParams,
   handler: (params) => updateItem(browserStore, params),
   mcpHandler: (params, ctx) => updateItem(serverStore(ctx.userId), params),

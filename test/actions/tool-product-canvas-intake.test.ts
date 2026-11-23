@@ -13,8 +13,10 @@
  *   4. set_decision: a business case's verdict, stamped when it changes
  *   5. place_bet: a known cycle's dates taken, a conflict refused, a new
  *      cycle's start needed
- *   6. list_state: the inbox's counts, the cycles, and each format's fields
- *   7. the MCP path reads and writes the user's rows
+ *   6. update_item: a Shape Up scope's nice-to-have mark, set and cleared,
+ *      refused outside the scopes
+ *   7. list_state: the inbox's counts, the cycles, and each format's fields
+ *   8. the MCP path reads and writes the user's rows
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -385,6 +387,58 @@ describe("place_bet", () => {
     expect(
       await run("tool.product_canvas.place_bet", { canvasId: "pcanvas_case", status: "table" })
     ).toMatchObject({ placed: false, reason: "wrong_format" });
+  });
+});
+
+describe("update_item on a Shape Up pitch", () => {
+  const scoped = (): ProductCanvas => ({
+    ...pitch("pcanvas_p"),
+    sections: {
+      scopes: [
+        { id: "s_csv", text: "CSV export" },
+        { id: "s_pay", text: "Pay screen" },
+      ],
+      "no-gos": [{ id: "n_1", text: "No refunds this time" }],
+    },
+  });
+
+  it("marks a scope nice to have and clears it, and list_state shows the mark", async () => {
+    useWorkspaceStore.setState({ productCanvases: [scoped()] });
+    const mark = { canvasId: "pcanvas_p", itemId: "s_csv", niceToHave: true };
+    expect(await run("tool.product_canvas.update_item", mark)).toEqual({ updated: true });
+    expect(stored("pcanvas_p")?.sections.scopes?.[0]).toMatchObject({ niceToHave: true });
+    const read = await run<{ canvas: { boxes: Record<string, unknown>[] } }>(
+      "tool.product_canvas.list_state",
+      { id: "pcanvas_p" }
+    );
+    const box = (id: string) =>
+      read.canvas.boxes.find((b) => b.id === id) as {
+        marksNiceToHave: boolean;
+        lines: Record<string, unknown>[];
+      };
+    expect(box("scopes").marksNiceToHave).toBe(true);
+    expect(box("no-gos").marksNiceToHave).toBe(false);
+    expect(box("scopes").lines[0]).toMatchObject({ id: "s_csv", niceToHave: true });
+    expect(box("scopes").lines[1]).not.toHaveProperty("niceToHave");
+    expect(await run("tool.product_canvas.update_item", { ...mark, niceToHave: false })).toEqual({
+      updated: true,
+    });
+    expect(stored("pcanvas_p")?.sections.scopes?.[0]).not.toHaveProperty("niceToHave");
+  });
+
+  it("refuses the mark on a line outside the scopes", async () => {
+    useWorkspaceStore.setState({ productCanvases: [scoped()] });
+    expect(
+      await run("tool.product_canvas.update_item", {
+        canvasId: "pcanvas_p",
+        itemId: "n_1",
+        niceToHave: true,
+      })
+    ).toMatchObject({ updated: false, reason: "bad_field" });
+    expect(stored("pcanvas_p")?.sections["no-gos"]?.[0]).not.toHaveProperty("niceToHave");
+    expect(
+      parses("tool.product_canvas.update_item", { canvasId: "x", itemId: "y", niceToHave: "yes" })
+    ).toBe(false);
   });
 });
 
