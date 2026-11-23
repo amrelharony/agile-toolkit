@@ -170,7 +170,7 @@ describe("the Outcomes, quality & library guides describe the pages as they are 
     [
       "hypothesis-tracker",
       ["hypothesis-tracker-client.tsx", "hypothesis-form.tsx", "hypothesis-fields.tsx"],
-      ["hypothesis-card.tsx", "view.ts"],
+      ["hypothesis-card.tsx", "view.ts", "value-checks.tsx"],
       [
         "New hypothesis",
         "We believe",

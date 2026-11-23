@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { nanoid } from "nanoid";
 import { Lightbulb, ListChecks, X } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
@@ -13,6 +13,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { KpiGrid } from "@/components/shared/kpi-grid";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
+import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
 import { SectionCard } from "@/components/shared/section-card";
 import { StatCard } from "@/components/shared/stat-card";
 import {
@@ -39,25 +40,58 @@ import {
 } from "@/lib/hypotheses/model";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Hypothesis, HypothesisTracker } from "@/lib/stores/workspace-types";
+import type {
+  AbTest,
+  EpicRoadmap,
+  Hypothesis,
+  HypothesisMeasuredBy,
+  HypothesisTracker,
+  Okr,
+  ProductMetric,
+  Story,
+} from "@/lib/stores/workspace-types";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { todayLocalISO } from "@/lib/utils/formatters";
-import { removeWithUndo } from "@/lib/utils/undoable";
-import { buildExample } from "./example";
-import { HypothesisCard, type CardChange } from "./hypothesis-card";
-import { NewHypothesisForm } from "./hypothesis-form";
-import { hypothesesToMarkdown } from "./markdown";
+import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import {
+  AB_RESULT_REASON,
+  abResultUpdate,
+  applyValueCheck,
+  isValueCheck,
+  measuredByText,
+  readMeasure,
+  shippedCandidates,
+  valueSummary,
+  valueSummaryText,
+  withMeasuredBy,
+  type ValueCheckValues,
+} from "@/lib/hypotheses/value";
+import { buildExample } from "./example";
+import {
+  HypothesisCard,
+  type CardChange,
+  type CardContext,
+  type ValueAction,
+} from "./hypothesis-card";
+import { NewHypothesisForm, type HypothesisSeed } from "./hypothesis-form";
+import { hypothesesToMarkdown } from "./markdown";
+import { ShippedWork } from "./value-checks";
+import {
+  KIND_FILTERS,
   STATUS_FILTERS,
   countedRows,
+  draftForMetric,
   filterCounts,
   matchesFilter,
+  matchesKind,
   missingText,
   rateOf,
   rateText,
+  readMetricParam,
   statusLabel,
   targetText,
   timeToLearn,
+  type KindFilter,
   type StatusFilter,
 } from "./view";
 
@@ -73,6 +107,11 @@ const SurvivalCurveChart = dynamic(() => import("./charts").then((m) => m.Surviv
 // returns a fresh array each call.
 const NO_TRACKERS: HypothesisTracker[] = [];
 const NONE: Hypothesis[] = [];
+const NO_METRICS: ProductMetric[] = [];
+const NO_OKRS: Okr[] = [];
+const NO_TESTS: AbTest[] = [];
+const NO_STORIES: Story[] = [];
+const NO_ROADMAPS: EpicRoadmap[] = [];
 
 const RESULTS = ["result", "results"] as const;
 
@@ -107,8 +146,23 @@ export function HypothesisTrackerClient() {
   const { log } = useHistoryLogger("hypothesis-tracker");
   const announce = useAnnounce();
   const [filter, setFilter] = useState<StatusFilter>("all");
+  const [kind, setKind] = useState<KindFilter>("all");
+  const [seed, setSeed] = useState<HypothesisSeed | null>(null);
+  const [pendingMetric, setPendingMetric] = useState<string | null>(null);
   const exportRef = useRef<HTMLDivElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
+
+  // What value checks and the A/B line read (P2.5).
+  const metrics = useWorkspaceStore((s) => s.productMetrics) ?? NO_METRICS;
+  const okrs = useWorkspaceStore((s) => s.okrs) ?? NO_OKRS;
+  const tests = useWorkspaceStore((s) => s.abTests) ?? NO_TESTS;
+  const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
+  const roadmaps = useWorkspaceStore((s) => s.epicRoadmaps) ?? NO_ROADMAPS;
+  const context = useMemo<CardContext>(() => ({ metrics, okrs, tests }), [metrics, okrs, tests]);
+  const candidates = useMemo(
+    () => shippedCandidates({ stories, roadmaps, hypotheses: list }, today),
+    [stories, roadmaps, list, today]
+  );
 
   const counted = useMemo(() => countedRows(list), [list]);
   /** Example rows next to the team's own: on the page, but not in the numbers. */
@@ -116,10 +170,19 @@ export function HypothesisTrackerClient() {
   // The same function the agent's list_state calls, over the same rows.
   const rate = useMemo(() => rateOf(counted), [counted]);
   const verdict = hypothesisVerdict(rate);
+  const value = useMemo(
+    () => valueSummary(counted.rows, today, { includeExamples: true }),
+    [counted, today]
+  );
   const learn = useMemo(() => timeToLearn(counted.rows, new Date()), [counted]);
   const counts = useMemo(() => filterCounts(list), [list]);
-  const shown = useMemo(() => list.filter((h) => matchesFilter(h, filter)), [list, filter]);
+  const checks = useMemo(() => list.filter((h) => isValueCheck(h)).length, [list]);
+  const shown = useMemo(
+    () => list.filter((h) => matchesFilter(h, filter) && matchesKind(h, kind)),
+    [list, filter, kind]
+  );
   const needsDetail = counts["needs-detail"];
+  const filtered = filter !== "all" || kind !== "all";
 
   /* ── Writes ── */
 
@@ -152,14 +215,127 @@ export function HypothesisTrackerClient() {
     );
   }
 
-  function add(values: HypothesisValues) {
-    const h = applyHypothesisValues({ id: nanoid(8) }, values);
+  /** The filters go back to All when they would hide `h`. */
+  const reveal = (h: Hypothesis) => {
+    if (!matchesFilter(h, filter)) setFilter("all");
+    if (!matchesKind(h, kind)) setKind("all");
+  };
+
+  function add(values: HypothesisValues, measuredBy?: HypothesisMeasuredBy) {
+    const plain = applyHypothesisValues({ id: nanoid(8) }, values);
+    const h = measuredBy ? withMeasuredBy(plain, measuredBy) : plain;
     put(h);
     record(h.id, HYPOTHESIS_ACTIONS.HYPOTHESIS_ADDED, { hypothesisId: h.id, status: h.status });
+    if (measuredBy) {
+      record(h.id, HYPOTHESIS_ACTIONS.MEASURED_BY_SET, {
+        hypothesisId: h.id,
+        kind: measuredBy.kind,
+      });
+    }
     // A new hypothesis the filter would hide is shown: the filter goes back to All.
-    if (!matchesFilter(h, filter)) setFilter("all");
+    reveal(h);
     announce(`Added “${titleOf(h)}”`);
   }
+
+  /** "Check its value": a running hypothesis that follows the shipped work. */
+  function addValueCheck(values: ValueCheckValues) {
+    const h = applyValueCheck({ id: nanoid(8) }, values);
+    put(h);
+    record(h.id, HYPOTHESIS_ACTIONS.VALUE_CHECK_ADDED, {
+      hypothesisId: h.id,
+      kind: values.shipped.kind,
+      id: values.shipped.id,
+    });
+    reveal(h);
+    announce(`Added a value check for “${values.shipped.title}”, to look at on ${values.checkOn}`);
+  }
+
+  /**
+   * A value-check write on a card. "Read the metric" and "Use the A/B
+   * result" log the number they set as a recorded result, and their Undo
+   * puts the row back without logging anything.
+   */
+  function valueAction(h: Hypothesis, action: ValueAction) {
+    const prev = current()?.hypotheses.find((x) => x.id === h.id);
+    if (!prev) return;
+    if (action.kind === "measured-by") {
+      put(withMeasuredBy(prev, action.measuredBy));
+      record(h.id, HYPOTHESIS_ACTIONS.MEASURED_BY_SET, {
+        hypothesisId: h.id,
+        kind: action.measuredBy?.kind ?? null,
+      });
+      const text = measuredByText(action.measuredBy ?? undefined, { metrics, okrs });
+      announce(
+        text ? `“${titleOf(h)}” is measured by ${text}` : `Cleared how “${titleOf(h)}” is measured`
+      );
+      return;
+    }
+    if (action.kind === "read-measure") {
+      const read = readMeasure(prev, { metrics, okrs });
+      if (read.state !== "ready") return;
+      const next: Hypothesis = { ...prev, actual: read.reading.value };
+      const label = `Read ${read.measure.name}: ${formatMetric(read.reading.value, prev.target?.unit)} on ${read.reading.date}`;
+      undoable({
+        label,
+        apply: () => {
+          put(next);
+          record(h.id, HYPOTHESIS_ACTIONS.RESULT_RECORDED, {
+            hypothesisId: h.id,
+            actual: next.actual,
+          });
+        },
+        revert: () => put(prev),
+      });
+      announce(suggestionText(next) ?? label);
+      return;
+    }
+    const test = tests.find((t) => t.id === action.testId);
+    const r = test ? abResultUpdate(prev, test) : null;
+    if (!test || !r || !r.ok) {
+      announce(AB_RESULT_REASON[!test ? "no_test" : r && !r.ok ? r.reason : "no_result"]);
+      return;
+    }
+    undoable({
+      label: `Used the A/B result on “${titleOf(prev)}”`,
+      apply: () => {
+        put(r.next);
+        record(h.id, HYPOTHESIS_ACTIONS.AB_RESULT_USED, { hypothesisId: h.id, testId: test.id });
+        if (r.actualSet) {
+          record(h.id, HYPOTHESIS_ACTIONS.RESULT_RECORDED, {
+            hypothesisId: h.id,
+            actual: r.next.actual,
+          });
+        }
+      },
+      revert: () => put(prev),
+    });
+    announce(
+      r.actualSet
+        ? (suggestionText(r.next) ?? r.sentence)
+        : `Added the A/B result to what we learned on “${titleOf(prev)}”`
+    );
+  }
+
+  /* ── `?metric=<id>`: New hypothesis for a product metric ─────────── */
+
+  useEffect(() => {
+    if (!pendingMetric || !hydrated) return;
+    const m = metrics.find((x) => x.id === pendingMetric);
+    setPendingMetric(null);
+    dropSearchParam("metric");
+    if (!m) {
+      announce("That metric isn't in Product Metrics any more.");
+      return;
+    }
+    const { draft, measuredBy } = draftForMetric(m, today);
+    setSeed((s) => ({
+      key: (s?.key ?? 0) + 1,
+      draft,
+      measuredBy,
+      measuredLabel: m.name,
+    }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per link, when the workspace is in
+  }, [pendingMetric, hydrated, metrics]);
 
   function save(h: Hypothesis, values: HypothesisValues, what: CardChange) {
     const next = applyHypothesisValues(h, values);
@@ -224,7 +400,11 @@ export function HypothesisTrackerClient() {
 
   /* ── Exports ── */
 
-  const markdown = hypothesesToMarkdown(list, rate);
+  const markdown = hypothesesToMarkdown(list, rate, {
+    sources: { metrics, okrs },
+    today,
+    value,
+  });
   const csvData = {
     headers: [
       "We believe",
@@ -280,6 +460,13 @@ export function HypothesisTrackerClient() {
     value,
     label: `${label} (${counts[value]})`,
   }));
+  const kindOptions: ToggleOption<KindFilter>[] = KIND_FILTERS.map(([value, label]) => ({
+    value,
+    label:
+      value === "all"
+        ? label
+        : `${label} (${value === "value-checks" ? checks : list.length - checks})`,
+  }));
 
   return (
     <ToolPageWrapper
@@ -288,12 +475,23 @@ export function HypothesisTrackerClient() {
       description="Frame product bets as testable hypotheses, set a numeric target, and see which held up."
       category="Product Discovery"
     >
+      <OnSearchParams onChange={(search) => setPendingMetric(readMetricParam(search))} />
       <div ref={exportRef} className="space-y-6">
         {hasExampleItems(list) && <ExampleNotice onClear={clearExample} />}
 
         <div ref={formRef}>
-          <NewHypothesisForm today={today} onAdd={add} />
+          <NewHypothesisForm today={today} onAdd={add} seed={seed} />
         </div>
+
+        {hydrated && (
+          <ShippedWork
+            candidates={candidates}
+            today={today}
+            metrics={metrics}
+            okrs={okrs}
+            onAdd={addValueCheck}
+          />
+        )}
 
         {list.length === 0 ? (
           hydrated && (
@@ -355,6 +553,7 @@ export function HypothesisTrackerClient() {
                 {verdict}
                 {counted.example && <span className="text-sub"> (the example)</span>}
               </p>
+              {value.total > 0 && <p className="text-sm text-text">{valueSummaryText(value)}</p>}
 
               <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
                 <div className="flex min-w-0 flex-col gap-1.5">
@@ -369,7 +568,21 @@ export function HypothesisTrackerClient() {
                     onValueChange={setFilter}
                   />
                 </div>
-                {filter !== "all" && (
+                {(checks > 0 || kind !== "all") && (
+                  <div className="flex min-w-0 flex-col gap-1.5">
+                    <span className="text-sm text-text" aria-hidden="true">
+                      Kind
+                    </span>
+                    <ToggleGroup
+                      label="Kind of hypothesis"
+                      size="sm"
+                      options={kindOptions}
+                      value={kind}
+                      onValueChange={setKind}
+                    />
+                  </div>
+                )}
+                {filtered && (
                   <p className="flex items-center gap-2 text-xs text-sub" role="status">
                     Showing {shown.length} of {list.length}
                     <Button
@@ -377,7 +590,10 @@ export function HypothesisTrackerClient() {
                       variant="ghost"
                       size="sm"
                       className="gap-1"
-                      onClick={() => setFilter("all")}
+                      onClick={() => {
+                        setFilter("all");
+                        setKind("all");
+                      }}
                     >
                       <X aria-hidden="true" />
                       Show all
@@ -398,6 +614,8 @@ export function HypothesisTrackerClient() {
                         today={today}
                         onSave={save}
                         onRemove={remove}
+                        context={context}
+                        onValueAction={valueAction}
                       />
                     </li>
                   ))}
