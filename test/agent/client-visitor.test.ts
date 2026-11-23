@@ -29,9 +29,9 @@ import { z } from "zod";
 const h = vi.hoisted(() => ({
   persist: {
     fetchChatUsage: vi.fn(async () => null),
-    listConversations: vi.fn(async () => []),
+    listConversations: vi.fn(async () => ({ ok: true, data: [] })),
     createConversation: vi.fn(async () => null),
-    loadMessages: vi.fn(async () => []),
+    loadMessages: vi.fn(async () => ({ ok: true, data: [] })),
     appendMessages: vi.fn(async () => {}),
     recordChatUsage: vi.fn(async () => {}),
     deleteConversation: vi.fn(async () => {}),
@@ -357,6 +357,8 @@ describe("the visitor's allowance and refusals", () => {
       const s = useAgentStore.getState();
       expect(s.visitorFallback).toBe(code);
       expect(s.error).toBeTruthy();
+      // Said by the read-only footer (or the guide's note): the chat's announcer stays quiet.
+      expect(s.notice).toMatchObject({ tone: "error", kind: code, quiet: true });
       expect(s.streaming).toBe(false);
       expect(s.messages.map((m) => m.role)).toEqual(["user"]);
       expect(calls).toHaveLength(1);
@@ -388,6 +390,8 @@ describe("the visitor's allowance and refusals", () => {
     expect(s.visitorFallback).toBeNull();
     expect(s.error).toBeTruthy();
     expect(s.notice).toMatchObject({ tone: "error", kind: code });
+    // Nothing else says it: the chat's announcer does.
+    expect(s.notice?.quiet).toBeUndefined();
     expect(s.streaming).toBe(false);
   });
 
@@ -1523,7 +1527,9 @@ describe("the visitor's tool calls", () => {
     queue.push(toolTurn("c1", "tool_zorblax_add_card", { text: "flaky CI" }));
     const turn = askVisitor("add a zorblax card saying flaky CI");
     await confirmation();
-    // What the panel's Clear chat does.
+    // Stop, then Clear chat: the panel's Clear chat is the store's reset
+    // (mascot/visitor-clear-chat, through undoable()), which stops a turn
+    // itself; the next case clears with no Stop first.
     abortInFlight();
     useAgentStore.getState().reset();
     await turn;
@@ -1535,7 +1541,7 @@ describe("the visitor's tool calls", () => {
     expect(s.pendingToolUse).toBeNull();
   });
 
-  it("a reset alone (the visitor turned out to be the owner) leaves no stray result either", async () => {
+  it("a reset alone (Clear chat, or the visitor turned out to be the owner) leaves no stray result either", async () => {
     queue.push(toolTurn("c1", "tool_zorblax_add_card", { text: "flaky CI" }));
     const turn = askVisitor("add a zorblax card saying flaky CI");
     await confirmation();
@@ -1581,6 +1587,8 @@ describe("the visitor's tool calls", () => {
       `Amr used all ${VISITOR_LIMITS.maxToolRounds} tool rounds`
     );
     expect(JSON.stringify(last?.content)).toContain("Send a follow-up and he'll carry on.");
+    // Narration, not Amr's words: the chat draws it as a caption.
+    expect(last?.content[0]).toMatchObject({ type: "text", note: true });
     // Said once, in the stand-in: no notice repeats it under the reply, and
     // nothing is an error, so Amr doesn't frown.
     const { notice, error } = useAgentStore.getState();

@@ -12,6 +12,7 @@ vi.mock("@/lib/auth/auth-provider", () => ({
 
 import { KudosHeaderBeacon } from "@/lib/kudos/beacon/header-beacon";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { AMR_SHEET_ATTR, AMR_SHEET_CLOSE_EVENT } from "@/lib/layout/amr-sheet";
 
 function kudosAt(id: string, sentAt: string): Kudos {
   return {
@@ -66,5 +67,22 @@ describe("KudosHeaderBeacon", () => {
     fireEvent.click(screen.getByRole("button", { name: "Kudos beacon" }));
 
     await waitFor(() => expect(fetchSpy).toHaveBeenCalledWith("/api/kudos?limit=5"));
+  });
+
+  it("closes Amr's phone sheet as its popover opens over it", async () => {
+    h.auth = { status: "anonymous", user: null };
+    const closed = vi.fn();
+    document.documentElement.setAttribute(AMR_SHEET_ATTR, "");
+    document.addEventListener(AMR_SHEET_CLOSE_EVENT, closed);
+    try {
+      render(<KudosHeaderBeacon />);
+      expect(closed).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByRole("button", { name: "Kudos beacon" }));
+      expect(closed).toHaveBeenCalledTimes(1);
+      expect(await screen.findByText("Recent kudos")).toBeInTheDocument();
+    } finally {
+      document.documentElement.removeAttribute(AMR_SHEET_ATTR);
+      document.removeEventListener(AMR_SHEET_CLOSE_EVENT, closed);
+    }
   });
 });

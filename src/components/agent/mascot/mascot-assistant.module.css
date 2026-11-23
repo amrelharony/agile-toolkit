@@ -1,7 +1,9 @@
-/* Floating mascot button — a soft ground shadow, a slight float and a hover lift.
-   Honors reduced-motion. */
+/* Amr's button. He is drawn in ink like the panel beside him (DNA-SPEC §1, §6),
+   so there is no soft light on him: no blurred drop shadow and no ground under
+   his feet. A slight bob and a hover lift; nothing moves for readers who ask
+   for less motion. */
 
-@keyframes mascotFloat {
+@keyframes amrBob {
   0%,
   100% {
     transform: translateY(0);
@@ -11,15 +13,43 @@
   }
 }
 
-.float {
-  filter: drop-shadow(0 6px 10px rgba(0, 0, 0, 0.25));
-  animation: mascotFloat 4s ease-in-out infinite;
+.bob {
+  animation: amrBob 4s ease-in-out infinite;
 }
 
-.float:hover {
+.bob:hover {
   animation-play-state: paused;
   transform: scale(1.08);
   transform-origin: 50% 100%;
+}
+
+/* Focus hugs him. The button is his whole box, mostly empty and partly past the
+   screen edge, so the outline is drawn on his hit span ([data-mascot-hit]), in
+   the --ring every control has. The span has pen corners (never a pill), so the
+   ring and the place a tap finds him are one shape. High contrast's heavier
+   outline moves there too: its rule for every focused control would ring the
+   empty box, so it is beaten here (a more specific !important). */
+.figure [data-mascot-hit] {
+  border-radius: var(--panel-radius);
+}
+
+.figure:focus-visible {
+  outline: none;
+}
+
+.figure:focus-visible [data-mascot-hit] {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+:global(.hc) .figure:focus-visible,
+:global([data-theme="hc"]) .figure:focus-visible {
+  outline: none !important;
+}
+
+:global(.hc) .figure:focus-visible [data-mascot-hit],
+:global([data-theme="hc"]) .figure:focus-visible [data-mascot-hit] {
+  outline: 3px solid var(--accent);
 }
 
 /* Amr's sprite. One loop steps along the row the inline style has selected;
@@ -44,6 +74,14 @@
    height. */
 .swing {
   will-change: transform;
+}
+
+/* His aura (the /mascot-aura command, the Konami sweep) is a hard 2px offset in
+   its colour, set inline on the swing wrapper with data-amr-aura. High contrast
+   has no offset shadows, so it is off there, whatever the inline style says. */
+:global(.hc) .swing[data-amr-aura],
+:global([data-theme="hc"]) .swing[data-amr-aura] {
+  filter: none !important;
 }
 
 /* The phone's tilt: he leans against it from his feet (its transform-origin is
@@ -232,10 +270,33 @@
       scale: 0.96;
     }
   }
+
+  /* The phone's full-height sheet slides up from its bottom edge instead
+     (DNA-SPEC §8: a sheet slides from its edge), on the translate property,
+     at the sheet's own pace. Nothing scales it. */
+  .panelEnter[data-amr-layout="sheet"] {
+    transition:
+      opacity var(--dur-sheet-in) var(--ease-calm),
+      translate var(--dur-sheet-in) var(--ease-calm);
+  }
+
+  @starting-style {
+    .panelEnter[data-amr-layout="sheet"] {
+      opacity: 0;
+      scale: none;
+      translate: 0 100%;
+    }
+  }
+}
+
+/* Docked in the phone's sheet he stands at his phone size and is never
+   scaled: no hover lift there (a tap can leave :hover stuck on a phone). */
+.bob[data-amr-docked]:hover {
+  transform: none;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .float,
+  .bob,
   .framesA,
   .framesB,
   .idleLoop,

@@ -46,6 +46,8 @@ vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
   RateLimitBar: () => <div data-testid="rate-limit-bar" />,
 }));
 
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import { MascotAssistant, UNVERIFIED_OWNER_NOTE } from "@/components/agent/mascot/mascot-assistant";
 import { VISITOR_BODY_LOADING } from "@/components/agent/mascot/lazy-visitor-body";
 import {
@@ -59,6 +61,7 @@ import {
   visitorFallbackNote,
 } from "@/components/agent/mascot/visitor-panel";
 import { peakNote } from "@/components/agent/mascot/visitor-agent-panel";
+import { SWAP_GUARD_MS } from "@/components/agent/chat/chat-composer";
 import { VISITOR_FALLBACK_CODES } from "@/lib/visitor-ai/contract";
 import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { useAgentStore, type VisitorQuota } from "@/lib/agent/store";
@@ -67,8 +70,17 @@ import { LIVE_ROOM_KEY_PREFIX, enterLiveVisitorRoom } from "@/lib/realtime/live-
 import { OWNER_UNVERIFIED } from "@/lib/auth/owner-check";
 import { PRIVACY_PATH, PRIVACY_TITLE } from "@/lib/site/owner";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
+import { VISITOR_EMPTY, visitorStarters } from "@/lib/agent/visitor-starters";
+import { tools } from "@/lib/constants/tools";
+import { toolIdForPath } from "@/lib/agent/page-tool";
 
 const OWNER = { status: "authenticated", user: { id: "u1" } };
+
+/** The empty chat's starters, by name, in order. */
+const starterNames = () =>
+  within(screen.getByRole("list", { name: "Ways to start" }))
+    .getAllByRole("button")
+    .map((b) => b.textContent);
 
 function stubPhoneWidth(isPhone: boolean) {
   vi.stubGlobal("matchMedia", (query: string) => ({
@@ -231,11 +243,19 @@ describe("MascotAssistant — owner gating", () => {
   it("hides the Ctrl J hint on touch screens", async () => {
     h.auth = { status: "anonymous", user: null };
     await renderAmr();
-
-    // jsdom is no Mac, so Ctrl; a Mac shows ⌘J (panel-header's shortcutLabel).
-    const hint = screen.getByText(/Ctrl J/);
-    expect(hint).toHaveClass("pointer-coarse:hidden");
+    const header = screen
+      .getByRole("dialog", { name: "Amr" })
+      .querySelector<HTMLElement>("[data-panel-header]")!;
+    // Move Amr keeps the More menu up for everyone, so the hint is its last
+    // line, not a tail on the subtitle.
+    expect(within(header).queryByText(/Ctrl J/)).toBeNull();
     expect(screen.getByText("Find the right tool")).not.toHaveClass("pointer-coarse:hidden");
+
+    fireEvent.keyDown(within(header).getByRole("button", { name: "More" }), { key: "Enter" });
+    // jsdom is no Mac, so Ctrl; a Mac shows ⌘J (panel-header's shortcutLabel).
+    const hint = within(screen.getByRole("menu")).getByText(/opens and closes Amr$/);
+    expect(hint.textContent).toBe("Ctrl J opens and closes Amr");
+    expect(hint).toHaveClass("pointer-coarse:hidden");
   });
 
   it("keeps the tilt switch, labelled, in the header's More menu on a phone that can send its tilt", async () => {
@@ -271,11 +291,19 @@ describe("MascotAssistant — owner gating", () => {
         name: "Let Amr feel your phone's tilt",
       });
       expect(tilt).toHaveAttribute("aria-checked", "true");
+      // Move Amr comes first, ruled off from the switch.
+      const move = within(menu).getByRole("group", { name: "Move Amr" });
+      expect(Boolean(move.compareDocumentPosition(tilt) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+        true
+      );
       // In the page, but no Ctrl/⌘ key on this touch screen: hidden, like the subtitle's hint.
       const shortcut = within(menu).getByText(/opens and closes Amr$/);
       expect(shortcut.textContent).toBe("Ctrl J opens and closes Amr");
       expect(shortcut).toHaveClass("pointer-coarse:hidden");
-      expect(within(menu).getByRole("separator")).toHaveClass("pointer-coarse:hidden");
+      const rules = within(menu).getAllByRole("separator");
+      expect(rules).toHaveLength(2);
+      expect(rules[0]).not.toHaveClass("pointer-coarse:hidden");
+      expect(rules[1]).toHaveClass("pointer-coarse:hidden");
 
       fireEvent.click(tilt);
       await waitFor(() => expect(useMascotStore.getState().feelPhone).toBe(false));
@@ -306,14 +334,19 @@ describe("MascotAssistant — owner gating", () => {
     }
     for (const name of ["New chat", "Conversation history", "Close assistant"]) {
       expect(within(header).getByRole("button", { name })).toHaveClass(
-        "pointer-coarse:min-h-11",
-        "pointer-coarse:min-w-11",
+        "pointer-coarse:min-h-[44px]",
+        "pointer-coarse:min-w-[44px]",
         "inline-flex",
         "items-center",
         "justify-center"
       );
     }
-    expect(screen.getByText(/Ctrl J/)).toHaveClass("pointer-coarse:hidden");
+    // The shortcut is the More menu's last line, for the owner too.
+    expect(within(header).getByRole("button", { name: "More" })).toHaveClass(
+      "pointer-coarse:min-h-[44px]",
+      "pointer-coarse:min-w-[44px]"
+    );
+    expect(within(header).queryByText(/Ctrl J/)).toBeNull();
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
   });
 
@@ -383,6 +416,87 @@ describe("MascotAssistant — owner gating", () => {
     expect(screen.getByTestId("rate-limit-bar")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "New chat" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Conversation history" })).toBeInTheDocument();
+  });
+
+  describe("the owner's chat chunk", () => {
+    /** Collects requestIdleCallback callbacks, so the test decides when the browser is idle. */
+    function stubIdle() {
+      const callbacks: Array<() => void> = [];
+      vi.stubGlobal("requestIdleCallback", (cb: () => void) => callbacks.push(cb));
+      vi.stubGlobal("cancelIdleCallback", vi.fn());
+      return () => act(() => callbacks.splice(0).forEach((cb) => cb()));
+    }
+    const ownerLoader = () => vi.fn(() => import("@/components/agent/mascot/owner-agent-panel"));
+    /** Everything that could fetch it: idle time, reaching for Amr, his panel open. */
+    async function tryEverything(idle: () => void) {
+      idle();
+      const amr = screen.getByRole("button", { name: "Ask Amr" });
+      fireEvent.pointerEnter(amr);
+      fireEvent.touchStart(amr);
+      fireEvent.focus(amr);
+      act(() => useAgentStore.setState({ open: true }));
+      await waitFor(() => expect(screen.queryByText(VISITOR_BODY_LOADING)).toBeNull());
+    }
+
+    afterEach(() => {
+      delete (navigator as { connection?: unknown }).connection;
+    });
+
+    for (const [who, auth] of [
+      ["a visitor", { status: "anonymous", user: null }],
+      ["a page with no auth at all", null],
+      [
+        "an owner session not verified yet",
+        { status: "error", user: null, error: OWNER_UNVERIFIED },
+      ],
+      ["a sign-in still loading", { status: "loading", user: null }],
+    ] as const) {
+      it(`is never asked for by ${who}: not idle, not reached for, not with the panel open`, async () => {
+        h.auth = auth;
+        useAgentStore.setState({ open: false });
+        const idle = stubIdle();
+        const loadOwnerPanel = ownerLoader();
+        render(<MascotAssistant loadOwnerPanel={loadOwnerPanel} />);
+        await tryEverything(idle);
+        expect(screen.getByRole("dialog", { name: "Amr" })).toBeInTheDocument();
+        expect(loadOwnerPanel).not.toHaveBeenCalled();
+      });
+    }
+
+    it("is fetched ahead for a settled owner once the browser is idle, once", async () => {
+      h.auth = OWNER;
+      useAgentStore.setState({ open: false });
+      const idle = stubIdle();
+      const loadOwnerPanel = ownerLoader();
+      render(<MascotAssistant loadOwnerPanel={loadOwnerPanel} />);
+      expect(loadOwnerPanel).not.toHaveBeenCalled();
+      idle();
+      expect(loadOwnerPanel).toHaveBeenCalledTimes(1);
+      // Reaching for Amr and opening the panel share that one import.
+      fireEvent.pointerEnter(screen.getByRole("button", { name: "Ask Amr" }));
+      act(() => useAgentStore.setState({ open: true }));
+      expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
+      expect(loadOwnerPanel).toHaveBeenCalledTimes(1);
+    });
+
+    it("is never fetched ahead with Data Saver on: it loads when the owner opens the panel", async () => {
+      Object.defineProperty(navigator, "connection", {
+        configurable: true,
+        value: { saveData: true },
+      });
+      h.auth = OWNER;
+      useAgentStore.setState({ open: false });
+      const idle = stubIdle();
+      const loadOwnerPanel = ownerLoader();
+      render(<MascotAssistant loadOwnerPanel={loadOwnerPanel} />);
+      idle();
+      fireEvent.pointerEnter(screen.getByRole("button", { name: "Ask Amr" }));
+      expect(loadOwnerPanel).not.toHaveBeenCalled();
+
+      act(() => useAgentStore.setState({ open: true }));
+      expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
+      expect(loadOwnerPanel).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("drops the owner's conversation when the owner signs out", async () => {
@@ -570,8 +684,39 @@ describe("MascotAssistant — visitor AI", () => {
       expect(h.sendVisitorMessage).toHaveBeenCalledWith("retro", { toolId: "retro" })
     );
     expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1);
-    expect(await screen.findByRole("button", { name: "Tool finder" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Clear chat" })).toBeInTheDocument();
+    // The chat's way back and Clear chat sit in the panel's header, 44 px on
+    // touch: the chevron before the name plate, Clear chat among the view's
+    // icons once there is something to clear (the mocked runtime adds no
+    // message, so the question goes in as the runtime would put it).
+    const header = screen
+      .getByRole("dialog", { name: "Amr" })
+      .querySelector<HTMLElement>("[data-panel-header]")!;
+    const back = await within(header).findByRole("button", { name: "Back to tool finder" });
+    const plate = within(header).getByRole("heading", { level: 2, name: "Amr" });
+    expect(back.compareDocumentPosition(plate) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(back).toHaveClass("pointer-coarse:min-h-[44px]", "pointer-coarse:min-w-[44px]");
+    expect(within(header).queryByRole("button", { name: "Clear chat" })).toBeNull();
+    act(() => {
+      useAgentStore.setState({
+        chatProfile: "visitor",
+        messages: [
+          {
+            id: "v1",
+            role: "user",
+            content: [{ type: "text", text: "retro" }],
+            createdAt: "2026-11-09T08:00:00Z",
+          },
+        ],
+      });
+    });
+    const clear = within(header).getByRole("button", { name: "Clear chat" });
+    expect(plate.compareDocumentPosition(clear) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(clear).toHaveClass("pointer-coarse:min-h-[44px]", "pointer-coarse:min-w-[44px]");
+    // Nothing of either is left under the composer.
+    const footer = screen.getByLabelText("Message").closest("[data-chat-footer]")!;
+    expect(
+      within(footer as HTMLElement).queryByRole("button", { name: /tool finder|Clear chat/i })
+    ).toBeNull();
     // The runtime is mocked; the panel itself fetched nothing.
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -582,7 +727,7 @@ describe("MascotAssistant — visitor AI", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
 
     expect(screen.queryByText(/Before you chat with Amr/)).toBeNull();
-    expect(await screen.findByRole("button", { name: "Tool finder" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Back to tool finder" })).toBeInTheDocument();
     expect(screen.getByLabelText("Message")).toBeInTheDocument();
     expect(h.sendVisitorMessage).not.toHaveBeenCalled();
   });
@@ -671,7 +816,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
     act(() => {
       useAgentStore.getState().setVisitorQuota({
         remaining: 62,
@@ -682,14 +827,37 @@ describe("MascotAssistant — visitor AI", () => {
         peakEndsAt: null,
       });
     });
-    expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent("62 of 100 left today");
+    const line = screen.getByTestId("visitor-ai-quota");
+    expect(line).toHaveTextContent("62 of 100 left today");
+    // In the status row, outside its one live span.
+    expect(line.closest("[aria-live]")).toBeNull();
+    expect(line.closest("[data-composer-status]")).not.toBeNull();
+    expect(line).not.toHaveClass("font-medium");
+
+    // Busy hours join the same line, and a few left stands out.
+    const ends = new Date(Date.now() + 90 * 60_000);
+    act(() => {
+      useAgentStore.getState().setVisitorQuota({
+        remaining: 40,
+        limit: 100,
+        peak: true,
+        peakRemaining: 2,
+        peakLimit: 25,
+        peakEndsAt: ends.toISOString(),
+      });
+    });
+    expect(screen.getByTestId("visitor-ai-quota")).toHaveTextContent(
+      `40 of 100 left today · Busy hours until ${formatPeakTime(ends)}: 2 of 25 messages left in this window`
+    );
+    expect(screen.getByTestId("visitor-ai-quota")).toHaveClass("font-medium", "text-text");
+    expect(screen.getAllByText(/Busy hours until/)).toHaveLength(1);
   });
 
-  it("goes back to the tool finder when Amr can't answer any more", async () => {
+  it("goes back to the tool finder when Amr can't answer any more and there is no chat to read", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
 
     act(() => {
       useAgentStore.getState().setVisitorFallback("visitor_limit");
@@ -704,7 +872,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
 
     const ends = new Date(Date.now() + 90 * 60_000);
     act(() => {
@@ -756,6 +924,44 @@ describe("MascotAssistant — visitor AI", () => {
     expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
   });
 
+  it("keeps a chat under way readable when Amr can't answer any more, and reopens on it", async () => {
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+    useAgentStore.setState({
+      chatProfile: "visitor",
+      messages: [
+        {
+          id: "v1",
+          role: "user",
+          content: [{ type: "text", text: "How do I run a retro?" }],
+          createdAt: "2026-11-09T08:00:00Z",
+        },
+      ],
+    });
+    await renderAmr();
+    await screen.findByLabelText("Message");
+    act(() => {
+      useAgentStore.getState().setVisitorFallback("visitor_limit");
+    });
+    // The chat stays, read-only: its footer says why in place of the box.
+    expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
+    expect(screen.queryByLabelText("Message")).toBeNull();
+    await waitFor(() =>
+      expect(document.querySelector("[data-visitor-read-only]")).toHaveTextContent(
+        "You've used all of today's messages with Amr."
+      )
+    );
+    expect(screen.getByRole("log", { name: "Conversation" })).toHaveTextContent(
+      "How do I run a retro?"
+    );
+
+    // Closed and opened again, it is the same chat, still read-only.
+    act(() => useAgentStore.getState().closeSheet());
+    act(() => useAgentStore.getState().openSheet());
+    await waitFor(() => expect(document.querySelector("[data-visitor-read-only]")).not.toBeNull());
+    expect(screen.queryByTestId("mascot-visitor-guide")).toBeNull();
+    expect(useAgentStore.getState().visitorFallback).toBe("visitor_limit");
+  });
+
   it("offers one primary Ask button under the search, 44 px on touch", async () => {
     await renderAmr();
     const ask = screen.getByRole("button", { name: "Chat with Amr" });
@@ -802,9 +1008,12 @@ describe("MascotAssistant — visitor AI", () => {
     expect(footer).toHaveClass("shrink-0");
   });
 
-  // jsdom has no layout and no scrollIntoView, so this checks the call. In a
-  // short panel the chat's root scrolls, and the log is above the message box.
-  it("brings the log into view when there is something new in it, not for an empty chat", async () => {
+  // jsdom has no layout, so the chat's root gets a stubbed short panel and
+  // this checks the call. In a short panel (a landscape phone) the root
+  // scrolls, and with the message box in view the log is above it. Never
+  // scrollIntoView: that scrolls every scroller around the log, the page
+  // included, and on iOS pans the visual viewport.
+  it("brings the log into view with the chat root's scrollTo when there is something new, not for an empty chat", async () => {
     const scrollIntoView = vi.fn();
     const proto = Element.prototype as { scrollIntoView?: unknown };
     const before = Object.getOwnPropertyDescriptor(proto, "scrollIntoView");
@@ -814,8 +1023,33 @@ describe("MascotAssistant — visitor AI", () => {
       await renderAmr();
       fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
       const log = await screen.findByRole("log", { name: "Conversation" });
+      // The frame: 400 px of column in a 160 px view, scrolled 240 px down to
+      // the message box; the log starts 8 px from the column's top.
+      const root = log.parentElement!;
+      let top = 240;
+      Object.defineProperty(root, "scrollHeight", { configurable: true, get: () => 400 });
+      Object.defineProperty(root, "clientHeight", { configurable: true, get: () => 160 });
+      Object.defineProperty(root, "scrollTop", { configurable: true, get: () => top });
+      const scrollTo = vi.fn((opts: ScrollToOptions) => {
+        top = Math.min(Math.max(0, opts.top ?? top), 240);
+      });
+      Object.defineProperty(root, "scrollTo", { configurable: true, value: scrollTo });
+      vi.spyOn(root, "getBoundingClientRect").mockReturnValue(
+        DOMRect.fromRect({ x: 0, y: 100, width: 320, height: 160 })
+      );
+      vi.spyOn(log, "getBoundingClientRect").mockImplementation(() =>
+        DOMRect.fromRect({ x: 0, y: 100 + 8 - top, width: 320, height: 96 })
+      );
+      /** Two animation frames: the chat's one scroll write has run. */
+      const frames = () =>
+        act(
+          () =>
+            new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())))
+        );
+
       // An empty chat stays on the message box.
-      expect(scrollIntoView).not.toHaveBeenCalled();
+      await frames();
+      expect(scrollTo).not.toHaveBeenCalled();
 
       act(() => {
         useAgentStore.getState().appendMessage({
@@ -825,9 +1059,12 @@ describe("MascotAssistant — visitor AI", () => {
           createdAt: "2026-11-09T08:00:01Z",
         });
       });
-      // "nearest" moves only as far as needed, so a tall panel does not move.
-      expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest" });
-      expect(scrollIntoView.mock.instances.at(-1)).toBe(log);
+      await frames();
+      // Only as far as needed ("nearest"): the log's top at the view's top.
+      // In a tall panel the log is in view, so nothing would move.
+      expect(scrollTo).toHaveBeenCalledWith({ top: 8, behavior: "instant" });
+      expect(top).toBe(8);
+      expect(scrollIntoView).not.toHaveBeenCalled();
     } finally {
       if (before) Object.defineProperty(proto, "scrollIntoView", before);
       else delete proto.scrollIntoView;
@@ -838,7 +1075,7 @@ describe("MascotAssistant — visitor AI", () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
     expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
     // Out of a room the chat offers a change and says Amr asks first.
     expect(screen.getByText(/Add a card/)).toBeInTheDocument();
@@ -856,12 +1093,21 @@ describe("MascotAssistant — visitor AI", () => {
       leave = enterLiveVisitorRoom();
     });
     try {
-      expect(screen.getByTestId("visitor-ai-live-room")).toHaveTextContent(
+      const room = screen.getByTestId("visitor-ai-live-room");
+      expect(room).toHaveTextContent(
         "You're in a live room, so Amr only answers questions here: he won't read or change your tools."
       );
+      // A narration caption in the log, not a line under the composer.
+      expect(room).toHaveAttribute("data-voice", "narration");
+      expect(screen.getByRole("log", { name: "Conversation" })).toContainElement(room);
+      expect(room.closest("[data-chat-footer]")).toBeNull();
       // Nothing else in the chat promises a change the room rules out.
       expect(screen.queryByText(/Add a card/)).toBeNull();
-      expect(screen.getByText(/What makes a good sprint goal\?/)).toBeInTheDocument();
+      expect(starterNames()).toEqual([
+        "How does Retro Board work?",
+        "What makes a good retro?",
+        "Which tool helps prioritize a backlog?",
+      ]);
       const quota = screen.getByTestId("visitor-ai-quota");
       expect(quota).not.toHaveTextContent("Amr asks before changing anything");
       expect(quota).toHaveTextContent("Not saved");
@@ -875,11 +1121,59 @@ describe("MascotAssistant — visitor AI", () => {
     );
   });
 
+  it("opens an empty chat on a narration line and the page's starters, which fill the box and never send", async () => {
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+    await renderAmr();
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await screen.findByRole("button", { name: "Back to tool finder" });
+
+    const line = screen.getByText(VISITOR_EMPTY.line);
+    expect(line.closest(".comic-caption")).toHaveAttribute("data-voice", "narration");
+    expect(screen.getByRole("log")).toContainElement(line);
+    expect(starterNames()).toEqual([
+      "How does Retro Board work?",
+      "Add a card “flaky CI” to this retro",
+      "What makes a good retro?",
+    ]);
+
+    fireEvent.click(screen.getByRole("button", { name: "How does Retro Board work?" }));
+    const box = screen.getByLabelText("Message") as HTMLTextAreaElement;
+    expect(box).toHaveValue("How does Retro Board work?");
+    expect(box).toHaveFocus();
+    expect(box.selectionStart).toBe(box.value.length);
+    expect(useAgentStore.getState().drafts.visitor).toBe("How does Retro Board work?");
+    // Nothing went out, so nothing was spent.
+    expect(h.sendVisitorMessage).not.toHaveBeenCalled();
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("offers questions for any page off a tool, and names no tool the visitor may not see", async () => {
+    h.pathname = "/";
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+    const view = await renderAmr();
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await screen.findByRole("button", { name: "Back to tool finder" });
+    expect(starterNames()).toEqual(visitorStarters(null, false));
+    expect(starterNames().some((s) => /^How does/.test(s))).toBe(false);
+    view.unmount();
+
+    // A tool for the book's readers goes unnamed without their link, as in the menus.
+    const hidden = tools.find((t) => t.access === "vip");
+    expect(hidden).toBeDefined();
+    // The page is that tool's: only the visitor's view of the menus leaves it out.
+    expect(toolIdForPath(hidden!.path)).toBe(hidden!.id);
+    h.pathname = hidden!.path;
+    await renderAmr();
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await screen.findByRole("button", { name: "Back to tool finder" });
+    expect(starterNames()).toEqual(visitorStarters(null, false));
+  });
+
   it("says the same when the live room is open in another tab of this browser", async () => {
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     await renderAmr();
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
     expect(screen.queryByTestId("visitor-ai-live-room")).toBeNull();
 
     // What the tab with the room does: it writes its stamp, and this tab gets
@@ -911,7 +1205,7 @@ describe("MascotAssistant — visitor AI", () => {
       askAbout("retro");
       fireEvent.click(screen.getByRole("button", { name: "Agree and ask" }));
       await waitFor(() => expect(h.sendVisitorMessage).toHaveBeenCalledTimes(1));
-      await screen.findByRole("button", { name: "Tool finder" });
+      await screen.findByRole("button", { name: "Back to tool finder" });
       return view;
     }
 
@@ -942,7 +1236,7 @@ describe("MascotAssistant — visitor AI", () => {
       expect(screen.queryByRole("button", { name: /don't ask again/ })).toBeNull();
     });
 
-    it("shows Amr thinking until his reply's first words arrive", async () => {
+    it("shows Amr thinking until his reply begins, then says each phase of the turn", async () => {
       await openChatWithQuestion();
       act(() => {
         useAgentStore.setState({
@@ -957,17 +1251,62 @@ describe("MascotAssistant — visitor AI", () => {
           ],
         });
       });
-      expect(screen.getByText("Amr is thinking…").closest('[role="status"]')).not.toBeNull();
+      const status = screen.getByText("Amr is thinking…").closest('[role="status"]');
+      expect(status).not.toBeNull();
+      // The status speaks from outside the log, which is never live itself.
+      const log = screen.getByRole("log", { name: "Conversation" });
+      expect(log).toHaveAttribute("aria-live", "off");
+      expect(log.contains(status)).toBe(false);
+      expect(
+        log.querySelector('[role="status"], [aria-live="polite"], [aria-live="assertive"]')
+      ).toBeNull();
+      // In the log: his scribbling balloon on his side, with no words and
+      // hidden from a screen reader (the status says it).
+      const thinking = log.querySelector('[data-thinking=""]');
+      expect(thinking).toHaveAttribute("aria-hidden", "true");
+      expect(thinking).toHaveAttribute("data-tail", "amr");
+      expect(thinking?.textContent).toBe("");
 
+      // A tool call: the step shows its pen, and the status names the tool.
       act(() => {
         useAgentStore.getState().appendMessage({
           id: "a1",
           role: "assistant",
-          content: [{ type: "text", text: "Start with what went well." }],
+          content: [
+            { type: "tool_use", id: "c1", name: "tool_retro_add_card", input: { text: "x" } },
+          ],
           createdAt: "2026-11-09T08:00:01Z",
         });
       });
       expect(screen.queryByText("Amr is thinking…")).toBeNull();
+      expect(log.querySelector("[data-thinking]")).toBeNull();
+      expect(status).toHaveTextContent("Amr is working in Retro Board…");
+
+      // Its result is in: thinking again, then his words stream in.
+      act(() => {
+        useAgentStore.getState().appendMessage({
+          id: "t1",
+          role: "tool",
+          content: [{ type: "tool_result", tool_use_id: "c1", content: '{"added":true}' }],
+          createdAt: "2026-11-09T08:00:02Z",
+        });
+      });
+      expect(status).toHaveTextContent("Amr is thinking…");
+      act(() => {
+        useAgentStore.getState().appendMessage({
+          id: "a2",
+          role: "assistant",
+          content: [{ type: "text", text: "Start with what went well." }],
+          createdAt: "2026-11-09T08:00:03Z",
+        });
+      });
+      expect(status).toHaveTextContent("Amr is writing…");
+
+      // The same status line, still there and empty, for the next turn.
+      act(() => useAgentStore.getState().setStreaming(false));
+      expect(status).toBeInTheDocument();
+      expect(status).toBeEmptyDOMElement();
+      expect(log.contains(status)).toBe(false);
     });
 
     /** A turn under way, as the runtime registers it: its abort is with the store. */
@@ -996,22 +1335,37 @@ describe("MascotAssistant — visitor AI", () => {
       act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0));
       });
+    /**
+     * Past the composer's guard: a press this soon after Stop turned back into
+     * Send is taken for a double press and ignored.
+     */
+    const pastTheSwap = () =>
+      act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, SWAP_GUARD_MS));
+      });
 
-    it("Clear chat stops the answer through the store and empties the chat", async () => {
+    it("Clear chat stops the answer through the store, empties the chat and offers Undo in the log", async () => {
       await openChatWithQuestion();
       const abortTurn = liveTurn();
       fireEvent.click(screen.getByRole("button", { name: "Clear chat" }));
-      expect(abortTurn).toHaveBeenCalledTimes(1);
+      // Its Undo's chunk loads with the first message, so it may still be on its way.
+      await waitFor(() => expect(abortTurn).toHaveBeenCalledTimes(1));
       expect(abortTurn).toHaveBeenCalledWith("reset");
       expect(useAgentStore.getState().messages).toEqual([]);
       expect(useAgentStore.getState().streaming).toBe(false);
+      const log = screen.getByRole("log", { name: "Conversation" });
+      const undo = await within(log).findByRole("button", { name: "Undo" });
+      expect(undo).toHaveFocus();
+      fireEvent.click(undo);
+      expect(useAgentStore.getState().messages.map((m) => m.id)).toEqual(["v1"]);
+      expect(screen.getByRole("button", { name: "Clear chat" })).toHaveFocus();
     });
 
-    it("Tool finder goes back to the guide and the answer goes on", async () => {
+    it("Back to tool finder goes back to the guide and the answer goes on", async () => {
       await openChatWithQuestion();
       const abortTurn = liveTurn();
       h.abortVisitor.mockClear();
-      fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+      fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
       expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
       expect(screen.getByLabelText("What do you need to do?")).toHaveValue("retro");
       expect(screen.queryByLabelText("Message")).toBeNull();
@@ -1021,14 +1375,14 @@ describe("MascotAssistant — visitor AI", () => {
       expect(useAgentStore.getState().streaming).toBe(true);
       // Back to chat shows the answer still under way.
       fireEvent.click(screen.getByRole("button", { name: "Back to chat" }));
-      expect(await screen.findByRole("button", { name: "Stop generating" })).toBeInTheDocument();
+      expect(await screen.findByRole("button", { name: "Stop answer" })).toBeInTheDocument();
     });
 
     it("keeps a new question asked from the guide mid-answer in the box, unsent", async () => {
       await openChatWithQuestion();
       const abortTurn = liveTurn();
       h.sendVisitorMessage.mockClear();
-      fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+      fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
       askAbout("sprint goal");
       // The chat opens on the answer still under way, with the question waiting.
       expect(await screen.findByLabelText("Message")).toHaveValue("sprint goal");
@@ -1039,6 +1393,7 @@ describe("MascotAssistant — visitor AI", () => {
 
       // Once the answer ends, Send asks it.
       act(() => useAgentStore.setState({ streaming: false }));
+      await pastTheSwap();
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
       await waitFor(() =>
         expect(h.sendVisitorMessage).toHaveBeenCalledWith("sprint goal", { toolId: "retro" })
@@ -1051,7 +1406,7 @@ describe("MascotAssistant — visitor AI", () => {
       liveTurn();
       h.sendVisitorMessage.mockClear();
       act(() => useAgentStore.getState().setDraft("visitor", "and how long"));
-      fireEvent.click(screen.getByRole("button", { name: "Tool finder" }));
+      fireEvent.click(screen.getByRole("button", { name: "Back to tool finder" }));
       askAbout("sprint goal");
       expect(await screen.findByLabelText("Message")).toHaveValue("and how long\n\nsprint goal");
       await settle();
@@ -1099,6 +1454,7 @@ describe("MascotAssistant — visitor AI", () => {
 
     it("sends the draft and empties it", async () => {
       await openChatWithQuestion();
+      await pastTheSwap();
       fireEvent.change(screen.getByLabelText("Message"), { target: { value: "what next?" } });
       fireEvent.click(screen.getByRole("button", { name: "Send" }));
       await waitFor(() =>

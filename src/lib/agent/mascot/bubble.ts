@@ -7,7 +7,9 @@ import { create } from "zustand";
  * phone, I'll feel it"), a greeting, a word when someone seems stuck. One at a
  * time; a new one replaces the one showing. The bubble is drawn by
  * components/agent/mascot/mascot-bubble.tsx, where the moment chip stands, and
- * waits while a moment chip is up. Every line he can say is in lines.ts.
+ * waits while a moment chip is up. A line fades on its own; a question (a
+ * bubble with answers) waits for its answer, and goes when his panel opens or a
+ * new line replaces it. Every line he can say is in lines.ts.
  */
 
 export interface BubbleAction {
@@ -20,20 +22,21 @@ export interface MascotBubble {
   /** Names the bubble: showing the same id again replaces it. */
   id: string;
   text: string;
-  /** Up to two answers. With none, the bubble fades on its own (or is tapped: onTap). */
+  /**
+   * Up to two answers, which make it a question: it waits for one, with no
+   * clock. With none, the bubble fades on its own (or is tapped: onTap).
+   */
   actions?: readonly BubbleAction[];
   /** Tapping the line itself (only when it has no answers). */
   onTap?(): void;
-  /** How long it stays, in ms. */
+  /** How long a line stays, in ms (a question has no clock). */
   ms?: number;
-  /** It went unanswered: it timed out, or was closed. */
+  /** It went unanswered: a line timed out, it was replaced or closed, or his panel opened over a question. */
   onIgnore?(): void;
 }
 
 /** How long a line stays when nothing is asked. */
 export const BUBBLE_MS = 4000;
-/** How long a question waits for its answer. */
-export const BUBBLE_ASK_MS = 10_000;
 
 interface BubbleState {
   current: MascotBubble | null;
@@ -57,7 +60,12 @@ export const useBubbleStore = create<BubbleState>()((set, get) => ({
   },
 }));
 
-/** How long a bubble stays: its own time, or the usual for a line or a question. */
-export function bubbleMs(bubble: Pick<MascotBubble, "ms" | "actions">): number {
-  return bubble.ms ?? (bubble.actions?.length ? BUBBLE_ASK_MS : BUBBLE_MS);
+/**
+ * How long a bubble stays: a line's own time, or the usual. Null for a
+ * question, which waits until it is answered, his panel opens or a new line
+ * replaces it (a timed question could be gone before a keyboard reaches it).
+ */
+export function bubbleMs(bubble: Pick<MascotBubble, "ms" | "actions">): number | null {
+  if (bubble.actions?.length) return null;
+  return bubble.ms ?? BUBBLE_MS;
 }

@@ -7,9 +7,10 @@
  * The parser itself is pinned in markdown.test.ts.
  */
 
-import { describe, expect, it } from "vitest";
-import { render, screen, within } from "@testing-library/react";
-import { Markdown } from "@/components/agent/markdown";
+import { describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { ChatLink, Markdown } from "@/components/agent/markdown";
+import { AmrPanelContext, NO_AMR_PANEL } from "@/components/agent/mascot/panel-context";
 
 const classes = (el: Element) => (el.getAttribute("class") ?? "").split(/\s+/).filter(Boolean);
 const starts = (root: HTMLElement) =>
@@ -225,6 +226,23 @@ describe("<Markdown> links", () => {
     expect(within(link).getByText("(opens in a new tab)")).toHaveClass("sr-only");
   });
 
+  it("gives the chat's other surfaces the same site link: ChatLink closes the sheet on its way", () => {
+    // With no app router the link leaves the click to the browser: stop it here.
+    const onNavigate = vi.fn((e?: { preventDefault(): void }) => e?.preventDefault());
+    render(
+      <AmrPanelContext.Provider value={{ ...NO_AMR_PANEL, layout: "sheet", onNavigate }}>
+        <ChatLink href="/retro">
+          <span>Retro</span> board
+        </ChatLink>
+      </AmrPanelContext.Provider>
+    );
+    const link = screen.getByRole("link", { name: "Retro board" });
+    expect(link).toHaveAttribute("href", "/retro");
+    expect(link).not.toHaveAttribute("target");
+    fireEvent.click(link);
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+  });
+
   it("leaves the site's own links and mail links unmarked", () => {
     render(<Markdown source={"See [Retro](/retro) or [write](mailto:team@example.com)."} />);
     const own = screen.getByRole("link", { name: "Retro" });
@@ -297,5 +315,95 @@ describe("<Markdown> while a reply streams", () => {
     rerender(<Markdown source={"First part.\n\nSecond part is longer."} />);
     expect(container.querySelector("p")).toBe(first);
     expect(container.querySelectorAll("p")[1].textContent).toBe("Second part is longer.");
+  });
+});
+
+describe("<Markdown> lead", () => {
+  const lettered = (root: HTMLElement) =>
+    Array.from(root.querySelectorAll(".font-display")) as HTMLElement[];
+
+  it("letters the lead at the start of the first paragraph, in rem, and nothing else", () => {
+    const { container } = render(
+      <Markdown
+        source={"Here's how to run it. Open the board first.\n\nThen add cards."}
+        lead="Here's how to run it."
+      />
+    );
+    const [p, second] = Array.from(container.querySelectorAll("p"));
+    const lead = p.firstElementChild as HTMLElement;
+    expect(lead.tagName).toBe("SPAN");
+    expect(lead).toHaveAttribute("data-balloon-lead", "");
+    expect(classes(lead)).toEqual(expect.arrayContaining(["font-display", "text-[0.9375rem]"]));
+    expect(lead.textContent).toBe("Here's how to run it.");
+    // The words after it stay in the paragraph, with their own space.
+    expect(p.textContent).toBe("Here's how to run it. Open the board first.");
+    expect(p).toHaveAttribute("dir", "auto");
+    expect(lettered(container)).toEqual([lead]);
+    expect(second.querySelector("[data-balloon-lead]")).toBeNull();
+  });
+
+  it("keeps inline code, emphasis and links working inside and after the lead", () => {
+    const { container } = render(
+      <Markdown
+        source={"Run `npm test` **first**. Then see [Retro](/retro)."}
+        lead="Run `npm test` **first**."
+      />
+    );
+    const lead = container.querySelector("[data-balloon-lead]") as HTMLElement;
+    const chip = within(lead).getByText("npm test");
+    expect(chip.tagName).toBe("CODE");
+    expect(classes(chip)).toContain("font-data");
+    expect(within(lead).getByText("first").tagName).toBe("STRONG");
+    const link = screen.getByRole("link", { name: "Retro" });
+    expect(lead.contains(link)).toBe(false);
+    expect(container.querySelector("p")!.textContent).toBe("Run npm test first. Then see Retro.");
+  });
+
+  it("letters only the paragraph: a list after the lead stays a list", () => {
+    const { container } = render(
+      <Markdown
+        source={"Here are the steps.\n\n1. Open the board.\n2. Add a card."}
+        lead="Here are the steps."
+      />
+    );
+    expect(container.querySelector("p [data-balloon-lead]")).toHaveTextContent(
+      "Here are the steps."
+    );
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
+    expect(container.querySelector("ol [data-balloon-lead]")).toBeNull();
+  });
+
+  it("finds the lead after leading spaces, and ends the line it is on", () => {
+    const { container } = render(
+      <Markdown source={"  Done.\nThe card is in Went well."} lead="Done." />
+    );
+    const p = container.querySelector("p")!;
+    expect(p.querySelector("[data-balloon-lead]")).toHaveTextContent(/^Done\.$/);
+    expect(p.textContent).toBe("Done.\nThe card is in Went well.");
+  });
+
+  it("letters nothing with no lead, or one the reply doesn't open with", () => {
+    for (const lead of [undefined, null, "", "Something else."]) {
+      const { container, unmount } = render(
+        <Markdown source={"Sure thing. Here it is."} lead={lead} />
+      );
+      expect(container.querySelector("[data-balloon-lead]")).toBeNull();
+      expect(lettered(container)).toEqual([]);
+      expect(container.querySelector("p")!.textContent).toBe("Sure thing. Here it is.");
+      unmount();
+    }
+  });
+
+  it("never letters a first block that isn't a paragraph", () => {
+    const { container } = render(<Markdown source={"## Steps.\n\nOpen it."} lead="Steps." />);
+    expect(container.querySelector("[data-balloon-lead]")).toBeNull();
+  });
+
+  it("keeps the lettered lead's element as the reply streams on", () => {
+    const { container, rerender } = render(<Markdown source={"Done. The"} lead="Done." />);
+    const lead = container.querySelector("[data-balloon-lead]");
+    rerender(<Markdown source={"Done. The card is on the board."} lead="Done." />);
+    expect(container.querySelector("[data-balloon-lead]")).toBe(lead);
+    expect(container.querySelector("p")!.textContent).toBe("Done. The card is on the board.");
   });
 });
