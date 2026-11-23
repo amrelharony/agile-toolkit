@@ -17,7 +17,9 @@
  *                    stories, with a set of buckets.
  *   3. place       — a story into a bucket by its label (null: not placed),
  *                    counting a move as the page does.
- *   4. apply_sizes — Save sizes: the buckets' points written to the
+ *   4. set_bucket_points — map a size to points: what Save sizes writes
+ *                    for one bucket (a T-shirt set has none until mapped).
+ *   5. apply_sizes — Save sizes: the buckets' points written to the
  *                    workspace stories, with what was skipped and why.
  *
  * The board writes run the planners the page runs (lib/relative-sizing/
@@ -48,6 +50,7 @@ import {
   bucketOf,
   bucketsFor,
   planApplied,
+  planBucketPoints,
   planCreateBoard,
   planPlace,
   sizesToWrite,
@@ -287,6 +290,51 @@ registry.register({
   paramsSchema: PlaceParams,
   handler: (p) => place(browserStore, p),
   mcpHandler: (p, ctx) => place(serverStore(ctx.userId), p),
+});
+
+/* ── set_bucket_points ───────────────────────────────────────────────── */
+
+const PointsParams = z.object({
+  boardId: z.string().min(1).describe("The board's id (see list_state)."),
+  bucket: z
+    .string()
+    .trim()
+    .min(1)
+    .max(SIZING_LIMITS.bucketLabel)
+    .describe('The bucket\'s label ("M", "XL", "5").'),
+  points: z
+    .number()
+    .min(0)
+    .max(SIZING_LIMITS.pointsMax)
+    .nullable()
+    .describe("The points Save sizes writes for that bucket's stories; null clears them."),
+});
+
+async function setBucketPoints(store: Store, p: z.infer<typeof PointsParams>) {
+  const now = nowIso();
+  let answer: ReturnType<typeof planBucketPoints> | null = null;
+  const written = await store.write((state) => {
+    answer = planBucketPoints(state, p, now);
+    return answer.ok && answer.changed ? answer.state : null;
+  });
+  const a = answer as ReturnType<typeof planBucketPoints> | null;
+  if (!a) return { updated: false as const, reason: "The board data couldn't be read." };
+  if (!a.ok) return { updated: false as const, reason: a.reason };
+  if (a.changed && !written)
+    return { updated: false as const, reason: "The board couldn't be saved." };
+  return { updated: true as const, changed: a.changed };
+}
+
+registry.register({
+  id: "tool.relative_sizing.set_bucket_points",
+  toolId: "tool.relative_sizing",
+  name: "set_bucket_points",
+  category: "write",
+  requiresConfirmation: false,
+  description: `Map a size to points: set the points Save sizes writes for one bucket, by its label (null clears them). A T-shirt or letter bucket has none until mapped, and apply_sizes skips it. Returns {updated: true, changed} or {updated: false, reason}. ${DIRTY_TAB}`,
+  paramsSchema: PointsParams,
+  handler: (p) => setBucketPoints(browserStore, p),
+  mcpHandler: (p, ctx) => setBucketPoints(serverStore(ctx.userId), p),
 });
 
 /* ── apply_sizes ─────────────────────────────────────────────────────── */

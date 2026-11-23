@@ -1,8 +1,8 @@
 /**
  * tool.relative_sizing.* action coverage.
  *
- *   1. registration: list_state reads; create_board, place and apply_sizes
- *      write without a confirmation, each with an MCP handler, none kept
+ *   1. registration: list_state reads; create_board, place,
+ *      set_bucket_points and apply_sizes write without a confirmation, each with an MCP handler, none kept
  *      from visitors, and each write's description says what an open page
  *      with unsaved changes does
  *   2. the browser path: a board from the unsized backlog or titles, a
@@ -108,9 +108,9 @@ beforeEach(async () => {
 });
 
 describe("tool.relative_sizing: registration", () => {
-  it("reads with list_state and writes with three verbs, each with an MCP handler", () => {
+  it("reads with list_state and writes with four verbs, each with an MCP handler", () => {
     expect(registry.get("tool.relative_sizing.list_state")?.category).toBe("read");
-    for (const name of ["create_board", "place", "apply_sizes"]) {
+    for (const name of ["create_board", "place", "set_bucket_points", "apply_sizes"]) {
       const action = registry.get(`tool.relative_sizing.${name}`);
       expect(action?.category, name).toBe("write");
       expect(action?.requiresConfirmation, name).toBe(false);
@@ -197,6 +197,58 @@ describe("in the browser", () => {
     expect(ws().stories.find((s) => s.id === "a")?.points).toBe(8);
     expect(relativeSizingState().boards[0].appliedAt).toBeTruthy();
   });
+
+  it("maps T-shirt sizes to points, so Save sizes can write them", async () => {
+    useWorkspaceStore.setState({ stories: [story("a"), story("b")] });
+    useRelativeSizing.setState({
+      ...withBoard(),
+      boards: [{ ...board(), bucketSet: "tshirt", buckets: bucketsFor("tshirt") }],
+    });
+    await run("tool.relative_sizing.place", { boardId: "sizing_a", itemId: "c1", bucket: "M" });
+    expect(await run("tool.relative_sizing.apply_sizes", { boardId: "sizing_a" })).toMatchObject({
+      written: 0,
+      skipped: expect.arrayContaining([{ title: "Story a", why: "its bucket has no points" }]),
+    });
+    expect(
+      await run("tool.relative_sizing.set_bucket_points", {
+        boardId: "sizing_a",
+        bucket: "m",
+        points: 5,
+      })
+    ).toEqual({ updated: true, changed: true });
+    // The same points again change nothing.
+    expect(
+      await run("tool.relative_sizing.set_bucket_points", {
+        boardId: "sizing_a",
+        bucket: "M",
+        points: 5,
+      })
+    ).toEqual({ updated: true, changed: false });
+    expect(
+      await run("tool.relative_sizing.set_bucket_points", {
+        boardId: "sizing_a",
+        bucket: "5",
+        points: 5,
+      })
+    ).toMatchObject({ updated: false, reason: expect.stringMatching(/No bucket/) });
+    const listed = await run<{ boards: { buckets: { label: string; points: number | null }[] }[] }>(
+      "tool.relative_sizing.list_state"
+    );
+    expect(listed.boards[0].buckets.find((b) => b.label === "M")?.points).toBe(5);
+    expect(await run("tool.relative_sizing.apply_sizes", { boardId: "sizing_a" })).toMatchObject({
+      written: 1,
+    });
+    expect(ws().stories.find((s) => s.id === "a")?.points).toBe(5);
+    // null clears them again.
+    await run("tool.relative_sizing.set_bucket_points", {
+      boardId: "sizing_a",
+      bucket: "M",
+      points: null,
+    });
+    expect(relativeSizingState().boards[0].buckets.find((b) => b.label === "M")?.points).toBe(
+      undefined
+    );
+  });
 });
 
 describe("over MCP", () => {
@@ -243,6 +295,31 @@ describe("over MCP", () => {
     expect(write[2]).toMatchObject({ id: "b", points: 13 });
     expect((write[2] as Story).refinedAt).toBeTruthy();
     expect((blob.row as RelativeSizingState).boards[0].appliedAt).toBeTruthy();
+  });
+
+  it("maps a size to points in the user's synced row, and writes nothing for a bad bucket", async () => {
+    blob.row = {
+      ...withBoard(),
+      boards: [{ ...board(), bucketSet: "tshirt", buckets: bucketsFor("tshirt") }],
+    };
+    expect(
+      await runMcp("tool.relative_sizing.set_bucket_points", {
+        boardId: "sizing_a",
+        bucket: "XXL",
+        points: 40,
+      })
+    ).toEqual({ updated: true, changed: true });
+    const row = blob.row as RelativeSizingState;
+    expect(row.boards[0].buckets.find((b) => b.label === "XXL")?.points).toBe(40);
+    expect(blob.writes).toHaveLength(1);
+    expect(
+      await runMcp("tool.relative_sizing.set_bucket_points", {
+        boardId: "sizing_a",
+        bucket: "XXXL",
+        points: 40,
+      })
+    ).toMatchObject({ updated: false });
+    expect(blob.writes).toHaveLength(1);
   });
 
   it("lists the user's row read back through the normaliser", async () => {
