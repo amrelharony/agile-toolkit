@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { CalendarPlus, Check, Plus, Sparkles, Trash2, Vote, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -55,6 +55,13 @@ import { SELECT_CLASS } from "./fields";
 /** How many ranked times "Suggest times" shows. */
 const SUGGESTED = 8;
 
+/** Where focus goes once no poll is left to delete: New poll. */
+const NO_POLL_LEFT = "none";
+
+/** The id of a poll time's Remove or Answers button, under the poll card's own id. */
+const slotButtonId = (card: string, slotId: string, which: "remove" | "answers") =>
+  `${card}-slot-${slotId}-${which}`;
+
 /** A time typed on the display clock ("YYYY-MM-DD" and "HH:MM") as an ISO instant, or null. */
 function typedStart(day: string, time: string, zone: string): string | null {
   return wallToUtc(day, time, zone)?.toISOString() ?? null;
@@ -64,10 +71,32 @@ function typedStart(day: string, time: string, zone: string): string | null {
  * Find a time: a poll with its title, length and times (suggested from
  * everyone's hours, or typed on the display clock), then the facilitator
  * records who can make each one and chooses one. The chosen time goes to a
- * calendar file or an invite; a live vote goes through Quick Vote.
+ * calendar file or an invite; a live vote goes through Quick Vote. After a
+ * poll is deleted, focus goes to the next poll's Delete (the one before at
+ * the end), or to New poll when none is left.
  */
 export function PollTab({ ctx }: { ctx: TeamTimeCtx }) {
   const [creating, setCreating] = useState(false);
+  const ids = useId();
+  const deleteId = (id: string) => `${ids}-poll-${id}-delete`;
+  const newPollRef = useRef<HTMLButtonElement>(null);
+  const [focusAfter, setFocusAfter] = useState<string | null>(null);
+  // The deleted card's button is gone with it: keyboard focus would fall to the page.
+  useEffect(() => {
+    if (!focusAfter) return;
+    const target =
+      focusAfter === NO_POLL_LEFT ? newPollRef.current : document.getElementById(focusAfter);
+    target?.focus();
+    setFocusAfter(null);
+  }, [focusAfter]);
+
+  // Called after the delete, with the list as it was drawn (the poll still in it).
+  const removed = (id: string) => {
+    const at = ctx.polls.findIndex((p) => p.id === id);
+    const next = ctx.polls[at + 1] ?? ctx.polls[at - 1];
+    setFocusAfter(next ? deleteId(next.id) : NO_POLL_LEFT);
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -75,6 +104,7 @@ export function PollTab({ ctx }: { ctx: TeamTimeCtx }) {
           Offer a few times, record who can make each, then choose one.
         </p>
         <Button
+          ref={newPollRef}
           type="button"
           size="sm"
           variant="outline"
@@ -91,7 +121,13 @@ export function PollTab({ ctx }: { ctx: TeamTimeCtx }) {
       ) : (
         <ul className="space-y-3" aria-label="Polls">
           {ctx.polls.map((p) => (
-            <PollCard key={p.id} ctx={ctx} poll={p} />
+            <PollCard
+              key={p.id}
+              ctx={ctx}
+              poll={p}
+              deleteId={deleteId(p.id)}
+              onRemoved={() => removed(p.id)}
+            />
           ))}
         </ul>
       )}
@@ -152,7 +188,7 @@ function NewPoll({ ctx, onDone }: { ctx: TeamTimeCtx; onDone: () => void }) {
       slots: poll.slots.length,
       minutes: poll.minutes,
     });
-    ctx.announce(`Created the poll "${poll.title}" with ${poll.slots.length} times`);
+    ctx.announce(`Created the poll “${poll.title}” with ${poll.slots.length} times`);
     onDone();
   };
 
@@ -307,7 +343,19 @@ function NewPoll({ ctx, onDone }: { ctx: TeamTimeCtx; onDone: () => void }) {
   );
 }
 
-function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
+function PollCard({
+  ctx,
+  poll,
+  deleteId,
+  onRemoved,
+}: {
+  ctx: TeamTimeCtx;
+  poll: TeamTimePoll;
+  /** Its Delete button's id, for the tab to move focus to after another poll goes. */
+  deleteId: string;
+  /** The poll is deleted: the tab moves focus on. */
+  onRemoved: () => void;
+}) {
   const headingId = useId();
   const [open, setOpen] = useState<string | null>(null);
   const [day, setDay] = useState(() => localClock(ctx.zone, ctx.now.getTime() + 86_400_000).day);
@@ -318,6 +366,16 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
   const best = bestSlot(poll);
   const slots = sortedSlots(poll);
   const closed = poll.status === "closed";
+  // After a time is removed, the next one's Remove (its Answers once one time is left).
+  const [slotFocus, setSlotFocus] = useState<string | null>(null);
+  useEffect(() => {
+    if (!slotFocus) return;
+    const target =
+      document.getElementById(slotButtonId(headingId, slotFocus, "remove")) ??
+      document.getElementById(slotButtonId(headingId, slotFocus, "answers"));
+    target?.focus();
+    setSlotFocus(null);
+  }, [slotFocus, headingId]);
   const chosen = poll.slots.find((s) => s.id === poll.chosenSlotId) ?? null;
   // Each person's answer row is under the roster's name today, or the name their row keeps.
   const names = answerNames(ctx.people, ctx.name);
@@ -388,7 +446,7 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
   };
 
   const remove = () => {
-    const label = `Deleted the poll "${poll.title}"`;
+    const label = `Deleted the poll “${poll.title}”`;
     undoable({
       label,
       apply: () => {
@@ -398,15 +456,21 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
       revert: () => ctx.writer.put("polls", poll),
     });
     ctx.announce(label);
+    onRemoved();
   };
 
   const removeSlot = (slotId: string) => {
     const prev = poll;
+    const label = `Removed ${slotLabel(poll.slots.find((s) => s.id === slotId)?.start ?? "")} from the poll “${poll.title}”`;
+    const i = slots.findIndex((s) => s.id === slotId);
+    const next = slots[i + 1] ?? slots[i - 1];
     undoable({
-      label: `Removed ${slotLabel(poll.slots.find((s) => s.id === slotId)?.start ?? "")} from the poll`,
+      label,
       apply: () => ctx.writer.put("polls", withoutSlot(poll, slotId, at())),
       revert: () => ctx.writer.put("polls", prev),
     });
+    ctx.announce(label);
+    if (next) setSlotFocus(next.id);
   };
 
   const addSlot = () => {
@@ -481,6 +545,7 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
             </Button>
           )}
           <Button
+            id={deleteId}
             type="button"
             size="sm"
             variant="danger-ghost"
@@ -541,6 +606,7 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
                 </div>
                 <div className="flex flex-wrap gap-1">
                   <Button
+                    id={slotButtonId(headingId, s.id, "answers")}
                     type="button"
                     size="sm"
                     variant="ghost"
@@ -563,6 +629,7 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
                   )}
                   {!closed && poll.slots.length > 1 && (
                     <Button
+                      id={slotButtonId(headingId, s.id, "remove")}
                       type="button"
                       size="sm"
                       variant="danger-ghost"

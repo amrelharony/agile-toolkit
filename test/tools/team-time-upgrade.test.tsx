@@ -456,6 +456,11 @@ describe("Find a time", () => {
     expect(logged(TEAM_TIME_ACTIONS.POLL_CREATED)).toEqual([
       { action: "poll_created", payload: { pollId: saved.id, slots: 2, minutes: 60 } },
     ]);
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Created the poll “Review” with 2 times"
+      )
+    );
   });
 
   it("refuses a poll with no times, and a typed time in the past", async () => {
@@ -591,6 +596,52 @@ describe("Find a time", () => {
     undoLast();
     expect(ws().teamTimePolls).toHaveLength(1);
   });
+
+  it("keeps focus in the polls after a delete: the next poll's Delete, then New poll", async () => {
+    useWorkspaceStore.setState({
+      teamTimePolls: [poll(), poll({ id: "poll2", title: "Planning" })],
+    });
+    await renderPage("find");
+    const first = screen.getByRole("button", { name: "Delete the poll Review" });
+    first.focus();
+    fireEvent.click(first);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Deleted the poll “Review”");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Delete the poll Planning" })).toHaveFocus()
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent("Deleted the poll “Review”")
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete the poll Planning" }));
+    expect(ws().teamTimePolls).toEqual([]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "New poll" })).toHaveFocus());
+  });
+
+  it("says a removed time, with Undo, and moves focus to the next time", async () => {
+    const third = "2031-03-06T14:00:00.000Z";
+    useWorkspaceStore.setState({
+      teamTimePolls: [poll({ slots: [...poll().slots, { id: "c", start: third }] })],
+    });
+    await renderPage("find");
+    fireEvent.click(screen.getByRole("button", { name: "Remove Tue 4 Mar 14:00 UTC" }));
+    expect(ws().teamTimePolls?.[0].slots.map((s) => s.id)).toEqual(["b", "c"]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe(
+      "Removed Tue 4 Mar 14:00 UTC from the poll “Review”"
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Removed Tue 4 Mar 14:00 UTC from the poll “Review”"
+      )
+    );
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Remove Wed 5 Mar 14:00 UTC" })).toHaveFocus()
+    );
+    // The last time but one: with one left there's no Remove, so its Answers takes focus.
+    fireEvent.click(screen.getByRole("button", { name: "Remove Thu 6 Mar 14:00 UTC" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Answers" })).toHaveFocus());
+    undoLast();
+    expect(ws().teamTimePolls?.[0].slots.map((s) => s.id)).toEqual(["b", "c"]);
+  });
 });
 
 describe("Rotate", () => {
@@ -710,6 +761,20 @@ describe("Rotate", () => {
     expect(ws().teamTimeRotations).toEqual([]);
     undoLast();
     expect(ws().teamTimeRotations).toHaveLength(1);
+  });
+
+  it("keeps focus in the rotations after a delete: the one before at the end, then New rotation", async () => {
+    useWorkspaceStore.setState({
+      teamTimeRotations: [rotation(), rotation({ id: "rot2", meeting: "Review" })],
+    });
+    await renderPage("rotate");
+    fireEvent.click(screen.getByRole("button", { name: "Delete the rotation for Review" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Delete the rotation for Retro" })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete the rotation for Retro" }));
+    expect(ws().teamTimeRotations).toEqual([]);
+    await waitFor(() => expect(screen.getByRole("button", { name: "New rotation" })).toHaveFocus());
   });
 });
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { Pencil, Plus, Repeat, SkipForward, Trash2, CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -100,14 +100,38 @@ function scheduleText(ctx: TeamTimeCtx, r: TeamTimeRotation): string {
   ].join("\n");
 }
 
+/** Where focus goes once no rotation is left to delete: New rotation. */
+const NO_ROTATION_LEFT = "none";
+
 /**
  * Rotate: a meeting that moves between 2–4 times in turn or by who has had
  * it worst, its next 8 meetings with who they land outside hours for, each
  * attendee's late or night points and a fairness line; mark a meeting held
- * or skip it (a skip keeps the turn).
+ * or skip it (a skip keeps the turn). After a rotation is deleted, focus goes
+ * to the next one's Delete (the one before at the end), or to New rotation.
  */
 export function RotateTab({ ctx }: { ctx: TeamTimeCtx }) {
   const [editing, setEditing] = useState<string | "new" | null>(null);
+  const ids = useId();
+  const deleteId = (id: string) => `${ids}-rotation-${id}-delete`;
+  const newRef = useRef<HTMLButtonElement>(null);
+  const [focusAfter, setFocusAfter] = useState<string | null>(null);
+  // The deleted card's button is gone with it: keyboard focus would fall to the page.
+  // A rotation open in its form has no Delete, so New rotation takes it then too.
+  useEffect(() => {
+    if (!focusAfter) return;
+    const target = focusAfter === NO_ROTATION_LEFT ? null : document.getElementById(focusAfter);
+    (target ?? newRef.current)?.focus();
+    setFocusAfter(null);
+  }, [focusAfter]);
+
+  // Called after the delete, with the list as it was drawn (the rotation still in it).
+  const removed = (id: string) => {
+    const at = ctx.rotations.findIndex((r) => r.id === id);
+    const next = ctx.rotations[at + 1] ?? ctx.rotations[at - 1];
+    setFocusAfter(next ? deleteId(next.id) : NO_ROTATION_LEFT);
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -116,6 +140,7 @@ export function RotateTab({ ctx }: { ctx: TeamTimeCtx }) {
           call.
         </p>
         <Button
+          ref={newRef}
           type="button"
           size="sm"
           variant="outline"
@@ -139,7 +164,14 @@ export function RotateTab({ ctx }: { ctx: TeamTimeCtx }) {
                 <RotationForm ctx={ctx} rotation={r} onDone={() => setEditing(null)} />
               </li>
             ) : (
-              <RotationCard key={r.id} ctx={ctx} rotation={r} onEdit={() => setEditing(r.id)} />
+              <RotationCard
+                key={r.id}
+                ctx={ctx}
+                rotation={r}
+                deleteId={deleteId(r.id)}
+                onEdit={() => setEditing(r.id)}
+                onRemoved={() => removed(r.id)}
+              />
             )
           )}
         </ul>
@@ -488,11 +520,17 @@ function RotationForm({
 function RotationCard({
   ctx,
   rotation: r,
+  deleteId,
   onEdit,
+  onRemoved,
 }: {
   ctx: TeamTimeCtx;
   rotation: TeamTimeRotation;
+  /** Its Delete button's id, for the tab to move focus to after another rotation goes. */
+  deleteId: string;
   onEdit: () => void;
+  /** The rotation is deleted: the tab moves focus on. */
+  onRemoved: () => void;
 }) {
   const headingId = useId();
   const plan = useMemo(
@@ -549,6 +587,7 @@ function RotationCard({
       revert: () => ctx.writer.put("rotations", r),
     });
     ctx.announce(label);
+    onRemoved();
   };
 
   return (
@@ -592,6 +631,7 @@ function RotationCard({
             Edit
           </Button>
           <Button
+            id={deleteId}
             type="button"
             size="sm"
             variant="danger-ghost"
