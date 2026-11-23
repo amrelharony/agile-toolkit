@@ -9,7 +9,10 @@
  * Read only: it writes nothing. Ask Amr (or "Find similar without AI")
  * replaces the list with picks, marked with where they came from; a pick
  * is kept only when it names one of the stories offered, and its points
- * always come from the store, never from the answer.
+ * always come from the store, never from the answer. Without AI the picks
+ * are this panel's own word match, which reads every story's notes; the
+ * task's fallback sees only the titles the request carries, so it could
+ * miss a match the list had just shown.
  *
  * Planning Poker shows it to the host after Reveal (never before: a size
  * on screen would anchor the votes) and never in a visitor room; Refinement
@@ -24,6 +27,7 @@ import { Button } from "@/components/ui/button";
 import {
   pokerSimilarInput,
   pokerSimilarTask,
+  sharesLine,
   type PokerSimilarOutput,
 } from "@/lib/ai/tasks/planning-poker.lite";
 import type { AiSource } from "@/lib/ai/task-types";
@@ -82,6 +86,17 @@ export function SimilarStories({
 
   const onResult = useCallback(
     (data: PokerSimilarOutput, meta: AiResultMeta) => {
+      if (meta.source === "fallback") {
+        // The word match the list shows, notes and all, so the answer
+        // without AI never contradicts it.
+        const words = hint.kind === "similar" ? hint.items : [];
+        setPicks({
+          for: targetKey,
+          source: "fallback",
+          items: words.map((m) => ({ id: m.story.id, why: sharesLine(m.shared) })),
+        });
+        return;
+      }
       // Only stories that were offered, each once, in the answer's order.
       const offered = new Set(input.candidates.map((c) => c.id));
       const seen = new Set<string>();
@@ -92,7 +107,7 @@ export function SimilarStories({
       });
       setPicks({ for: targetKey, source: meta.source, items });
     },
-    [input, targetKey]
+    [hint, input, targetKey]
   );
 
   const byId = useMemo(() => new Map(stories.map((s) => [s.id, s])), [stories]);

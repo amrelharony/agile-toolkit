@@ -6,12 +6,16 @@ import { act, fireEvent, render, screen, within } from "@testing-library/react";
  * "Picked by Amr"; a pick that names a story that wasn't offered, or one
  * twice, is dropped; the points shown are the store's, not the answer's;
  * the request carries only ids, titles and points; and picks made for one
- * story never show for the next.
+ * story never show for the next. Without AI the picks are the panel's own
+ * word match (notes included), so they never contradict the list.
  */
+
+type Answer = { matches: { id: string; why: string }[] };
 
 const h = vi.hoisted(() => ({
   input: null as unknown,
-  answer: null as null | { matches: { id: string; why: string }[] },
+  // A canned answer, or one worked out from the request (the task's fallback).
+  answer: null as null | Answer | ((input: never) => Answer),
   source: "ai" as "ai" | "fallback",
 }));
 
@@ -28,7 +32,8 @@ vi.mock("@/components/ai", () => ({
       type="button"
       onClick={() => {
         h.input = input;
-        onResult(h.answer, { source: h.source });
+        const answer = typeof h.answer === "function" ? h.answer(input as never) : h.answer;
+        onResult(answer, { source: h.source });
       }}
     >
       Ask Amr
@@ -37,6 +42,7 @@ vi.mock("@/components/ai", () => ({
 }));
 
 import { SimilarStories } from "@/components/stories/similar-stories";
+import { pokerSimilarFallback, type PokerSimilarInput } from "@/lib/ai/tasks/planning-poker.lite";
 import type { Story } from "@/lib/stores/workspace-types";
 
 const done = (id: string, title: string, points: number, notes?: string): Story => ({
@@ -174,5 +180,41 @@ describe("Amr's picks", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ask Amr" }));
     const input = h.input as { candidates: { id: string }[] };
     expect(input.candidates.map((c) => c.id)).not.toContain("s2");
+  });
+});
+
+describe("without AI", () => {
+  // Alike only through its notes: the request carries no notes of other
+  // stories, so the task's own fallback can't see the match.
+  const NOTES_MATCH: Story[] = [
+    done("f1", "Card fees report", 5, "refund payment order"),
+    done("f2", "Export the monthly sales report", 2),
+  ];
+  const target = { title: "Refund the card payment order" };
+
+  it("finds what the word match shows, notes included", () => {
+    h.source = "fallback";
+    h.answer = (input: PokerSimilarInput) => pokerSimilarFallback(input);
+    render(<SimilarStories target={target} source={{ stories: NOTES_MATCH }} />);
+    expect(items()).toEqual(["Card fees report · 5 ptsBoth mention: card, order, payment"]);
+    fireEvent.click(screen.getByRole("button", { name: "Ask Amr" }));
+    // The titles-only fallback found nothing...
+    expect(pokerSimilarFallback(h.input as PokerSimilarInput).matches).toEqual([]);
+    // ...but the panel answers with its own word match, so it agrees with the list.
+    expect(panel()).toHaveTextContent("Found without AI, by shared words.");
+    expect(panel()).not.toHaveTextContent("No finished story is like this one.");
+    expect(items()).toEqual(["Card fees report · 5 ptsShares: card, order, payment"]);
+  });
+
+  it("says nothing is alike when the word match has nothing either", () => {
+    h.source = "fallback";
+    h.answer = { matches: [{ id: "f2", why: "Shares: report" }] };
+    render(
+      <SimilarStories target={{ title: "Dark mode toggle" }} source={{ stories: NOTES_MATCH }} />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask Amr" }));
+    expect(panel()).toHaveTextContent(
+      "Found without AI, by shared words.No finished story is like this one."
+    );
   });
 });

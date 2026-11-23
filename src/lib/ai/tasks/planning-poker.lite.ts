@@ -62,6 +62,10 @@ export function sharesLine(words: readonly string[]): string {
  * Like this one without AI: the candidates that share title words with the
  * story, best first, each with the words they share. A candidate whose id
  * the answer couldn't carry is left out.
+ *
+ * It sees only what the request carries (no notes of other stories), so
+ * the "Like this one" panel answers a fallback with its own word match,
+ * which reads every story's notes, and never shows this one's narrower list.
  */
 export const pokerSimilarFallback = ({
   story,
