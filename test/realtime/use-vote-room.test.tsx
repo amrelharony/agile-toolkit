@@ -1385,6 +1385,107 @@ describe("useVoteRoom: a ballot sent under someone else's id is noticed", () => 
     expect(result.current.impersonated).toBe(true);
   });
 
+  it("warns when its id is used before the host's first state reaches it, for the rest of the room", async () => {
+    const crypto = fakeVoteCrypto();
+    const keys = await crypto.createHostKeys();
+    const { result } = renderHook(() =>
+      useVoteRoom({
+        role: "participant",
+        tool: "health-check",
+        code: CODE,
+        identity: ident(A),
+        hostFingerprint: keys.fingerprint,
+        crypto,
+      })
+    );
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, A, SPOOF]);
+    });
+    // A's id shows in presence at join. SPOOF already has the round and its
+    // key, and answers under A's id while A's tab waits for its first state:
+    // the host counts that ballot and ties A's id to SPOOF's tab.
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, {
+      ...(await tabbedBallotFor(
+        crypto,
+        { roundId: ROUND, keys: keys.publicKeys },
+        A.id,
+        [0, 0, 0],
+        TAB_SPOOF
+      )),
+      bid: "stolen_seat3",
+    });
+    expect(result.current.status).toBe("waiting");
+    expect(result.current.impersonated).toBe(true);
+    expect(
+      window.sessionStorage.getItem(`agile-toolkit:vote-room:impersonated:${CODE}:${A.id}`)
+    ).toBe("1");
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { ballots: 1, acks: ["stolen_seat3"] })
+    );
+    expect(result.current.status).toBe("live");
+    expect(result.current.impersonated).toBe(true);
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { seq: 2, roundId: "round_000002" })
+    );
+    expect(result.current.impersonated).toBe(true);
+  });
+
+  it("knows its own ballot from an earlier round, with storage or without", async () => {
+    const run = async () => {
+      const crypto = fakeVoteCrypto();
+      const keys = await crypto.createHostKeys();
+      const view = renderHook(() =>
+        useVoteRoom({
+          role: "participant",
+          tool: "health-check",
+          code: CODE,
+          identity: ident(A),
+          hostFingerprint: keys.fingerprint,
+          crypto,
+        })
+      );
+      const ch = fakeRealtime.last();
+      act(() => {
+        ch.connect();
+        ch.setPresence([HOST, A]);
+      });
+      await deliver(ch, VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys));
+      await act(async () => {
+        await view.result.current.submit({ fun: 2, speed: 0 });
+      });
+      const first = ch.sent(VOTE_ROOM_EVENTS.ballot)[0];
+      await deliver(
+        ch,
+        VOTE_ROOM_EVENTS.state,
+        await signedState(crypto, HOST.id, keys, { seq: 2, roundId: "round_000002" })
+      );
+      await act(async () => {
+        await view.result.current.submit({ fun: 1, speed: 1 });
+      });
+      // A relay echo of the first round's ballot, after this tab answered the next.
+      await deliver(ch, VOTE_ROOM_EVENTS.ballot, first);
+      expect(view.result.current.impersonated).toBe(false);
+      view.unmount();
+    };
+    await run();
+    fakeRealtime.reset();
+    window.sessionStorage.clear();
+    const blocked = vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
+      throw new Error("blocked");
+    });
+    try {
+      await run();
+    } finally {
+      blocked.mockRestore();
+    }
+  });
+
   it("counts, for the host, second ballots from an id that already answered, each once", async () => {
     const { ch, crypto, result } = await startHost();
     const s = lastState(ch);

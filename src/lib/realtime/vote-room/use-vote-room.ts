@@ -685,7 +685,10 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   const pendingStateRef = useRef<RoundStateMessage | null>(null);
   const hostEcdhRef = useRef<string | null>(null);
   const myBallotRef = useRef<PendingBallot | null>(null);
-  const sentBidsRef = useRef<{ roundId: string; bids: Set<string> } | null>(null);
+  // Ballot ids this tab sent, by round, oldest round first: the newest
+  // MAX_ANSWERED_ROUNDS, so a ballot from an earlier round is still known
+  // as this tab's when storage is blocked.
+  const sentBidsRef = useRef<Map<string, Set<string>>>(new Map());
   const countedRoundRef = useRef<string | null>(null);
   const resendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const missingSinceRef = useRef<number | null>(null);
@@ -730,8 +733,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   /** Ballot ids this tab sent in `roundId`: this page's, and any from before a refresh. */
   const myBids = useCallback(
     (roundId: string): Set<string> => {
-      const sent = sentBidsRef.current;
-      const bids = new Set(sent?.roundId === roundId ? sent.bids : []);
+      const bids = new Set(sentBidsRef.current.get(roundId));
       for (const b of storedRound(code, roundId)?.b ?? []) bids.add(b);
       return bids;
     },
@@ -741,8 +743,15 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   const noteSentBid = useCallback(
     (roundId: string, bid: string) => {
       const sent = sentBidsRef.current;
-      if (sent?.roundId === roundId) sent.bids.add(bid);
-      else sentBidsRef.current = { roundId, bids: new Set([bid]) };
+      const bids = sent.get(roundId) ?? new Set<string>();
+      bids.add(bid);
+      sent.delete(roundId);
+      sent.set(roundId, bids);
+      while (sent.size > MAX_ANSWERED_ROUNDS) {
+        const oldest = sent.keys().next().value;
+        if (oldest === undefined) break;
+        sent.delete(oldest);
+      }
       updateAnsweredRound(code, roundId, (r) => ({
         ...r,
         b: [...r.b.filter((x) => x !== bid), bid].slice(-MAX_BIDS_PER_ROUND),
@@ -1234,9 +1243,11 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
       if (role === "participant") {
         // A ballot under this tab's id that this tab never sent: someone is
         // spending its seat, and may have tied the id to their tab for the
-        // rest of the room. Every ballot reaches every member anyway.
-        const round = viewRef.current?.roundId;
-        if (env.by === selfId && env.roundId === round && !myBids(round).has(env.bid)) {
+        // rest of the room. Every ballot reaches every member anyway. Whatever
+        // round it names: the id shows in presence at join, so one sent
+        // before this tab's first state (a round it hasn't seen yet) is the
+        // surest way to win the tie, and a forger knows the real round id.
+        if (env.by === selfId && !myBids(env.roundId).has(env.bid)) {
           setImpersonatedSeen(true);
           writeImpersonated(code, selfId);
         }
