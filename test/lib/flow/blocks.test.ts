@@ -38,7 +38,7 @@ describe("spellsOf", () => {
       blockLog: [{ from: "nope" }, 3, { from: at(1) }] as unknown as BlockSpell[],
     };
     expect(spellsOf(row)).toEqual([{ from: at(1) }]);
-    expect(spellsOf({ id: "y" })).toEqual([]);
+    expect(spellsOf({})).toEqual([]);
   });
 });
 
