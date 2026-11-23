@@ -160,13 +160,18 @@ export function NodeCard({
         )}
       >
         <div className="flex items-start gap-2">
-          <span
-            className={cn("shrink-0 rounded px-1.5 py-0.5 font-data text-xs uppercase", tone.chip)}
-          >
-            {lvl.label}
-          </span>
           <div className="min-w-0 flex-1">
-            <h3 id={titleId} className="break-words text-sm font-medium text-text">
+            {/* The level's chip sits on its own line above the title: beside it, a long
+                level ("Improvement priority") left the title a few characters wide on a phone. */}
+            <span
+              className={cn(
+                "inline-block max-w-full break-words rounded px-1.5 py-0.5 font-data text-xs uppercase",
+                tone.chip
+              )}
+            >
+              {lvl.label}
+            </span>
+            <h3 id={titleId} className="mt-1 break-words text-sm font-medium text-text">
               {title}
               {badges}
             </h3>
