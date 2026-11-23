@@ -108,6 +108,7 @@ describe("native selects styled to match <Input>", () => {
     "src/app/(tools)/hypothesis-tracker/hypothesis-fields.tsx",
     "src/app/(tools)/impediments/components/impediment-fields.tsx",
     "src/app/(tools)/improve/fields.tsx",
+    "src/app/(tools)/retro/components/seismograph-view.tsx",
     "src/app/(tools)/riskiest-assumption/assumption-card.tsx",
     "src/app/(tools)/root-cause/causal-loop.tsx",
     "src/app/(tools)/user-interviews/quote-card.tsx",
