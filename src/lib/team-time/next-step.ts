@@ -92,10 +92,12 @@ export function teamTimeSteps(s: TeamTimeStepsInput, now: Date, timeZone: string
         personName(people.find((p) => p.id === b.personId)!, members)
       );
       const k = outside.length;
+      // Four names at most, then "and 2 more" as the list's last item.
+      const shown = names.length > 4 ? [...names.slice(0, 4), `${names.length - 4} more`] : names;
       steps.push({
         id: "team-time-daily",
         label: `Use written updates for ${k} ${k === 1 ? "person" : "people"} outside their hours`,
-        detail: `The Daily Scrum at ${daily.time} your time is outside working hours for ${namesList(names.slice(0, 4))}${names.length > 4 ? ` and ${names.length - 4} more` : ""}.`,
+        detail: `The Daily Scrum at ${daily.time} your time is outside working hours for ${namesList(shown)}.`,
         href: "/async-standup",
       });
     }

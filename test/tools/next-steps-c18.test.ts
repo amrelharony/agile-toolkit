@@ -111,6 +111,20 @@ describe("team-time-daily", () => {
     });
   });
 
+  it("names four people at most, then how many more", () => {
+    const six = Array.from({ length: 6 }, (_, i) =>
+      person({ id: `n${i}`, name: `N${i}`, timeZone: "America/New_York" })
+    );
+    const step = teamTimeSteps(
+      input({ people: [london, ...six], cadences: [cadence] }),
+      NOW,
+      "Europe/London"
+    ).find((s) => s.id === "team-time-daily");
+    expect(step?.detail).toBe(
+      "The Daily Scrum at 09:30 your time is outside working hours for N0, N1, N2, N3 and 2 more."
+    );
+  });
+
   it("says nothing without a saved cadence, or when it suits everyone", () => {
     expect(ids(input({ people }))).not.toContain("team-time-daily");
     expect(ids(input({ people: [london], cadences: [cadence] }))).not.toContain("team-time-daily");
