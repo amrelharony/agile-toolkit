@@ -162,7 +162,7 @@ describe("action modules are safe to run in a visitor's tab", () => {
     expectNoClients(importsOf(readFileSync(path.join(ROOT, file), "utf8")), file);
   });
 
-  it.each([...ALLOWED_REALTIME])(
+  it.each(Array.from(ALLOWED_REALTIME))(
     "%s (a realtime module actions may import) opens no connection",
     (spec) => {
       const file = resolveAlias(spec);
