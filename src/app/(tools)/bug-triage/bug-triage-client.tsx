@@ -112,14 +112,16 @@ export function BugTriageClient() {
   const sprintRunning = Boolean(activeSprintOf(sprints));
   const queue = useMemo(() => triageQueue(bugs), [bugs]);
   const hints = useMemo(() => duplicateHints(bugs), [bugs]);
+  // The KPIs, the grid, the queue's count and the export all count the same
+  // bugs: the team's own, the example's only while there are none.
   const counted = useMemo(() => countedBugs(bugs), [bugs]);
   const counts = bugCounts(counted, today);
-  const grid = useMemo(() => gridCounts(bugs), [bugs]);
+  const grid = useMemo(() => gridCounts(counted), [counted]);
   const hasExample = hasExampleItems(bugs);
   const exampleOnly = bugs.length > 0 && bugs.every((b) => isExampleId(b.id));
   const selected = selectedId ? bugs.find((b) => b.id === selectedId) : undefined;
   const cellBugs = cell
-    ? bugs.filter((b) => {
+    ? counted.filter((b) => {
         const c = cellOf(b);
         return c?.severity === cell.severity && c.priority === cell.priority;
       })
@@ -429,7 +431,7 @@ export function BugTriageClient() {
                 />
               )}
 
-              <SectionCard title={`To triage (${queue.length})`} icon={ListChecks}>
+              <SectionCard title={`To triage (${counts.toTriage})`} icon={ListChecks}>
                 <TriageQueue
                   queue={queue}
                   bugs={bugs}

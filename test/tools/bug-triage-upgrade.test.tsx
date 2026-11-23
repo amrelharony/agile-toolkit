@@ -59,6 +59,7 @@ vi.mock("@/components/shared/export-button", () => ({
 }));
 
 import { BugTriageClient } from "@/app/(tools)/bug-triage/bug-triage-client";
+import { buildExample } from "@/app/(tools)/bug-triage/example";
 import { toMarkdown } from "@/app/(tools)/bug-triage/markdown";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -159,6 +160,28 @@ describe("an empty page", () => {
     expect(bugs().map((b) => b.id)).toEqual(["bug_a"]);
     undoLast();
     expect(stored("example-x")).toBeDefined();
+  });
+});
+
+describe("the example beside the team's own bugs", () => {
+  it("counts only the team's own on the grid and in the queue's heading, as the KPIs do", async () => {
+    seed([
+      ...buildExample(new Date()),
+      bug({ id: "bug_own", title: "Our own bug", createdAt: ago(0) }),
+    ]);
+    renderPage();
+    await screen.findAllByText("Our own bug");
+    expect(screen.getByText(/aren't counted while you have your own/)).toBeInTheDocument();
+    expect(screen.getByText("To triage (1)")).toBeInTheDocument();
+    // The example's waiting bugs are still listed, just not counted.
+    expect(queueItem("example-bug-2")).not.toBeNull();
+    // Nor are its placed bugs on the team's grid.
+    const critical = cellButton(/^Critical × Now: 0 open bugs\./);
+    expect(cellButton(/^Major × Next: 0 open bugs\./)).toBeInTheDocument();
+    fireEvent.click(critical);
+    expect(
+      within(screen.getByTestId("cell-bugs")).getByText("No open bugs here.")
+    ).toBeInTheDocument();
   });
 });
 
