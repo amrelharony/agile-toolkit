@@ -18,6 +18,7 @@ import { flowInsightsClassifyTask } from "./flow-insights";
 import { hillChartUpdateNoteTask } from "./hill-chart";
 import { impactMapDraftTask } from "./impact-map";
 import { impedimentsClusterTask } from "./impediments";
+import { improveNextExperimentTask } from "./improve";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { kanbanPoliciesTask } from "./kanban";
 import { kickoffDraftTask } from "./kickoff";
@@ -63,6 +64,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   hillChartUpdateNoteTask,
   impactMapDraftTask,
   impedimentsClusterTask,
+  improveNextExperimentTask,
   interruptClassifyTask,
   kanbanPoliciesTask,
   kickoffDraftTask,

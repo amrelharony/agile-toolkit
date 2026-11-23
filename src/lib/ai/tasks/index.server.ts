@@ -18,6 +18,7 @@ import { flowInsightsClassifyPrompt } from "./flow-insights.server";
 import { hillChartUpdateNotePrompt } from "./hill-chart.server";
 import { impactMapDraftPrompt } from "./impact-map.server";
 import { impedimentsClusterPrompt } from "./impediments.server";
+import { improveNextExperimentPrompt } from "./improve.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { kanbanPoliciesPrompt } from "./kanban.server";
 import { kickoffDraftPrompt } from "./kickoff.server";
@@ -62,6 +63,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   hillChartUpdateNotePrompt,
   impactMapDraftPrompt,
   impedimentsClusterPrompt,
+  improveNextExperimentPrompt,
   interruptClassifyPrompt,
   kanbanPoliciesPrompt,
   kickoffDraftPrompt,

@@ -111,6 +111,7 @@ describe("native selects styled to match <Input>", () => {
     "src/app/(tools)/hypothesis-tracker/hypothesis-fields.tsx",
     "src/app/(tools)/impact-map/persona-select.tsx",
     "src/app/(tools)/impediments/components/impediment-fields.tsx",
+    "src/app/(tools)/improve/fields.tsx",
     "src/app/(tools)/notes-to-actions/item-row.tsx",
     "src/app/(tools)/persona-library/persona-filters.tsx",
     "src/app/(tools)/riskiest-assumption/assumption-card.tsx",
