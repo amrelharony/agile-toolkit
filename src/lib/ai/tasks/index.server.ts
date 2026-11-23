@@ -10,6 +10,7 @@ import { clusterPrompt, mergeQuestionsPrompt, toBacklogPrompt } from "./audience
 import { backlogHealthReviewPrompt } from "./backlog-health.server";
 import { cardForMoodPrompt, generateCardsPrompt } from "./card-decks.server";
 import { agendaPrompt } from "./facilitator-timers.server";
+import { improveNextExperimentPrompt } from "./improve.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
@@ -32,6 +33,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   generateCardsPrompt,
   cardForMoodPrompt,
   agendaPrompt,
+  improveNextExperimentPrompt,
   interruptClassifyPrompt,
   meetingAuditSuggestPrompt,
   parkingRoutePrompt,
