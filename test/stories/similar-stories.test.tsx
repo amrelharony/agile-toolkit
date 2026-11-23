@@ -145,6 +145,21 @@ describe("Amr's picks", () => {
     expect(panel()).toHaveTextContent("Picked by Amr.No finished story is like this one.");
   });
 
+  it("keep focus in the panel when the word match comes back", () => {
+    render(
+      <SimilarStories target={{ title: "Refund a card payment" }} source={{ stories: STORIES }} />
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Ask Amr" }));
+    const back = within(panel()).getByRole("button", { name: "Show the word match again" });
+    back.focus();
+    fireEvent.click(back);
+    // The button is gone; focus is on the panel's label, not the page.
+    expect(within(panel()).queryByRole("button", { name: "Show the word match again" })).toBeNull();
+    expect(document.activeElement).not.toBe(document.body);
+    expect(panel()).toContainElement(document.activeElement as HTMLElement);
+    expect(document.activeElement).toHaveTextContent("Like this one");
+  });
+
   it("leave out the target itself, when it is a workspace story", () => {
     render(
       <SimilarStories

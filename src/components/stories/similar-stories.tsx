@@ -16,7 +16,7 @@
  * beside a story with no points.
  */
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { RotateCcw } from "lucide-react";
 import { AiButton, type AiResultMeta } from "@/components/ai";
@@ -72,6 +72,13 @@ export function SimilarStories({
   const targetKey = `${id ?? ""}\u0000${title}`;
   const [picks, setPicks] = useState<Picks | null>(null);
   const shown = picks?.for === targetKey ? picks : null;
+  // "Show the word match again" goes away when pressed: focus moves to the
+  // panel's label first, so a keyboard user keeps their place.
+  const labelRef = useRef<HTMLParagraphElement>(null);
+  const showWordMatch = useCallback(() => {
+    labelRef.current?.focus();
+    setPicks(null);
+  }, []);
 
   const onResult = useCallback(
     (data: PokerSimilarOutput, meta: AiResultMeta) => {
@@ -99,7 +106,13 @@ export function SimilarStories({
       className={cn("mt-3 rounded-lg border border-border bg-surface-deep p-3 text-sm", className)}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs font-medium uppercase tracking-wider text-sub">Like this one</p>
+        <p
+          ref={labelRef}
+          tabIndex={-1}
+          className="text-xs font-medium uppercase tracking-wider text-sub outline-none"
+        >
+          Like this one
+        </p>
         {canAsk && (
           <AiButton
             task={pokerSimilarTask}
@@ -138,7 +151,7 @@ export function SimilarStories({
             size="sm"
             variant="ghost"
             className="gap-1.5 pointer-coarse:min-h-11"
-            onClick={() => setPicks(null)}
+            onClick={showWordMatch}
           >
             <RotateCcw aria-hidden="true" />
             Show the word match again
