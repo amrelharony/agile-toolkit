@@ -88,6 +88,7 @@ import {
   type ReviewValues,
 } from "@/lib/ebm/model";
 import { SOURCE_INFO, readSource, type SourceReading } from "@/lib/ebm/sources";
+import { ideaNamed } from "@/lib/ebm/ideas";
 import { MetricForm } from "@/app/(tools)/product-metrics/metric-form";
 import { ReadingPanel } from "@/app/(tools)/product-metrics/reading-panel";
 import { AreaPanel } from "./area-panel";
@@ -200,20 +201,25 @@ export function EbmDashboardClient() {
     const taken = new Set(byArea[area].map((m) => nameKey(m.name)));
     const rows = ideas
       .filter((i) => !taken.has(nameKey(i.name)))
-      .map((i) =>
-        compactMetric({
+      .map((i) => {
+        // A suggestion (with or without AI) that is one of our ideas keeps
+        // the idea's toolkit source, so it can still take its readings.
+        const idea = i.source ? undefined : ideaNamed(area, i.name);
+        const source = i.source ?? idea?.source;
+        const info = source ? SOURCE_INFO[source] : undefined;
+        return compactMetric({
           id: `metric_${nanoid(8)}`,
           name: i.name,
           definition: i.definition || undefined,
-          unit: i.unit || undefined,
-          direction: i.direction,
+          unit: i.unit || idea?.unit || info?.unit || undefined,
+          direction: info?.direction ?? i.direction,
           kva: area,
-          source: i.source,
+          source,
           readings: [],
           createdAt: now,
           updatedAt: now,
-        })
-      )
+        });
+      })
       .filter((r) => writeProblem(r) === null);
     if (rows.length === 0) return 0;
     undoable({

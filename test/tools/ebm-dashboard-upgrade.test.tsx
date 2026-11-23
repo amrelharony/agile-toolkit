@@ -446,6 +446,21 @@ describe("Ask Amr, without AI", () => {
     fireEvent.click(within(list).getByRole("button", { name: "Add: Deploys a week" }));
     expect(metrics().map((m) => m.name)).toEqual(["Median cycle time", "Deploys a week"]);
   });
+
+  it("keeps an idea's toolkit source when its suggestion is added", async () => {
+    renderPage();
+    const ttm = await screen.findByRole("region", { name: "Time to Market" });
+    fireEvent.click(within(ttm).getByRole("button", { name: "Suggest measures" }));
+    const list = await within(ttm).findByRole("region", { name: "Measures for Time to Market" });
+    fireEvent.click(within(list).getByRole("button", { name: "Add: Median cycle time" }));
+    expect(metrics()[0]).toMatchObject({
+      name: "Median cycle time",
+      source: "cycle-time-median",
+      direction: "decrease",
+      unit: "days",
+    });
+    expect(within(ttm).getByText(/From Cycle Time:/)).toBeInTheDocument();
+  });
 });
 
 describe("more of the contract", () => {

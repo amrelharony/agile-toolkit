@@ -12,7 +12,7 @@ import { buildTaskSystem, buildTaskUser } from "@/lib/ai/run-task.server";
 import { TOOL_AI_BODY_BUDGET } from "@/lib/ai/contract";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 import { EBM_VALUE_AREAS } from "@/lib/stores/workspace-types";
-import { MEASURE_IDEAS } from "@/lib/ebm/ideas";
+import { MEASURE_IDEAS, ideaNamed } from "@/lib/ebm/ideas";
 import {
   MEASURES_EXISTING_MAX,
   ebmMeasuresFallback,
@@ -81,6 +81,19 @@ describe("ebm-dashboard.measures", () => {
     expect(() =>
       ebmMeasuresFallback({ area: "nope" as "time-to-market", product: "", existing: [] })
     ).toThrow();
+  });
+
+  it("answers names that find their idea again, so a sourced idea keeps its source", () => {
+    for (const area of EBM_VALUE_AREAS) {
+      const out = ebmMeasuresFallback({ area, product: "", existing: [] });
+      for (const m of out.measures) {
+        expect(ideaNamed(area, m.name), m.name).toBe(
+          MEASURE_IDEAS[area].find((i) => i.name === m.name)
+        );
+      }
+    }
+    expect(ideaNamed("time-to-market", "  median CYCLE   time ")?.source).toBe("cycle-time-median");
+    expect(ideaNamed("current-value", "Median cycle time")).toBeUndefined();
   });
 
   it("builds the prompt on the server, the data inside the block", () => {

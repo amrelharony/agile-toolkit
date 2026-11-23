@@ -136,6 +136,12 @@ export const MEASURE_IDEAS: Record<EbmValueArea, readonly MeasureIdea[]> = {
 
 const nameKey = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 
+/** The area's idea of that name (spaces and case aside), so an accepted suggestion keeps its source. */
+export function ideaNamed(area: EbmValueArea, name: string): MeasureIdea | undefined {
+  const key = nameKey(name);
+  return (MEASURE_IDEAS[area] ?? []).find((i) => nameKey(i.name) === key);
+}
+
 /**
  * The area's ideas without the names already in `existing`. When every
  * idea is there, the first one stays (the page reads it as already
