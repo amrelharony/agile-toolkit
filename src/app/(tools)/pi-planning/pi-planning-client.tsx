@@ -66,7 +66,7 @@ import { dependencyViews, isLegacyDependency, overloads, teamLoad, waitsOnTeam }
 import { LoadChart } from "./load-chart";
 import { toMarkdown } from "./markdown";
 import { ObjectivesPanel } from "./objectives";
-import { PredictabilitySection } from "./predictability-section";
+import { ClosedPis, PredictabilitySection } from "./predictability-section";
 import { RoamSection } from "./roam-section";
 import {
   MAX_ITERATIONS,
@@ -87,6 +87,16 @@ const ConfidenceVote = dynamic(() => import("./confidence-vote").then((m) => m.C
   loading: () => (
     <p role="status" className="text-sm text-sub">
       Loading the confidence vote…
+    </p>
+  ),
+});
+
+/** The votes kept with no teams left on the board: loaded only when there are some. */
+const SavedVotes = dynamic(() => import("./saved-votes").then((m) => m.SavedVotes), {
+  ssr: false,
+  loading: () => (
+    <p role="status" className="text-sm text-sub">
+      Loading the saved votes…
     </p>
   ),
 });
@@ -682,10 +692,30 @@ export function PiPlanningClient() {
         </SectionCard>
 
         {state.teams.length === 0 ? (
-          <EmptyState icon={CalendarRange} action={<LoadExampleButton onLoad={loadExample} />}>
-            No teams on the board yet. Add the teams in the release train above, or load an example
-            to see a planned PI.
-          </EmptyState>
+          <>
+            <EmptyState icon={CalendarRange} action={<LoadExampleButton onLoad={loadExample} />}>
+              No teams on the board yet. Add the teams in the release train above, or load an
+              example to see a planned PI.
+            </EmptyState>
+            {/* Removing a team keeps its votes and closed PIs: still here to read and delete. */}
+            {(state.confidence ?? []).length > 0 && (
+              <SectionCard title="Confidence vote" icon={Vote}>
+                <div className="space-y-4">
+                  <p className="text-sm text-sub">
+                    Kept from teams no longer on the board. Add a team to run a new vote.
+                  </p>
+                  <SavedVotes state={state} update={update} />
+                </div>
+              </SectionCard>
+            )}
+            {(state.history ?? []).length > 0 && (
+              <SectionCard title="Predictability" icon={BarChart3}>
+                <div className="space-y-2">
+                  <ClosedPis history={state.history ?? []} update={update} />
+                </div>
+              </SectionCard>
+            )}
+          </>
         ) : (
           <>
             <SectionCard title="Board" icon={CalendarRange}>

@@ -57,7 +57,11 @@ function itemLine(item: PiItem, map: Graph, today: ISODateString): string {
  */
 export function toMarkdown(state: PiState, map: Graph, today: ISODateString): string {
   const title = `# PI Planning — ${dayLabel(today, true)}`;
-  if (state.teams.length === 0) return `${title}\n\nNo teams on the board yet.\n`;
+  if (state.teams.length === 0) {
+    // Removing a team keeps its votes and closed PIs, so they still export.
+    const kept = [...confidenceLines(state), ...predictabilityLines(state)];
+    return `${[title, "", "No teams on the board yet.", "", ...kept].join("\n").trimEnd()}\n`;
+  }
   const lines = [title, "", `**${piVerdict(state, map, today)}**`, ""];
 
   lines.push(
@@ -186,7 +190,9 @@ function predictabilityLines(state: PiState): string[] {
   const history = state.history ?? [];
   const planned = p.teams.some((t) => t.plannedBv > 0 || t.actualBv > 0);
   if (!planned && history.length === 0) return [];
-  const out = ["## Predictability", "", predictabilityVerdict(p), ""];
+  const out = ["## Predictability", ""];
+  // With no teams the page already says so: only the closed PIs follow.
+  if (p.teams.length > 0) out.push(predictabilityVerdict(p), "");
   if (planned) {
     out.push(
       "| Team | Planned BV | Actual BV | Predictability |",

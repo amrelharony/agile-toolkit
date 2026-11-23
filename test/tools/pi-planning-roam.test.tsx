@@ -431,6 +431,63 @@ describe("Confidence vote", () => {
     expect(await screen.findByText(/^Checkout · .* · 4 votes/)).toBeInTheDocument();
   });
 
+  it("still shows, exports and deletes the kept votes and closed PIs once the last team goes", async () => {
+    seedBoard(
+      board({
+        teams: [{ id: "t1", name: "Checkout", velocity: 10 }],
+        confidence: [
+          {
+            id: "v1",
+            at: "2026-11-20T09:00:00.000Z",
+            scope: "t1",
+            scopeName: "Checkout",
+            counts: [0, 0, 1, 2, 1],
+            ballots: 4,
+            source: "facilitator",
+          },
+        ],
+        history: [
+          {
+            id: "h1",
+            name: "PI 2026.2",
+            closedAt: "2026-08-01",
+            teams: [{ teamId: "t1", name: "Checkout", plannedBv: 10, actualBv: 9 }],
+          },
+        ],
+      })
+    );
+    renderBoard();
+    // A team with no items or objectives goes at once, with Undo.
+    fireEvent.click(screen.getByRole("button", { name: "Remove team Checkout" }));
+    expect(stored().teams).toEqual([]);
+    expect(screen.getByText(/^No teams on the board yet/)).toBeInTheDocument();
+    expect(await screen.findByText(/^Checkout · .* · 4 votes/)).toBeInTheDocument();
+    expect(
+      within(section("Predictability")).getByRole("list", { name: "Closed PIs" })
+    ).toHaveTextContent("PI 2026.2");
+
+    const md = toMarkdown(stored(), { nodes: [], edges: [] }, "2026-11-23");
+    expect(md).toContain("No teams on the board yet.");
+    expect(md).toContain("## Confidence vote");
+    expect(md).toContain("| Checkout | 4 |");
+    expect(md).toContain("### Closed PIs");
+    expect(md).toContain("| PI 2026.2 |");
+    expect(md).not.toContain("## Predictability\n\nNo teams");
+
+    fireEvent.click(
+      within(section("Predictability")).getByRole("button", {
+        name: "Delete PI 2026.2 from the history",
+      })
+    );
+    expect(stored().history).toEqual([]);
+    undoLast();
+    expect(stored().history?.map((r) => r.id)).toEqual(["h1"]);
+    fireEvent.click(screen.getByRole("button", { name: /^Delete the Checkout vote/ }));
+    expect(stored().confidence).toEqual([]);
+    undoLast();
+    expect(stored().confidence?.map((v) => v.id)).toEqual(["v1"]);
+  });
+
   it("deletes a saved vote with Undo", async () => {
     seedBoard(
       board({

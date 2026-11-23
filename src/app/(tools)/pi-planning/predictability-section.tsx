@@ -250,6 +250,87 @@ function PredictabilityBars({ state }: { state: PiState }) {
   );
 }
 
+/* ── Closed PIs ─────────────────────────────────────────────────────── */
+
+/**
+ * The closed PIs, newest first, each deleted with Undo, and their average
+ * from three. The section shows them under its bars, and the page shows
+ * them on their own when the board has no teams left (removing a team
+ * keeps its closed PIs).
+ */
+export function ClosedPis({ history, update }: { history: PiRecord[]; update: Update }) {
+  const average = historyAverage(history);
+
+  const removeRecord = (record: PiRecord) => {
+    let index = -1;
+    undoable({
+      label: `Deleted ${record.name || "the closed PI"} from the history`,
+      apply: () =>
+        update((s) => {
+          const list = s.history ?? [];
+          index = list.findIndex((r) => r.id === record.id);
+          return { ...s, history: list.filter((r) => r.id !== record.id) };
+        }),
+      revert: () =>
+        update((s) => {
+          const list = [...(s.history ?? [])];
+          if (list.some((r) => r.id === record.id)) return s;
+          list.splice(index < 0 ? list.length : Math.min(index, list.length), 0, record);
+          return { ...s, history: list.slice(-HISTORY_MAX) };
+        }),
+    });
+  };
+
+  return (
+    <>
+      <h3 className="text-sm font-semibold text-text">Closed PIs</h3>
+      {history.length === 0 ? (
+        <p className="text-sm text-sub">
+          None yet. Close a PI once its objectives are scored, and it stays here when the board
+          moves on.
+        </p>
+      ) : (
+        <>
+          <ul className="divide-y divide-border" aria-label="Closed PIs">
+            {[...history].reverse().map((r) => {
+              const pct = recordPct(r);
+              const planned = r.teams.reduce((a, t) => a + t.plannedBv, 0);
+              const actual = r.teams.reduce((a, t) => a + t.actualBv, 0);
+              return (
+                <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
+                  <span className="min-w-0 flex-1 basis-48">
+                    <span className="block break-words text-sm text-text">
+                      {r.name || "A closed PI"}
+                    </span>
+                    <span className="text-xs text-sub">
+                      Closed {dayLabel(localDayOf(r.closedAt), true)} · BV {actual} of {planned} ·{" "}
+                      {r.teams.length} {r.teams.length === 1 ? "team" : "teams"}
+                    </span>
+                  </span>
+                  <span className="font-mono text-sm text-text">
+                    {pct === null ? NO_VALUE : `${pct}%`}
+                  </span>
+                  <IconButton
+                    label={`Delete ${r.name || "the closed PI"} from the history`}
+                    icon={<Trash2 className="h-4 w-4" />}
+                    className="text-sub hover:text-danger"
+                    onClick={() => removeRecord(r)}
+                  />
+                </li>
+              );
+            })}
+          </ul>
+          <p className="text-sm text-text">
+            {average
+              ? `Average over ${average.count} closed PIs: ${average.pct}%.`
+              : `The average shows once ${HISTORY_AVERAGE_MIN} PIs are closed.`}
+          </p>
+        </>
+      )}
+    </>
+  );
+}
+
 /* ── The section ────────────────────────────────────────────────────── */
 
 const ACTUAL_OPTIONS = [
@@ -280,8 +361,6 @@ export function PredictabilitySection({
   const p = piPredictability(state);
   const scored = p.teams.filter((t) => t.pct !== null);
   const waiting = p.teams.filter((t) => t.pct === null && t.plannedBv > 0);
-  const history = state.history ?? [];
-  const average = historyAverage(history);
   const band = bandOf(state);
 
   const scoreObjective = (o: PiObjective, raw: string) => {
@@ -346,26 +425,6 @@ export function PredictabilitySection({
       teams: record.teams.length,
     });
     cheer("pi-planning", "milestone");
-  };
-
-  const removeRecord = (record: PiRecord) => {
-    let index = -1;
-    undoable({
-      label: `Deleted ${record.name || "the closed PI"} from the history`,
-      apply: () =>
-        update((s) => {
-          const list = s.history ?? [];
-          index = list.findIndex((r) => r.id === record.id);
-          return { ...s, history: list.filter((r) => r.id !== record.id) };
-        }),
-      revert: () =>
-        update((s) => {
-          const list = [...(s.history ?? [])];
-          if (list.some((r) => r.id === record.id)) return s;
-          list.splice(index < 0 ? list.length : Math.min(index, list.length), 0, record);
-          return { ...s, history: list.slice(-HISTORY_MAX) };
-        }),
-    });
   };
 
   const closeText = () => {
@@ -465,50 +524,7 @@ export function PredictabilitySection({
       </div>
 
       <div className="space-y-2 border-t border-border pt-4">
-        <h3 className="text-sm font-semibold text-text">Closed PIs</h3>
-        {history.length === 0 ? (
-          <p className="text-sm text-sub">
-            None yet. Close a PI once its objectives are scored, and it stays here when the board
-            moves on.
-          </p>
-        ) : (
-          <>
-            <ul className="divide-y divide-border" aria-label="Closed PIs">
-              {[...history].reverse().map((r) => {
-                const pct = recordPct(r);
-                const planned = r.teams.reduce((a, t) => a + t.plannedBv, 0);
-                const actual = r.teams.reduce((a, t) => a + t.actualBv, 0);
-                return (
-                  <li key={r.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
-                    <span className="min-w-0 flex-1 basis-48">
-                      <span className="block break-words text-sm text-text">
-                        {r.name || "A closed PI"}
-                      </span>
-                      <span className="text-xs text-sub">
-                        Closed {dayLabel(localDayOf(r.closedAt), true)} · BV {actual} of {planned} ·{" "}
-                        {r.teams.length} {r.teams.length === 1 ? "team" : "teams"}
-                      </span>
-                    </span>
-                    <span className="font-mono text-sm text-text">
-                      {pct === null ? NO_VALUE : `${pct}%`}
-                    </span>
-                    <IconButton
-                      label={`Delete ${r.name || "the closed PI"} from the history`}
-                      icon={<Trash2 className="h-4 w-4" />}
-                      className="text-sub hover:text-danger"
-                      onClick={() => removeRecord(r)}
-                    />
-                  </li>
-                );
-              })}
-            </ul>
-            <p className="text-sm text-text">
-              {average
-                ? `Average over ${average.count} closed PIs: ${average.pct}%.`
-                : `The average shows once ${HISTORY_AVERAGE_MIN} PIs are closed.`}
-            </p>
-          </>
-        )}
+        <ClosedPis history={state.history ?? []} update={update} />
       </div>
 
       <ConfirmDialog

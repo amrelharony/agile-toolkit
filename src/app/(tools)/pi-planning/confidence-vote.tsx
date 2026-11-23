@@ -18,26 +18,18 @@
 
 import { useMemo, useState } from "react";
 import { nanoid } from "nanoid";
-import { Trash2 } from "lucide-react";
 import { VoteRoundPanel } from "@/components/collab/vote-room";
-import { IconButton } from "@/components/ui/icon-button";
 import { PI_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 import {
   TRAIN_SCOPE,
   TRAIN_SCOPE_NAME,
-  averageText,
   confidenceQuestion,
-  confidenceRule,
-  confidenceVotes,
   countsFrom,
-  scopeLabel,
   voteAverage,
-  votesUnderThree,
 } from "@/lib/pi-planning/confidence";
 import {
   CONFIDENCE_MAX,
   appendCapped,
-  localDayOf,
   removeAppended,
   type PiConfidenceVote,
   type PiState,
@@ -48,17 +40,13 @@ import { roundFor } from "@/lib/quick-vote/sheets";
 import type { Questionnaire } from "@/lib/realtime/vote-room/protocol";
 import type { VoteRoundResult } from "@/lib/realtime/vote-room/aggregate";
 import { cn } from "@/lib/utils";
-import { undoable } from "@/lib/utils/undoable";
-import { dayLabel } from "../dependency-map/format";
 import { SelectField } from "../dependency-map/fields";
+import { SavedVotes } from "./saved-votes";
 
 type Log = (action: string, payload?: Record<string, unknown>) => void;
 type Update = (fn: (s: PiState) => PiState) => void;
 
 const PRESET = presetById("confidence");
-
-/** The scale's labels, lowest first ("1: Not at all" …). */
-const POINT_LABELS = (PRESET?.points ?? []).map((p) => p.label);
 
 /**
  * The round the kit runs for `question`, checked as Quick Vote checks its
@@ -75,40 +63,6 @@ export function confidenceRound(
 }
 
 const round1 = (n: number | null) => (n === null ? null : Math.round(n * 10) / 10);
-
-/** One vote's totals as bars, with the rule under them. */
-function VoteBars({ vote }: { vote: PiConfidenceVote }) {
-  const max = Math.max(1, ...vote.counts);
-  return (
-    <div className="space-y-2">
-      <ul className="space-y-1" aria-label="Votes per point">
-        {vote.counts.map((c, i) => (
-          <li
-            key={i}
-            className="grid grid-cols-[minmax(0,8rem)_1fr_2rem] items-center gap-2 text-xs"
-          >
-            <span className="truncate text-sub">{POINT_LABELS[i] ?? String(i + 1)}</span>
-            <span className="h-3 overflow-hidden rounded-full bg-sub/15">
-              <span
-                className={cn("block h-full rounded-full", i < 2 ? "bg-warning" : "bg-accent")}
-                style={{ width: `${Math.round((c / max) * 100)}%` }}
-              />
-            </span>
-            <span className="text-right font-mono text-text">{c}</span>
-          </li>
-        ))}
-      </ul>
-      <p
-        className={cn(
-          "text-sm",
-          votesUnderThree(vote.counts) > 0 ? "font-medium text-warning" : "text-sub"
-        )}
-      >
-        {confidenceRule(vote.counts)}
-      </p>
-    </div>
-  );
-}
 
 export function ConfidenceVote({
   state,
@@ -127,9 +81,6 @@ export function ConfidenceVote({
   const scopeTeam = state.teams.find((t) => t.id === scope);
   const scopeTeamName = scopeTeam?.name;
   const round = useMemo(() => confidenceRound(confidenceQuestion(scopeTeamName)), [scopeTeamName]);
-  const votes = confidenceVotes(state);
-  const latest = votes[votes.length - 1];
-  const earlier = votes.slice(0, -1).reverse();
 
   /**
    * The scope a saved round asked about, read from its question (the host
@@ -190,34 +141,6 @@ export function ConfidenceVote({
       }));
   };
 
-  const remove = (vote: PiConfidenceVote) => {
-    let index = -1;
-    undoable({
-      label: `Deleted the ${scopeLabel(state, vote.scope, vote.scopeName)} vote`,
-      apply: () =>
-        update((s) => {
-          const list = s.confidence ?? [];
-          index = list.findIndex((v) => v.id === vote.id);
-          return { ...s, confidence: list.filter((v) => v.id !== vote.id) };
-        }),
-      revert: () =>
-        update((s) => {
-          const list = [...(s.confidence ?? [])];
-          if (list.some((v) => v.id === vote.id)) return s;
-          list.splice(index < 0 ? list.length : Math.min(index, list.length), 0, vote);
-          return { ...s, confidence: list.slice(-CONFIDENCE_MAX) };
-        }),
-    });
-  };
-
-  const deleteLabel = (v: PiConfidenceVote) =>
-    `Delete the ${scopeLabel(state, v.scope, v.scopeName)} vote from ${dayLabel(localDayOf(v.at))}`;
-
-  const voteLine = (v: PiConfidenceVote) =>
-    `${scopeLabel(state, v.scope, v.scopeName)} · ${dayLabel(localDayOf(v.at), true)} · ${
-      v.ballots
-    } ${v.ballots === 1 ? "vote" : "votes"} · average ${averageText(v.counts)} of 5`;
-
   return (
     <div className="space-y-4">
       <SelectField
@@ -245,46 +168,7 @@ export function ConfidenceVote({
       <p role="status" className={cn("text-sm", note ? "text-warning" : "sr-only")}>
         {note}
       </p>
-
-      {latest ? (
-        <div className="space-y-2 border-t border-border pt-3">
-          <h3 className="text-sm font-semibold text-text">Latest vote</h3>
-          <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
-            <p className="min-w-0 flex-1 basis-56 text-sm text-text">{voteLine(latest)}</p>
-            <IconButton
-              label={deleteLabel(latest)}
-              icon={<Trash2 className="h-4 w-4" />}
-              className="text-sub hover:text-danger"
-              onClick={() => remove(latest)}
-            />
-          </div>
-          <VoteBars vote={latest} />
-        </div>
-      ) : (
-        <p className="text-sm text-sub">
-          No vote saved yet. Run one as planning ends, before the train commits to its objectives.
-        </p>
-      )}
-
-      {earlier.length > 0 && (
-        <div className="space-y-1 border-t border-border pt-3">
-          <h3 className="text-sm font-semibold text-text">Earlier votes</h3>
-          <ul className="divide-y divide-border">
-            {earlier.map((v) => (
-              <li key={v.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 py-1.5">
-                <span className="min-w-0 flex-1 basis-56 text-sm text-text">{voteLine(v)}</span>
-                <span className="text-xs text-sub">{confidenceRule(v.counts)}</span>
-                <IconButton
-                  label={deleteLabel(v)}
-                  icon={<Trash2 className="h-4 w-4" />}
-                  className="text-sub hover:text-danger"
-                  onClick={() => remove(v)}
-                />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      <SavedVotes state={state} update={update} />
     </div>
   );
 }
