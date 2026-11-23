@@ -12,7 +12,7 @@
  * check landing in the row's "expect". Example A3s show no AI buttons.
  */
 
-import { useId, useRef, useState } from "react";
+import { useId, useRef } from "react";
 import {
   CircleAlert,
   ClipboardCheck,
@@ -28,10 +28,10 @@ import { AiButton, AiSuggestions } from "@/components/ai";
 import { BlurTextarea } from "@/components/shared/blur-fields";
 import { SectionCard } from "@/components/shared/section-card";
 import { countermeasureTask } from "@/lib/ai/tasks/root-cause.lite";
-import type { AiSource } from "@/lib/ai/task-types";
 import { a3CountermeasureInput } from "@/lib/improve/ai-input";
-import { a3Gaps, type StepDone } from "@/lib/improve/model";
+import { STEP_REFUSAL_TEXT, a3Gaps, type StepDone } from "@/lib/improve/model";
 import {
+  TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
   type Improvement,
   type RootCauseAnalysis,
@@ -42,8 +42,10 @@ import { ConditionFields, FieldLabel, ItemStatusSelect } from "./fields";
 import { Readings } from "./readings";
 import { StepList } from "./step-list";
 import type { ItemActions } from "./use-item-actions";
+import { useStepIdeas } from "./use-step-ideas";
 
-function CountermeasureIdeas({
+/** Ask Amr's ideas for the next step, and the ones picked (exported for its tests). */
+export function CountermeasureIdeas({
   item,
   analysis,
   actions,
@@ -54,11 +56,10 @@ function CountermeasureIdeas({
 }) {
   const askRef = useRef<HTMLDivElement>(null);
   const announce = useAnnounce();
-  const [suggested, setSuggested] = useState<{
-    items: { text: string; check: string }[];
-    source: AiSource;
-  } | null>(null);
+  const ideas = useStepIdeas<{ text: string; check: string }>();
+  const { suggested } = ideas;
   const input = a3CountermeasureInput(item, analysis);
+  const full = item.steps.length >= TOOL_LIST_MAX.improveSteps;
   return (
     <div className="space-y-2">
       <div ref={askRef}>
@@ -67,11 +68,13 @@ function CountermeasureIdeas({
           input={() =>
             input ?? { problem: item.title, rootCause: item.title, whys: [], causes: [] }
           }
-          disabledReason={input ? null : "Write why it happens first."}
+          disabledReason={
+            full ? STEP_REFUSAL_TEXT.list_full : input ? null : "Write why it happens first."
+          }
           label="Ask Amr for countermeasures"
           fallbackLabel="Ideas without AI"
           onResult={(data, meta) => {
-            setSuggested({ items: data.countermeasures, source: meta.source });
+            ideas.show(data.countermeasures, meta.source);
             const n = data.countermeasures.length;
             announce(
               `${n} possible ${n === 1 ? "countermeasure" : "countermeasures"} below. Add the ones that fit.`
@@ -82,16 +85,22 @@ function CountermeasureIdeas({
       {suggested && suggested.items.length > 0 && (
         <AiSuggestions
           items={suggested.items}
+          itemKey={ideas.itemKey}
           source={suggested.source}
           title="Possible countermeasures"
           acceptLabel="Add"
           render={(c) => ({ title: c.text, detail: `Check: ${c.check}` })}
           onAccept={(c) => {
-            actions.addStep({ text: c.text, expect: c.check }, { fromAi: true });
+            ideas.settle(c, actions.addStep({ text: c.text, expect: c.check }, { fromAi: true }));
           }}
-          onDismiss={() => setSuggested(null)}
+          onDismiss={ideas.close}
           returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
         />
+      )}
+      {ideas.refusal && (
+        <p role="alert" className="text-xs text-danger">
+          {ideas.refusal}
+        </p>
       )}
     </div>
   );

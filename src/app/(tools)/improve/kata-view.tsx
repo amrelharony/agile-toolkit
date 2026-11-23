@@ -29,9 +29,9 @@ import { BlurTextarea } from "@/components/shared/blur-fields";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { improveNextExperimentTask } from "@/lib/ai/tasks/improve.lite";
-import type { AiSource } from "@/lib/ai/task-types";
 import { experimentBlocker, experimentInput } from "@/lib/improve/ai-input";
 import {
+  STEP_REFUSAL_TEXT,
   coachingDue,
   composeCondition,
   hasCondition,
@@ -40,23 +40,30 @@ import {
   type StepDone,
 } from "@/lib/improve/model";
 import { todayIso } from "@/lib/sprints/series";
-import { TOOL_TEXT_MAX, type Improvement } from "@/lib/stores/workspace-types";
+import { TOOL_LIST_MAX, TOOL_TEXT_MAX, type Improvement } from "@/lib/stores/workspace-types";
 import { CoachWalk } from "./coach-walk";
 import { ConditionFields, FieldLabel, ItemStatusSelect, PersonField } from "./fields";
 import { ObstacleList } from "./obstacle-list";
 import { Readings } from "./readings";
 import { StepList } from "./step-list";
 import type { ItemActions } from "./use-item-actions";
+import { useStepIdeas } from "./use-step-ideas";
 
-function NextExperimentIdeas({ item, actions }: { item: Improvement; actions: ItemActions }) {
+/** Ask Amr's ideas for the next step, and the ones picked (exported for its tests). */
+export function NextExperimentIdeas({
+  item,
+  actions,
+}: {
+  item: Improvement;
+  actions: ItemActions;
+}) {
   const askRef = useRef<HTMLDivElement>(null);
   const announce = useAnnounce();
-  const [suggested, setSuggested] = useState<{
-    items: { step: string; expect: string }[];
-    source: AiSource;
-  } | null>(null);
+  const ideas = useStepIdeas<{ step: string; expect: string }>();
+  const { suggested } = ideas;
   const input = experimentInput(item);
   const working = workingObstacle(item);
+  const full = item.steps.length >= TOOL_LIST_MAX.improveSteps;
   return (
     <div className="space-y-2">
       <div ref={askRef}>
@@ -72,11 +79,11 @@ function NextExperimentIdeas({ item, actions }: { item: Improvement; actions: It
               past: [],
             }
           }
-          disabledReason={experimentBlocker(item)}
+          disabledReason={full ? STEP_REFUSAL_TEXT.list_full : experimentBlocker(item)}
           label="Ask Amr for the next experiment"
           fallbackLabel="Suggest without AI"
           onResult={(data, meta) => {
-            setSuggested({ items: data.experiments, source: meta.source });
+            ideas.show(data.experiments, meta.source);
             const n = data.experiments.length;
             announce(
               `${n} possible next ${n === 1 ? "experiment" : "experiments"} below. Pick one.`
@@ -87,13 +94,14 @@ function NextExperimentIdeas({ item, actions }: { item: Improvement; actions: It
       {suggested && suggested.items.length > 0 && (
         <AiSuggestions
           items={suggested.items}
+          itemKey={ideas.itemKey}
           source={suggested.source}
           title="Possible next experiments"
           acceptLabel="Plan"
           pickOne
           render={(e) => ({ title: e.step, detail: `Expect: ${e.expect}` })}
           onAccept={(e) => {
-            actions.addStep(
+            const why = actions.addStep(
               {
                 text: e.step,
                 expect: e.expect,
@@ -102,14 +110,21 @@ function NextExperimentIdeas({ item, actions }: { item: Improvement; actions: It
               },
               { fromAi: true }
             );
-            setSuggested(null);
+            // Refused: the ideas stay, with the reason beside them.
+            if (!ideas.settle(e, why)) return;
+            ideas.close();
             requestAnimationFrame(() =>
               askRef.current?.querySelector<HTMLElement>("button")?.focus()
             );
           }}
-          onDismiss={() => setSuggested(null)}
+          onDismiss={ideas.close}
           returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
         />
+      )}
+      {ideas.refusal && (
+        <p role="alert" className="text-xs text-danger">
+          {ideas.refusal}
+        </p>
       )}
     </div>
   );

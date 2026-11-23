@@ -14,6 +14,7 @@ import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
+  TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
   type Improvement,
   type ImprovementStep,
@@ -72,7 +73,9 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/app/(tools)/improve/readings-chart", () => ({ ReadingsChart: () => null }));
 
 import { ImproveClient } from "@/app/(tools)/improve/improve-client";
+import { CountermeasureIdeas } from "@/app/(tools)/improve/a3-view";
 import { CoachWalk } from "@/app/(tools)/improve/coach-walk";
+import { NextExperimentIdeas } from "@/app/(tools)/improve/kata-view";
 import { buildExample } from "@/app/(tools)/improve/example";
 import { improveToMarkdown } from "@/app/(tools)/improve/markdown";
 import { validateStepDraft } from "@/app/(tools)/improve/step-list";
@@ -84,7 +87,7 @@ import { fallbackExperiments } from "@/lib/ai/tasks/improve.lite";
 import { sendHandoff } from "@/lib/handoffs/send";
 import { RETRO_BOARD_ID } from "@/lib/handoffs/targets/retro-board";
 import { IMPROVE_ACTIONS } from "@/lib/history/event-actions";
-import { TOO_BIG } from "@/lib/improve/model";
+import { STEP_REFUSAL_TEXT, TOO_BIG, readImprovement } from "@/lib/improve/model";
 import { isoDayNumber, isoFromDayNumber } from "@/lib/sprints/calendar";
 import { todayIso } from "@/lib/sprints/series";
 import { isExampleId } from "@/lib/utils/example-id";
@@ -194,6 +197,28 @@ const renderPage = () =>
     <TooltipProvider>
       <LiveAnnouncerProvider>
         <ImproveClient />
+      </LiveAnnouncerProvider>
+    </TooltipProvider>
+  );
+
+/** Ask Amr's ideas alone, on the stored improvement (no long step list to render). */
+function StoredIdeas({ id }: { id: string }) {
+  const raw = useWorkspaceStore((s) => s.improvements?.find((i) => i.id === id));
+  const actions = useItemActions(id, () => undefined);
+  const item = raw ? readImprovement(raw) : null;
+  if (!item) return null;
+  return item.method === "a3" ? (
+    <CountermeasureIdeas item={item} analysis={undefined} actions={actions} />
+  ) : (
+    <NextExperimentIdeas item={item} actions={actions} />
+  );
+}
+
+const renderIdeas = (id: string) =>
+  render(
+    <TooltipProvider>
+      <LiveAnnouncerProvider>
+        <StoredIdeas id={id} />
       </LiveAnnouncerProvider>
     </TooltipProvider>
   );
@@ -978,6 +1003,49 @@ describe("Ask Amr, and its no-AI path", () => {
     renderPage();
     const ask = screen.getByRole("button", { name: "Suggest without AI" });
     expect(ask).toHaveAttribute("aria-disabled", "true");
+  });
+
+  it("waits on a full list, and an idea the list can't take stays in it, saying why", () => {
+    const steps = Array.from({ length: TOOL_LIST_MAX.improveSteps - 1 }, (_, i) => step(`s${i}`));
+    useWorkspaceStore.setState({
+      improvements: [a3({ analysis: "A manual regression pass", steps })],
+    });
+    renderIdeas("improve_a3");
+    fireEvent.click(screen.getByRole("button", { name: "Ideas without AI" }));
+    const ideas = fallbackCountermeasures("A manual regression pass");
+    fireEvent.click(screen.getByRole("button", { name: `Add: ${ideas[0].text}` }));
+    expect(byId("improve_a3")!.steps).toHaveLength(TOOL_LIST_MAX.improveSteps);
+    const ask = screen.getByRole("button", { name: "Ideas without AI" });
+    expect(ask).toHaveAttribute("aria-disabled", "true");
+    fireEvent.click(screen.getByRole("button", { name: `Add: ${ideas[1].text}` }));
+    expect(screen.getByRole("alert")).toHaveTextContent(STEP_REFUSAL_TEXT.list_full);
+    expect(byId("improve_a3")!.steps).toHaveLength(TOOL_LIST_MAX.improveSteps);
+    expect(undo.all).toHaveLength(1);
+    // The refused idea is still there to add once a row is free; the added one isn't back.
+    expect(screen.getByRole("button", { name: `Add: ${ideas[1].text}` })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: `Add: ${ideas[0].text}` })).not.toBeInTheDocument();
+    fireEvent.click(ask);
+    expect(screen.getAllByText(STEP_REFUSAL_TEXT.list_full).length).toBeGreaterThan(1);
+  });
+
+  it("keeps a Kata's ideas open, saying why, when the one picked can't be planned", () => {
+    const tries = (n: number) =>
+      Array.from({ length: n }, (_, i) => step(`s${i}`, { expect: "It moves" }));
+    useWorkspaceStore.setState({
+      improvements: [kata({ steps: tries(TOOL_LIST_MAX.improveSteps - 1) })],
+    });
+    renderIdeas("improve_k");
+    fireEvent.click(screen.getByRole("button", { name: "Suggest without AI" }));
+    // The list fills up (another tab, or Amr) before one is picked.
+    act(() => {
+      ws().upsertImprovement({ ...byId("improve_k")!, steps: tries(TOOL_LIST_MAX.improveSteps) });
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: /^Plan: / })[0]);
+    expect(screen.getByRole("alert")).toHaveTextContent(STEP_REFUSAL_TEXT.list_full);
+    expect(screen.getByText("Possible next experiments")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Plan: / })).toHaveLength(3);
+    expect(byId("improve_k")!.steps).toHaveLength(TOOL_LIST_MAX.improveSteps);
+    expect(undo.all).toEqual([]);
   });
 });
 
