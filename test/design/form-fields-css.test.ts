@@ -109,6 +109,7 @@ describe("native selects styled to match <Input>", () => {
     "src/app/(tools)/impediments/components/impediment-fields.tsx",
     "src/app/(tools)/improve/fields.tsx",
     "src/app/(tools)/riskiest-assumption/assumption-card.tsx",
+    "src/app/(tools)/root-cause/causal-loop.tsx",
     "src/app/(tools)/user-interviews/quote-card.tsx",
     "src/app/(tools)/epic-roadmap/epic-stories.tsx",
     "src/app/(tools)/jtbd-mapper/job-form.tsx",
