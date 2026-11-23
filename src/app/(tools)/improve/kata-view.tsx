@@ -10,7 +10,7 @@
  * buttons.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import {
   CalendarClock,
   CircleAlert,
@@ -140,9 +140,14 @@ export function KataView({
   actions: ItemActions;
 }) {
   const today = todayIso();
+  const ids = useId();
   const [coaching, setCoaching] = useState(false);
   const coachRef = useRef<HTMLButtonElement>(null);
   const backToCoach = useRef(false);
+  const targetRef = useRef<HTMLDivElement>(null);
+  const reachedRef = useRef<HTMLButtonElement>(null);
+  /** After a past target's delete: the row to focus, or Reached it ("reached"). */
+  const [pastFocus, setPastFocus] = useState<number | "reached" | null>(null);
   const checks = kataChecks(item, today);
   const due = coachingDue(item, today);
   const past = item.pastTargets ?? [];
@@ -152,6 +157,26 @@ export function KataView({
     backToCoach.current = false;
     coachRef.current?.focus();
   }, [coaching]);
+
+  // After a past target's delete, focus goes to the next one's delete, else to
+  // Reached it (or, while there is no target to reach, the target's words).
+  useEffect(() => {
+    if (pastFocus === null) return;
+    setPastFocus(null);
+    if (pastFocus !== "reached") {
+      document.getElementById(`${ids}-past-${pastFocus}`)?.focus();
+      return;
+    }
+    const reached = reachedRef.current;
+    if (reached && !reached.disabled) reached.focus();
+    else targetRef.current?.querySelector<HTMLElement>("textarea")?.focus();
+  }, [pastFocus, ids]);
+
+  const removePast = (at: number) => {
+    actions.removePastTarget(at);
+    const left = past.length - 1;
+    setPastFocus(left > 0 ? Math.min(at, left - 1) : "reached");
+  };
 
   return (
     <div className="space-y-4">
@@ -227,7 +252,7 @@ export function KataView({
       </SectionCard>
 
       <SectionCard title="Next target" icon={Flag}>
-        <div className="space-y-3">
+        <div ref={targetRef} className="space-y-3">
           <ConditionFields
             condition={item.target}
             wordsLabel="The next target, a few weeks away"
@@ -237,6 +262,7 @@ export function KataView({
           />
           <div className="flex flex-wrap items-center gap-2">
             <Button
+              ref={reachedRef}
               type="button"
               variant="outline"
               size="sm"
@@ -269,10 +295,11 @@ export function KataView({
                     </span>
                     <span className="text-xs text-sub">reached {t.reachedAt.slice(0, 10)}</span>
                     <Button
+                      id={`${ids}-past-${i}`}
                       type="button"
                       variant="ghost"
                       size="sm"
-                      onClick={() => actions.removePastTarget(i)}
+                      onClick={() => removePast(i)}
                       aria-label={`Delete the past target ${i + 1}`}
                       className="text-sub hover:text-danger"
                     >

@@ -688,6 +688,28 @@ describe("an A3", () => {
     expect(byId("improve_a3")!.readings).toHaveLength(1);
   });
 
+  it("moves focus on after a reading's delete: the next one, then the form's Day", () => {
+    useWorkspaceStore.setState({
+      improvements: [
+        a3({
+          readings: [
+            { id: "r1", date: "2026-11-01", value: 6 },
+            { id: "r2", date: "2026-11-08", value: 5 },
+          ],
+        }),
+      ],
+    });
+    renderPage();
+    // Listed newest first: the next one down is the older reading.
+    fireEvent.click(screen.getByRole("button", { name: "Delete the reading for 2026-11-08" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Delete the reading for 2026-11-01" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete the reading for 2026-11-01" }));
+    expect(byId("improve_a3")!.readings).toEqual([]);
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Day\*?$/));
+  });
+
   it("closes, stamping closedAt and logging it", () => {
     useWorkspaceStore.setState({ improvements: [a3()] });
     renderPage();
@@ -1012,6 +1034,31 @@ describe("a Kata", () => {
     expect(byId("improve_k")!.steps[0].result).toBe("Nothing new");
     expect(byId("improve_k")!.nextCoachingAt).toBeUndefined();
     expect(actions()).toEqual([IMPROVE_ACTIONS.COACHING_DONE]);
+  });
+
+  it("moves focus on after a past target's delete: the next one, then Reached it", () => {
+    const pastTargets = [
+      { text: "Within a working day", reachedAt: "2026-10-01T09:00:00.000Z" },
+      { text: "Within half a day", reachedAt: "2026-10-20T09:00:00.000Z" },
+    ];
+    useWorkspaceStore.setState({ improvements: [kata({ pastTargets })] });
+    const { unmount } = renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete the past target 1" }));
+    expect(byId("improve_k")!.pastTargets).toEqual([pastTargets[1]]);
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Delete the past target 1" })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete the past target 1" }));
+    expect(byId("improve_k")!.pastTargets).toBeUndefined();
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Reached it" }));
+    unmount();
+    // No target to reach yet (Reached it can't take focus): the target's words do.
+    useWorkspaceStore.setState({
+      improvements: [kata({ target: { text: "" }, pastTargets: [pastTargets[0]] })],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete the past target 1" }));
+    expect(document.activeElement).toBe(screen.getByLabelText("The next target, a few weeks away"));
   });
 
   it("Reached it keeps the target as a past one, logs, cheers and can be undone", () => {

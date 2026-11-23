@@ -3,12 +3,13 @@
 /**
  * The improvement's number over time: log a dated reading (never for a day
  * that hasn't come yet), see the readings against the target on a run
- * chart (a sentence and a table say the same), and delete one with Undo.
- * Below two readings there is no line to draw yet.
+ * chart (a sentence and a table say the same), and delete one with Undo
+ * (focus moves to the next reading's delete, or the form's Day). Below two
+ * readings there is no line to draw yet.
  */
 
 import dynamic from "next/dynamic";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { ChartFigure } from "@/components/shared/chart-card";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
@@ -31,6 +32,9 @@ const ReadingsChart = dynamic(() => import("./readings-chart").then((m) => m.Rea
 
 /** Readings before the run chart has a line to draw. */
 export const READINGS_MIN = 2;
+
+/** Focus goes to the reading form's first field (its Day). */
+const FORM = "form";
 
 export interface ReadingDraft {
   date: string;
@@ -104,6 +108,28 @@ export function Readings({ item, actions }: { item: Improvement; actions: ItemAc
   const rows = sortedReadings(item);
   const text = readingsText(item);
   const unit = item.target.unit ?? item.current.unit;
+  // Newest first, as listed.
+  const shown = [...rows].reverse();
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const deleteId = (id: string) => `${ids}-reading-${id}-delete`;
+
+  // After a delete, focus goes to the next reading's delete (or the form's Day).
+  useEffect(() => {
+    if (!focusId) return;
+    const target =
+      focusId === FORM
+        ? form.formRef.current?.querySelector<HTMLElement>("input")
+        : document.getElementById(focusId);
+    target?.focus();
+    setFocusId(null);
+  }, [focusId, form.formRef]);
+
+  const remove = (at: number) => {
+    const reading = shown[at];
+    const next = shown[at + 1] ?? shown[at - 1];
+    actions.removeReading(reading);
+    setFocusId(next ? deleteId(next.id) : FORM);
+  };
 
   return (
     <section aria-labelledby={`${ids}-heading`} className="space-y-3">
@@ -135,7 +161,7 @@ export function Readings({ item, actions }: { item: Improvement; actions: ItemAc
       )}
       {rows.length > 0 && (
         <ul className="divide-y divide-border rounded-lg border border-border bg-card">
-          {[...rows].reverse().map((r) => (
+          {shown.map((r, i) => (
             <li
               key={r.id}
               className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 text-sm"
@@ -144,10 +170,11 @@ export function Readings({ item, actions }: { item: Improvement; actions: ItemAc
               <span className="font-medium text-text">{valueText({ value: r.value, unit })}</span>
               {r.note && <span className="min-w-0 flex-1 break-words text-sub">{r.note}</span>}
               <Button
+                id={deleteId(r.id)}
                 type="button"
                 variant="ghost"
                 size="sm"
-                onClick={() => actions.removeReading(r)}
+                onClick={() => remove(i)}
                 aria-label={`Delete the reading for ${r.date}`}
                 className="ml-auto text-sub hover:text-danger"
               >
