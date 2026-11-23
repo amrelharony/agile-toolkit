@@ -66,6 +66,7 @@ import {
   mergeWorkflow,
   normalizeWorkflowDefinition,
   sleFromHistory,
+  versionOf,
   withSavedVersion,
   workflowItems,
   type CompareWeeks,
@@ -555,12 +556,22 @@ const CompareParams = z.object({
 });
 
 function planCompare(world: WorkflowWorld, params: z.infer<typeof CompareParams>) {
-  // The items and the WIP count read one board: the version's, else the described one.
-  const board = compareBoard(world.def, params.version);
-  if (!world.def?.versions?.length || !board) {
+  if (!world.def?.versions?.length) {
     return fail(
       "no_version",
       "Save a version of the Definition of Workflow first (save_workflow_version)."
+    );
+  }
+  if (!versionOf(world.def, params.version)) {
+    return fail("no_version", `There is no version ${params.version}.`);
+  }
+  // The items and the WIP count read one board: the version's, else the described one.
+  const board = compareBoard(world.def, params.version);
+  if (!board) {
+    // Its own refusal: the versions exist, so "save a version" would send an agent round in circles.
+    return fail(
+      "no_board",
+      'The Definition of Workflow names no board. Set the board it describes first (update_workflow {board: "sprint" | "flow"}), then compare.'
     );
   }
   const items = workflowItems(board, {
@@ -579,7 +590,7 @@ registry.register({
   toolId: "tool.kanban",
   name: "compare_workflow_version",
   category: "read",
-  description: `Compare the described board's flow in the weeks before a saved version of the Definition of Workflow with the weeks from its save day. Params: {version? (default the latest), weeks?: ${COMPARE_WEEKS.join(" | ")} (default 4)}. Returns {ok: true, board, version, weeks, before, after, cutShort (the after window stops at today)}; each side is {from, to, days, finished, enough, median, p85 (cycle days, null below 5 finished items), throughputPerWeek, avgWip}. Or {ok: false, error: "no_version", hint}.`,
+  description: `Compare a board's flow (the board the version described, else the one the definition describes now) in the weeks before a saved version of the Definition of Workflow with the weeks from its save day. Params: {version? (default the latest), weeks?: ${COMPARE_WEEKS.join(" | ")} (default 4)}. Returns {ok: true, board, version, weeks, before, after, cutShort (the after window stops at today)}; each side is {from, to, days, finished, enough, median, p85 (cycle days, null below 5 finished items), throughputPerWeek, avgWip}. Or {ok: false, error: "no_version" | "no_board" (neither the version nor the definition names a board: set one with update_workflow), hint}.`,
   paramsSchema: CompareParams,
   handler: async (params) => planCompare(browserWorld(), params),
   mcpHandler: async (params, ctx) => planCompare(await serverWorld(ctx.userId), params),

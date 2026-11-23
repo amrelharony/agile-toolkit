@@ -243,6 +243,22 @@ describe("versions", () => {
     });
   });
 
+  it("says to set a board, not to save a version, when versions exist but no board is named", async () => {
+    await mcp("tool.kanban.update_workflow", { workItem: "A support request" });
+    expect(await mcp("tool.kanban.save_workflow_version", {})).toMatchObject({ ok: true });
+    const out = await mcp<{ ok: boolean; error: string; hint: string }>(
+      "tool.kanban.compare_workflow_version"
+    );
+    expect(out).toMatchObject({ ok: false, error: "no_board" });
+    expect(out.hint).toMatch(/update_workflow \{board/);
+    await mcp("tool.kanban.update_workflow", { board: "flow" });
+    expect(await mcp("tool.kanban.compare_workflow_version")).toMatchObject({
+      ok: true,
+      board: "flow",
+      version: 1,
+    });
+  });
+
   it("compares on the board the version described, after the definition moved boards", async () => {
     useWorkspaceStore.setState({
       kanbanBoards: [
