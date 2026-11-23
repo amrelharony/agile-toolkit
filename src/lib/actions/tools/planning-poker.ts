@@ -63,6 +63,7 @@ import {
 import {
   THREE_POINT_MAX,
   cardAtOrAbove,
+  isAboveDeck,
   threePoint,
   threePointNote,
   validateThreePoint,
@@ -322,6 +323,7 @@ function threePointCheck(p: {
       "Give a best, likely and worst case with best <= likely <= worst.";
     return { computed: false as const, problem };
   }
+  const deck = deckFor([], p.scale, p.deck);
   return {
     computed: true as const,
     expected: round2(r.expected),
@@ -329,7 +331,10 @@ function threePointCheck(p: {
     low: round2(r.low),
     high: round2(r.high),
     // Null on a deck that isn't points (T-shirt sizes).
-    card: cardAtOrAbove(deckFor([], p.scale, p.deck), r.expected),
+    card: cardAtOrAbove(deck, r.expected),
+    // Past the largest card: `card` is only the top one, and the story
+    // wants splitting.
+    aboveDeck: isAboveDeck(deck, r.expected),
     note: threePointNote(r),
   };
 }
@@ -398,7 +403,7 @@ registry.register({
   name: "three_point",
   category: "read",
   description:
-    "Three-point check for one story, as the host's check after Reveal and the Estimation Guide show it: a best (optimistic), likely and worst (pessimistic) case in points, 0 to 1000, with best <= likely <= worst. Returns {computed: true, expected: (O + 4M + P) / 6, sd: (P - O) / 6, low and high (expected -/+ sd), card (the smallest card on the deck at or above expected, else the top card; null on a T-shirt deck), note (narrow, some uncertainty or wide)}, or {computed: false, problem}. Give the deck as scale (fibonacci | tshirt) or deck (the cards in order); Fibonacci otherwise. Pure: it changes no estimate, the team still picks the card.",
+    "Three-point check for one story, as the host's check after Reveal and the Estimation Guide show it: a best (optimistic), likely and worst (pessimistic) case in points, 0 to 1000, with best <= likely <= worst. Returns {computed: true, expected: (O + 4M + P) / 6, sd: (P - O) / 6, low and high (expected -/+ sd), card (the smallest card on the deck at or above expected, else the top card; null on a T-shirt deck), aboveDeck (true when expected is past the deck's largest card: card is then only the top card, so say the story is bigger than any card and should be split), note (narrow, some uncertainty or wide)}, or {computed: false, problem}. Give the deck as scale (fibonacci | tshirt) or deck (the cards in order); Fibonacci otherwise. Pure: it changes no estimate, the team still picks the card.",
   paramsSchema: z.object({
     optimistic: z.number().min(0).max(THREE_POINT_MAX),
     likely: z.number().min(0).max(THREE_POINT_MAX),

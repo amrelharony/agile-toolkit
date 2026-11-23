@@ -10,6 +10,7 @@ import {
   THREE_POINT_MAX,
   cardAtOrAbove,
   formatPoints,
+  isAboveDeck,
   isNumericDeck,
   numericCards,
   threePoint,
@@ -77,6 +78,17 @@ describe("the deck", () => {
     expect(cardAtOrAbove(FIB, 40)).toBe("21");
     expect(cardAtOrAbove(SCALES.tshirt, 3)).toBeNull();
     expect(cardAtOrAbove(FIB, Number.NaN)).toBeNull();
+  });
+
+  it("knows a figure past the largest card, where no card fits", () => {
+    expect(isAboveDeck(FIB, 45.5)).toBe(true);
+    expect(isAboveDeck(FIB, 21.01)).toBe(true);
+    expect(isAboveDeck(FIB, 21)).toBe(false);
+    expect(isAboveDeck(FIB, 20.9999999999)).toBe(false);
+    expect(isAboveDeck(FIB, 5.83)).toBe(false);
+    expect(isAboveDeck(["1", "2", "4", "8", "16"], 17)).toBe(true);
+    expect(isAboveDeck(SCALES.tshirt, 45.5)).toBe(false);
+    expect(isAboveDeck(FIB, Number.NaN)).toBe(false);
   });
 });
 

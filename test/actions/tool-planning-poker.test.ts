@@ -188,6 +188,7 @@ describe("tool.planning_poker.three_point", () => {
     low?: number;
     high?: number;
     card?: string | null;
+    aboveDeck?: boolean;
     note?: string;
     problem?: string;
   };
@@ -209,6 +210,7 @@ describe("tool.planning_poker.three_point", () => {
       low: 4,
       high: 7.67,
       card: "8",
+      aboveDeck: false,
       note: "Wide: talk about the risks before you accept, or split the story.",
     });
   });
@@ -220,6 +222,22 @@ describe("tool.planning_poker.three_point", () => {
       null
     );
     expect((await run({ optimistic: 30, likely: 40, pessimistic: 50 })).card).toBe("21");
+  });
+
+  it("flags a size past the deck's largest card, where the top card understates it", async () => {
+    const past = await run({ optimistic: 30, likely: 40, pessimistic: 50 });
+    expect(past).toMatchObject({ computed: true, expected: 40, card: "21", aboveDeck: true });
+    const pow2 = { optimistic: 16, likely: 20, pessimistic: 30, deck: ["1", "2", "4", "8", "16"] };
+    expect(await run(pow2)).toMatchObject({ card: "16", aboveDeck: true });
+    // At the top card itself, it's that card.
+    expect(await run({ optimistic: 21, likely: 21, pessimistic: 21 })).toMatchObject({
+      card: "21",
+      aboveDeck: false,
+    });
+    // A T-shirt deck has no card, and nothing to be past.
+    expect(
+      await run({ optimistic: 30, likely: 40, pessimistic: 50, scale: "tshirt" })
+    ).toMatchObject({ card: null, aboveDeck: false });
   });
 
   it("says what's wrong with cases out of order", async () => {

@@ -79,6 +79,23 @@ describe("the Estimation Guide's Three-point check", () => {
     expect(status()).toHaveTextContent(/talk about the risks/);
   });
 
+  it("says when the size is past the largest card, rather than calling it the top card", () => {
+    render(<EstimationGuideClient />);
+    fireEvent.click(toggle());
+    type("Best case", "13");
+    type("Likely", "40");
+    type("Worst case", "100");
+    expect(status()).toHaveTextContent(
+      "Expected 45.5 points, about 31 to 60. That’s more than the largest card on the Fibonacci scale (21): split the story."
+    );
+    expect(status()).not.toHaveTextContent("that’s 21.");
+    // At the top card itself, it's still that card.
+    type("Best case", "21");
+    type("Likely", "21");
+    type("Worst case", "21");
+    expect(status()).toHaveTextContent("On the Fibonacci scale that’s 21.");
+  });
+
   it("reads the card on the guide's scale", () => {
     useEstimationGuideStore.setState({ selectedScale: "Powers of 2" });
     render(<EstimationGuideClient />);

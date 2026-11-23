@@ -3,9 +3,10 @@
 /**
  * The guide's Three-point check: type a best, likely and worst case and see
  * the expected size, its spread, and on a points scale the card it rounds up
- * to (lib/estimation/three-point). Nothing is saved and the export doesn't
- * change: it's a quick sum for a story the team is unsure about. Planning
- * Poker's host gets the same check after Reveal, starting from the votes.
+ * to (lib/estimation/three-point), or that it's past the largest card and
+ * wants splitting. Nothing is saved and the export doesn't change: it's a
+ * quick sum for a story the team is unsure about. Planning Poker's host
+ * gets the same check after Reveal, starting from the votes.
  */
 
 import { useId, useState } from "react";
@@ -17,6 +18,7 @@ import {
   THREE_POINT_MAX,
   cardAtOrAbove,
   formatPoints,
+  isAboveDeck,
   numericCards,
   threePoint,
   threePointNote,
@@ -47,6 +49,8 @@ export function ThreePointCard({ scale }: { scale: EstimationScale }) {
   const deck = scale.values.map(String);
   const numeric = numericCards(deck).length > 0;
   const card = result && numeric ? cardAtOrAbove(deck, result.expected) : null;
+  // Past the largest card the top card would understate it: say so instead.
+  const pastDeck = result !== null && isAboveDeck(deck, result.expected);
 
   return (
     <section
@@ -114,7 +118,12 @@ export function ThreePointCard({ scale }: { scale: EstimationScale }) {
                 Expected{" "}
                 <span className="font-data font-bold">{formatPoints(result.expected)}</span> points,
                 about {formatPoints(result.low)} to {formatPoints(result.high)}.{" "}
-                {card !== null ? (
+                {card !== null && pastDeck ? (
+                  <>
+                    That&rsquo;s more than the largest card on the {scale.name} scale (
+                    <span className="font-data font-bold">{card}</span>): split the story.
+                  </>
+                ) : card !== null ? (
                   <>
                     On the {scale.name} scale that&rsquo;s{" "}
                     <span className="font-data font-bold">{card}</span>.

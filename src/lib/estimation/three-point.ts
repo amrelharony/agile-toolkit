@@ -86,6 +86,17 @@ export function cardAtOrAbove(deck: readonly string[], value: number): string | 
   return cards.find((c) => Number(c) >= value - 1e-9) ?? cards[cards.length - 1];
 }
 
+/**
+ * Whether `value` is past the deck's largest card, so `cardAtOrAbove`'s
+ * top card understates it: no card fits, and the story wants splitting.
+ * False on a deck that isn't numeric, or for a value that isn't a number.
+ */
+export function isAboveDeck(deck: readonly string[], value: number): boolean {
+  const cards = numericCards(deck);
+  if (cards.length === 0 || !Number.isFinite(value)) return false;
+  return value > Number(cards[cards.length - 1]) + 1e-9;
+}
+
 /** Where the check starts: three cards on the deck. */
 export interface ThreePointStart {
   optimistic: string;
