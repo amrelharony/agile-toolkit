@@ -158,6 +158,7 @@ import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import { targetClashes } from "@/lib/opportunity-tree/model";
 import { isDay } from "@/lib/notebook/model";
 import { CATEGORY_MAX, CAUSE_COUNT_MAX } from "@/lib/root-cause/model";
+import { productCanvasWriteProblems } from "@/lib/product-canvas/model";
 import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
@@ -5175,7 +5176,8 @@ defineCrudActions<ProductCanvas>({
   upsert: (x) => ws().upsertProductCanvas(x),
   remove: (id) => ws().removeProductCanvas(id),
   generateId: () => `pcanvas_${nanoid(8)}`,
-  prepare: (next, current) => stampedTimes(next, current),
+  prepare: (next, current) =>
+    stampedTimes(unlessRefused(next, productCanvasWriteProblems(next, current)), current),
 });
 
 /* P2.4 — Impact Map and Strategy Tree (one StrategyMap entity, by format)
