@@ -279,22 +279,33 @@ export function PlanningPokerClient() {
   // Open and revealed rounds hold their queue stories: a session never pulls
   // them in, so each round's write-back still finds its queue item. Every
   // read closes a round past its 14 days (names and notes dropped), and the
-  // dropped copy is written once the workspace has loaded.
+  // dropped copy is written whenever rounds load: from this browser once the
+  // workspace has loaded, by sync from another device later on, or when the
+  // page comes back into view after a while. A round that hasn't expired
+  // reads back as the same object, so this writes only the ones that have.
   const storedRounds = useWorkspaceStore((s) => s.pokerAsyncRounds);
   const held = useMemo(
     () => heldStoryIds((storedRounds ?? []).map((r) => readAsyncRound(r))),
     [storedRounds]
   );
   const hydrated = useWorkspaceHydrated();
+  const [shownAt, setShownAt] = useState(0);
+  useEffect(() => {
+    const onShow = () => {
+      if (document.visibilityState === "visible") setShownAt(Date.now());
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => document.removeEventListener("visibilitychange", onShow);
+  }, []);
   useEffect(() => {
     if (!hydrated) return;
-    const { pokerAsyncRounds, upsertPokerAsyncRound } = useWorkspaceStore.getState();
+    const { upsertPokerAsyncRound } = useWorkspaceStore.getState();
     const now = new Date();
-    for (const round of pokerAsyncRounds ?? []) {
+    for (const round of storedRounds ?? []) {
       const read = readAsyncRound(round, now);
       if (read !== round) upsertPokerAsyncRound(read);
     }
-  }, [hydrated]);
+  }, [hydrated, storedRounds, shownAt]);
   const heldCount = useMemo(() => {
     const ids = new Set(held);
     return (queue ?? []).filter((q) => q.sessionStoryId && ids.has(q.sessionStoryId)).length;

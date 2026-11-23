@@ -832,4 +832,53 @@ describe("the Poker page", () => {
     await waitFor(() => expect(rounds()[0].status).toBe("closed"));
     expect(JSON.stringify(rounds()[0])).not.toContain("Ana");
   });
+
+  it("closes an expired round that sync brings in after the page loaded", async () => {
+    render(<PlanningPokerClient />);
+    expect(rounds()).toEqual([]);
+    const old = round({
+      createdAt: "2026-01-01T10:00:00.000Z",
+      dueDate: "2026-01-05",
+      replies: [reply("a", "Ana", ["3", "8"], "Bank API")],
+    });
+    // A new phone: the round arrives from another device after hydration.
+    act(() => useWorkspaceStore.setState({ pokerAsyncRounds: [old] }));
+    await waitFor(() => expect(rounds()[0].status).toBe("closed"));
+    expect(JSON.stringify(rounds()[0])).not.toMatch(/Ana|Bank API/);
+  });
+
+  it("closes a round that expires while the page is open, once it's back in view", async () => {
+    const fresh = round({
+      dueDate: undefined,
+      createdAt: new Date().toISOString(),
+      replies: [reply("a", "Ana", ["3", "8"])],
+    });
+    useWorkspaceStore.setState({ pokerAsyncRounds: [fresh] });
+    render(<PlanningPokerClient />);
+    expect(rounds()[0].status).toBe("open");
+
+    // Three weeks on: past the 14 days, with nothing in the store changed.
+    const later = Date.now() + 21 * 24 * 60 * 60 * 1000;
+    const RealDate = Date;
+    vi.stubGlobal(
+      "Date",
+      class extends RealDate {
+        constructor(...args: ConstructorParameters<typeof Date>) {
+          super(...((args.length ? args : [later]) as [number]));
+        }
+        static now() {
+          return later;
+        }
+      }
+    );
+    try {
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await waitFor(() => expect(rounds()[0].status).toBe("closed"));
+      expect(JSON.stringify(rounds()[0])).not.toContain("Ana");
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });
