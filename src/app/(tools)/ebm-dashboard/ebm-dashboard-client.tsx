@@ -80,6 +80,7 @@ import {
   measuresByArea,
   newReview,
   readBoard,
+  reviewPool,
   reviewsNewestFirst,
   ruleReview,
   scoreText,
@@ -381,19 +382,8 @@ export function EbmDashboardClient() {
     done(values.goal ? "The strategic goal is saved." : "The strategic goal is cleared.");
   };
 
-  /**
-   * The measures a review reads: the team's own, or the example's while it
-   * is loaded and the team has none (that review is then the example's too).
-   */
-  const reviewPool = () => {
-    const all = currentMetrics();
-    const exampleOnly =
-      all.some((m) => isEbmExample(m.id) && m.kva) && !all.some((m) => !isExampleId(m.id) && m.kva);
-    return { exampleOnly, byArea: measuresByArea(all, { withExamples: exampleOnly }) };
-  };
-
   const recordReview = (values: ReviewValues) => {
-    const pool = reviewPool();
+    const pool = reviewPool(currentMetrics());
     const id = `${pool.exampleOnly ? "example-ebm-" : ""}${REVIEW_ID_PREFIX}${nanoid(8)}`;
     const review = newReview(id, values, pool.byArea);
     if (!putBoard(withReview(currentBoard(), review, new Date().toISOString()))) return;
@@ -626,7 +616,7 @@ export function EbmDashboardClient() {
         <ReviewPanel
           reviews={reviews}
           today={today}
-          suggest={() => ruleReview(reviewPool().byArea)}
+          suggest={() => ruleReview(reviewPool(currentMetrics()).byArea)}
           onRecord={recordReview}
         />
       </SectionCard>

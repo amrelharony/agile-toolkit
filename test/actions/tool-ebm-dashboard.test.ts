@@ -331,18 +331,57 @@ describe("the board", () => {
     });
   });
 
-  it("suggests a focus without saving, and records a review of the team's own measures", async () => {
+  it("suggests a focus without saving, and reviews the example as the example's own while it is all there is", async () => {
     const ex = buildEbmExample(todayLocalISO(), NOW);
     useWorkspaceStore.setState({ productMetrics: ex.metrics });
-    const focus = await run<{ focus: string; steps: string[] }>("tool.ebm_dashboard.suggest_focus");
+    const focus = await run<{ focus: string; steps: string[]; areas: object; example: boolean }>(
+      "tool.ebm_dashboard.suggest_focus"
+    );
     expect(focus.steps.length).toBeGreaterThan(0);
+    expect(focus.example).toBe(true);
     expect(board()).toBeUndefined();
-    const r = await run<{ recorded: boolean; focus: string; areas: object }>(
+    const r = await run<{ reviewId: string; areas: object; example: boolean }>(
       "tool.ebm_dashboard.record_review",
       { focus: "time-to-market", note: "Shorten reviews" }
     );
-    expect(r).toMatchObject({ recorded: true, focus: "time-to-market", areas: {} });
+    expect(r).toMatchObject({ recorded: true, focus: "time-to-market", example: true });
+    expect(r.areas).toEqual(focus.areas);
+    expect(Object.keys(r.areas)).toHaveLength(4);
+    expect(r.reviewId).toMatch(/^example-ebm-review_/);
     expect(board()?.reviews).toHaveLength(1);
+  });
+
+  it("suggests and records over the team's own measures once it has one, as the page does", async () => {
+    const ex = buildEbmExample(todayLocalISO(), NOW);
+    useWorkspaceStore.setState({
+      productMetrics: [
+        ...ex.metrics,
+        {
+          id: "metric_own",
+          name: "Renewals",
+          direction: "increase",
+          kva: "current-value",
+          baseline: 0,
+          target: 10,
+          readings: [{ id: "r", date: "2026-10-01", value: 9 }],
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      ],
+    });
+    const focus = await run<{ focus: string; areas: object; example: boolean }>(
+      "tool.ebm_dashboard.suggest_focus"
+    );
+    expect(focus).toMatchObject({
+      focus: "unrealized-value",
+      areas: { "current-value": 0.9 },
+      example: false,
+    });
+    const r = await run<{ reviewId: string; areas: object }>("tool.ebm_dashboard.record_review", {
+      focus: focus.focus,
+    });
+    expect(r.areas).toEqual(focus.areas);
+    expect(r.reviewId).toMatch(/^review_/);
   });
 
   it("records a review on the server", async () => {

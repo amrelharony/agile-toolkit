@@ -191,6 +191,22 @@ export function measuresByArea(
   return out;
 }
 
+/**
+ * The measures a review reads, for the page and Amr alike: the team's own,
+ * or the example's while it is loaded and the team has none (a review of
+ * it is then the example's too, `example-ebm-` and cleared with it).
+ */
+export function reviewPool(metrics: readonly ProductMetric[] | undefined): {
+  exampleOnly: boolean;
+  byArea: Record<EbmValueArea, ProductMetric[]>;
+} {
+  const all = usableMetrics(metrics);
+  const exampleOnly =
+    all.some((m) => isEbmExample(m.id) && isArea(m.kva)) &&
+    !all.some((m) => !isExampleId(m.id) && isArea(m.kva));
+  return { exampleOnly, byArea: measuresByArea(all, { withExamples: exampleOnly }) };
+}
+
 /* ── Toolkit sources ────────────────────────────────────────────────── */
 
 /** The toolkit numbers a measure in `area` can read (none for Unrealized Value). */

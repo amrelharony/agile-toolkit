@@ -56,6 +56,7 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { latestCheckInDay } from "@/lib/okrs/progress";
 import { isExampleId } from "@/lib/utils/example-id";
 import {
+  EBM_EXAMPLE_PREFIX,
   METRIC_DEFINITION_MAX,
   METRIC_NAME_MAX,
   METRIC_UNIT_MAX,
@@ -86,6 +87,7 @@ import {
   measuresByArea,
   newReview,
   normalizeBoard,
+  reviewPool,
   reviewsNewestFirst,
   ruleReview,
   sourceProblem,
@@ -432,13 +434,15 @@ registry.register({
 
 // ──────── tool.ebm_dashboard.suggest_focus ────────
 async function suggestFocus(store: EbmStore) {
-  const r = ruleReview(measuresByArea(await store.metrics()));
+  const pool = reviewPool(await store.metrics());
+  const r = ruleReview(pool.byArea);
   return {
     focus: r.focus,
     label: AREA_LABEL[r.focus],
     summary: r.summary,
     steps: r.steps,
     areas: r.areas,
+    example: pool.exampleOnly,
   };
 }
 
@@ -448,7 +452,7 @@ registry.register({
   name: "suggest_focus",
   category: "read",
   description:
-    "Suggest the area to focus on next without AI and without saving: an area with no measured progress first, else the weakest. Returns {focus, label, summary (built from the numbers), steps (next steps for that area), areas: {area: 0..1}}. Record it with record_review once the team agrees.",
+    "Suggest the area to focus on next without AI and without saving, as the page's Suggest a focus does: an area with no measured progress first, else the weakest, over the team's own measures (the EBM example's only while the team has none). Returns {focus, label, summary (built from the numbers), steps (next steps for that area), areas: {area: 0..1}, example (true: read from the example)}. Record it with record_review once the team agrees: it reads the same measures.",
   paramsSchema: z.object({}),
   handler: async () => suggestFocus(browserStore),
   mcpHandler: async (_p, ctx) => suggestFocus(serverStore(ctx.userId)),
@@ -473,10 +477,11 @@ async function recordReview(store: EbmStore, p: z.infer<typeof ReviewParams>) {
   );
   if (!checked.ok) throw new Error(`${Object.values(checked.errors).join(" ")} Nothing was saved.`);
   const [metrics, board] = await Promise.all([store.metrics(), boardOf(store)]);
+  const pool = reviewPool(metrics);
   const review = newReview(
-    `${REVIEW_ID_PREFIX}${nanoid(8)}`,
+    `${pool.exampleOnly ? EBM_EXAMPLE_PREFIX : ""}${REVIEW_ID_PREFIX}${nanoid(8)}`,
     checked.values,
-    measuresByArea(metrics.filter((m) => !isExampleId(m.id)))
+    pool.byArea
   );
   await store.putBoard(withReview(board, review, new Date().toISOString()));
   return {
@@ -485,6 +490,7 @@ async function recordReview(store: EbmStore, p: z.infer<typeof ReviewParams>) {
     date: review.date,
     focus: review.focus,
     areas: review.areas,
+    example: pool.exampleOnly,
   };
 }
 
@@ -494,7 +500,7 @@ registry.register({
   name: "record_review",
   category: "write",
   description:
-    "Record an EBM review: the area to focus on next, a note, and each area's progress now (the team's own measures; an area left out was not measured). The newest 24 reviews are kept. Returns {recorded: true, reviewId, date, focus, areas}.",
+    "Record an EBM review: the area to focus on next, a note, and each area's progress now (the team's own measures, or the EBM example's while the team has none, as suggest_focus and the page read them; an area left out was not measured). A review of the example is the example's own (example: true) and goes when it is cleared. The newest 24 reviews are kept. Returns {recorded: true, reviewId, date, focus, areas, example}.",
   paramsSchema: ReviewParams,
   handler: async (p) => recordReview(browserStore, p),
   mcpHandler: async (p, ctx) => recordReview(serverStore(ctx.userId), p),
