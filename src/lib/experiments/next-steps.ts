@@ -5,7 +5,8 @@
  *   1. a running test has run its planned days, or its smaller version has
  *      reached the planned sample: read its result;
  *   2. a decided test's hypothesis is still drafted or running: use the
- *      result on the hypothesis card (the tracker writes it, not this page);
+ *      result on the hypothesis card (the tracker writes it, not this page),
+ *      only while the card offers it (a result in, not used yet);
  *   3. a running hypothesis with a "%" target and an A/B or split
  *      experiment has no test yet: plan one.
  * Pure: no store, no React, no "use client" module.
@@ -15,8 +16,9 @@ import type { AbTest, HypothesisTracker } from "@/lib/stores/workspace-types";
 import type { NextStep } from "@/lib/tools/next-steps";
 import { HYPOTHESIS_TRACKER_ID } from "@/lib/hypotheses/model";
 import { addDays } from "@/lib/flow/days";
+import { abResultUpdate } from "@/lib/hypotheses/value";
 import { isExampleId } from "@/lib/utils/example-id";
-import { abTests, countText, planResult, testCounts } from "./model";
+import { abTests, countText, planResult, testCounts, testForHypothesis } from "./model";
 
 /** What the rule reads from the workspace. */
 export interface AbCalculatorStepsInput {
@@ -88,7 +90,11 @@ export function abCalculatorSteps(s: AbCalculatorStepsInput, today: string): Nex
   const decided = tests.find((t) => {
     if (!t.decision || !t.hypothesisId) return false;
     const h = byId.get(t.hypothesisId);
-    return h !== undefined && (h.status === "drafted" || h.status === "running");
+    if (!h || (h.status !== "drafted" && h.status !== "running")) return false;
+    // Only while the card offers it: the card uses the hypothesis's latest
+    // test, and its button goes once the result is in What we learned (or
+    // there is no result to use yet).
+    return testForHypothesis(s.tests, h.id)?.id === t.id && abResultUpdate(h, t).ok;
   });
   if (decided) {
     const h = byId.get(decided.hypothesisId as string);

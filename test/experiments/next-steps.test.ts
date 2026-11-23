@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { abCalculatorSteps } from "@/lib/experiments/next-steps";
+import { abResultUpdate } from "@/lib/hypotheses/value";
 import { getNextStepRule, loadNextStepRule } from "@/lib/tools/next-steps";
 import {
   emptyWorkspace,
@@ -112,12 +113,18 @@ describe("read a running test", () => {
 });
 
 describe("use a decided result", () => {
+  const decided = (over: Partial<AbTest> = {}) =>
+    test("t1", {
+      status: "done",
+      decision: "ship",
+      hypothesisId: "h1",
+      variants: counts(4000, 4000),
+      ...over,
+    });
+
   it("when its hypothesis is still open", () => {
     const steps = abCalculatorSteps(
-      {
-        tests: [test("t1", { status: "done", decision: "ship", hypothesisId: "h1" })],
-        trackers: trackers([hypothesis("h1")]),
-      },
+      { tests: [decided()], trackers: trackers([hypothesis("h1")]) },
       TODAY
     );
     expect(steps).toEqual([
@@ -146,6 +153,33 @@ describe("use a decided result", () => {
         },
         TODAY
       ).map((s) => s.id)
+    ).toEqual([]);
+  });
+
+  it("not once its result is on the hypothesis, nor with no result to use", () => {
+    const open = hypothesis("h1");
+    const used = abResultUpdate(open, decided());
+    expect(used.ok).toBe(true);
+    if (!used.ok) return;
+    const ids = (tests: AbTest[], h: Hypothesis) =>
+      abCalculatorSteps({ tests, trackers: trackers([h]) }, TODAY).map((s) => s.id);
+    // Used: the card's button is gone, so the step goes too.
+    expect(ids([decided()], used.next)).toEqual([]);
+    // Decided with no counts in: nothing to use.
+    expect(ids([decided({ variants: counts(0, 0) })], open)).toEqual([]);
+    // The card uses the hypothesis's latest test: an older decided one isn't offered.
+    expect(
+      ids(
+        [
+          decided(),
+          test("t2", {
+            status: "running",
+            hypothesisId: "h1",
+            updatedAt: "2026-11-15T09:00:00.000Z",
+          }),
+        ],
+        open
+      )
     ).toEqual([]);
   });
 });
