@@ -40,12 +40,11 @@ import {
   estimateLink,
   expectedReplied,
   findReplyCodes,
-  needsTalk,
   packFor,
   readReply,
   replyClash,
   replyProblem,
-  revealRound,
+  revealAndFlag,
   validateReply,
   type AsyncReplyCode,
   type AsyncStoryResult,
@@ -336,14 +335,8 @@ function OpenRound({
   const reveal = () => {
     const current = roundById(round.id);
     if (!current || current.replies.length === 0) return;
-    const shown = revealRound(current, new Date().toISOString());
-    const results = asyncResults(shown);
     // The stories worth a conversation start ticked for "Talk about it live".
-    const next = {
-      ...shown,
-      stories: shown.stories.map((s, i) => (needsTalk(results[i]) ? { ...s, discuss: true } : s)),
-    };
-    const problem = saveRound(next);
+    const problem = saveRound(revealAndFlag(current, new Date().toISOString()));
     if (problem) return say(problem);
     log(PLANNING_POKER_ACTIONS.ASYNC_REVEALED, {
       roundId: current.id,

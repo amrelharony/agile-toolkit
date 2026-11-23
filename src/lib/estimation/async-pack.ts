@@ -49,7 +49,7 @@ import {
   type ConsensusLevel,
 } from "./consensus";
 import { SCALES, type ScaleType } from "./decks";
-import { ASYNC_ROUND_PREFIX, ESTIMATE_PATH } from "./async-rounds";
+import { ASYNC_ROUND_PREFIX, ESTIMATE_PATH, revealRound } from "./async-rounds";
 
 export * from "./async-rounds";
 
@@ -657,6 +657,20 @@ export function needsTalk(result: AsyncStoryResult): boolean {
   const c = result.consensus;
   if (c.level === null) return c.abstained > 0;
   return c.level === "spread" || (c.estimates >= 1 && c.abstained >= c.estimates);
+}
+
+/**
+ * Reveal, with the stories worth a conversation ticked for "Talk about it
+ * live" (`needsTalk`). The same round when it isn't open.
+ */
+export function revealAndFlag(round: PokerAsyncRound, now: string): PokerAsyncRound {
+  const shown = revealRound(round, now);
+  if (shown === round) return round;
+  const results = asyncResults(shown);
+  return {
+    ...shown,
+    stories: shown.stories.map((s, i) => (needsTalk(results[i]) ? { ...s, discuss: true } : s)),
+  };
 }
 
 /** How many cards a round holds, for the blind count before Reveal. */
