@@ -217,6 +217,48 @@ describe("the Pareto", () => {
     expect(readBlockers([], [], [imp("4")], WINDOW).unclustered).toHaveLength(1);
   });
 
+  it("keeps a cluster of impediments only once other clusters have blocked days", () => {
+    const stories = [
+      story("a", {
+        blockLog: [{ from: at(day(1), 0), to: at(day(1), 12), cluster: "Waiting for a review" }],
+      }),
+    ];
+    const impediments = ["1", "2", "3"].map((id) => imp(id, { cluster: "Another team" }));
+    const x = readBlockers(stories, [], impediments, WINDOW);
+    const p = clusterPareto(blockerRows(stories, [], impediments, WINDOW));
+    expect(x.pareto).toEqual(p);
+    expect(p.measure).toBe("blocked_days");
+    expect(
+      p.clusters.map((c) => [c.cluster, c.blockedDays, c.impediments, c.share, c.vital])
+    ).toEqual([
+      ["Waiting for a review", 0.5, 0, 1, true],
+      ["Another team", 0, 3, 0, false],
+    ]);
+    expect(p.clusters[1]).toMatchObject({ side: "external", cumulative: 1, daysOpen: 84 });
+    expect(p.sentence).toBe("One cluster holds all the blocked days: Waiting for a review.");
+    expect(x.verdict).toMatch(/^Waiting for a review cost the most: 0\.5 blocked days/);
+    expect(x.split.external.impediments).toBe(3);
+  });
+
+  it("says nothing of a share when no cluster holds any of the measure", () => {
+    const rows = blockerRows(
+      // Clustered, but too short to count a tenth of a day.
+      [
+        story("a", {
+          blockLog: [{ from: at(day(1), 0), to: at(day(1), 1), cluster: "Another team" }],
+        }),
+      ],
+      [],
+      [],
+      WINDOW
+    );
+    const p = clusterPareto(rows);
+    expect(p.clusters.map((c) => [c.cluster, c.share, c.vital])).toEqual([
+      ["Another team", 0, false],
+    ]);
+    expect(p.sentence).toBeNull();
+  });
+
   it("counts one cluster however its name is cased or spaced", () => {
     const rows = blockerRows(
       [],

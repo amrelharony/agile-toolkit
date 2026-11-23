@@ -313,9 +313,12 @@ function majoritySide(rows: readonly BlockerRow[]): BlockSide {
 }
 
 /**
- * The clusters most first, by item-blocked days (or, with none yet in the
+ * Every cluster, most first by item-blocked days (or, with none yet in the
  * window, by impediments raised), through Root Cause's `paretoRows`, with
- * the share each holds and the "vital few" behind PARETO_CUTOFF of it.
+ * the share each holds and the "vital few" behind PARETO_CUTOFF of it. A
+ * cluster with none of the measure (impediments only, while others have
+ * blocked days) still counts: it follows the ranked ones with a share of 0,
+ * most impediments first, and is never one of the vital few.
  */
 export function clusterPareto(rows: readonly BlockerRow[]): ClusterPareto {
   const groups = aggregate(rows);
@@ -333,11 +336,14 @@ export function clusterPareto(rows: readonly BlockerRow[]): ClusterPareto {
       };
     })
   );
-  const clusters: ClusterRow[] = pareto.map((p) => {
-    const g = groups.get(p.id)!;
+  const row = (
+    cluster: string,
+    p: { share: number; cumulative: number; vital: boolean }
+  ): ClusterRow => {
+    const g = groups.get(cluster)!;
     return {
-      cluster: p.id,
-      side: p.category as BlockSide,
+      cluster,
+      side: majoritySide(g.rows),
       blockers: g.rows.length,
       items: g.items.size,
       blockedDays: round1(g.days),
@@ -347,21 +353,35 @@ export function clusterPareto(rows: readonly BlockerRow[]): ClusterPareto {
       cumulative: p.cumulative,
       vital: p.vital,
     };
-  });
+  };
+  const ranked = new Set(pareto.map((p) => p.id));
+  const carried = pareto[pareto.length - 1]?.cumulative ?? 0;
+  const rest = order
+    .filter((cluster) => !ranked.has(cluster))
+    .map((cluster) => row(cluster, { share: 0, cumulative: carried, vital: false }))
+    .sort(
+      (a, b) =>
+        b.impediments - a.impediments ||
+        b.items - a.items ||
+        b.blockedDays - a.blockedDays ||
+        a.cluster.localeCompare(b.cluster)
+    );
+  const clusters: ClusterRow[] = [...pareto.map((p) => row(p.id, p)), ...rest];
   return { measure, clusters, sentence: paretoSentence(clusters, measure) };
 }
 
-/** "These 3 clusters hold 72% of blocked days." */
+/** "These 3 clusters hold 72% of blocked days." Null with no cluster holding any. */
 export function paretoSentence(
   clusters: readonly ClusterRow[],
   measure: BlockerMeasure
 ): string | null {
-  if (clusters.length === 0) return null;
-  const vital = clusters.filter((c) => c.vital);
+  const ranked = clusters.filter((c) => c.share > 0);
+  if (ranked.length === 0) return null;
+  const vital = ranked.filter((c) => c.vital);
   const share = Math.round((vital[vital.length - 1]?.cumulative ?? 0) * 100);
   const what = measure === "blocked_days" ? "blocked days" : "impediments raised";
-  if (vital.length === clusters.length && clusters.length === 1) {
-    return `One cluster holds all the ${what}: ${clusters[0].cluster}.`;
+  if (ranked.length === 1) {
+    return `One cluster holds all the ${what}: ${ranked[0].cluster}.`;
   }
   return vital.length === 1
     ? `This cluster holds ${share}% of ${what}: ${vital[0].cluster}.`
@@ -528,8 +548,8 @@ export interface BlockersRead {
 export function blockersVerdict(x: Omit<BlockersRead, "verdict">): string {
   if (x.rows.length === 0) return "Nothing was blocked in this window.";
   const parts: string[] = [];
-  if (x.pareto.clusters.length > 0) {
-    const top = x.pareto.clusters[0];
+  const top = x.pareto.clusters[0];
+  if (top && top.share > 0) {
     parts.push(
       x.pareto.measure === "blocked_days"
         ? `${top.cluster} cost the most: ${top.blockedDays} blocked ${top.blockedDays === 1 ? "day" : "days"}`
