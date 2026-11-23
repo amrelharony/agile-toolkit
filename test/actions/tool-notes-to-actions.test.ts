@@ -175,6 +175,8 @@ describe("add, find and keep", () => {
       owner: "ana",
       quote: "Ana to update the onboarding copy by Friday",
     });
+    // a1 is kept in other words from the same line, so the action is known.
+    expect(out.items.map((i) => i.alreadyKept)).toEqual([true, false, false, false, false]);
     expect(JSON.stringify(ws().meetingNotes)).toBe(before);
   });
 

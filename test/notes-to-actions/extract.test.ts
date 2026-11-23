@@ -264,6 +264,14 @@ describe("the model", () => {
     expect(alreadyKept(note(), { kind: "bug", text: "Item i1", quote: "x" })).toBe(false);
   });
 
+  it("knows an item kept in other words by the line it came from, while its quote is there", () => {
+    const other = { kind: "action" as const, text: "Something else" };
+    expect(alreadyKept(note(), { ...other, quote: "quote  I1" })).toBe(true);
+    expect(alreadyKept(note(), { ...other, kind: "bug", quote: "Quote i1" })).toBe(false);
+    expect(alreadyKept(note(), { ...other, quote: "" })).toBe(false);
+    expect(alreadyKept(forgetText(note(), AT), { ...other, quote: "Quote i1" })).toBe(false);
+  });
+
   it("counts by status, and is done once nothing is open", () => {
     const n = note({ items: [item("a", { status: "sent" }), item("b", { status: "answered" })] });
     expect(noteCounts(n)).toEqual({ total: 2, open: 0, sent: 1, dropped: 0, answered: 1 });

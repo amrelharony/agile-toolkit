@@ -281,6 +281,47 @@ describe("finding and keeping", () => {
     expect(logged("items_kept")).toEqual([{ noteId: "mnote_a", count: 5 }]);
   });
 
+  it("finds only the example's new items: the two it keeps are known by their lines", async () => {
+    renderPage();
+    act(() => seed([]));
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    await find();
+    expect(screen.queryByText("Action: Ana to update the onboarding copy by Friday")).toBeNull();
+    expect(screen.queryByText("Decision: We stop supporting the old export")).toBeNull();
+    expect(
+      screen.getByText("Question: Do we demo on staging or live next time?")
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Keep all/ }));
+    const [example] = ws().meetingNotes ?? [];
+    expect(example.items.map((i) => i.kind)).toEqual([
+      "action",
+      "decision",
+      "impediment",
+      "bug",
+      "question",
+    ]);
+  });
+
+  it("finds nothing again once an item is edited after keeping", async () => {
+    seed([
+      note({
+        items: [
+          item("a1", { text: "Rewrite the copy", owner: "Ana" }),
+          item("d1", {
+            kind: "decision",
+            text: "Old export goes",
+            quote: "Decided: we stop supporting the old export",
+          }),
+        ],
+      }),
+    ]);
+    renderPage();
+    await find();
+    expect(screen.queryByText(/^Action: /)).toBeNull();
+    expect(screen.queryByText(/^Decision: /)).toBeNull();
+    expect(logged("items_found")).toEqual([{ noteId: "mnote_a", source: "rules", count: 3 }]);
+  });
+
   it("matches an owner to the roster's spelling", async () => {
     seed([note()], { teamMembers: [{ id: "m1", name: "ana" }] });
     renderPage();

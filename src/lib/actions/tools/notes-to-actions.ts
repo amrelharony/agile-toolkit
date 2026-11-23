@@ -458,7 +458,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Keep items on a note, as the page's Keep does: each open, stamped, with the roster's spelling of its owner; a due date before the meeting and a quote that isn't a line of the notes are left off. One already kept (same kind and words) and any past the note's 50 are skipped. Params: noteId, items: {kind, text, detail?, owner?, due?, quote?}[] (1–20). Returns {kept, skipped, itemIds}.",
+    "Keep items on a note, as the page's Keep does: each open, stamped, with the roster's spelling of its owner; a due date before the meeting and a quote that isn't a line of the notes are left off. One already kept (same kind, and the same words or the same quoted line) and any past the note's 50 are skipped. Params: noteId, items: {kind, text, detail?, owner?, due?, quote?}[] (1–20). Returns {kept, skipped, itemIds}.",
   paramsSchema: KeepParams,
   handler: async (params) => keepItems(browserStore, params),
   mcpHandler: async (params, ctx) => keepItems(serverStore(ctx.userId), params),

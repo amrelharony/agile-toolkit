@@ -24,7 +24,7 @@ import type { HandoffSource } from "@/lib/handoffs/types";
 import type { NextStep } from "@/lib/tools/next-steps";
 import { isExampleId } from "@/lib/utils/example-id";
 import { isDay } from "./due";
-import type { FoundItem } from "./extract";
+import { normalized, type FoundItem } from "./extract";
 
 /** Every meeting note's id starts with this (the workspace.meeting_note CRUD's). */
 export const MEETING_NOTE_ID_PREFIX = "mnote_";
@@ -177,11 +177,21 @@ export function forgetText(note: MeetingNote, at: string): MeetingNote {
   };
 }
 
-/** Whether a found item is already kept on the note (same kind and words). */
+/**
+ * Whether a found item is already kept on the note: one of the same kind
+ * with the same words, or from the same line of the notes while the kept
+ * item still has its quote. The line catches an item edited after it was
+ * kept, and one kept in the AI's words then found again by the rules (or
+ * the other way round).
+ */
 export function alreadyKept(note: Pick<MeetingNote, "items">, found: FoundItem): boolean {
-  const key = (k: string, t: string) => `${k}:${t.trim().toLowerCase().replace(/\s+/g, " ")}`;
-  const want = key(found.kind, found.text);
-  return note.items.some((i) => key(i.kind, i.text) === want);
+  const words = normalized(found.text);
+  const line = found.quote ? normalized(found.quote) : "";
+  return note.items.some(
+    (i) =>
+      i.kind === found.kind &&
+      (normalized(i.text) === words || (line !== "" && !!i.quote && normalized(i.quote) === line))
+  );
 }
 
 export interface NoteCounts {
