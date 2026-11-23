@@ -10,7 +10,12 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { ResetButton } from "@/components/shared/reset-button";
-import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
+import {
+  ExampleNotice,
+  LoadExampleButton,
+  exampleId,
+  isExampleId,
+} from "@/components/tool-frame/example-data";
 import { Field } from "@/components/ui/field";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { generateTeamTimePrompts } from "@/lib/ai-prompts/team-time";
@@ -88,7 +93,9 @@ export function TeamTimeClient() {
   const storedRotations = useWorkspaceStore((s) => s.teamTimeRotations) ?? NO_ROTATIONS;
   const cadences = useWorkspaceStore((s) => s.ceremonyCadences) ?? NO_CADENCES;
   const agreements = useWorkspaceStore((s) => s.workingAgreements) ?? NO_AGREEMENTS;
-  const audits = useWorkspaceStore((s) => s.meetingAudits) ?? NO_AUDITS;
+  const storedAudits = useWorkspaceStore((s) => s.meetingAudits) ?? NO_AUDITS;
+  // Meeting Audit's example rows live in the workspace while it is loaded: never offer them.
+  const audits = useMemo(() => storedAudits.filter((m) => !isExampleId(m.id)), [storedAudits]);
   const workspaceRoster = useTeamRoster();
   const { log } = useHistoryLogger(TOOL_ID);
   const announce = useAnnounce();

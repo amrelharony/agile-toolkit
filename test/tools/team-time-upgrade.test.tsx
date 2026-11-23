@@ -6,6 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   WORKING_AGREEMENT_ID,
+  type MeetingAudit,
   type TeamTimePoll,
   type TeamTimeRotation,
   type WorkingAgreement,
@@ -542,6 +543,32 @@ describe("Rotate", () => {
     fireEvent.click(within(form).getByRole("button", { name: "Create rotation" }));
     expect(await within(form).findByText(/Two of the times are the same/)).toBeInTheDocument();
     expect(ws().teamTimeRotations).toEqual([]);
+  });
+
+  it("offers the Meeting Audit's own meetings, never its example ones", async () => {
+    const audit = (id: string, meeting: string): MeetingAudit => ({
+      id,
+      meeting,
+      cadence: "weekly",
+      minutes: 45,
+      attendees: 6,
+      purpose: "",
+      ratings: {},
+      createdAt: AT,
+      updatedAt: AT,
+    });
+    useWorkspaceStore.setState({
+      teamTimePeople: [london],
+      meetingAudits: [audit("ma1", "Design review"), audit("example-meeting-1", "Example sync")],
+    });
+    await renderPage("rotate");
+    fireEvent.click(screen.getByRole("button", { name: "New rotation" }));
+    const form = screen.getByRole("form", { name: "New rotation" });
+    const pick = within(form).getByLabelText(/^Or pick one/);
+    const names = within(pick)
+      .getAllByRole("option")
+      .map((o) => o.textContent);
+    expect(names).toEqual(["Choose a meeting…", "Design review (45 min)"]);
   });
 
   it("refuses a rotation nobody attends", async () => {
