@@ -368,7 +368,7 @@ export function ImproveClient() {
   };
 
   const analysisTitle = (id: string) => allAnalyses.find((a) => a.id === id)?.title;
-  const markdown = improveToMarkdown(items, { verdict, analysisTitle });
+  const markdown = improveToMarkdown(items, { verdict, analysisTitle, done });
   const startForm = (
     <NewItemForm
       key={creating && creating !== "blank" ? creating.analysisId : "blank"}

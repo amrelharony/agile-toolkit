@@ -35,6 +35,7 @@ import {
   STEP_REFUSAL_TEXT,
   STEP_ROUTES,
   STEP_STATUS_LABEL,
+  doneElsewhere,
   isDay,
   type StepDone,
 } from "@/lib/improve/model";
@@ -67,14 +68,6 @@ export function validateStepDraft(draft: StepDraft): Validation<StepDraft, StepD
   if (draft.due && !isDay(draft.due)) errors.due = "Give the date as a real day.";
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   return { ok: true, values: { ...draft, text } };
-}
-
-/** Where a sent step's done state came from, when it wasn't ticked here. */
-function doneThere(step: ImprovementStep, done: StepDone): string | null {
-  if (step.status === "done" || !done(step).done) return null;
-  return step.sentTo?.some((l) => l.route === "backlog-story")
-    ? "Done in the backlog"
-    : "Done in Retro Actions";
 }
 
 function StatusSelect({
@@ -121,7 +114,7 @@ function StepRow({
 }) {
   const [error, setError] = useState<string | null>(null);
   const kata = item.method === "kata";
-  const there = doneThere(step, done);
+  const there = doneElsewhere(step, done);
   const patch = (p: Parameters<ItemActions["patchStep"]>[1]) =>
     setError(actions.patchStep(step.id, p));
   const sentOn = STEP_ROUTES.find((r) => liveLink(step.sentTo, r));

@@ -1,12 +1,19 @@
-import type { Improvement, ImprovementCondition } from "@/lib/stores/workspace-types";
+import type {
+  Improvement,
+  ImprovementCondition,
+  ImprovementStep,
+} from "@/lib/stores/workspace-types";
 import {
   METHOD_LABEL,
   OBSTACLE_STATUS_LABEL,
   STATUS_LABEL,
   STEP_STATUS_LABEL,
   composeCondition,
+  doneElsewhere,
+  ownStatusOnly,
   sortedReadings,
   valueText,
+  type StepDone,
 } from "@/lib/improve/model";
 
 /** A table cell: one line, pipes escaped. */
@@ -18,6 +25,10 @@ const para = (s: string | undefined) => (s ?? "").trim();
 
 const condition = (c: ImprovementCondition, word: "by" | "on") =>
   composeCondition(c, word) || "Not set yet.";
+
+/** A step's status as the page shows it: done where it was sent, or its own. */
+const stepStatus = (s: ImprovementStep, done: StepDone) =>
+  doneElsewhere(s, done) ?? STEP_STATUS_LABEL[s.status];
 
 function readingsTable(item: Improvement): string[] {
   const rows = sortedReadings(item);
@@ -32,7 +43,11 @@ function readingsTable(item: Improvement): string[] {
   ];
 }
 
-function a3(item: Improvement, analysisTitle?: (id: string) => string | undefined): string[] {
+function a3(
+  item: Improvement,
+  done: StepDone,
+  analysisTitle?: (id: string) => string | undefined
+): string[] {
   const linked = item.rootCauseId ? analysisTitle?.(item.rootCauseId) : undefined;
   const steps = item.steps;
   return [
@@ -57,7 +72,7 @@ function a3(item: Improvement, analysisTitle?: (id: string) => string | undefine
           "| --- | --- | --- | --- |",
           ...steps.map(
             (s) =>
-              `| ${cell(s.text)} | ${cell(s.owner)} | ${cell(s.due)} | ${STEP_STATUS_LABEL[s.status]} |`
+              `| ${cell(s.text)} | ${cell(s.owner)} | ${cell(s.due)} | ${stepStatus(s, done)} |`
           ),
         ]),
     "",
@@ -71,7 +86,7 @@ function a3(item: Improvement, analysisTitle?: (id: string) => string | undefine
   ];
 }
 
-function kata(item: Improvement): string[] {
+function kata(item: Improvement, done: StepDone): string[] {
   const past = item.pastTargets ?? [];
   return [
     "### Challenge",
@@ -108,7 +123,7 @@ function kata(item: Improvement): string[] {
           "| --- | --- | --- | --- | --- |",
           ...item.steps.map(
             (s) =>
-              `| ${cell(s.text)} | ${cell(s.expect)} | ${cell(s.result)} | ${cell(s.learned)} | ${STEP_STATUS_LABEL[s.status]} |`
+              `| ${cell(s.text)} | ${cell(s.expect)} | ${cell(s.result)} | ${cell(s.learned)} | ${stepStatus(s, done)} |`
           ),
         ]),
     "",
@@ -119,16 +134,23 @@ function kata(item: Improvement): string[] {
 
 /**
  * Every improvement as Markdown: the verdict quoted, then each one with its
- * method and status, an A3's seven sections (countermeasures and readings
- * as tables) or a Kata's challenge, targets, obstacles (cleared ones struck
- * through), experiments and readings.
+ * method and status, who leads it and its coach, an A3's seven sections
+ * (countermeasures and readings as tables) or a Kata's challenge, targets,
+ * obstacles (cleared ones struck through), experiments and readings. A
+ * step's status is the page's (`done`, stepDoneIn): one done where it was
+ * sent reads "Done in Retro Actions" or "Done in the backlog".
  */
 export function improveToMarkdown(
   items: readonly Improvement[],
   {
     verdict,
     analysisTitle,
-  }: { verdict?: string; analysisTitle?: (id: string) => string | undefined } = {}
+    done = ownStatusOnly,
+  }: {
+    verdict?: string;
+    analysisTitle?: (id: string) => string | undefined;
+    done?: StepDone;
+  } = {}
 ): string {
   const out = ["# Improvements", ""];
   if (verdict) out.push(`> ${verdict}`, "");
@@ -138,8 +160,11 @@ export function improveToMarkdown(
   }
   for (const item of items) {
     out.push(`## ${item.title}`, "", `${METHOD_LABEL[item.method]} · ${STATUS_LABEL[item.status]}`);
-    if (item.owner) out.push(`Owner: ${item.owner}${item.coach ? ` · Coach: ${item.coach}` : ""}`);
-    out.push("", ...(item.method === "a3" ? a3(item, analysisTitle) : kata(item)), "");
+    const people = [item.owner && `Owner: ${item.owner}`, item.coach && `Coach: ${item.coach}`]
+      .filter(Boolean)
+      .join(" · ");
+    if (people) out.push(people);
+    out.push("", ...(item.method === "a3" ? a3(item, done, analysisTitle) : kata(item, done)), "");
   }
   return out.join("\n").trimEnd() + "\n";
 }

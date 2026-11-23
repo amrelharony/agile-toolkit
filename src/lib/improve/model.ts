@@ -864,6 +864,14 @@ export function stepDoneIn(data: {
 /** Steps nothing done reads as done (no links to look up). */
 export const ownStatusOnly: StepDone = stepDoneIn({ boards: [], stories: [] });
 
+/** Where a sent step was done, when it reads done there but wasn't ticked here; else null. */
+export function doneElsewhere(step: ImprovementStep, done: StepDone): string | null {
+  if (step.status === "done" || !done(step).done) return null;
+  return step.sentTo?.some((l) => l.route === "backlog-story")
+    ? "Done in the backlog"
+    : "Done in Retro Actions";
+}
+
 /* ── A3 gap checks ──────────────────────────────────────────────────── */
 
 export type A3GapId =

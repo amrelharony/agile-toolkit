@@ -1161,6 +1161,35 @@ describe("delete, export and the forms' checks", () => {
     expect(exported.markdown).toContain("## Releases wait six days");
   });
 
+  it("exports a coach without a leader, and a countermeasure done where it was sent", () => {
+    const md = improveToMarkdown([kata({ coach: "Pat" })]);
+    expect(md).toContain("Coach: Pat");
+    expect(md).not.toContain("Owner:");
+    expect(improveToMarkdown([kata({ owner: "Sam", coach: "Pat" })])).toContain(
+      "Owner: Sam · Coach: Pat"
+    );
+    useWorkspaceStore.setState({
+      improvements: [
+        a3({
+          steps: [
+            step("s1", {
+              text: "Automate checks",
+              sentTo: [{ route: "retro-action", targetId: "card_1", at: T0 }],
+            }),
+          ],
+        }),
+      ],
+      retroBoards: [
+        {
+          id: RETRO_BOARD_ID,
+          cards: [{ id: "card_1", isActionItem: true, done: true, doneAt: T0 }],
+        },
+      ] as unknown as RetroBoard[],
+    });
+    renderPage();
+    expect(exported.markdown).toContain("| Automate checks | — | — | Done in Retro Actions |");
+  });
+
   it("checks each form's draft before saving", () => {
     expect(
       validateStepDraft({ text: " ", owner: "", due: "", expect: "", obstacleId: "" })
