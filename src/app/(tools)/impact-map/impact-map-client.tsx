@@ -447,7 +447,10 @@ export function ImpactMapClient() {
     setOpenId(example.id);
   };
   const clearExample = () => {
-    for (const m of ws().strategyMaps ?? []) if (isExampleId(m.id)) ws().removeStrategyMap(m.id);
+    // The Strategy Tree's examples share the collection; they are that tool's to clear.
+    for (const m of ws().strategyMaps ?? []) {
+      if (isExampleId(m.id) && isImpactMap(m)) ws().removeStrategyMap(m.id);
+    }
     setOpenId(null);
     setSuggested(null);
   };

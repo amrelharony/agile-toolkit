@@ -59,6 +59,7 @@ vi.mock("@/components/shared/export-button", () => ({
 
 import { ImpactMapClient } from "@/app/(tools)/impact-map/impact-map-client";
 import { buildExample, EXAMPLE_MAP_ID } from "@/app/(tools)/impact-map/example";
+import { buildExamples as buildTreeExamples } from "@/app/(tools)/strategy-tree/example";
 import { impactMapMarkdown } from "@/app/(tools)/impact-map/markdown";
 import { focusFirst, goalClosedLine, impactPaths } from "@/app/(tools)/impact-map/view";
 import { validateNewMap } from "@/app/(tools)/impact-map/form";
@@ -193,6 +194,17 @@ describe("empty state and example", () => {
     fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
     expect(maps()).toEqual([]);
     expect(await screen.findByText(/No impact maps yet/)).toBeInTheDocument();
+  });
+
+  it("clears only its own example, leaving the Strategy Tree's examples in the shared rows", async () => {
+    const treeExamples = buildTreeExamples();
+    seed(treeExamples);
+    renderPage();
+    expect(await screen.findByText(/No impact maps yet/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(maps().map((m) => m.id)).toEqual([...treeExamples.map((t) => t.id), EXAMPLE_MAP_ID]);
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(maps().map((m) => m.id)).toEqual(treeExamples.map((t) => t.id));
   });
 
   it("builds an example that keeps the rules, in example ids, with one focus and no persona", () => {
