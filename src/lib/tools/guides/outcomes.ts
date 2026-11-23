@@ -250,10 +250,10 @@ export const GUIDES: ToolGuide[] = [
       "Before an Impact Map.",
     ],
     steps: [
-      "Add a persona with a name, a role and whether it is a main, secondary or anti persona.",
+      "Add a persona with a name, a role and its tier: main, also served, or not for us (an anti-persona).",
       "List their goals, frustrations and habits, and say how much of it is researched or assumed.",
       "Link the interviews it comes from.",
-      "Ask Amr drafts a persona from interview notes, with names taken out first, and you edit it before saving. Without AI, the page pulls goals and frustrations out of the notes.",
+      "Ask Amr drafts a persona from your notes or picked interviews, with participants renamed and the emails and phone numbers it can spot taken out first; check for other names, then edit it before saving. Without AI, the page pulls goals and frustrations out of the notes.",
       "See which Impact Maps use it.",
     ],
     tips: ["Use made-up names.", "A persona marked assumed is a question to research."],
