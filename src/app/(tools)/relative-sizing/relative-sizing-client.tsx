@@ -848,13 +848,23 @@ function BoardView({
                 Save sizes
               </Button>
               {toPoker > 0 && (
-                <Button type="button" variant="outline" onClick={a.sendToPoker}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="whitespace-normal text-left"
+                  onClick={a.sendToPoker}
+                >
                   <Send aria-hidden="true" />
-                  Send {plural(toPoker, "story", "stories")} to talk about to Planning Poker
+                  Send {plural(toPoker, "story", "stories")} to Planning Poker
                 </Button>
               )}
               {pasted > 0 && (
-                <Button type="button" variant="outline" onClick={a.addPastedToBacklog}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="whitespace-normal text-left"
+                  onClick={a.addPastedToBacklog}
+                >
                   <Plus aria-hidden="true" />
                   Add {plural(pasted, "typed story", "typed stories")} to the backlog
                 </Button>
@@ -863,6 +873,7 @@ function BoardView({
             <p className="text-xs text-sub">
               Save sizes writes each bucket&apos;s points to its backlog stories, with one Undo.
               Cards still to talk about, and buckets with no points, are skipped.
+              {toPoker > 0 && " The stories still to talk about can go to Planning Poker instead."}
             </p>
             <BucketPoints board={board} onSet={a.setBucketPoints} />
           </>

@@ -510,7 +510,10 @@ describe("saving and sending", () => {
       items: board().items.map((i) => (i.storyId ? { ...i, contested: true, moves: 3 } : i)),
     });
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: /to Planning Poker$/ }));
+    // A short label that wraps if it must: no sideways scroll at 375 px.
+    const send = await screen.findByRole("button", { name: "Send 2 stories to Planning Poker" });
+    expect(send).toHaveClass("whitespace-normal");
+    fireEvent.click(send);
     expect(Array.from(queuedStoryIds(currentPokerLog())).sort()).toEqual(["a", "b"]);
     expect(logs.at(-1)).toMatchObject({
       action: RELATIVE_SIZING_ACTIONS.SENT_TO_POKER,
