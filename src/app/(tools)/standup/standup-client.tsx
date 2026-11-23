@@ -46,7 +46,7 @@ import { undoable } from "@/lib/utils/undoable";
 import { usePersistedLocal } from "@/lib/utils/use-persisted";
 import { BoardWalk } from "./board-walk";
 import { type EntryCardActions, type LinksUpdate } from "./entry-card";
-import { EntryForm, useEntryForm, type YesterdaySuggestion } from "./entry-form";
+import { EntryForm, useEntryForm, type HandoffOffer, type YesterdaySuggestion } from "./entry-form";
 import { EXAMPLE_MEMBERS, buildExample, buildExampleBoard } from "./example";
 import { HandoversPanel, handoverRows } from "./handovers";
 import type { SummarySource } from "./digest-summary";
@@ -167,6 +167,20 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
     return () => window.clearInterval(id);
   }, []);
   const today = todayLocalISO();
+
+  // A hand-over is offered when Team Time knows two shifts or more and where
+  // the poster works; it goes to the next shift east to west. This one chain
+  // feeds the form's hint and the Hand-overs panel; the digests and Amr build
+  // the same one from the same places and day.
+  const chain = useMemo(() => shiftChain(places, today), [places, today]);
+  const handoffFor = (member: string): HandoffOffer => {
+    const place = places.get(nameKey(member));
+    return {
+      show: chain.length >= 2 && Boolean(place),
+      to: nextPlace(chain, place)?.label ?? null,
+    };
+  };
+
   // Who has the floor in today's live walk (walk.ts), if one is on.
   const walk = useStandupWalk((s) => s.walk);
   const speaker = walk && walk.date === today ? walk.current : null;
@@ -330,10 +344,11 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
     const clean: EntryValues = { ...values, member };
     if (postFormat === "ppp") clean.format = "ppp";
     else delete clean.format;
-    if (!isAsync) {
-      delete clean.dri;
-      delete clean.handoff;
-    }
+    if (!isAsync) delete clean.dri;
+    // A hand-over is saved only when the form showed its field for this
+    // person: one typed for someone else, then hidden by picking a person
+    // Team Time doesn't place, stays out (it comes back if they're picked again).
+    if (!isAsync || !handoffFor(values.member).show) delete clean.handoff;
     if (entryFor(currentEntries(), member, clean.date)) {
       // One entry per person per day: ask before replacing. The form keeps
       // its values if the user backs out.
@@ -578,16 +593,7 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
     personKey(form.draft.member) !== personKey(wanted)
   );
 
-  // A hand-over is offered when Team Time knows two shifts or more and where
-  // the poster works; it goes to the next shift east to west. This one chain
-  // feeds the form's hint and the Hand-overs panel; the digests and Amr build
-  // the same one from the same places and day.
-  const chain = useMemo(() => shiftChain(places, today), [places, today]);
-  const posterPlace = places.get(nameKey(form.draft.member));
-  const handoffOffer = {
-    show: chain.length >= 2 && Boolean(posterPlace),
-    to: nextPlace(chain, posterPlace)?.label ?? null,
-  };
+  const handoffOffer = handoffFor(form.draft.member);
   const handovers = isAsync
     ? handoverRows({ entries, places, chain, roster: rosterNames, today, now: new Date() })
     : null;

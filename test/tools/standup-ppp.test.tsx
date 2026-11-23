@@ -221,6 +221,21 @@ describe("the form", () => {
     expect(stored()[0]).toMatchObject({ member: "Sky", handoff: "Build is on staging" });
   });
 
+  it("never saves a hand-over the form hid: picking someone Team Time doesn't place drops it", () => {
+    useWorkspaceStore.setState({ teamTimePeople: PEOPLE });
+    renderStandup();
+    fireEvent.change(memberInput(), { target: { value: "Sky" } });
+    fireEvent.change(field(/^Hand over to the next shift/), {
+      target: { value: "Sky's note for London" },
+    });
+    // Sam has no Team Time row: the field hides, and the note stays out.
+    post("Sam", { today: "Write docs" });
+    expect(screen.queryByLabelText(/^Hand over to the next shift/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Post update" }));
+    expect(stored()[0]).toMatchObject({ member: "Sam", today: "Write docs" });
+    expect(stored()[0]).not.toHaveProperty("handoff");
+  });
+
   it("an edit follows the entry's format, and a cleared DRI is gone after the save", () => {
     useWorkspaceStore.setState({
       standupEntries: [
