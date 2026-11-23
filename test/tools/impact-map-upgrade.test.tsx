@@ -19,11 +19,13 @@ import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
+  HypothesisTracker,
   Persona,
   ProductGoal,
   StrategyMap,
   StrategyMapNode,
 } from "@/lib/stores/workspace-types";
+import { HYPOTHESIS_TRACKER_ID, TRACKER_FULL } from "@/lib/hypotheses/model";
 import { IMPACT_MAP_ACTIONS } from "@/lib/history/event-actions";
 import { VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION } from "@/lib/visitor-ai/consent";
 
@@ -779,6 +781,34 @@ describe("sends, each with Undo", () => {
     expect(logged(IMPACT_MAP_ACTIONS.IMPACT_TESTED)).toEqual([]);
     expect(logged(IMPACT_MAP_ACTIONS.DELIVERABLE_SENT)).toEqual([]);
     expect(stored()).toEqual(full);
+  });
+
+  it("says the Hypothesis Tracker is full instead of a click that does nothing", async () => {
+    const filler = (believe: string): HypothesisTracker => ({
+      id: HYPOTHESIS_TRACKER_ID,
+      hypotheses: [
+        {
+          id: "h0",
+          believe,
+          willDo: "",
+          toLearn: "",
+          successMetric: "",
+          status: "running",
+          raisedAt: "2026-10-01",
+        },
+      ],
+    });
+    // Ten bytes short of the tracker's row: no new hypothesis fits beside it.
+    const tracker = filler("x".repeat(ENTITY_ROW_MAX_BYTES - jsonBytes(filler("")) - 10));
+    seed([map()], { hypothesisTrackers: [tracker] });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^Test this impact: Skip a week/ }));
+    expect(screen.getByText(TRACKER_FULL, { selector: "p[role=status]" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("live-polite")).toHaveTextContent(TRACKER_FULL));
+    expect(hypotheses().map((h) => h.id)).toEqual(["h0"]);
+    expect(nodeOf("i")?.sentTo).toBeUndefined();
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(logged(IMPACT_MAP_ACTIONS.IMPACT_TESTED)).toEqual([]);
   });
 });
 

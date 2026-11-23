@@ -325,6 +325,13 @@ export function StrategyTreeClient() {
       setNotice(TOO_BIG);
       return;
     }
+    // The target's own check (a full Hypothesis Tracker), said rather than a click that does nothing.
+    const problem = getHandoffRoute(route).problem?.(src);
+    if (problem) {
+      setNotice(problem);
+      announce(problem);
+      return;
+    }
     const links = {
       getLinks: () => freshTree(tree.id)?.nodes.find((n) => n.id === node.id)?.sentTo,
       setLinks: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) => {

@@ -422,11 +422,15 @@ export function ImpactMapClient() {
       setNotice(TOO_BIG);
       return;
     }
-    const link = sendHandoff(
-      "hypothesis",
-      impactHypothesisSource(current, fresh),
-      linkStore(map, impact)
-    );
+    const src = impactHypothesisSource(current, fresh);
+    // The tracker's own check (it is full), said rather than a click that does nothing.
+    const problem = getHandoffRoute("hypothesis").problem?.(src);
+    if (problem) {
+      setNotice(problem);
+      announce(problem);
+      return;
+    }
+    const link = sendHandoff("hypothesis", src, linkStore(map, impact));
     if (!link) return;
     record(map.id, IMPACT_MAP_ACTIONS.IMPACT_TESTED, { mapId: map.id, nodeId: impact.id });
     announce(`“${nodeTitle(impact, FORMAT)}” is now a hypothesis to test`);

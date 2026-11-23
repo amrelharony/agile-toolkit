@@ -10,13 +10,14 @@
  * owners, up to the cap; the Markdown with Hoshin's table; ?tree= links.
  */
 
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { StrategyMap, StrategyMapNode } from "@/lib/stores/workspace-types";
+import type { HypothesisTracker, StrategyMap, StrategyMapNode } from "@/lib/stores/workspace-types";
+import { HYPOTHESIS_TRACKER_ID, TRACKER_FULL } from "@/lib/hypotheses/model";
 import { STRATEGY_TREE_ACTIONS } from "@/lib/history/event-actions";
 import { VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION } from "@/lib/visitor-ai/consent";
 
@@ -456,6 +457,37 @@ describe("sends, each with Undo", () => {
     expect(toastSpy).not.toHaveBeenCalled();
     expect(logged(STRATEGY_TREE_ACTIONS.BET_SENT)).toEqual([]);
     expect(stored()).toEqual(full);
+  });
+
+  it("says the Hypothesis Tracker is full instead of a click that does nothing", async () => {
+    const filler = (believe: string): HypothesisTracker => ({
+      id: HYPOTHESIS_TRACKER_ID,
+      hypotheses: [
+        {
+          id: "h0",
+          believe,
+          willDo: "",
+          toLearn: "",
+          successMetric: "",
+          status: "running",
+          raisedAt: "2026-10-01",
+        },
+      ],
+    });
+    // Ten bytes short of the tracker's row: no new hypothesis fits beside it.
+    const tracker = filler("x".repeat(ENTITY_ROW_MAX_BYTES - jsonBytes(filler("")) - 10));
+    seed([dibb()]);
+    useWorkspaceStore.setState({ hypothesisTrackers: [tracker] });
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Test as a hypothesis: Email two weeks before" })
+    );
+    expect(screen.getByText(TRACKER_FULL, { selector: "p[role=status]" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("live-polite")).toHaveTextContent(TRACKER_FULL));
+    expect(hypotheses().map((h) => h.id)).toEqual(["h0"]);
+    expect(nodeOf("bet")?.sentTo).toBeUndefined();
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(logged(STRATEGY_TREE_ACTIONS.BET_SENT)).toEqual([]);
   });
 });
 
