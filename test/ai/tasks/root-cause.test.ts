@@ -36,6 +36,7 @@ import {
   loopLinksPrompt,
   nextWhyPrompt,
 } from "@/lib/ai/tasks/root-cause.server";
+import { findLoops } from "@/lib/root-cause/loops";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 
 describe("root-cause.next_why", () => {
@@ -303,6 +304,40 @@ describe("root-cause.loop_links", () => {
       { from: "a", to: "c" },
     ]);
     expect(out.map((l) => `${l.from}>${l.to}`)).toEqual(["b>c"]);
+  });
+
+  it("says an arrow closes a loop only when it does, and turns it to close a chain drawn backwards", () => {
+    const nodes = ["a", "b", "c"].map((id) => ({ id, text: id.toUpperCase() }));
+    // c -> b -> a is drawn: the arrow that closes it runs a -> c, not c -> a.
+    const backwards = fallbackLoopLinks(nodes, [
+      { from: "b", to: "a" },
+      { from: "c", to: "b" },
+    ]);
+    expect(backwards.map((l) => `${l.from}>${l.to}`)).toEqual(["a>c"]);
+    expect(backwards[0].why).toBe("If this is true, it closes a loop: check it.");
+    const drawn = [
+      { id: "ba", from: "b", to: "a", polarity: "same" as const },
+      { id: "cb", from: "c", to: "b", polarity: "same" as const },
+      { id: "new", from: "a", to: "c", polarity: "same" as const },
+    ];
+    expect(findLoops({ nodes, links: drawn }).loops.map((l) => l.linkIds)).toEqual([
+      ["new", "cb", "ba"],
+    ]);
+    // a -> b and c -> b lead nowhere either way: the arrow back only asks for its sign.
+    const neither = fallbackLoopLinks(nodes, [
+      { from: "a", to: "b" },
+      { from: "c", to: "b" },
+    ]);
+    expect(neither.map((l) => `${l.from}>${l.to}`)).toEqual(["c>a"]);
+    expect(neither[0].why).toBe("Check the sign: does “A” go up when “C” goes up?");
+    // So does the longest chain the fallback looks at, drawn backwards.
+    const many = Array.from({ length: 12 }, (_, i) => ({ id: `n${i}`, text: `Thing ${i}` }));
+    const around = fallbackLoopLinks(
+      many,
+      Array.from({ length: 9 }, (_, i) => ({ from: `n${i + 1}`, to: `n${i}` }))
+    );
+    expect(around.map((l) => `${l.from}>${l.to}`)).toEqual(["n0>n9"]);
+    expect(around[0].why).toBe("If this is true, it closes a loop: check it.");
   });
 
   it("closes a two-thing loop, and never offers more than ten arrows or a loop past twelve", () => {

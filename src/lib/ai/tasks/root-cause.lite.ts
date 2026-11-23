@@ -6,6 +6,7 @@
 
 import { lazyAiTask } from "../task-ref";
 import { TOOL_AI_BODY_BUDGET } from "../contract";
+import { LOOP_LENGTH_MAX } from "@/lib/root-cause/loops";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 import type {
   CategoriesInput,
@@ -251,14 +252,49 @@ type LoopNodeIn = LoopLinksInput["nodes"][number];
 type LoopLinkOut = LoopLinksOutput["links"][number];
 
 /**
+ * Whether the arrows lead from `from` to `to` through at most
+ * LOOP_LENGTH_MAX things, both ends counted: then an arrow from `to` back
+ * to `from` closes a loop findLoops follows.
+ */
+function leadsTo(
+  arrows: readonly { from: string; to: string }[],
+  from: string,
+  to: string
+): boolean {
+  const next = new Map<string, string[]>();
+  for (const l of arrows) {
+    if (l.from !== l.to) next.set(l.from, [...(next.get(l.from) ?? []), l.to]);
+  }
+  const seen = new Set([from]);
+  let frontier = [from];
+  for (let things = 1; things < LOOP_LENGTH_MAX && frontier.length > 0; things++) {
+    const reached: string[] = [];
+    for (const at of frontier) {
+      for (const n of next.get(at) ?? []) {
+        if (n === to) return true;
+        if (seen.has(n)) continue;
+        seen.add(n);
+        reached.push(n);
+      }
+    }
+    frontier = reached;
+  }
+  return false;
+}
+
+/**
  * Arrows to check, without AI: the first ten things chained in list order,
  * one arrow for each neighbouring pair not linked yet (either way), each
  * signed by its words (`guessPolarity`) and asking the team to check the
- * sign; then one arrow from the last of them back to the first, unless
- * those two are linked already, which closes a loop of at most ten. At
- * most ten arrows, inside findLoops' length limit. A thing the schema
- * refuses (no id, an id over 64 characters, no words) is left out, so the
- * answer always fits the output schema.
+ * sign; then one arrow between the last of them and the first, unless
+ * those two are linked already. It runs back from the last to the first
+ * when the arrows drawn and suggested lead from the first to the last, so
+ * it closes a loop of at most ten; from the first to the last when they
+ * lead the other way (a chain drawn last to first); and when neither, back
+ * with a plain "check the sign" why, never claiming a loop it doesn't
+ * close. At most ten arrows, inside findLoops' length limit. A thing the
+ * schema refuses (no id, an id over 64 characters, no words) is left out,
+ * so the answer always fits the output schema.
  */
 export function fallbackLoopLinks(
   nodes: readonly LoopNodeIn[],
@@ -269,27 +305,33 @@ export function fallbackLoopLinks(
     .slice(0, LOOP_CHAIN_MAX);
   const linked = (a: string, b: string) =>
     links.some((l) => (l.from === a && l.to === b) || (l.from === b && l.to === a));
-  const out: LoopLinkOut[] = [];
-  for (let i = 0; i + 1 < usable.length; i++) {
-    const [a, b] = [usable[i], usable[i + 1]];
-    if (linked(a.id, b.id)) continue;
+  const checkSign = (a: LoopNodeIn, b: LoopNodeIn): LoopLinkOut => {
     const polarity = guessPolarity(a.text, b.text);
-    out.push({
+    return {
       from: a.id,
       to: b.id,
       polarity,
       why: `Check the sign: does ${quoted(b.text, 70)} go ${polarity === "same" ? "up" : "down"} when ${quoted(a.text, 70)} goes up?`,
-    });
+    };
+  };
+  const closing = (a: LoopNodeIn, b: LoopNodeIn): LoopLinkOut => ({
+    from: a.id,
+    to: b.id,
+    polarity: guessPolarity(a.text, b.text),
+    why: "If this is true, it closes a loop: check it.",
+  });
+  const out: LoopLinkOut[] = [];
+  for (let i = 0; i + 1 < usable.length; i++) {
+    const [a, b] = [usable[i], usable[i + 1]];
+    if (!linked(a.id, b.id)) out.push(checkSign(a, b));
   }
   if (usable.length >= 2) {
-    const [last, first] = [usable[usable.length - 1], usable[0]];
+    const [first, last] = [usable[0], usable[usable.length - 1]];
     if (!linked(last.id, first.id)) {
-      out.push({
-        from: last.id,
-        to: first.id,
-        polarity: guessPolarity(last.text, first.text),
-        why: "If this is true, it closes a loop: check it.",
-      });
+      const arrows = [...links, ...out];
+      if (leadsTo(arrows, first.id, last.id)) out.push(closing(last, first));
+      else if (leadsTo(arrows, last.id, first.id)) out.push(closing(first, last));
+      else out.push(checkSign(last, first));
     }
   }
   return out.slice(0, LOOP_LINKS_MAX);
