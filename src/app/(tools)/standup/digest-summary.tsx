@@ -13,6 +13,7 @@ import {
   fitDigestInput,
   type DigestAiOutput,
 } from "@/lib/ai/tasks/async-standup.lite";
+import type { DigestInput } from "@/lib/standup/digest-ai";
 import type { StandupPlaces } from "@/lib/standup/entries";
 import type { StandupEntry } from "@/lib/stores/workspace-types";
 
@@ -27,6 +28,9 @@ export const SUMMARY_PRIVACY_LINE = "Sends today's updates, with names, to the A
  * who to ask for what, the risks and the hand-overs, shown as plain text.
  * Nothing is saved; "Copy digest with summary" puts it in the digest after
  * its title. Without AI the page's own rules write it from the same facts.
+ * Once the facts change (an update posted, a blocker resolved) the summary
+ * says it is out of date and can't be copied until it is made again, so
+ * the team never gets a summary that contradicts its digest.
  */
 export function DigestSummary({
   entries,
@@ -49,7 +53,14 @@ export function DigestSummary({
     () => fitDigestInput(digestInput({ entries, date: today, places, notPosted: notYet })),
     [entries, today, places, notYet]
   );
-  const [summary, setSummary] = useState<(DigestAiOutput & { source: SummarySource }) | null>(null);
+  // The facts as text: a summary built from other facts is out of date.
+  const basis = useMemo(() => JSON.stringify(input), [input]);
+  // What the last Summarise sent, so its answer is checked against those facts.
+  const sent = useRef<{ input: DigestInput; basis: string } | null>(null);
+  const [summary, setSummary] = useState<
+    (DigestAiOutput & { source: SummarySource; basis: string }) | null
+  >(null);
+  const stale = summary !== null && summary.basis !== basis;
   const { flash, isFlashing } = useFlash();
   const copied = isFlashing();
   const boxRef = useRef<HTMLElement>(null);
@@ -64,11 +75,15 @@ export function DigestSummary({
           task={asyncStandupDigestTask}
           label="Summarise with AI"
           fallbackLabel="Summarise"
-          input={() => input}
+          input={() => {
+            sent.current = { input, basis };
+            return input;
+          }}
           onResult={(data, meta) => {
             const source: SummarySource = meta.source === "ai" ? "ai" : "rules";
+            const from = sent.current ?? { input, basis };
             // Asks and hand-overs only to the people and places given.
-            setSummary({ ...cleanDigestOutput(input, data), source });
+            setSummary({ ...cleanDigestOutput(from.input, data), source, basis: from.basis });
             onSummarised?.(source);
           }}
         />
@@ -112,25 +127,32 @@ export function DigestSummary({
               ))}
             </ul>
           )}
+          {stale && (
+            <p className="text-xs text-warning" data-summary-stale>
+              Out of date: the updates changed since this summary. Summarise again to copy it.
+            </p>
+          )}
           <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="gap-1"
-              onClick={() =>
-                void onCopy(digestWithSummary(digest, summary)).then((ok) => {
-                  if (ok) flash("Digest copied with the summary");
-                })
-              }
-            >
-              {copied ? (
-                <Check className="h-4 w-4" aria-hidden="true" />
-              ) : (
-                <Copy className="h-4 w-4" aria-hidden="true" />
-              )}
-              {copied ? "Copied" : "Copy digest with summary"}
-            </Button>
+            {!stale && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="gap-1"
+                onClick={() =>
+                  void onCopy(digestWithSummary(digest, summary)).then((ok) => {
+                    if (ok) flash("Digest copied with the summary");
+                  })
+                }
+              >
+                {copied ? (
+                  <Check className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <Copy className="h-4 w-4" aria-hidden="true" />
+                )}
+                {copied ? "Copied" : "Copy digest with summary"}
+              </Button>
+            )}
             <Button
               type="button"
               size="sm"

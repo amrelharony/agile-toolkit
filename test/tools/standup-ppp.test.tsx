@@ -431,4 +431,37 @@ describe("the digest summary", () => {
     // Nothing was saved from it.
     expect(stored()).toHaveLength(2);
   });
+
+  it("marks the summary out of date once the updates change, and copies only a fresh one", async () => {
+    useWorkspaceStore.setState({
+      standupEntries: [
+        entry("a", "Ana", { blockers: "Needs a DBA review", blockerDri: "Bo" }),
+        entry("b", "Bo"),
+      ],
+    });
+    renderStandup();
+    fireEvent.click(screen.getByRole("button", { name: "Summarise" }));
+    expect(await screen.findByText("2 updates posted; 1 blocker open")).toBeInTheDocument();
+    expect(screen.queryByText(/^Out of date/)).toBeNull();
+    // Cy posts, and Ana's blocker is resolved: the summary's facts are old.
+    act(() => {
+      useWorkspaceStore.setState({
+        standupEntries: [
+          entry("a", "Ana", {
+            blockers: "Needs a DBA review",
+            blockerDri: "Bo",
+            blockerResolved: true,
+          }),
+          entry("b", "Bo"),
+          entry("c", "Cy"),
+        ],
+      });
+    });
+    expect(screen.getByText(/^Out of date/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copy digest with summary" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Summarise" }));
+    expect(await screen.findByText("3 updates posted; no blockers open")).toBeInTheDocument();
+    expect(screen.queryByText(/^Out of date/)).toBeNull();
+    expect(screen.getByRole("button", { name: "Copy digest with summary" })).toBeInTheDocument();
+  });
 });
