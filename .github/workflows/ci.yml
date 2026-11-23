@@ -12,12 +12,14 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# A full type check of the app needs about 2.7 GB of heap (tsc
-# --extendedDiagnostics, 2026-10-25), over Node's default of about 2 GB, so
-# tsc and next build ran out of memory. The repo is private, so ubuntu-latest
-# is the 2-vCPU, 7 GB runner; the flag is a ceiling, not a reservation.
+# A full type check of the app needs about 4.9 GB of heap (tsc
+# --extendedDiagnostics, 2026-11-23, after the tools plan's phase 2), over
+# Node's default of about 2 GB, so tsc ran out of memory. next build checks
+# the app without its tests (tsconfig.build.json, about 3.6 GB). The repo is
+# private, so ubuntu-latest is the 2-vCPU, 7 GB runner; the flag is a
+# ceiling, not a reservation.
 env:
-  NODE_OPTIONS: --max-old-space-size=4096
+  NODE_OPTIONS: --max-old-space-size=6144
 
 # Verify used to be one job that ran the type check, lint, tests and build in
 # a row: 33m36s on PR #68 against a 40-minute limit, 26 minutes of it tests.

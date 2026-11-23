@@ -9,7 +9,7 @@
     "predev": "node scripts/generate-action-registry.mjs",
     "dev": "next dev",
     "prebuild": "node scripts/generate-action-registry.mjs",
-    "build": "next build",
+    "build": "node scripts/next-build.mjs",
     "start": "next start",
     "lint": "next lint",
     "check:ui": "node scripts/check-ui-classes.mjs",
