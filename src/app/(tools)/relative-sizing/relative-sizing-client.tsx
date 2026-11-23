@@ -623,6 +623,11 @@ export function RelativeSizingClient() {
                     mode: board.mode,
                     stories: board.items.length,
                   }),
+                startLive: (n) =>
+                  record(board.id, RELATIVE_SIZING_ACTIONS.ROUND_STARTED, {
+                    mode: "live",
+                    stories: n,
+                  }),
               }}
             />
           )}
@@ -644,6 +649,7 @@ interface BoardActions {
   saveSizes: () => void;
   deleteBoard: () => void;
   startTimebox: () => void;
+  startLive: (stories: number) => void;
 }
 
 function BoardView({
@@ -773,7 +779,7 @@ function BoardView({
           Every phone places the stories privately. The room sees only how many people put each
           story in each bucket, and only once enough have answered.
         </p>
-        <LiveRound board={board} onSave={a.saveRound} />
+        <LiveRound board={board} onSave={a.saveRound} onStart={a.startLive} />
       </SectionCard>
 
       <SectionCard title="Save sizes" icon={Save} contentClassName="space-y-3">

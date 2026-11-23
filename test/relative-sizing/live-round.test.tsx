@@ -68,11 +68,14 @@ beforeEach(() => {
 });
 afterEach(() => vi.unstubAllEnvs());
 
+const onStart = vi.fn();
+
 async function startRound(onSave: (r: VoteRoundResult) => void | false | (() => void)) {
+  onStart.mockClear();
   const crypto = fakeVoteCrypto();
   render(
     <LiveAnnouncerProvider>
-      <LiveRound board={board()} onSave={onSave} crypto={crypto} />
+      <LiveRound board={board()} onSave={onSave} onStart={onStart} crypto={crypto} />
     </LiveAnnouncerProvider>
   );
   fireEvent.click(await screen.findByRole("button", { name: "Run a live round" }));
@@ -123,6 +126,8 @@ describe("Relative Sizing's live round", () => {
     expect(wire).toContain("Refund a payment");
     // The anchor is placed already: it isn't asked about.
     expect(wire.match(/Pay with a saved card/g)).toHaveLength(1);
+    // The page logs the round's start with how many stories it asks about.
+    expect(onStart).toHaveBeenCalledWith(3);
   });
 
   it("reveals where the room put each story, withholds what too few placed, and saves totals only", async () => {

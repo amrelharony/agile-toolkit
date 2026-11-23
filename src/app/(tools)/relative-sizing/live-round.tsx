@@ -26,10 +26,13 @@ import { cn } from "@/lib/utils";
 export function LiveRound({
   board,
   onSave,
+  onStart,
   crypto,
 }: {
   board: SizingBoard;
   onSave: SaveVoteRound;
+  /** A live room opened, asking about this many stories (for the history log). */
+  onStart?: (stories: number) => void;
   /** Tests inject a fake (undefined: WebCrypto). */
   crypto?: VoteCrypto | null;
 }) {
@@ -96,6 +99,9 @@ export function LiveRound({
         toolName="Relative Sizing"
         questionnaire={questionnaire}
         onSave={onSave}
+        onLiveChange={(room) => {
+          if (room) onStart?.(questionnaire?.questions.length ?? 0);
+        }}
         renderResults={(result) => <SizingResults result={result} board={board} />}
         {...(crypto !== undefined ? { crypto } : {})}
       />
