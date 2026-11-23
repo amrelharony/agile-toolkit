@@ -36,7 +36,11 @@ export function asyncRoundMarkdown(round: PokerAsyncRound): string {
   if (round.status === "open") {
     const names = round.replies.map((r) => line(r.name)).filter(Boolean);
     if (names.length > 0) out.push(`Replied: ${names.join(", ")}.`);
-    out.push(`${cardCount(round)} cards in, hidden until the round is revealed.`, "");
+    const cards = cardCount(round);
+    out.push(
+      `${cards} ${cards === 1 ? "card" : "cards"} in, hidden until the round is revealed.`,
+      ""
+    );
     out.push("## Stories", "");
     round.stories.forEach((s, i) => out.push(`${i + 1}. ${line(s.title)}`));
     return `${out.join("\n")}\n`;
