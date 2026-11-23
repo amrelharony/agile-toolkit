@@ -2,8 +2,9 @@
 
 /**
  * One box of a product canvas, on the sectioned kit's card: Enter adds a
- * line, a line is edited in place, and a delete comes with Undo. Under each
- * line, what its box takes: a fact-or-guess mark, a question's answer, the
+ * line, a line is edited in place, and a delete comes with Undo (which
+ * links again the lines that linked to it). Under each line, what its box
+ * takes: a fact-or-guess mark, a question's answer, the
  * lines it links to, a hypothesis's picks, and how its test stands in the
  * Hypothesis Tracker. Beside it, "Send to…" for a guess or a Lean UX
  * hypothesis (never on the example, nor while a [placeholder] is left).
@@ -12,6 +13,7 @@
  * the box or the canvas can't take; the card then shows the reason.
  */
 
+import { useRef } from "react";
 import Link from "next/link";
 import { BlurTextarea } from "@/components/shared/blur-fields";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
@@ -28,13 +30,16 @@ import {
   isGuess,
   itemsOf,
   lineLinkedTo,
+  linkersOf,
   newItemId,
   textMaxOf,
   validateLaunchDate,
   withItemPatch,
+  withLinksRestored,
   withSectionItems,
   type CanvasWrite,
   type ItemPatch,
+  type LinkerLine,
 } from "@/lib/product-canvas/model";
 import { guessHypothesisSource, leanUxHypothesisSource } from "@/lib/product-canvas/sends";
 import type { HandoffLink } from "@/lib/handoffs/types";
@@ -239,10 +244,36 @@ export function CanvasBox({
     if (!w.ok) return w.message;
     logBox();
   };
+  // A delete drops every link to the line it takes out (an ease's pain, a
+  // hypothesis's picks, a test's hypothesis). The lines that held one are
+  // kept here, by the deleted line's id, so its Undo links them again.
+  const linkers = useRef(new Map<string, LinkerLine[]>());
   const update = (
     fn: (items: readonly ProductCanvasItem[]) => ProductCanvasItem[]
   ): string | void => {
-    const w = write((c, now) => withSectionItems(c, def.id, fn(itemsOf(c, def.id)), now));
+    const memory = linkers.current;
+    const w = write((c, now) => {
+      const before = itemsOf(c, def.id);
+      const next = fn(before);
+      const kept = new Set(next.map((i) => i.id));
+      for (const i of before) {
+        if (kept.has(i.id)) continue;
+        const lines = linkersOf(c, i.id);
+        if (lines.length > 0) memory.set(i.id, lines);
+      }
+      const done = withSectionItems(c, def.id, next, now);
+      if (!done.ok) return done;
+      const had = new Set(before.map((i) => i.id));
+      let canvas = done.canvas;
+      for (const i of next) {
+        const lines = had.has(i.id) ? undefined : memory.get(i.id);
+        if (!lines) continue;
+        memory.delete(i.id);
+        const relinked = withLinksRestored(canvas, i.id, lines, now);
+        if (relinked.ok) canvas = relinked.canvas;
+      }
+      return { ok: true, canvas };
+    });
     if (!w.ok) return w.message;
     logBox();
   };

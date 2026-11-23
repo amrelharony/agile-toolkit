@@ -12,6 +12,7 @@ import {
   CANVAS_FULL,
   FIT_NOTE,
   ITEM_MAX,
+  LINKS_MAX,
   LONG_MAX,
   PRODUCT_CANVAS_ID_PREFIX,
   boxesFilled,
@@ -26,6 +27,7 @@ import {
   hypothesisSentence,
   itemCount,
   jargonIn,
+  linkersOf,
   newCanvas,
   newCanvasId,
   pitchSentence,
@@ -41,6 +43,7 @@ import {
   withItem,
   withItemPatch,
   withItems,
+  withLinksRestored,
   withSectionItems,
   withText,
   withTitle,
@@ -373,6 +376,68 @@ describe("writes", () => {
     expect(w.canvas.sections.pains).toEqual([]);
     expect(w.canvas.sections.eases[0].links).toBeUndefined();
     expect(withoutItem(c, "nope", NOW)).toMatchObject({ ok: false, reason: "not_found" });
+  });
+
+  it("links a deleted line's linkers again once its Undo brings it back, each link in its place", () => {
+    const c = canvas("value-proposition", {
+      pains: [item("p1", "No signal"), item("p2", "Slow queue")],
+      eases: [item("e1", "Offline", { links: ["p1", "p2"] }), item("e2", "Fast")],
+    });
+    const linkers = linkersOf(c, "p1");
+    expect(linkers).toEqual([{ itemId: "e1", links: ["p1", "p2"] }]);
+    expect(linkersOf(c, "p2")).toEqual([{ itemId: "e1", links: ["p1", "p2"] }]);
+    expect(linkersOf(c, "e1")).toEqual([]);
+
+    const gone = ok(withoutItem(c, "p1", NOW)).canvas;
+    expect(gone.sections.eases[0].links).toEqual(["p2"]);
+    // Not back yet: nothing to link to, and the canvas is left as it is.
+    expect(ok(withLinksRestored(gone, "p1", linkers, LATER)).canvas).toBe(gone);
+
+    const back = ok(
+      withSectionItems(gone, "pains", [item("p1", "No signal"), ...gone.sections.pains], NOW)
+    ).canvas;
+    expect(back.sections.eases[0].links).toEqual(["p2"]);
+    const relinked = ok(withLinksRestored(back, "p1", linkers, LATER)).canvas;
+    expect(relinked.sections.eases[0].links).toEqual(["p1", "p2"]);
+    expect(relinked.updatedAt).toBe(LATER);
+    expect(fitMeter(relinked).pains).toEqual({ eased: 2, total: 2 });
+    // Already linked: nothing changes.
+    expect(ok(withLinksRestored(relinked, "p1", linkers, LATER)).canvas).toBe(relinked);
+  });
+
+  it("keeps links added since the delete, and skips a linker that is gone or full", () => {
+    const lean = canvas("lean-ux", {
+      outcomes: [item("o1", "More sales"), item("o2", "Fewer refunds")],
+      users: [item("u1", "Stall holders")],
+      benefits: [item("b1", "keep selling")],
+      solutions: [item("s1", "an offline queue")],
+      hypotheses: [item("h1", "H1", { links: ["o2", "u1", "b1"] })],
+      "learn-first": [item("l1", "Ask ten stalls", { links: ["h1"] })],
+    });
+    const linkers = [
+      { itemId: "h1", links: ["o1", "u1", "b1"] },
+      { itemId: "gone", links: ["o1"] },
+    ];
+    const w = ok(withLinksRestored(lean, "o1", linkers, LATER)).canvas;
+    // o1 back where it was; o2, linked since, stays after the old links.
+    expect(w.sections.hypotheses[0].links).toEqual(["o1", "u1", "b1", "o2"]);
+
+    const many = (key: string, n: number) =>
+      Array.from({ length: n }, (_, i) => item(`${key}${i}`, `${key} ${i}`));
+    const full = canvas("lean-ux", {
+      outcomes: many("o", 4),
+      users: many("u", 4),
+      benefits: many("b", 3),
+      hypotheses: [
+        item("h1", "H1", {
+          links: [...many("o", 3), ...many("u", 4), ...many("b", 3)].map((i) => i.id),
+        }),
+      ],
+    });
+    expect(full.sections.hypotheses[0].links).toHaveLength(LINKS_MAX);
+    expect(ok(withLinksRestored(full, "o3", [{ itemId: "h1", links: ["o3"] }], LATER)).canvas).toBe(
+      full
+    );
   });
 
   it("patches a line's words, mark, answer and links, refusing what its box doesn't take", () => {

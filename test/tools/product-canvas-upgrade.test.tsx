@@ -419,6 +419,33 @@ describe("the Value Proposition", () => {
     expect(screen.getByText("Pains eased").nextElementSibling).toHaveTextContent("1 of 1");
     expect(screen.getByText("Fit is a guess until customers tell you.")).toBeInTheDocument();
   });
+
+  it("links the ease to a deleted pain again when its delete is undone", async () => {
+    seed(
+      canvas({
+        id: "pcanvas_vp",
+        format: "value-proposition",
+        sections: {
+          pains: [
+            item("p1", "No signal in the hall", { evidence: "fact" }),
+            item("p2", "Card machines cost too much"),
+          ],
+          eases: [item("e1", "Takes the payment offline", { links: ["p1", "p2"] })],
+        },
+      })
+    );
+    renderPage();
+    expect(await screen.findByText("Pains eased")).toBeInTheDocument();
+    expect(screen.getByText("Pains eased").nextElementSibling).toHaveTextContent("2 of 2");
+    fireEvent.click(screen.getByRole("button", { name: "Delete “No signal in the hall”" }));
+    expect(byId("pcanvas_vp")!.sections.eases[0].links).toEqual(["p2"]);
+    expect(screen.getByText("Pains eased").nextElementSibling).toHaveTextContent("1 of 1");
+    undoLast();
+    expect(byId("pcanvas_vp")!.sections.pains.map((p) => p.id)).toEqual(["p1", "p2"]);
+    expect(byId("pcanvas_vp")!.sections.eases[0].links).toEqual(["p1", "p2"]);
+    expect(screen.getByText("Pains eased").nextElementSibling).toHaveTextContent("2 of 2");
+    expect(screen.getByRole("checkbox", { name: "No signal in the hall" })).toBeChecked();
+  });
 });
 
 describe("the Lean UX canvas", () => {
@@ -496,6 +523,40 @@ describe("the Lean UX canvas", () => {
     undoLast();
     expect(hypotheses()).toEqual([]);
     expect(byId("pcanvas_lx")!.sections.hypotheses[0].sentTo).toBeUndefined();
+  });
+
+  it("gives a hypothesis its pick back, and a test its hypothesis, when a delete is undone", () => {
+    seed(
+      lean({
+        hypotheses: [
+          item("h1", "Stall holders will keep selling", { links: ["u1", "b1", "s1", "o1"] }),
+        ],
+        "learn-first": [item("l1", "Ask ten stalls", { links: ["h1"] })],
+        "smallest-test": [item("t1", "Ten stalls for two weekends", { links: ["h1"] })],
+      })
+    );
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete “an offline queue”" }));
+    expect(byId("pcanvas_lx")!.sections.hypotheses[0].links).toEqual(["u1", "b1", "o1"]);
+    expect(screen.getByText("Solution: gone")).toBeInTheDocument();
+    undoLast();
+    expect(byId("pcanvas_lx")!.sections.solutions).toEqual([item("s1", "an offline queue")]);
+    expect(byId("pcanvas_lx")!.sections.hypotheses[0].links).toEqual(["u1", "b1", "s1", "o1"]);
+    expect(screen.getByText("Solution: an offline queue")).toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Delete “Stall holders will keep selling”" })
+    );
+    expect(byId("pcanvas_lx")!.sections["learn-first"][0].links).toBeUndefined();
+    expect(byId("pcanvas_lx")!.sections["smallest-test"][0].links).toBeUndefined();
+    undoLast();
+    expect(byId("pcanvas_lx")!.sections.hypotheses[0]).toEqual(
+      item("h1", "Stall holders will keep selling", { links: ["u1", "b1", "s1", "o1"] })
+    );
+    expect(byId("pcanvas_lx")!.sections["learn-first"][0].links).toEqual(["h1"]);
+    expect(byId("pcanvas_lx")!.sections["smallest-test"][0].links).toEqual(["h1"]);
+    expect(screen.getByText("Has a learn-first")).toBeInTheDocument();
+    expect(screen.getByText("Has a smallest test")).toBeInTheDocument();
   });
 });
 

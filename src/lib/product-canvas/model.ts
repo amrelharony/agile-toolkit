@@ -490,7 +490,7 @@ export function withItem(
   return withItems(canvas, sectionId, [item], now, makeId);
 }
 
-/** The canvas without one line (lines that linked to it lose the link). */
+/** The canvas without one line (lines that linked to it lose the link: see `linkersOf`). */
 export function withoutItem(canvas: ProductCanvas, itemId: string, now: string): CanvasWrite {
   const found = findItem(canvas, itemId);
   if (!found) return refuse("not_found", "That line isn't on the canvas any more.");
@@ -502,6 +502,62 @@ export function withoutItem(canvas: ProductCanvas, itemId: string, now: string):
     },
     now
   );
+}
+
+/**
+ * A line that links to another, with all its links as they were: what a
+ * delete's Undo needs to link it again. Deleting a line drops every link
+ * to it (`readSections`), so the delete records these first.
+ */
+export interface LinkerLine {
+  itemId: string;
+  links: readonly string[];
+}
+
+/** The lines on a canvas that link to `targetId`, each with its links as they are now. */
+export function linkersOf(canvas: ProductCanvas, targetId: string): LinkerLine[] {
+  const out: LinkerLine[] = [];
+  for (const items of Object.values(canvas.sections)) {
+    for (const i of items) {
+      if (i.links?.includes(targetId)) out.push({ itemId: i.id, links: [...i.links] });
+    }
+  }
+  return out;
+}
+
+/**
+ * The links a delete took away, put back once its Undo has brought
+ * `targetId` back: each line in `linkers` still on the canvas links to it
+ * again, in the place it had among its links (links added since stay, after
+ * them). Nothing changes for a target that isn't back, a line gone since,
+ * one that links to it already, or one already holding LINKS_MAX links;
+ * with nothing to put back, the canvas is returned as it is.
+ */
+export function withLinksRestored(
+  canvas: ProductCanvas,
+  targetId: string,
+  linkers: readonly LinkerLine[],
+  now: string
+): CanvasWrite {
+  if (!findItem(canvas, targetId)) return { ok: true, canvas };
+  const sections: Sections<ProductCanvasItem> = { ...canvas.sections };
+  let changed = false;
+  for (const linker of linkers) {
+    const found = findItem(canvas, linker.itemId);
+    if (!found) continue;
+    const box = found.def.id;
+    const line = sections[box].find((i) => i.id === linker.itemId);
+    const current = line?.links ?? [];
+    if (!line || current.includes(targetId) || current.length >= LINKS_MAX) continue;
+    const keep = new Set([...current, targetId]);
+    const links = [
+      ...linker.links.filter((l) => keep.has(l)),
+      ...current.filter((l) => !linker.links.includes(l)),
+    ];
+    sections[box] = sections[box].map((i) => (i.id === linker.itemId ? { ...i, links } : i));
+    changed = true;
+  }
+  return changed ? finish(canvas, sections, now) : { ok: true, canvas };
 }
 
 /** What can change on one line; `null` clears an answer or a mark. */
