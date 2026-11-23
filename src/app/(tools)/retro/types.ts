@@ -33,6 +33,13 @@ export interface RetroCard {
   dueDate?: string;
   /** The item this card came from (a kudos, a red health check); shown as "From …". */
   sourceRef?: HandoffRef;
+  /**
+   * The sprint day it happened, 0-based like `SprintDay.day` (0 is the
+   * sprint's first day), at most RETRO_CARD_DAY_MAX: an Emotional
+   * Seismograph board charts its cards by day. A live room's snapshot
+   * doesn't carry it: the host places the days.
+   */
+  day?: number;
 }
 
 export interface BoardState {

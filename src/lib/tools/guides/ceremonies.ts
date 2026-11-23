@@ -526,7 +526,7 @@ export const GUIDES: ToolGuide[] = [
       "On an A3, write why it happens or link a Root Cause analysis, then list what you'll change, each with an owner and a date. Send one to Retro Actions, with its date, or to the Backlog: it reads as done once it's done there.",
       "On a Kata, list the obstacles and pick the one you're on. Each experiment says what you'll try and what you expect, then what happened and what you learned.",
       "Coach me walks a short talk over the Kata: what the last try showed, today's number, the aim, the obstacle, the next try and when to look again. Reached it keeps the target as a past one.",
-      "Ask Amr suggests countermeasures for an A3 or next experiments for a Kata. You pick one; nothing is added on its own.",
+      "Ask Amr suggests countermeasures for an A3 or next experiments for a Kata. You pick what fits; nothing is added on its own.",
     ],
     tips: [
       "One target at a time: a Kata target is a few weeks away, never the whole challenge.",

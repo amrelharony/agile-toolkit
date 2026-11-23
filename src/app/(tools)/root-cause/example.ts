@@ -1,11 +1,44 @@
 import { exampleId } from "@/lib/utils/example-id";
-import type { RootCauseAnalysis } from "@/lib/stores/workspace-types";
+import type { RootCauseAnalysis, RootCauseLoop } from "@/lib/stores/workspace-types";
+import { findLoops } from "@/lib/root-cause/loops";
+
+/**
+ * The checkout analysis's causal loop. Errors bring tickets, tickets bring
+ * firefighting, and firefighting leaves less time for alerts (in time),
+ * so errors go unnoticed longer: R1, named. Errors also raise the pressure
+ * to fix the monitoring, which brings alerts (in time) that catch errors:
+ * B1. Alerts sit in both loops with two arrows leading in, so it's the
+ * busiest thing, where the example's root cause is.
+ */
+function checkoutLoop(): RootCauseLoop {
+  const id = (k: string) => exampleId(`loop-${k}`);
+  const loop: RootCauseLoop = {
+    nodes: [
+      { id: id("e"), text: "Checkout errors customers see" },
+      { id: id("t"), text: "Support tickets" },
+      { id: id("f"), text: "Time spent firefighting" },
+      { id: id("a"), text: "Alerts on checkout" },
+      { id: id("p"), text: "Pressure to fix monitoring" },
+    ],
+    links: [
+      { id: id("et"), from: id("e"), to: id("t"), polarity: "same" },
+      { id: id("tf"), from: id("t"), to: id("f"), polarity: "same" },
+      { id: id("fa"), from: id("f"), to: id("a"), polarity: "opposite", delay: true },
+      { id: id("ae"), from: id("a"), to: id("e"), polarity: "opposite" },
+      { id: id("ep"), from: id("e"), to: id("p"), polarity: "same" },
+      { id: id("pa"), from: id("p"), to: id("a"), polarity: "same", delay: true },
+    ],
+  };
+  const r1 = findLoops(loop).loops.find((l) => l.kind === "reinforcing");
+  return r1 ? { ...loop, names: [{ key: r1.key, name: "Firefighting crowds out the fix" }] } : loop;
+}
 
 /**
  * Two analyses a checkout team might hold: a 5 Whys that reached its root
  * cause and a countermeasure, and a fishbone of why checkout errors went
- * unnoticed, with counts for its Pareto chart. Example ids throughout, so
- * nothing counts as the team's and Clear example takes them all away.
+ * unnoticed, with counts for its Pareto chart and a causal loop of what
+ * keeps it going. Example ids throughout, so nothing counts as the team's
+ * and Clear example takes them all away.
  */
 export function buildExample(now: Date = new Date()): RootCauseAnalysis[] {
   const at = (daysAgo: number) => new Date(now.getTime() - daysAgo * 86_400_000).toISOString();
@@ -84,6 +117,7 @@ export function buildExample(now: Date = new Date()): RootCauseAnalysis[] {
         },
       ],
       rootCause: "No alert on the checkout error rate",
+      loop: checkoutLoop(),
       createdAt: at(4),
       updatedAt: at(1),
     },

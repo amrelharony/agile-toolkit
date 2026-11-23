@@ -2392,9 +2392,9 @@ const RULES: Record<string, NextStepRule<object>> = {
 
   // Tools plan, phase 1: a named root cause wants a countermeasure, and an
   // agreed one goes to Retro Actions, where someone owns it.
-  "root-cause": lazyRule(() => import("@/lib/root-cause/model"), {
+  "root-cause": lazyRule(() => import("@/lib/root-cause/next-step"), {
     select: (ws) => ({ analyses: ws.rootCauseAnalyses, boards: ws.retroBoards }),
-    steps: ({ analyses, boards }, { liveOnBoards, readAnalyses, sentLink }) => {
+    steps: ({ analyses, boards }, { liveOnBoards, loopToAct, readAnalyses, sentLink }) => {
       const steps: NextStep[] = [];
       // A synced row can hold anything: read each one as the page does.
       const newest = real(readAnalyses(analyses)).sort((a, b) =>
@@ -2419,6 +2419,18 @@ const RULES: Record<string, NextStepRule<object>> = {
           label: `Send the countermeasure for “${clip(unsent[0].title)}” to Retro Actions`,
           detail: "There someone owns it until it's done; left in the analysis, it rarely is.",
           href: open(unsent[0].id),
+        });
+      }
+      // A causal loop that closes with no root cause yet: act where its loops meet.
+      const loop = loopToAct(newest);
+      if (loop) {
+        steps.push({
+          id: "root-cause-loop",
+          label: `Pick where to act in “${clip(loop.analysis.title)}”`,
+          detail: loop.busiest
+            ? `“${clip(loop.busiest.text)}” sits in the most of its ${plural(loop.loops, "loop")}: mark it as the root cause if that's where to act.`
+            : `Its causal loop closes ${plural(loop.loops, "loop")}: mark the thing to act on as the root cause.`,
+          href: open(loop.analysis.id),
         });
       }
       return steps;

@@ -18,6 +18,7 @@ import { flowInsightsClassifyTask } from "./flow-insights";
 import { hillChartUpdateNoteTask } from "./hill-chart";
 import { impactMapDraftTask } from "./impact-map";
 import { impedimentsClusterTask } from "./impediments";
+import { improveNextExperimentTask } from "./improve";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { kanbanPoliciesTask } from "./kanban";
 import { kickoffDraftTask } from "./kickoff";
@@ -35,7 +36,7 @@ import { sizingDiscussTask, sizingSplitTask } from "./relative-sizing";
 import { releaseReadinessNotesTask } from "./release-readiness";
 import { groupTopicsTask, surprisePlanTask } from "./retro";
 import { retroActionsThemesTask } from "./retro-actions";
-import { categoriesTask, countermeasureTask, nextWhyTask } from "./root-cause";
+import { categoriesTask, countermeasureTask, loopLinksTask, nextWhyTask } from "./root-cause";
 import { notebookTagTask, notebookWeeklySummaryTask } from "./sm-notebook";
 import { sprintRiskNoteTask } from "./sprint";
 import { strategyTreeDraftTask } from "./strategy-tree";
@@ -63,6 +64,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   hillChartUpdateNoteTask,
   impactMapDraftTask,
   impedimentsClusterTask,
+  improveNextExperimentTask,
   interruptClassifyTask,
   kanbanPoliciesTask,
   kickoffDraftTask,
@@ -86,6 +88,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   nextWhyTask,
   categoriesTask,
   countermeasureTask,
+  loopLinksTask,
   notebookWeeklySummaryTask,
   notebookTagTask,
   sprintRiskNoteTask,

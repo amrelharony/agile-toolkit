@@ -140,4 +140,20 @@ describe("share links", () => {
     ]);
     expect("votesPerPerson" in read).toBe(false);
   });
+
+  it("keeps a card's sprint day only when it's a whole day in range", () => {
+    const state = linkState(customBoard());
+    state.cards[0].day = 4;
+    state.cards[1].day = 31;
+    const read = snapshotValidators.readRetro(state)!;
+    expect(read.cards[0].day).toBe(4);
+    expect("day" in read.cards[1]).toBe(false);
+    for (const bad of [2.5, -1, "3", null]) {
+      state.cards[0].day = bad;
+      expect("day" in snapshotValidators.readRetro(state)!.cards[0]).toBe(false);
+    }
+    // A board whose cards carry no day reads as it always did.
+    const plain = snapshotValidators.readRetro(linkState(customBoard()))!;
+    expect(plain.cards.every((c) => !("day" in c))).toBe(true);
+  });
 });

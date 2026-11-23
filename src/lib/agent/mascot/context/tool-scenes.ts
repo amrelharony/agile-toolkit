@@ -392,11 +392,15 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   { toolId: "async-standup", open: [], actions: { update_posted: ["timer.standup", "x094"] } },
   // wall_saved has no scene: the same tick cheers ("audience-wall", "result").
   { toolId: "audience-wall", open: [], actions: { themes_accepted: ["sticky.think"] } },
-  // Amr thinks along while the team asks why or lays out causes.
+  // Amr thinks along while the team asks why, lays out causes or draws a loop's arrows.
   {
     toolId: "root-cause",
     open: [],
-    actions: { why_added: ["sticky.think"], cause_added: ["sticky.think"] },
+    actions: {
+      why_added: ["sticky.think"],
+      cause_added: ["sticky.think"],
+      loop_link_added: ["sticky.think"],
+    },
   },
   // A point parked is written on a sticky and stuck up; one sent on is a to-do taken.
   {
@@ -456,6 +460,13 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     toolId: "kickoff",
     open: ["charter"],
     actions: { kickoff_created: ["charter.write"], amr_cheer: ["charter.publish"] },
+  },
+  // Amr thinks along as a countermeasure or experiment is added; a coaching talk is a
+  // to-do taken. target_reached cheers ("improve", "milestone") in the same tick: no scene.
+  {
+    toolId: "improve",
+    open: [],
+    actions: { step_added: ["sticky.think"], coaching_done: ["todo.take"] },
   },
 
   // ── The expansion's tool lab (X025–X056) ──

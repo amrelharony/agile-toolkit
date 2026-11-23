@@ -122,4 +122,15 @@ export const retroFormats: RetroFormat[] = [
       { key: "q4", label: "Q4 (Oct–Dec)", color: "#a855f7", icon: "④" },
     ],
   },
+  {
+    id: "seismograph",
+    name: "Emotional Seismograph",
+    description:
+      "Draw how the sprint felt, day by day: each card is a high, a steady stretch or a low on the day it happened. Then talk through the peaks and dips.",
+    columns: [
+      { key: "highs", label: "Highs", color: "#00ff88", icon: "▲" },
+      { key: "steady", label: "Steady", color: "#60a5fa", icon: "–" },
+      { key: "lows", label: "Lows", color: "#f59e0b", icon: "▼" },
+    ],
+  },
 ];

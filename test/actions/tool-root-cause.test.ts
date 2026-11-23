@@ -37,6 +37,7 @@ import {
 } from "@/lib/stores/workspace-types";
 
 import "@/lib/actions/tools/root-cause";
+import { buildExample } from "@/app/(tools)/root-cause/example";
 
 const ctx = () => ({
   userId: "test-user",
@@ -390,5 +391,195 @@ describe("tool.root_cause: the MCP path", () => {
     vi.mocked(serverStore.serverListEntities).mockImplementation(byKind([]));
     listed = await runMcp("tool.root_cause.list_state");
     expect(listed.analyses[0].stage).toBe("countermeasure");
+  });
+});
+
+/* ── The causal loop ─────────────────────────────────────────────────── */
+
+interface LoopState {
+  analyses: {
+    id: string;
+    loop: null | {
+      nodes: { id: string; text: string }[];
+      links: { id: string; from: string; to: string; polarity: string; delay: boolean }[];
+      loops: { key: string; label: string; kind: string; name: string | null; path: string[] }[];
+      truncated: boolean;
+      busiest: { id: string; text: string } | null;
+    };
+  }[];
+}
+
+describe("tool.root_cause: the causal loop verbs", () => {
+  it("adds things and arrows without a confirmation, on both transports, open to visitors", () => {
+    for (const name of ["add_loop_node", "add_loop_link"]) {
+      const action = registry.get(`tool.root_cause.${name}`);
+      expect(action?.category).toBe("write");
+      expect(action?.requiresConfirmation).toBe(false);
+      expect(action?.mcpHandler).toBeTypeOf("function");
+      expect(action?.visitor).not.toBe(false);
+    }
+    expect(registry.get("tool.root_cause.list_state")?.description).toContain(
+      "'five-whys'|'fishbone'|'causal-loop'"
+    );
+  });
+
+  it("list_state reports no loop, then the example's loops, names and busiest thing", async () => {
+    ws().upsertRootCauseAnalysis(analysis({ id: "rca_none" }));
+    ws().upsertRootCauseAnalysis({ ...buildExample()[1], updatedAt: "2026-11-09T09:00:00.000Z" });
+    const r = await run<LoopState>("tool.root_cause.list_state");
+    const [checkout, none] = r.analyses;
+    expect(none.loop).toBeNull();
+    expect(checkout.loop?.nodes).toHaveLength(5);
+    expect(checkout.loop?.links.find((l) => l.delay)).toBeTruthy();
+    expect(checkout.loop?.loops.map((l) => [l.label, l.kind, l.name])).toEqual([
+      ["B1", "balancing", null],
+      ["R1", "reinforcing", "Firefighting crowds out the fix"],
+    ]);
+    expect(checkout.loop?.loops[1].path[0]).toBe("Checkout errors customers see");
+    expect(checkout.loop?.truncated).toBe(false);
+    expect(checkout.loop?.busiest?.text).toBe("Alerts on checkout");
+  });
+
+  it("add_loop_node adds a thing, refusing an unknown analysis, the same words and a full loop", async () => {
+    ws().upsertRootCauseAnalysis(analysis({ id: "rca_1" }));
+    const r = await run<{ added: boolean; nodeId: string; count: number }>(
+      "tool.root_cause.add_loop_node",
+      { analysisId: "rca_1", text: "Support tickets" }
+    );
+    expect(r).toMatchObject({ added: true, count: 1 });
+    expect(stored("rca_1")?.loop?.nodes).toEqual([{ id: r.nodeId, text: "Support tickets" }]);
+    expect(stored("rca_1")?.updatedAt).not.toBe("2026-11-01T09:00:00.000Z");
+    expect(
+      await run("tool.root_cause.add_loop_node", { analysisId: "rca_1", text: "support TICKETS" })
+    ).toEqual({ added: false, reason: "duplicate" });
+    expect(
+      await run("tool.root_cause.add_loop_node", { analysisId: "rca_gone", text: "X" })
+    ).toEqual({ added: false, reason: "not_found" });
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_full",
+        loop: {
+          nodes: Array.from({ length: TOOL_LIST_MAX.loopNodes }, (_, i) => ({
+            id: `n${i}`,
+            text: `T${i}`,
+          })),
+          links: [],
+        },
+      })
+    );
+    expect(
+      await run("tool.root_cause.add_loop_node", { analysisId: "rca_full", text: "One more" })
+    ).toEqual({ added: false, reason: "loop_full" });
+    const schema = registry.get("tool.root_cause.add_loop_node")!.paramsSchema;
+    expect(schema.safeParse({ analysisId: "rca_1", text: "  " }).success).toBe(false);
+    expect(schema.safeParse({ analysisId: "rca_1", text: "x".repeat(121) }).success).toBe(false);
+  });
+
+  it("add_loop_link draws an arrow and says which loops it closes", async () => {
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_1",
+        loop: {
+          nodes: [
+            { id: "e", text: "Errors" },
+            { id: "t", text: "Tickets" },
+          ],
+          links: [{ id: "l1", from: "e", to: "t", polarity: "same" }],
+        },
+      })
+    );
+    const r = await run<{
+      added: boolean;
+      linkId: string;
+      loops: { label: string; kind: string; path: string[] }[];
+    }>("tool.root_cause.add_loop_link", {
+      analysisId: "rca_1",
+      from: "t",
+      to: "e",
+      polarity: "opposite",
+      delay: true,
+    });
+    expect(r).toMatchObject({
+      added: true,
+      loops: [{ label: "B1", kind: "balancing", path: ["Errors", "Tickets"] }],
+    });
+    expect(stored("rca_1")?.loop?.links[1]).toEqual({
+      id: r.linkId,
+      from: "t",
+      to: "e",
+      polarity: "opposite",
+      delay: true,
+    });
+    const refuse = (from: string, to: string) =>
+      run("tool.root_cause.add_loop_link", { analysisId: "rca_1", from, to, polarity: "same" });
+    expect(await refuse("e", "e")).toEqual({ added: false, reason: "self_link" });
+    expect(await refuse("e", "t")).toEqual({ added: false, reason: "duplicate" });
+    expect(await refuse("e", "gone")).toEqual({ added: false, reason: "unknown_node" });
+    expect(
+      await run("tool.root_cause.add_loop_link", {
+        analysisId: "rca_gone",
+        from: "e",
+        to: "t",
+        polarity: "same",
+      })
+    ).toEqual({ added: false, reason: "not_found" });
+    const schema = registry.get("tool.root_cause.add_loop_link")!.paramsSchema;
+    expect(
+      schema.safeParse({ analysisId: "rca_1", from: "e", to: "t", polarity: "up" }).success
+    ).toBe(false);
+  });
+
+  it("refuses an arrow past the cap", async () => {
+    const ids = Array.from({ length: 12 }, (_, i) => `n${i}`);
+    const pairs = ids.flatMap((a) => ids.filter((b) => b !== a).map((b) => [a, b]));
+    ws().upsertRootCauseAnalysis(
+      analysis({
+        id: "rca_full",
+        loop: {
+          nodes: ids.map((id) => ({ id, text: id.toUpperCase() })),
+          links: pairs.slice(0, TOOL_LIST_MAX.loopLinks).map(([from, to], i) => ({
+            id: `l${i}`,
+            from,
+            to,
+            polarity: "same" as const,
+          })),
+        },
+      })
+    );
+    const [from, to] = pairs[TOOL_LIST_MAX.loopLinks];
+    expect(
+      await run("tool.root_cause.add_loop_link", {
+        analysisId: "rca_full",
+        from,
+        to,
+        polarity: "same",
+      })
+    ).toEqual({ added: false, reason: "links_full" });
+  });
+
+  it("writes the loop to the user's rows over MCP, read safely first", async () => {
+    const row = analysis({
+      id: "rca_srv",
+      // A synced row can hold anything: the self-link is dropped on read.
+      loop: {
+        nodes: [{ id: "a", text: "Alerts" }],
+        links: [{ id: "bad", from: "a", to: "a", polarity: "same" }],
+      },
+    });
+    vi.mocked(serverStore.serverGetEntity).mockResolvedValue(row as never);
+    const r = await runMcp<{ added: boolean; count: number }>("tool.root_cause.add_loop_node", {
+      analysisId: "rca_srv",
+      text: "Errors",
+    });
+    expect(r).toMatchObject({ added: true, count: 2 });
+    const [, kind, saved] = vi.mocked(serverStore.serverUpsertEntity).mock.calls[0] as unknown as [
+      string,
+      string,
+      RootCauseAnalysis,
+    ];
+    expect(kind).toBe(ROOT_CAUSE_ANALYSIS_KIND);
+    expect(saved.loop?.nodes.map((n) => n.text)).toEqual(["Alerts", "Errors"]);
+    expect(saved.loop?.links).toEqual([]);
+    expect(ws().rootCauseAnalyses).toEqual([]);
   });
 });

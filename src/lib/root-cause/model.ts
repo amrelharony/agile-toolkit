@@ -7,7 +7,10 @@
  * Pure: no store, no browser globals. Every write goes through the caps the
  * workspace CRUD validates against (TOOL_TEXT_MAX, TOOL_LIST_MAX), so a
  * record the page saved is always one an agent can update, and the other
- * way round.
+ * way round. The causal loop's rules live in `loops.ts`. This file reads a
+ * stored loop with `loop-read.ts` only: every page with the hand-off routes
+ * loads it (through the root-cause target), and none of them needs the loop
+ * finder. Root Cause's next step loads that from `next-step.ts`.
  */
 
 import {
@@ -23,6 +26,7 @@ import {
   type RootCauseWhy,
 } from "@/lib/stores/workspace-types";
 import { hashSeed } from "@/lib/utils/random";
+import { readLoop } from "./loop-read";
 
 /** Every analysis id starts with this, as the workspace CRUD makes them. */
 export const ROOT_CAUSE_ID_PREFIX = "rca_";
@@ -540,6 +544,10 @@ export function readAnalysis(raw: unknown): RootCauseAnalysis | null {
   for (const key of ["postMortemId", "retroBoardId"] as const) {
     if (typeof r[key] !== "string" || !r[key]) delete out[key];
   }
+  // Its spread copied the raw loop: read it like the rest.
+  const loop = readLoop(r.loop);
+  if (loop) out.loop = loop;
+  else delete out.loop;
   return out;
 }
 

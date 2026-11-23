@@ -18,6 +18,7 @@ import { flowInsightsClassifyPrompt } from "./flow-insights.server";
 import { hillChartUpdateNotePrompt } from "./hill-chart.server";
 import { impactMapDraftPrompt } from "./impact-map.server";
 import { impedimentsClusterPrompt } from "./impediments.server";
+import { improveNextExperimentPrompt } from "./improve.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { kanbanPoliciesPrompt } from "./kanban.server";
 import { kickoffDraftPrompt } from "./kickoff.server";
@@ -35,7 +36,12 @@ import { sizingDiscussPrompt, sizingSplitPrompt } from "./relative-sizing.server
 import { releaseReadinessNotesPrompt } from "./release-readiness.server";
 import { groupTopicsPrompt, surprisePlanPrompt } from "./retro.server";
 import { retroActionsThemesPrompt } from "./retro-actions.server";
-import { categoriesPrompt, countermeasurePrompt, nextWhyPrompt } from "./root-cause.server";
+import {
+  categoriesPrompt,
+  countermeasurePrompt,
+  loopLinksPrompt,
+  nextWhyPrompt,
+} from "./root-cause.server";
 import { notebookTagPrompt, notebookWeeklySummaryPrompt } from "./sm-notebook.server";
 import { sprintRiskNotePrompt } from "./sprint.server";
 import { strategyTreeDraftPrompt } from "./strategy-tree.server";
@@ -62,6 +68,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   hillChartUpdateNotePrompt,
   impactMapDraftPrompt,
   impedimentsClusterPrompt,
+  improveNextExperimentPrompt,
   interruptClassifyPrompt,
   kanbanPoliciesPrompt,
   kickoffDraftPrompt,
@@ -85,6 +92,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   nextWhyPrompt,
   categoriesPrompt,
   countermeasurePrompt,
+  loopLinksPrompt,
   notebookWeeklySummaryPrompt,
   notebookTagPrompt,
   sprintRiskNotePrompt,
