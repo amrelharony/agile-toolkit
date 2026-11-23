@@ -1,6 +1,6 @@
 /**
  * The chat's side of the companion scenes: Amr holds out two options and waits
- * while a visitor's Approve or Deny card waits for them, and a no from the
+ * while a visitor's confirm card (its verb or Not now) waits for them, and a no from the
  * visitor is answered like any answer (a nod), not like a failure.
  */
 
@@ -25,7 +25,13 @@ const card = (): PendingToolUse => ({
   actionId: "workspace_card_add",
   resolvedActionId: "workspace.card.add",
   input: {},
-  summary: "Add a card",
+  prompt: {
+    verb: "Add card",
+    title: "Workspace",
+    question: "Add a card to your workspace?",
+    detail: "",
+    destructive: false,
+  },
   resolve: () => undefined,
 });
 

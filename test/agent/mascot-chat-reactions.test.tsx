@@ -86,7 +86,13 @@ function pending(): PendingToolUse {
     actionId: "retro_actions_delete",
     resolvedActionId: "retro.actions.delete",
     input: {},
-    summary: "Delete an action",
+    prompt: {
+      verb: "Delete",
+      title: "Retro Actions",
+      question: "Delete this from Retro Actions?",
+      detail: "",
+      destructive: true,
+    },
     resolve: vi.fn(),
   };
 }

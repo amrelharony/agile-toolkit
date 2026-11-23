@@ -5,11 +5,19 @@
  * exported constants and by calling every builder over the cases it knows,
  * including the round-limit note that stands in for a wrap-up (with and
  * without its follow-up line), and from the visitor's chat: the error when its
- * runtime can't load, and the panel's narration notes over the tool finder.
+ * runtime can't load, the panel's narration notes over the tool finder, the
+ * read-only footer's notes, the live-room and Clear chat captions, the busy
+ * hours' end and the allowance line.
  */
 
 import { describe, expect, it } from "vitest";
-import { VISITOR_RUNTIME_LOAD_ERROR } from "@/components/agent/mascot/visitor-agent-panel";
+import {
+  LIVE_ROOM_LINE,
+  VISITOR_RUNTIME_LOAD_ERROR,
+} from "@/components/agent/mascot/visitor-agent-panel";
+import { BUSY_HOURS_OVER, readOnlyNote } from "@/components/agent/mascot/visitor-chat-footer";
+import { CHAT_CLEARED } from "@/components/agent/mascot/visitor-clear-chat";
+import { allowanceLine } from "@/lib/visitor-ai/allowance";
 import {
   VISITOR_CHAT_ERROR_NOTE,
   VISITOR_CHAT_LOAD_NOTE,
@@ -126,6 +134,13 @@ function everyNotice(): string[] {
   };
   for (const code of [...Array.from(VISITOR_FALLBACK_CODES), "unknown" as VisitorErrorCode]) {
     out.push(visitorFallbackNote(code, null, now), visitorFallbackNote(code, busy, now));
+    // The chat's read-only footer says the same, in place of the composer.
+    out.push(readOnlyNote(code, null, now), readOnlyNote(code, busy, now));
+  }
+  out.push(readOnlyNote(null, busy, now), readOnlyNote(null, { ...busy, peak: false }, now));
+  out.push(LIVE_ROOM_LINE, CHAT_CLEARED, BUSY_HOURS_OVER);
+  for (const live of [false, true]) {
+    out.push(allowanceLine(null, now, live), allowanceLine(busy, now, live));
   }
   return out;
 }

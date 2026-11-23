@@ -11,11 +11,14 @@ import {
 import { Award, Crown, Flag, Sparkles, TrendingUp, X, type LucideIcon } from "lucide-react";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
+import { APP_RAIL_VAR } from "@/lib/layout/amr-sheet";
 import { useMascotStore, type MascotCorner } from "@/lib/agent/mascot/store";
+import { useAgentStore } from "@/lib/agent/store";
+// Not amr-geometry: the chip is in the static shell, and amr-corner has no imports.
+import { cornerAt } from "@/components/agent/mascot/amr-corner";
 import { CHIP_MS, useMomentStore, type MomentShown } from "@/lib/notify/moment-scheduler";
 import { momentChipText } from "@/lib/notify/copy";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
-import { cn } from "@/lib/utils";
 import { InkTick } from "@/components/ink/ink-tick";
 
 /** Moments that mean something got finished get a tick written by hand. */
@@ -37,40 +40,67 @@ const DESKTOP_SIDE_PX = 156;
  * Where the chip stands: beside Amr, wherever he's parked.
  * - Phones: just past his band (`--amr-band-bottom`, or `--amr-band-top`
  *   under the header when he's docked at the top), on his side.
- * - Larger screens: level with him, to the inside of his corner.
+ * - Larger screens: level with him, to the inside of his corner (on his left
+ *   from md, counted from the app's rail, as he is).
+ * `lift` is how far (px) he has stepped up off his edge (the mascot store's
+ * `lift`): the spot moves off the edge with him. Anything but a positive
+ * number counts as 0.
  */
-export function momentChipPosition(corner: MascotCorner, phone: boolean): CSSProperties {
+export function momentChipPosition(corner: MascotCorner, phone: boolean, lift = 0): CSSProperties {
   const top = corner.startsWith("top");
   const left = corner.endsWith("Left");
+  const up = Number.isFinite(lift) && lift > 0 ? lift : 0;
   if (phone) {
     return {
       ...(top
-        ? { top: "calc(var(--header-h, 56px) + var(--amr-band-top, 0px) + 8px)" }
-        : { bottom: "calc(var(--amr-band-bottom, env(safe-area-inset-bottom, 0px)) + 8px)" }),
+        ? { top: `calc(var(--header-h, 56px) + var(--amr-band-top, 0px) + ${8 + up}px)` }
+        : {
+            bottom: `calc(var(--amr-band-bottom, env(safe-area-inset-bottom, 0px)) + ${8 + up}px)`,
+          }),
       ...(left ? { left: 16 } : { right: 16 }),
     };
   }
   return {
-    ...(top ? { top: "calc(var(--header-h, 56px) + 24px)" } : { bottom: 24 }),
-    ...(left ? { left: DESKTOP_SIDE_PX } : { right: DESKTOP_SIDE_PX }),
+    ...(top ? { top: `calc(var(--header-h, 56px) + ${24 + up}px)` } : { bottom: 24 + up }),
+    // On his left from md, past the app's rail, as he is (lib/layout/amr-sheet).
+    ...(left
+      ? { left: `calc(${DESKTOP_SIDE_PX}px + var(${APP_RAIL_VAR}, 0px))` }
+      : { right: DESKTOP_SIDE_PX }),
   };
 }
 
 /**
  * The moment chip: "Level 8 · tap to see", beside Amr for about 4 s while he
  * cheers. Tapping it opens Activity; the X or a sideways swipe closes it.
- * It stays while hovered or focused, and has no animation under reduced
- * motion. Mounted once in app-shell.tsx; between moments only its empty live
- * region is in the page.
+ * It stays while hovered or focused, and appears as drawn, with no entrance
+ * animation (DNA-SPEC §8), as his outside bubble does in the same spot.
+ * Mounted once in app-shell.tsx; between moments only its empty live region is
+ * in the page.
+ *
+ * It stands beside where he is drawn (the mascot store's `placed`: the other
+ * side when he has stepped aside for a control) and as far off his edge as he
+ * has stepped (`lift`): the same spot as his outside bubble, which waits while
+ * the chip is up. When he steps up or aside, the chip goes with him.
+ *
+ * His open chat panel has that spot first: the scheduler holds a moment while
+ * the panel is open (isAmrBusy), and a chip still up when it opens goes (its
+ * row is in Activity), so it never sits on the panel.
  */
 export function MomentChip() {
   const moment = useMomentStore((s) => s.current);
   const dismiss = useMomentStore((s) => s.dismiss);
-  const corner = useMascotStore((s) => s.corner);
+  const placed = useMascotStore((s) => s.placed);
+  const lift = useMascotStore((s) => s.lift);
   const phone = useMediaQuery(PHONE_MEDIA_QUERY);
   const openActivity = useActivityUiStore((s) => s.openActivity);
+  const panelOpen = useAgentStore((s) => s.open);
   const [held, setHeld] = useState(false);
   const swipeFrom = useRef<number | null>(null);
+
+  // His panel opening takes the spot beside him: a chip still up goes.
+  useEffect(() => {
+    if (panelOpen) dismiss();
+  }, [panelOpen, dismiss]);
 
   // Fade after CHIP_MS, unless the pointer or focus is on it.
   useEffect(() => {
@@ -97,7 +127,7 @@ export function MomentChip() {
       aria-live="polite"
       aria-atomic="true"
       data-moment-region
-      style={{ position: "fixed", ...momentChipPosition(corner, phone) }}
+      style={{ position: "fixed", ...momentChipPosition(cornerAt(placed), phone, lift) }}
       className="pointer-events-none z-[55] max-w-[min(18rem,calc(100vw-32px))]"
     >
       {moment ? (
@@ -136,14 +166,14 @@ function ChipBody({
     onBlur: () => setHeld(false),
   };
 
+  // A small comic panel, never a pill (DNA-SPEC §4): the panel's pen corners
+  // (--panel-radius: 10px at most, 4px in high contrast), and both buttons
+  // squared to rounded-md, so their focus rings and hover match.
   return (
     <div
       data-moment-chip
       data-rarity={moment.rarity}
-      className={cn(
-        "pointer-events-auto flex max-w-full items-center gap-1 rounded-full border border-border bg-surface py-1 pl-3 pr-1 text-sm text-text shadow-lg",
-        "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2 motion-reduce:animate-none"
-      )}
+      className="pointer-events-auto flex max-w-full items-center gap-1 rounded-[var(--panel-radius)] border border-border bg-surface py-1 pl-3 pr-1 text-sm text-text shadow-lg"
     >
       <button
         type="button"
@@ -161,7 +191,7 @@ function ChipBody({
         onPointerCancel={() => {
           swipeFrom.current = null;
         }}
-        className="flex min-h-[44px] min-w-0 touch-pan-y items-center gap-2 rounded-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="flex min-h-[44px] min-w-0 touch-pan-y items-center gap-2 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         {TICK_KINDS.has(moment.kind) ? (
           <InkTick className="h-5 w-5" />
@@ -175,7 +205,7 @@ function ChipBody({
         aria-label="Dismiss"
         onClick={dismiss}
         {...hold}
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-sub hover:bg-accent/10 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-sub hover:bg-accent/10 hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
       >
         <X className="h-4 w-4" aria-hidden />
       </button>

@@ -76,6 +76,23 @@ export function chatBusy(): boolean {
   return chat.open || chat.streaming || useMascotStore.getState().talking;
 }
 
+/**
+ * Whether he may take a stroll along the bottom of the screen now: on a
+ * desktop with a mouse, parked at the bottom, motion allowed, and never while
+ * his panel is open, so he doesn't wander off from the panel beside him. The
+ * idle ladder pauses while it is open too (chatBusy); the rule sits here as
+ * well, with the stroll itself, for whatever asks. Exported for tests.
+ */
+export function canStroll(opts: { reducedMotion: boolean; parkedTop: () => boolean }): boolean {
+  return (
+    !opts.reducedMotion &&
+    !useAgentStore.getState().open &&
+    !isPhoneViewport() &&
+    window.matchMedia?.("(pointer: fine)").matches === true &&
+    !opts.parkedTop()
+  );
+}
+
 export function installSenses(opts: SensesOptions): () => void {
   const mascot = () => useMascotStore.getState();
   const mind = getMind();
@@ -208,11 +225,7 @@ export function installSenses(opts: SensesOptions): () => void {
       return playing;
     },
     pace: () => mind.brain.pace(),
-    canStroll: () =>
-      !opts.reducedMotion &&
-      !isPhone() &&
-      window.matchMedia?.("(pointer: fine)").matches === true &&
-      !parkedTop(),
+    canStroll: () => canStroll({ reducedMotion: opts.reducedMotion, parkedTop }),
     want: opts.want,
   });
   const idle = ladder;

@@ -1,19 +1,23 @@
 // @vitest-environment node
 /**
  * scripts/check-built-css.mjs reads the minified build; this holds its markers
- * to what they claim, on hand-written sheets and on globals.css itself.
+ * to what they claim, on hand-written sheets and on the sources themselves
+ * (globals.css, and the mascot's CSS module for the chat panel's entrance).
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { MARKERS, checkMarkers, stripWhitespace } from "../../scripts/check-built-css.mjs";
 
-const globals = stripWhitespace(
-  readFileSync(path.join(process.cwd(), "src/app/globals.css"), "utf8").replace(
-    /\/\*[\s\S]*?\*\//g,
-    ""
-  )
-);
+/** A source stylesheet with its comments and whitespace taken out. */
+function source(file: string): string {
+  return stripWhitespace(
+    readFileSync(path.join(process.cwd(), file), "utf8").replace(/\/\*[\s\S]*?\*\//g, "")
+  );
+}
+
+const globals = source("src/app/globals.css");
+const mascotModule = source("src/components/agent/mascot/mascot-assistant.module.css");
 
 const TILE = `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3C/svg%3E")`;
 const FALLBACK =
@@ -57,7 +61,23 @@ const WASH =
 const TAILS_OFF = "@media (forced-colors:active){.balloon:after,.balloon:before{display:none}}";
 const EDGE =
   "@media (forced-colors:active){.comic-caption[data-voice=you]{border-inline-start-width:calc(var(--line-w)*3)}}";
-const AMR = RIGHT + TOP + YOU + WASH + EDGE + TAILS_OFF;
+/** PR 1's chat strip: balloons and captions. */
+const STRIP = RIGHT + TOP + YOU + WASH + EDGE + TAILS_OFF;
+/** PR 5's panel frame: the panel's down tail and the name plate (globals.css). */
+const DOWN =
+  '.comic-tailed[data-tail=down]:before{content:"";bottom:-.8rem;left:var(--tail-at);border-width:.8rem .4rem 0;border-color:var(--border) transparent transparent}' +
+  '.comic-tailed[data-tail=down]:after{content:"";bottom:-.6rem;left:calc(var(--tail-at) + .1rem);border-width:.65rem .3rem 0;border-color:var(--card) transparent transparent}';
+const PLATE =
+  ".comic-name-plate{--plate-line:var(--line-w);display:inline-block;padding:.125rem .5rem;background-color:var(--card);border:var(--plate-line) solid var(--border);box-shadow:var(--shadow-1);rotate:-1deg}";
+const FLAT = ".hc .comic-name-plate,[data-theme=hc] .comic-name-plate{rotate:none;box-shadow:none}";
+/** The panel's entrance, from the CSS module, its class hashed the way Next names it. */
+const PANEL_ENTER = ".mascot-assistant_panelEnter__Ab1c2";
+const ENTRANCE =
+  `${PANEL_ENTER}{transform-origin:var(--panel-origin,50% 100%)}` +
+  `@media (prefers-reduced-motion:no-preference){${PANEL_ENTER}{transition:opacity var(--dur-surface-in) var(--ease-calm),scale var(--dur-surface-in) var(--ease-calm)}` +
+  `@starting-style{${PANEL_ENTER}{opacity:0;scale:.96}}}`;
+const FRAME = DOWN + PLATE + FLAT + ENTRANCE;
+const AMR = STRIP + FRAME;
 
 const F2_HELD = MARKERS.F2[0].name;
 const F2_READY = MARKERS.F2[1].name;
@@ -74,11 +94,13 @@ describe("check-built-css", () => {
     expect(Object.keys(MARKERS)).toEqual(["F1", "F2", "AMR"]);
     expect(MARKERS.F1).toHaveLength(5);
     expect(MARKERS.F2).toHaveLength(4);
-    expect(MARKERS.AMR).toHaveLength(5);
+    expect(MARKERS.AMR).toHaveLength(8);
   });
 
-  it("finds every marker in globals.css as written", () => {
-    expect(failing(globals)).toEqual([]);
+  it("finds every marker in the sources as written: globals.css, and the entrance in the mascot's module", () => {
+    expect(failing(globals, mascotModule)).toEqual([]);
+    const ENTRANCE_MARKER = MARKERS.AMR[7].name;
+    expect(failing(globals)).toEqual([ENTRANCE_MARKER]);
   });
 
   it("finds every marker in a minified sheet that keeps them", () => {
@@ -162,12 +184,16 @@ describe("check-built-css: F2's held layers", () => {
 });
 
 describe("check-built-css: the chat strip (AMR)", () => {
-  const OTHERS = FALLBACK + LINEAR + GRAIN + OFF + VT;
+  // The panel frame's rules stay in, so each case below flags only the strip's.
+  const OTHERS = FALLBACK + LINEAR + GRAIN + OFF + VT + FRAME;
   const [RIGHT_TAIL, YOU_CAPTION, ALIAS, GUARD, YOU_EDGE] = MARKERS.AMR.map(
     (m: { name: string }) => m.name
   );
 
   it("lists every AMR marker as missing without the chat rules", () => {
+    expect(failing(FALLBACK + LINEAR + GRAIN + OFF + VT)).toEqual(
+      MARKERS.AMR.map((m: { name: string }) => m.name)
+    );
     expect(failing(OTHERS)).toEqual([RIGHT_TAIL, YOU_CAPTION, ALIAS, GUARD, YOU_EDGE]);
   });
 
@@ -229,5 +255,77 @@ describe("check-built-css: the chat strip (AMR)", () => {
     ]);
     // The source keeps the attribute's quotes; the marker reads both.
     expect(failing(CHAT + EDGE.replace("data-voice=you", 'data-voice="you"'))).toEqual([]);
+  });
+});
+
+describe("check-built-css: the panel frame (AMR)", () => {
+  const OTHERS = FALLBACK + LINEAR + GRAIN + OFF + VT + STRIP;
+  const [PANEL_TAIL, PLATE_FLAT, ENTRANCE_MARKER] = MARKERS.AMR.slice(5).map(
+    (m: { name: string }) => m.name
+  );
+
+  it("lists the frame's three markers as missing without its rules", () => {
+    expect(failing(OTHERS)).toEqual([PANEL_TAIL, PLATE_FLAT, ENTRANCE_MARKER]);
+  });
+
+  it("finds the entrance in a sheet of its own, as the CSS module builds", () => {
+    expect(failing(OTHERS + DOWN + PLATE + FLAT, ENTRANCE)).toEqual([]);
+  });
+
+  it("reads the source's quotes, double colons and leading zeros as the build's", () => {
+    const source = DOWN.replace(/=([a-z-]+)\]/g, '="$1"]')
+      .replace(/:(before|after)/g, "::$1")
+      .replace(/(^|[^\d])\.(\d)/g, "$10.$2");
+    expect(source).toContain('[data-tail="down"]::before');
+    expect(source).toContain("bottom:-0.8rem");
+    expect(source).toContain("+ 0.1rem");
+    expect(failing(OTHERS + source + PLATE + FLAT + ENTRANCE)).toEqual([]);
+    const flat = FLAT.replace("data-theme=hc", 'data-theme="hc"');
+    const entrance = ENTRANCE.replace(PANEL_ENTER, ".panelEnter").replace(".96", "0.96");
+    expect(failing(OTHERS + DOWN + PLATE + flat + entrance)).toEqual([]);
+  });
+
+  it("flags a down tail in another paper, on another edge, or with no content", () => {
+    const balloonPaper = DOWN.replace("var(--card)", "var(--balloon-fill)");
+    expect(failing(OTHERS + balloonPaper + PLATE + FLAT + ENTRANCE)).toEqual([PANEL_TAIL]);
+    const up = DOWN.replace(/data-tail=down/g, "data-tail=up");
+    expect(failing(OTHERS + up + PLATE + FLAT + ENTRANCE)).toEqual([PANEL_TAIL]);
+    const top = DOWN.replace("bottom:-.8rem", "top:-.8rem");
+    expect(failing(OTHERS + top + PLATE + FLAT + ENTRANCE)).toEqual([PANEL_TAIL]);
+    const empty = DOWN.replace(/content:"";/g, "");
+    expect(failing(OTHERS + empty + PLATE + FLAT + ENTRANCE)).toEqual([PANEL_TAIL]);
+  });
+
+  it("flags a plate that lost its tilt or shadow, tilts by transform, or stays tilted in high contrast", () => {
+    const upright = PLATE.replace(";rotate:-1deg", "");
+    expect(failing(OTHERS + DOWN + upright + FLAT + ENTRANCE)).toEqual([PLATE_FLAT]);
+    const turned = PLATE.replace("rotate:-1deg", "transform:rotate(-1deg)");
+    expect(failing(OTHERS + DOWN + turned + FLAT + ENTRANCE)).toEqual([PLATE_FLAT]);
+    const blurred = PLATE.replace("var(--shadow-1)", "0 1px 3px var(--shadow-color)");
+    expect(failing(OTHERS + DOWN + blurred + FLAT + ENTRANCE)).toEqual([PLATE_FLAT]);
+    const tilted = FLAT.replace("rotate:none;", "");
+    expect(failing(OTHERS + DOWN + PLATE + tilted + ENTRANCE)).toEqual([PLATE_FLAT]);
+    const classOnly = FLAT.replace(",[data-theme=hc] .comic-name-plate", "");
+    expect(failing(OTHERS + DOWN + PLATE + classOnly + ENTRANCE)).toEqual([PLATE_FLAT]);
+    expect(failing(OTHERS + DOWN + PLATE + ENTRANCE)).toEqual([PLATE_FLAT]);
+  });
+
+  it("flags an entrance outside the motion guard, without its start, or one that moves by transform", () => {
+    const CHAT = OTHERS + DOWN + PLATE + FLAT;
+    const unguarded =
+      `${PANEL_ENTER}{transition:opacity var(--dur-surface-in) var(--ease-calm),scale var(--dur-surface-in) var(--ease-calm)}` +
+      `@starting-style{${PANEL_ENTER}{opacity:0;scale:.96}}`;
+    expect(failing(CHAT + unguarded)).toEqual([ENTRANCE_MARKER]);
+    const reduce = ENTRANCE.replace("no-preference", "reduce");
+    expect(failing(CHAT + reduce)).toEqual([ENTRANCE_MARKER]);
+    const transform = ENTRANCE.replace("scale:.96", "transform:scale(.96)");
+    expect(failing(CHAT + transform)).toEqual([ENTRANCE_MARKER]);
+    const noStart = ENTRANCE.replace(/@starting-style\{.*\}\}$/, "}");
+    expect(noStart).not.toContain("@starting-style");
+    expect(failing(CHAT + noStart)).toEqual([ENTRANCE_MARKER]);
+    const fadeOnly = ENTRANCE.replace(",scale var(--dur-surface-in) var(--ease-calm)", "");
+    expect(failing(CHAT + fadeOnly)).toEqual([ENTRANCE_MARKER]);
+    const otherClass = ENTRANCE.replace(/panelEnter/g, "float");
+    expect(failing(CHAT + otherClass)).toEqual([ENTRANCE_MARKER]);
   });
 });

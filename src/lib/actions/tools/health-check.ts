@@ -475,6 +475,7 @@ registry.register({
   name: "reset",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Clear every health check",
   description:
     "Clear the check in progress and every saved check (custom dimensions stay). Destructive and final for an agent: confirm with the user first. Returns {reset: true}.",
   paramsSchema: z.object({}),

@@ -415,6 +415,7 @@ registry.register({
   name: "refund_unfunded",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Refund the features that fell short",
   description:
     "End of the game: every feature that raised money but fell short of its price gives it back to the pool. Funded features keep theirs. Returns {refunded (features), amount, ids}.",
   paramsSchema: z.object({}),

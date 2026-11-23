@@ -17,8 +17,18 @@
  * the titles and the atlas cost nothing until then.
  */
 
-import { useId, useMemo, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import {
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+} from "react";
 import { Play, Search } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
+import { Eyebrow } from "@/components/ui/eyebrow";
 import { Input } from "@/components/ui/input";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { EXPANSION_SHEETS, type ExpansionFamily } from "./engine/expansion-table";
@@ -26,6 +36,7 @@ import { EXPANSION_TITLES } from "./engine/expansion-titles";
 import { SCENE_THUMBS, THUMB_INDEX } from "./engine/scene-thumbs";
 import { COMPANION_SCENES, galleryScene, sceneReaction, type SceneName } from "./engine/scenes";
 import { shippedScene } from "./engine/sprite-poses";
+import { DOCK_END } from "./panel-context";
 
 /** The companion stories' titles (docs/mascot/companion-scenes.json; a test keeps them equal). */
 export const COMPANION_TITLES: Readonly<Record<string, string>> = {
@@ -49,6 +60,13 @@ const FAMILIES: ReadonlyArray<[ExpansionFamily, string]> = [
   ["guides", "Guides"],
   ["play", "Play"],
 ];
+
+/**
+ * How long typing has to stop before the match count is read out: the tool
+ * finder's wait (visitor-guide's SEARCH_ANNOUNCE_MS; a test keeps them
+ * equal). Its own number, so this chunk doesn't take the guide's module.
+ */
+export const SCENES_ANNOUNCE_MS = 450;
 
 /** A thumbnail's size in the list: the atlas cell (72 x 84) at three quarters. */
 const THUMB = { w: 54, h: 63 };
@@ -147,6 +165,16 @@ export default function ScenesTab({
       ? `No scenes match “${typed}”.`
       : `${count} ${count === 1 ? "scene matches" : "scenes match"} “${typed}”.`;
 
+  // The count, once typing stops: one polite line through the app's
+  // announcer, as the tool finder reads its own; each key press starts the
+  // wait again. The list as it opens is not read out.
+  const announce = useAnnounce();
+  useEffect(() => {
+    if (!wanted) return;
+    const id = setTimeout(() => announce(status), SCENES_ANNOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [wanted, status, announce]);
+
   const play = (scene: SceneName) => {
     useMascotStore.getState().playNow(sceneReaction(scene));
     onPlay();
@@ -209,19 +237,27 @@ export default function ScenesTab({
             autoComplete="off"
           />
         </div>
-        <p role="status" className="text-xs text-sub">
-          {status}
-        </p>
+        {/* Not a live region: the announcer reads the count once typing
+            stops, so it is never said on every key. */}
+        <p className="text-xs text-sub">{status}</p>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3">
+      {/* In the phone's sheet it pans (data-amr-scroll) and ends above Amr
+          docked there, so no scene scrolls under him. */}
+      <div
+        data-amr-scroll=""
+        className={`min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pb-3 ${DOCK_END}`}
+      >
         {shown.map((group) => (
           <div key={group.id} className="pt-2">
-            <h2
+            {/* Under the name plate's h2, as History's groups are; sentence
+                case, on the strip's own paper so no band shows over it. */}
+            <Eyebrow
+              as="h3"
               id={`${uid}-${group.id}`}
-              className="sticky top-0 z-10 bg-surface-deep px-2 py-1 text-xs font-semibold uppercase tracking-wide text-sub"
+              className="sticky top-0 z-10 bg-bg px-2 py-1"
             >
               {group.title}
-            </h2>
+            </Eyebrow>
             <ul aria-labelledby={`${uid}-${group.id}`} className="flex flex-col gap-0.5">
               {group.items.map((item) => (
                 <li key={item.key}>

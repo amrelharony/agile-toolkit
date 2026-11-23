@@ -11,14 +11,14 @@
  *   • shifts mood to the reply's sentiment when the turn ends (and beams at a
  *     warm reply),
  *   • nods on a successful tool result, head-shakes on a tool error, and nods
- *     too when the visitor said no (Deny, a closed card): a choice, not a
+ *     too when the visitor said no (Not now, a closed card): a choice, not a
  *     failure; but only for a result the live turn adds to the thread on
  *     screen: a thread opened from History, resumed, or switched to is
  *     history, not news,
  *   • looks concerned at a real error or a limit (the owner's rate limit, a
  *     visitor's daily allowance, the visitor AI's fallback), never at a gentle
  *     note (an answer cut short, every tool round used),
- *   • holds out the two options and waits while a visitor's Approve or Deny card
+ *   • holds out the two options and waits while a visitor's confirm card (its verb or Not now)
  *     waits for them (companion.ts; the owner's card has a third choice),
  *   • bows when he's thanked.
  *
@@ -136,7 +136,7 @@ function appendedOne(s: AgentStoreState, prev: AgentStoreState): ChatMessage | n
 export function useMascotChatReactions(): void {
   const talking = useAgentStore(isSpeaking);
   const waiting = useAgentStore((s) => s.pendingToolUse !== null);
-  // A visitor's card has exactly two answers, Approve and Deny.
+  // A visitor's card has exactly two answers: its verb and Not now.
   const choosing = useAgentStore((s) => s.pendingToolUse !== null && s.chatProfile === "visitor");
   const notice = useAgentStore((s) => s.notice);
   const limited = useAgentStore(isLimited);

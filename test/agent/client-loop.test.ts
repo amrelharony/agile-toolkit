@@ -29,7 +29,7 @@ const h = vi.hoisted(() => ({
   executeToolUse: vi.fn<
     (
       tu: { id: string; input?: Record<string, unknown> },
-      opts?: { confirm: (summary: string) => Promise<boolean> }
+      opts?: { confirm: (prompt: ConfirmPrompt) => Promise<boolean> }
     ) => Promise<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }>
   >(async (tu) => ({
     type: "tool_result" as const,
@@ -72,7 +72,7 @@ import {
   WRAP_UP_INSTRUCTION,
 } from "@/lib/agent/client";
 import { useAgentStore } from "@/lib/agent/store";
-import type { ChatMessage, ConversationMeta, ToolUseBlock } from "@/lib/agent/types";
+import type { ChatMessage, ConfirmPrompt, ConversationMeta, ToolUseBlock } from "@/lib/agent/types";
 
 const PROBE_TOOL = "tool_loop_probe_read_state";
 registry.register({
@@ -567,6 +567,8 @@ describe("round-limit wrap-up", () => {
 
     const last = lastAssistant()!;
     expect(last.content).toHaveLength(1);
+    // Marked as narration, so the chat draws it as a caption, not Amr's balloon.
+    expect(last.content[0]).toMatchObject({ type: "text", note: true });
     const note = (last.content[0] as { text: string }).text;
     expect(note.startsWith(NOTE_START)).toBe(true);
     expect(note).toContain("10 tool calls; none failed");
@@ -784,7 +786,13 @@ describe("a turn stays in its own thread", () => {
 
   it("opening another thread while a change waits denies it, keeps its saved thread whole and shows nothing in the other", async () => {
     h.executeToolUse.mockImplementationOnce(async (tu, opts) => {
-      const ok = await opts!.confirm("Read the loop probe's state?");
+      const ok = await opts!.confirm({
+        verb: "Read",
+        title: "Loop probe",
+        question: "Read in Loop probe?",
+        detail: "",
+        destructive: false,
+      });
       return {
         type: "tool_result",
         tool_use_id: tu.id,

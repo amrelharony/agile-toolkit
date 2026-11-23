@@ -1,5 +1,6 @@
 /**
- * The chat strip's comic parts (src/components/agent/comic/comic-parts.tsx):
+ * The chat strip's comic parts (src/components/agent/comic/: comic-parts.tsx
+ * for the parts every-page code draws, strip-parts.tsx for the chat's own):
  * Amr's balloon with its tail toward him, the scribble balloon while he
  * thinks, the reader's caption, narration and the scene caption. These pin
  * who is speaking for screen readers (a hidden prefix kept outside the
@@ -13,17 +14,15 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  AmrBalloon,
-  Narration,
-  SceneCaption,
-  ThinkingBalloon,
-  YouCaption,
-} from "@/components/agent/comic/comic-parts";
+import { Narration, YouCaption } from "@/components/agent/comic/comic-parts";
+import { AmrBalloon, SceneCaption, ThinkingBalloon } from "@/components/agent/comic/strip-parts";
 
 const ROOT = path.resolve(__dirname, "../..");
 const COMIC_DIR = path.join(ROOT, "src/components/agent/comic");
-const SOURCE = readFileSync(path.join(COMIC_DIR, "comic-parts.tsx"), "utf8");
+// Both files of parts, read as one source: the class rules hold across them.
+const SOURCE = ["comic-parts.tsx", "strip-parts.tsx"]
+  .map((f) => readFileSync(path.join(COMIC_DIR, f), "utf8"))
+  .join("\n");
 const GLOBALS = readFileSync(path.join(ROOT, "src/app/globals.css"), "utf8");
 
 const classes = (el: Element) => (el.getAttribute("class") ?? "").split(/\s+/).filter(Boolean);
@@ -327,10 +326,12 @@ describe("the parts together", () => {
 
 describe("the comic folder", () => {
   const files = readdirSync(COMIC_DIR).filter((f) => /\.(ts|tsx)$/.test(f));
-  const ALLOWED = /^(?:react|@\/lib\/utils|@\/components\/ink\/[\w-]+|@\/lib\/ink\/[\w/-]+)$/;
+  // A sibling in the folder (strip-parts shares comic-parts' body class) is fine.
+  const ALLOWED =
+    /^(?:react|@\/lib\/utils|@\/components\/ink\/[\w-]+|@\/lib\/ink\/[\w/-]+|\.\/[\w-]+)$/;
 
-  it("imports only react, @/lib/utils and the ink art", () => {
-    expect(files).toContain("comic-parts.tsx");
+  it("imports only react, @/lib/utils, the ink art and its own files", () => {
+    expect(files).toEqual(expect.arrayContaining(["comic-parts.tsx", "strip-parts.tsx"]));
     for (const f of files) {
       const src = readFileSync(path.join(COMIC_DIR, f), "utf8");
       const specs = Array.from(src.matchAll(/\b(?:from|import)\s*\(?\s*["']([^"']+)["']/g)).map(

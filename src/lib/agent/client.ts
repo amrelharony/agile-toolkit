@@ -31,7 +31,13 @@ import { executeToolUse } from "./execute-tool";
 import { buildVisitorTurnTools } from "./visitor-tools";
 import { inLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { appendMessages, deleteMessagesBetween, recordChatUsage } from "./persist";
-import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "./types";
+import type {
+  ChatMessage,
+  ConfirmPrompt,
+  ContentBlock,
+  ToolResultBlock,
+  ToolUseBlock,
+} from "./types";
 
 /** Text of the most recent user message (joined text blocks), or "" if none. */
 function lastUserText(messages: ChatMessage[]): string {
@@ -1345,8 +1351,9 @@ function withWrapUpText(
   const store = useAgentStore.getState();
   const msg = assistantId ? store.messages.find((m) => m.id === assistantId) : undefined;
   if (msg?.content.some((c) => c.type === "text" && c.text.trim().length > 0)) return msg.id;
+  // Narration, not Amr's words: marked, so the chat draws it as a caption.
   const note: ContentBlock[] = [
-    { type: "text", text: roundLimitNote(store.messages, rounds, followUp) },
+    { type: "text", text: roundLimitNote(store.messages, rounds, followUp), note: true },
   ];
   if (msg) {
     store.patchMessage(msg.id, note);
@@ -1658,10 +1665,15 @@ async function handleVisitorResponse(
     /* not JSON: fall back to the status below */
   }
   if (signal?.aborted) return { stopReason: "end_turn", assistantId: null };
-  if (code && VISITOR_FALLBACK_CODES.has(code)) store.setVisitorFallback(code);
+  const fallback = !!code && VISITOR_FALLBACK_CODES.has(code);
+  if (fallback) store.setVisitorFallback(code);
   // A refusal with no code of the route's own: its status is for the console.
   if (!code) console.warn(`[visitor-ai] the request was refused (${response.status})`);
-  store.setNotice(visitorRefusalNotice(code, response.status));
+  // "No more AI for now" is said by what takes the composer's place (the
+  // read-only footer) or the guide's note, so the chat's announcer stays quiet.
+  // The notice stays, for Amr's look and for what clears it by its kind.
+  const notice = visitorRefusalNotice(code, response.status);
+  store.setNotice(fallback ? { ...notice, quiet: true } : notice);
   return { stopReason: "end_turn", assistantId: null };
 }
 
@@ -2178,8 +2190,9 @@ function resultIdsAfter(messages: ChatMessage[], i: number): Set<string> {
   return ids;
 }
 
-function makeConfirmHandler(block: ToolUseBlock): (summary: string) => Promise<boolean> {
-  return async (summary: string) => {
+/** The confirm card's handler for one call: it shows `prompt` (execute-tool's words) and waits for the answer. */
+function makeConfirmHandler(block: ToolUseBlock): (prompt: ConfirmPrompt) => Promise<boolean> {
+  return async (prompt: ConfirmPrompt) => {
     const store = useAgentStore.getState();
     return await new Promise<boolean>((resolve) => {
       const dotted = registry.resolve(block.name)?.id ?? block.name;
@@ -2199,7 +2212,7 @@ function makeConfirmHandler(block: ToolUseBlock): (summary: string) => Promise<b
         actionId: block.name,
         resolvedActionId: dotted,
         input: block.input,
-        summary,
+        prompt,
         resolve: settle,
       });
     });

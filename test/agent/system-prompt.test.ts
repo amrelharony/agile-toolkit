@@ -4,8 +4,9 @@
  * the prompt now carries today's date and an instruction to compute from it.
  *
  * Also the one Amr voice and the shared reply rules (reply-format.ts): the
- * prompt opens "You are Amr", asks for lists and no tables, emoji, backticked
- * ids or dashes, and is written without them itself, since the model copies it.
+ * prompt opens "You are Amr", asks for lists and only small tables (the chat
+ * shows them, but it is narrow), no emoji, backticked ids or dashes, and is
+ * written without them itself, since the model copies it.
  */
 
 import { describe, it, expect, vi } from "vitest";
@@ -59,10 +60,12 @@ function fullPrompt(): string {
 }
 
 describe("REPLY_FORMAT_RULES", () => {
-  it("asks for plain sentences and lists, with no tables, emoji, ids or dashes", () => {
+  it("asks for plain sentences, lists and small tables, with no emoji, ids or dashes", () => {
     expect(REPLY_FORMAT_RULES).toMatch(/plain sentences in short paragraphs/);
     expect(REPLY_FORMAT_RULES).toMatch(/bulleted or numbered list/);
-    expect(REPLY_FORMAT_RULES).toMatch(/lists, no tables/i);
+    expect(REPLY_FORMAT_RULES).toMatch(/A small table is fine/);
+    expect(REPLY_FORMAT_RULES).toMatch(/at most 3 short columns/);
+    expect(REPLY_FORMAT_RULES).not.toMatch(/no tables/i);
     expect(REPLY_FORMAT_RULES).toMatch(/No emoji\./);
     expect(REPLY_FORMAT_RULES).toMatch(/Never show an action id or a tool id/);
     expect(REPLY_FORMAT_RULES).toMatch(/in backticks or otherwise/);
@@ -93,12 +96,12 @@ describe("buildSystemPrompt formatting guidance", () => {
     expect(p).not.toMatch(/Use emojis/i);
   });
 
-  it("carries the shared reply rules under Formatting: lists, no tables", () => {
+  it("carries the shared reply rules under Formatting: lists, small tables", () => {
     const p = buildSystemPrompt();
     expect(p).toContain(REPLY_FORMAT_RULES);
     expect(p.indexOf(REPLY_FORMAT_RULES)).toBeGreaterThan(p.indexOf("Formatting:"));
     expect(p.indexOf(REPLY_FORMAT_RULES)).toBeLessThan(p.indexOf("Current context:"));
-    expect(p).toMatch(/no tables/i);
+    expect(p).toMatch(/at most 3 short columns/);
   });
 
   it("no longer asks for backticked ids", () => {
@@ -133,13 +136,39 @@ describe("buildSystemPrompt voice", () => {
   it("keeps the rules about tools and confirmation", () => {
     const p = buildSystemPrompt();
     expect(p).toMatch(/workspace_sprint_create \(dots become underscores; the runtime resolves/);
-    expect(p).toMatch(/Read actions execute immediately\. Write actions are gated by per-call/);
+    expect(p).toMatch(/Read actions execute immediately\./);
     expect(p).toMatch(/Always reach for an action when one fits/);
     expect(p).toMatch(/Multi-step requests: chain tools/);
     expect(p).toMatch(/Never invent ids or state\. List first, then act\./);
-    expect(p).toMatch(/Echo the planned action\(s\) to the user briefly before invoking/);
+    expect(p).toMatch(/Before a delete or a reset, say briefly what you are about to do/);
     expect(p).toMatch(/denies a confirmation, summarise and offer alternatives/);
     expect(p).toMatch(/up to 10 tool-use round-trips per turn/);
+  });
+});
+
+describe("buildSystemPrompt confirmation lines", () => {
+  // What the chat does (lib/agent/execute-tool): deletes and resets always
+  // ask, even after Approve all; most writes inside a tool run with no card.
+  it("says Amr asks before deleting or resetting anything, even after Approve all", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/You ask before deleting or resetting anything/);
+    expect(p).toMatch(
+      /every delete, remove, reset, clear or archive shows the user a confirmation card/
+    );
+    expect(p).toMatch(/even after they chose not to be asked again/);
+  });
+
+  it("says other changes may run with no card, and to say what changed", () => {
+    const p = buildSystemPrompt();
+    expect(p).toMatch(/Other changes inside a tool run straight away with no card/);
+    expect(p).toMatch(/after each one say plainly what you changed/);
+    expect(p).toMatch(/Never promise a card for a change that runs without one/);
+  });
+
+  it("no longer claims every write is confirmed", () => {
+    const p = buildSystemPrompt();
+    expect(p).not.toMatch(/Write actions are gated by per-call user confirmation/);
+    expect(p).not.toMatch(/follow the same confirmation rules/);
   });
 });
 

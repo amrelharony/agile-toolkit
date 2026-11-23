@@ -36,6 +36,7 @@ import {
   useDockTimer,
   useSaysOwnTimesUp,
 } from "@/lib/timer/dock-timer";
+import { useMascotStore } from "@/lib/agent/mascot/store";
 import { CeremonyTimerClient } from "@/app/(tools)/ceremony-timer/ceremony-timer-client";
 import { useTimerSession } from "@/app/(tools)/ceremony-timer/store";
 
@@ -110,6 +111,54 @@ describe("DockedTimer", () => {
     expect(pill).toHaveAttribute("data-vt-hold", "dock-timer");
     expect(pill).toContainElement(screen.getByRole("timer"));
     expect(container.querySelectorAll("[data-vt-hold]")).toHaveLength(1);
+  });
+
+  it("is inert while Amr's phone sheet covers it, a timer that comes under it too", () => {
+    const publish = () =>
+      useDockTimer.getState().publish({
+        label: "Standup",
+        href: "/ceremony-timer",
+        totalSeconds: 900,
+        endsAt: Date.now() + 120_000,
+        pausedRemaining: 120,
+      });
+    const panel = (p: "sheet" | "side" | "float" | null) =>
+      act(() => useMascotStore.getState().setPanel(p));
+    try {
+      publish();
+      const { container, unmount } = render(<DockedTimer />);
+      const pill = () => container.firstElementChild!;
+      expect(pill()).not.toHaveAttribute("inert");
+      panel("sheet");
+      expect(pill()).toHaveAttribute("inert");
+      // His other layouts leave the page live.
+      panel("side");
+      expect(pill()).not.toHaveAttribute("inert");
+      panel("float");
+      expect(pill()).not.toHaveAttribute("inert");
+      panel("sheet");
+      expect(pill()).toHaveAttribute("inert");
+      panel(null);
+      expect(pill()).not.toHaveAttribute("inert");
+
+      // Started while the sheet is open: inert as it comes.
+      act(() => useDockTimer.getState().stop());
+      expect(container).toBeEmptyDOMElement();
+      panel("sheet");
+      act(() => publish());
+      expect(pill()).toHaveAttribute("inert");
+      panel(null);
+      expect(pill()).not.toHaveAttribute("inert");
+
+      // Inert held by something else (an overlay's siblings) stays when the sheet goes.
+      pill().setAttribute("inert", "");
+      panel("sheet");
+      panel(null);
+      expect(pill()).toHaveAttribute("inert");
+      unmount();
+    } finally {
+      useMascotStore.getState().setPanel(null);
+    }
   });
 
   it("says time's up instead of counting below zero", () => {
