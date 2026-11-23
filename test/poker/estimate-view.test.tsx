@@ -160,6 +160,22 @@ describe("the estimator's page", () => {
     expect(h.toast.error).not.toHaveBeenCalled();
   });
 
+  it("moves focus into a note when it opens, and back to its button when it goes", () => {
+    openLink();
+    render(<EstimateView />);
+    const pay = storyItem("Pay by phone");
+    const add = within(pay).getByRole("button", { name: /^Add a note/ });
+    add.focus();
+    fireEvent.click(add);
+    expect(document.activeElement).toBe(
+      within(pay).getByRole("textbox", { name: "Note on “Pay by phone”" })
+    );
+    const remove = within(pay).getByRole("button", { name: "Remove the note on “Pay by phone”" });
+    remove.focus();
+    fireEvent.click(remove);
+    expect(document.activeElement).toBe(within(pay).getByRole("button", { name: /^Add a note/ }));
+  });
+
   it("takes at most five notes", () => {
     const stories = Array.from({ length: 6 }, (_, i) => ({ id: `s${i}`, title: `Story ${i}` }));
     openLink({ ...ROUND, stories });

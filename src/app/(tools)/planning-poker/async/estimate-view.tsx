@@ -12,7 +12,7 @@
  * the person copies their reply, as the notice at the top says.
  */
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Send, Share2, StickyNote, X } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { EmptyState } from "@/components/shared/empty-state";
@@ -117,8 +117,22 @@ function EstimateForm({ pack }: { pack: AsyncPack }) {
       notes: [...draft.notes.filter((n) => n.story !== index), { story: index, text }],
     });
   };
+  // Opening a note swaps "Add a note" for its box, and Remove swaps it back:
+  // focus goes to what took the pressed control's place, not to the page.
+  const focusNext = useRef<{ index: number; to: "note" | "add" } | null>(null);
+  const focusWhen = (index: number, to: "note" | "add") => (el: HTMLElement | null) => {
+    const want = focusNext.current;
+    if (!el || !want || want.index !== index || want.to !== to) return;
+    focusNext.current = null;
+    el.focus();
+  };
+  const openNote = (index: number) => {
+    focusNext.current = { index, to: "note" };
+    setOpenNotes((open) => [...open, index]);
+  };
   const closeNote = (index: number) => {
     setCode(null);
+    focusNext.current = { index, to: "add" };
     setOpenNotes((open) => open.filter((i) => i !== index));
     update({ notes: draft.notes.filter((n) => n.story !== index) });
   };
@@ -236,6 +250,7 @@ function EstimateForm({ pack }: { pack: AsyncPack }) {
                           {(props) => (
                             <Textarea
                               {...props}
+                              ref={focusWhen(index, "note")}
                               rows={2}
                               value={noteText(index)}
                               maxLength={POKER_ASYNC_MAX.note}
@@ -257,12 +272,13 @@ function EstimateForm({ pack }: { pack: AsyncPack }) {
                       </div>
                     ) : (
                       <Button
+                        ref={focusWhen(index, "add")}
                         type="button"
                         variant="ghost"
                         size="sm"
                         className="self-start gap-1.5 pointer-coarse:min-h-11"
                         disabled={notesFull}
-                        onClick={() => setOpenNotes((open) => [...open, index])}
+                        onClick={() => openNote(index)}
                       >
                         <StickyNote aria-hidden="true" />
                         Add a note

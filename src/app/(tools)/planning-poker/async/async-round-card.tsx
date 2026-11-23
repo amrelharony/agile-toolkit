@@ -17,7 +17,7 @@
  * Replace, Keep both ("Lee (2)") or Ignore. Close and Delete come with Undo.
  */
 
-import { useEffect, useId, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { Eye, Lock, MessageSquare, Plus, Share2, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
@@ -126,6 +126,20 @@ export function AsyncRoundCard({
     announce(text);
   };
 
+  // Reveal and Close swap the round's controls for its next state, taking
+  // the pressed button away: focus moves to the round's heading once the
+  // card shows that state (after any move in the list), not to the page.
+  const headingRef = useRef<HTMLHeadingElement>(null);
+  const focusHeading = useRef(false);
+  const focusHeadingNext = () => {
+    focusHeading.current = true;
+  };
+  useEffect(() => {
+    if (!focusHeading.current) return;
+    focusHeading.current = false;
+    headingRef.current?.focus();
+  }, [round.status]);
+
   const scaleType = scaleTypeOf(round.scaleType);
   const meta = [
     STATUS_LABEL[round.status],
@@ -148,6 +162,7 @@ export function AsyncRoundCard({
     const before = roundById(round.id);
     if (!before) return;
     const estimated = before.stories.filter((s) => s.finalEstimate).length;
+    focusHeadingNext();
     undoable({
       label: `Closed “${shortTitle(before.title)}”`,
       description: "Names and notes were dropped. The cards stay.",
@@ -168,7 +183,12 @@ export function AsyncRoundCard({
     >
       <header className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0 flex-1 basis-48">
-          <h3 id={headingId} className="font-display text-base text-text break-words">
+          <h3
+            id={headingId}
+            ref={headingRef}
+            tabIndex={-1}
+            className="font-display text-base text-text break-words"
+          >
             {round.title}
           </h3>
           <p className="text-xs text-sub">{meta}</p>
@@ -192,7 +212,14 @@ export function AsyncRoundCard({
       </header>
 
       {round.status === "open" && (
-        <OpenRound round={round} hostName={hostName} log={log} say={say} onClose={close} />
+        <OpenRound
+          round={round}
+          hostName={hostName}
+          log={log}
+          say={say}
+          onClose={close}
+          onRevealed={focusHeadingNext}
+        />
       )}
       {round.status === "revealed" && (
         <RevealedRound
@@ -222,12 +249,15 @@ function OpenRound({
   log,
   say,
   onClose,
+  onRevealed,
 }: {
   round: PokerAsyncRound;
   hostName: string;
   log: Log;
   say: (text: string) => void;
   onClose: () => void;
+  /** Reveal went through: the card moves focus to the round's heading. */
+  onRevealed: () => void;
 }) {
   const references = useCardReferences(scaleTypeOf(round.scaleType), round.deck);
   const [origin, setOrigin] = useState("");
@@ -252,6 +282,7 @@ function OpenRound({
   const [ownOpen, setOwnOpen] = useState(false);
   const [ownPicks, setOwnPicks] = useState<(string | null)[]>(() => round.stories.map(() => null));
   const [ownError, setOwnError] = useState<string | null>(null);
+  const ownToggleRef = useRef<HTMLButtonElement>(null);
 
   const added = (name: string, n: number) => {
     log(PLANNING_POKER_ACTIONS.ASYNC_REPLY_ADDED, { roundId: round.id, replies: n });
@@ -349,6 +380,8 @@ function OpenRound({
     setOwnError(null);
     setOwnOpen(false);
     setOwnPicks(round.stories.map(() => null));
+    // "Add my cards" goes with the panel: back to the button that opened it.
+    ownToggleRef.current?.focus();
     run([made.values.reply], tally());
   };
 
@@ -358,6 +391,7 @@ function OpenRound({
     // The stories worth a conversation start ticked for "Talk about it live".
     const problem = saveRound(revealAndFlag(current, new Date().toISOString()));
     if (problem) return say(problem);
+    onRevealed();
     log(PLANNING_POKER_ACTIONS.ASYNC_REVEALED, {
       roundId: current.id,
       replies: current.replies.length,
@@ -373,6 +407,18 @@ function OpenRound({
   );
   const clash = waiting[0];
   const n = round.replies.length;
+
+  // A clash swaps the paste box for its Replace / Keep both / Ignore group,
+  // and the choice swaps it back: focus follows, rather than falling to the
+  // page with the pressed button.
+  const clashRef = useRef<HTMLDivElement>(null);
+  const pasteRef = useRef<HTMLTextAreaElement>(null);
+  const hadClash = useRef(false);
+  useEffect(() => {
+    if (clash) clashRef.current?.focus();
+    else if (hadClash.current) pasteRef.current?.focus();
+    hadClash.current = Boolean(clash);
+  }, [clash]);
 
   return (
     <div className="flex flex-col gap-3">
@@ -445,7 +491,9 @@ function OpenRound({
 
       {clash ? (
         <div
+          ref={clashRef}
           role="group"
+          tabIndex={-1}
           aria-label={`${clash.name}'s reply`}
           className="flex flex-col gap-2 rounded-md border border-warning/30 bg-warning/10 px-3 py-2"
         >
@@ -473,6 +521,7 @@ function OpenRound({
             {(props) => (
               <Textarea
                 {...props}
+                ref={pasteRef}
                 rows={2}
                 value={pasted}
                 onChange={(e) => setPasted(e.target.value)}
@@ -493,6 +542,7 @@ function OpenRound({
               Add replies
             </Button>
             <Button
+              ref={ownToggleRef}
               type="button"
               variant="outline"
               size="sm"

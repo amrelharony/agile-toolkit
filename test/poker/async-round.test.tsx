@@ -522,6 +522,56 @@ describe("talking about it live", () => {
   });
 });
 
+describe("keyboard focus", () => {
+  it("follows a clash, then lands on the round's heading after Reveal and Close", () => {
+    const r = round({ replies: [reply("a", "Lee", ["1", "1"])] });
+    useWorkspaceStore.setState({ pokerAsyncRounds: [r] });
+    render(<AsyncRoundsPanel hostName="Priya" />);
+    const heading = () => screen.getByRole("heading", { name: "Checkout stories" });
+    /** Press a button the way a keyboard does: focused, then clicked. */
+    const press = (name: string) => {
+      const button = within(article()).getByRole("button", { name });
+      button.focus();
+      fireEvent.click(button);
+    };
+
+    fireEvent.change(within(article()).getByLabelText("Paste reply codes"), {
+      target: { value: codeFor(r, "Lee", ["8", "8"]) },
+    });
+    press("Add replies");
+    expect(document.activeElement).toBe(
+      within(article()).getByRole("group", { name: "Lee's reply" })
+    );
+    press("Ignore");
+    expect(document.activeElement).toBe(within(article()).getByLabelText("Paste reply codes"));
+
+    press("Reveal the cards");
+    expect(rounds()[0].status).toBe("revealed");
+    expect(document.activeElement).toBe(heading());
+    press("Close the round");
+    expect(rounds()[0].status).toBe("closed");
+    expect(document.activeElement).toBe(heading());
+  });
+
+  it("goes back to “Add my own cards” once the host's cards are in", () => {
+    useWorkspaceStore.setState({ pokerAsyncRounds: [round()] });
+    render(<AsyncRoundsPanel hostName="Priya" />);
+    fireEvent.click(within(article()).getByRole("button", { name: "Add my own cards" }));
+    fireEvent.click(
+      within(
+        within(article()).getByRole("radiogroup", { name: "Your card for “Pay by phone”" })
+      ).getByRole("radio", { name: "5" })
+    );
+    const add = within(article()).getByRole("button", { name: "Add my cards" });
+    add.focus();
+    fireEvent.click(add);
+    expect(rounds()[0].replies).toHaveLength(1);
+    expect(document.activeElement).toBe(
+      within(article()).getByRole("button", { name: "Add my own cards" })
+    );
+  });
+});
+
 describe("closing and deleting", () => {
   it("close drops names and notes, with Undo", () => {
     const r = round({
