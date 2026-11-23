@@ -60,6 +60,7 @@ import { generateRoomCode } from "./room-code";
 import { signalGamification } from "@/lib/gamification/signal";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { heldStoryIds, readAsyncRound, withStoryEstimate } from "@/lib/estimation/async-rounds";
+import { agreeTypedStory, saveRound } from "./async/round-store";
 import type { AsyncLiveStart } from "./lobby-screen";
 
 // A visitor's live room only: the room's bar (its timer, big screen and
@@ -410,14 +411,18 @@ export function PlanningPokerClient() {
       });
     }
     // A story a round without a meeting sent here ("Talk about it live")
-    // keeps the agreed card on that round too.
-    const { pokerAsyncRounds, upsertPokerAsyncRound } = useWorkspaceStore.getState();
+    // is agreed on that round too, as its own Accept would: a queue story's
+    // estimate went back where it came from just above, and a typed story
+    // is saved to the backlog under the same id (so the session's own Save
+    // to backlog finds it saved), with Undo.
     const at = new Date().toISOString();
-    for (const round of pokerAsyncRounds ?? []) {
+    for (const stored of useWorkspaceStore.getState().pokerAsyncRounds ?? []) {
+      const round = readAsyncRound(stored);
       if (round.status === "closed") continue;
       const story = round.stories.find((st) => st.id === storyId);
       if (!story || story.finalEstimate) continue;
-      upsertPokerAsyncRound(withStoryEstimate(round, storyId, value, at));
+      if (item) saveRound(withStoryEstimate(round, storyId, value, at));
+      else agreeTypedStory(round.id, story, value);
     }
   };
 

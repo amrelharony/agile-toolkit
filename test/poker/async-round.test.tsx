@@ -461,6 +461,38 @@ describe("talking about it live", () => {
     // The round's cards are the story's first round.
     expect(screen.getByRole("list", { name: "Voting rounds" }).textContent).toBe("Round 1: 3 · 13");
   });
+
+  /** In the live session: vote, reveal and accept the one card. */
+  function voteRevealAccept(value: string) {
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: "Your vote" })).getByRole("radio", {
+        name: value,
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: /^Reveal/ }));
+    fireEvent.click(screen.getByRole("button", { name: `Accept ${value}` }));
+  }
+
+  it("saves a typed story accepted live to the backlog, as Accept on the round does", async () => {
+    useWorkspaceStore.setState({ pokerAsyncRounds: [revealed()] });
+    render(<PlanningPokerClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Talk about it live (1)" }));
+    expect(await screen.findByRole("heading", { name: "Pay by phone" })).toBeTruthy();
+
+    voteRevealAccept("5");
+    expect(rounds()[0].stories[0].finalEstimate).toBe("5");
+    expect(ws().stories).toEqual([
+      expect.objectContaining({
+        title: "Pay by phone",
+        points: 5,
+        sourceRef: { tool: "planning-poker", id: "s1" },
+      }),
+    ]);
+    // One Undo takes back the backlog story and the round's agreed card.
+    act(() => h.undos.at(-1)!.revert());
+    expect(ws().stories).toEqual([]);
+    expect(rounds()[0].stories[0].finalEstimate).toBeUndefined();
+  });
 });
 
 describe("closing and deleting", () => {
