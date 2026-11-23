@@ -740,6 +740,20 @@ describe("Ask Amr, with no AI", () => {
     expect(Object.values(back.sections).flat()).toEqual([]);
   });
 
+  it("keeps a drafted paragraph's line breaks when it lands in an empty paragraph box", async () => {
+    const why = "Card machines cost too much.\n\nStalls lose sales with no signal.";
+    useWorkspaceStore.setState({ productGoals: [{ ...goal, why }] });
+    seed(canvas({ id: "pcanvas_lx", format: "lean-ux", title: "Queue" }));
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest without AI" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    fireEvent.click(within(list).getByRole("button", { name: /^Add all/ }));
+    expect(byId("pcanvas_lx")!.sections.problem[0].text).toBe(why);
+    expect(screen.getByLabelText("Business problem")).toHaveValue(why);
+    undoLast();
+    expect(byId("pcanvas_lx")!.sections.problem).toEqual([]);
+  });
+
   it("offers Amr's other wording for a filled box only as Replace, one at a time, with Undo", async () => {
     vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
     localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);

@@ -562,6 +562,32 @@ describe("writes", () => {
     ]);
   });
 
+  it("keeps a drafted paragraph's line breaks, as withText would, and Undo takes it out", () => {
+    const summary = "Tapline takes cards.\r\n\r\nNo card machine needed.";
+    let n = 0;
+    const r = withDraftLines(
+      canvas("pr-faq"),
+      [
+        { sectionId: "summary", text: summary },
+        { sectionId: "headline", text: "Tapline\nlaunches" },
+      ],
+      NOW,
+      () => `d${++n}`
+    );
+    const w = ok(r.write);
+    expect(w.canvas.sections.summary).toEqual([
+      item("d1", "Tapline takes cards.\n\nNo card machine needed."),
+    ]);
+    expect(w.canvas.sections.summary).toEqual(
+      ok(withText(canvas("pr-faq"), "summary", summary, NOW, () => "d1")).canvas.sections.summary
+    );
+    // A one-line box still takes one line.
+    expect(w.canvas.sections.headline).toEqual([item("d2", "Tapline launches")]);
+    const undone = removeDraftLines(w.canvas.sections, r.added);
+    expect(undone.summary).toEqual([]);
+    expect(undone.headline).toEqual([]);
+  });
+
   it("never lets an accepted draft overwrite a box that holds text", () => {
     const c = canvas("vision-board", { vision: [item("v", "Ours")] });
     const r = withDraftLines(c, [{ sectionId: "vision", text: "Theirs" }], NOW);

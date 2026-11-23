@@ -313,6 +313,17 @@ describe("tool.product_canvas.create_canvas", () => {
     expect(c.sections.users[0]).toMatchObject({ evidence: "assumption" });
     expect(c.sections.users[0].text).toMatch(/\[/);
   });
+
+  it("keeps the line breaks of a goal's why in the paragraph box it starts", async () => {
+    const why = "Card machines cost too much.\n\nStalls lose sales with no signal.";
+    useWorkspaceStore.setState({ productGoals: [{ ...goal, why }] });
+    const out = await run<{ id: string }>("tool.product_canvas.create_canvas", {
+      format: "lean-ux",
+      title: "Queue",
+      fromGoal: true,
+    });
+    expect(stored(out.id)!.sections.problem[0].text).toBe(why);
+  });
 });
 
 describe("tool.product_canvas writes", () => {

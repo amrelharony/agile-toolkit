@@ -699,7 +699,8 @@ export interface AcceptedLine extends DraftLine {
 /**
  * Accepted draft lines added through the kit's `addDraftLines` (never
  * over typed text), each marked a guess in an evidence box and keeping its
- * answer in a question list. Lines past the canvas's room are left out and
+ * answer in a question list; text for a paragraph box keeps its line
+ * breaks (the kit makes it one line). Lines past the canvas's room are left out and
  * counted in `skipped`, with those the kit found no room for. `added` says
  * where each went, for Undo (`removeDraftLines`).
  */
@@ -723,9 +724,15 @@ export function withDraftLines(
   const keptIds = new Set(kept.map((a) => a.itemId));
   const addedIds = new Set(result.added.map((a) => a.itemId));
   const details = new Map<string, string>();
+  // The kit adds every line as one line; a paragraph box's text keeps its
+  // line breaks, as typing it or "Replace" would save it.
+  const paragraphs = new Map<string, string>();
   for (const line of accepted) {
-    if (line.detail?.trim())
-      details.set(`${line.sectionId}\u0000${lineKey(line.text)}`, line.detail);
+    const key = `${line.sectionId}\u0000${lineKey(line.text)}`;
+    if (line.detail?.trim()) details.set(key, line.detail);
+    if (sectionDef(format, line.sectionId)?.kind === "long" && !paragraphs.has(key)) {
+      paragraphs.set(key, line.text);
+    }
   }
   const sections: Sections<ProductCanvasItem> = {};
   for (const [sectionId, items] of Object.entries(result.sections)) {
@@ -734,8 +741,11 @@ export function withDraftLines(
       if (!addedIds.has(item.id)) return [item];
       if (!keptIds.has(item.id)) return [];
       const next: ProductCanvasItem = { ...item };
+      const key = `${sectionId}\u0000${lineKey(item.text)}`;
+      const paragraph = def?.kind === "long" ? paragraphs.get(key) : undefined;
+      if (paragraph) next.text = cleanPara(paragraph, LONG_MAX) || next.text;
       if (def?.evidence) next.evidence = "assumption";
-      const detail = details.get(`${sectionId}\u0000${lineKey(item.text)}`);
+      const detail = details.get(key);
       if (def?.qa && detail) next.detail = cutText(detail.trim(), DETAIL_MAX);
       return [next];
     });
