@@ -22,7 +22,9 @@
  *     Days an impediment stayed open are never ranked beside item days: one
  *     left open for 60 days would outrank dozens of item-days.
  *
- * Example rows are left out. Pure and server-safe (the agent actions call it).
+ * Example rows are left out unless asked for (the Impediments page keeps its
+ * own example in the workspace). Pure and server-safe (the agent actions
+ * call it).
  */
 
 import { BLOCKER_CLUSTER_MAX } from "@/lib/stores/workspace-types";
@@ -100,7 +102,16 @@ export interface BlockerRow {
   month: string;
 }
 
-const real = (id: unknown) => typeof id === "string" && id !== "" && !isExampleId(id);
+/** Read options: the Impediments page keeps its own example's rows, which live in the workspace. */
+export interface BlockerReadOptions {
+  includeExamples?: boolean;
+}
+
+/** A row id to read: there, and not an example unless asked for. */
+const keeper =
+  ({ includeExamples = false }: BlockerReadOptions = {}) =>
+  (id: unknown) =>
+    typeof id === "string" && id !== "" && (includeExamples || !isExampleId(id));
 
 const IMPEDIMENT_ROUTE = "impediment";
 
@@ -128,8 +139,10 @@ export function blockerRows(
   stories: readonly Story[],
   cards: readonly KanbanCard[],
   impediments: readonly Impediment[],
-  window: BlockerWindow
+  window: BlockerWindow,
+  opts: BlockerReadOptions = {}
 ): BlockerRow[] {
+  const real = keeper(opts);
   const start = dayStartMs(window.from) ?? 0;
   const end = Math.min(window.now, (dayStartMs(window.to) ?? window.now) + DAY_MS);
   const range = { start, end };
@@ -178,7 +191,7 @@ export function blockerRows(
   for (const c of cards) if (c && real(c.id)) spellRows("card", c);
 
   const today = window.to;
-  for (const i of impById.values()) {
+  for (const i of Array.from(impById.values())) {
     const raised = dayOf(i.raisedAt);
     if (!inWindow(raised)) continue;
     const own = textOf(i.cluster);
@@ -410,8 +423,10 @@ export interface BlockedWork {
 export function blockedWork(
   stories: readonly Story[],
   cards: readonly KanbanCard[],
-  window: BlockerWindow
+  window: BlockerWindow,
+  opts: BlockerReadOptions = {}
 ): BlockedWork | null {
+  const real = keeper(opts);
   const inWindow = (at: string | undefined) => {
     const day = localDay(at);
     return day !== null && day >= window.from && day <= window.to;
@@ -455,7 +470,12 @@ export function blockedWorkSentence(w: BlockedWork): string {
 }
 
 /** Stories and cards blocked since before tracking began (their time can't be counted). */
-export function untrackedCount(stories: readonly Story[], cards: readonly KanbanCard[]): number {
+export function untrackedCount(
+  stories: readonly Story[],
+  cards: readonly KanbanCard[],
+  opts: BlockerReadOptions = {}
+): number {
+  const real = keeper(opts);
   return [...stories, ...cards].filter((r) => r && real(r.id) && untrackedBlock(r)).length;
 }
 
@@ -501,17 +521,18 @@ export function readBlockers(
   stories: readonly Story[],
   cards: readonly KanbanCard[],
   impediments: readonly Impediment[],
-  window: BlockerWindow
+  window: BlockerWindow,
+  opts: BlockerReadOptions = {}
 ): BlockersRead {
-  const rows = blockerRows(stories, cards, impediments, window);
+  const rows = blockerRows(stories, cards, impediments, window, opts);
   const pareto = clusterPareto(rows);
   const partial: Omit<BlockersRead, "verdict"> = {
     window,
     rows,
     pareto,
     split: sideSplit(rows, pareto.measure),
-    blockedWork: blockedWork(stories, cards, window),
-    untracked: untrackedCount(stories, cards),
+    blockedWork: blockedWork(stories, cards, window, opts),
+    untracked: untrackedCount(stories, cards, opts),
     unclustered: rows.filter((r) => !r.cluster),
     trackingSince: BLOCK_TRACKING_SINCE,
   };

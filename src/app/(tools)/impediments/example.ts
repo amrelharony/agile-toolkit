@@ -15,13 +15,16 @@ type Row = Omit<Impediment, "id" | "raisedAt" | "resolvedAt" | "escalatedAt" | "
  * A product team three weeks into a quarter. The build server has been
  * down past its due date, so it leads the verdict; the security review is
  * escalated outside the team; one item is due by its expected days rather
- * than a date; three resolved ones give an average time to resolve. Dates
+ * than a date; three resolved ones give an average time to resolve. Each
+ * has a blocker cluster, so "Blockers: where the time goes" ranks them by
+ * impediments raised (the example has no blocked spells). Dates
  * are relative to today, so the ages and the overdue flag always read the
  * same.
  */
 const ROWS: Row[] = [
   {
     title: "Build server down",
+    cluster: "Test or build environment",
     description: "CI has been red since the runner upgrade; nothing can merge.",
     severity: "critical",
     category: "technical",
@@ -32,6 +35,7 @@ const ROWS: Row[] = [
   },
   {
     title: "Waiting on the security review for the payments API",
+    cluster: "A decision or approval",
     description: "Release is blocked until the security team signs off.",
     severity: "high",
     category: "external",
@@ -43,6 +47,7 @@ const ROWS: Row[] = [
   },
   {
     title: "Test environment shared with another team",
+    cluster: "Test or build environment",
     severity: "medium",
     category: "organizational",
     raisedBy: "Morgan",
@@ -52,6 +57,7 @@ const ROWS: Row[] = [
   },
   {
     title: "Acceptance criteria unclear on the checkout stories",
+    cluster: "Unclear or changing requirement",
     severity: "medium",
     category: "process",
     raisedBy: "Priya",
@@ -60,6 +66,7 @@ const ROWS: Row[] = [
   },
   {
     title: "Flaky end-to-end tests on mobile Safari",
+    cluster: "Test or build environment",
     severity: "low",
     category: "technical",
     raisedBy: "Jordan",
@@ -67,6 +74,7 @@ const ROWS: Row[] = [
   },
   {
     title: "No product owner at refinement",
+    cluster: "Unclear or changing requirement",
     severity: "medium",
     category: "process",
     owner: "Morgan",
@@ -75,6 +83,7 @@ const ROWS: Row[] = [
   },
   {
     title: "VPN drops during remote pairing",
+    cluster: "Access or permissions",
     severity: "low",
     category: "technical",
     owner: "Priya",
@@ -83,6 +92,7 @@ const ROWS: Row[] = [
   },
   {
     title: "Design sign-off delayed",
+    cluster: "A decision or approval",
     severity: "high",
     category: "external",
     owner: "Sam",

@@ -45,16 +45,20 @@ import {
 } from "@/lib/impediments/model";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { KANBAN_BOARD_ID } from "@/lib/stores/workspace-types";
 import type {
   Impediment,
   ImpedimentCategory,
   ImpedimentSeverity,
+  KanbanBoard,
+  Story,
   WhiteboardObject,
 } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { undoable } from "@/lib/utils/undoable";
 import { analyseImpediments } from "./analysis";
 import { ImpedimentsAdvanced } from "./advanced";
+import { BlockersSection } from "./blockers-section";
 import { ImpedimentCard } from "./components/impediment-card";
 import { LogForm } from "./components/log-form";
 import { buildExample, exampleRows } from "./example";
@@ -90,6 +94,8 @@ const WeeklyImpedimentsChart = dynamic(
 // A stable empty list: zustand re-renders forever on a selector that
 // returns a fresh array each call.
 const NONE: Impediment[] = [];
+const NO_STORIES: Story[] = [];
+const NO_BOARDS: KanbanBoard[] = [];
 
 /** Fewer weeks than this and the weekly chart is a bar or two: the verdict says it better. */
 const CHART_MIN_WEEKS = 3;
@@ -175,6 +181,11 @@ export function ImpedimentsClient() {
   const upsert = useWorkspaceStore((s) => s.upsertImpediment);
   const removeOne = useWorkspaceStore((s) => s.removeImpediment);
   const list = useMemo(() => usableImpediments(stored), [stored]);
+  // The Blockers section and its export read blocked stories and cards too.
+  const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
+  const boards = useWorkspaceStore((s) => s.kanbanBoards) ?? NO_BOARDS;
+  const cards = useMemo(() => boards.find((b) => b.id === KANBAN_BOARD_ID)?.cards ?? [], [boards]);
+  const [now] = useState(() => Date.now());
   const today = todayLocalISO();
   const { log } = useHistoryLogger("impediments");
   const announce = useAnnounce();
@@ -451,7 +462,7 @@ export function ImpedimentsClient() {
                     filename="impediments"
                     csvData={csvData}
                     jsonData={list}
-                    markdown={toMarkdown(list, today)}
+                    markdown={toMarkdown(list, today, { stories, cards, now })}
                     targetRef={exportRef}
                   />
                   {/* Confirm, then Undo, as ResetButton does; see deleteAll for why not it. */}
@@ -594,6 +605,8 @@ export function ImpedimentsClient() {
                 </ChartFigure>
               </SectionCard>
             )}
+
+            <BlockersSection impediments={list} today={today} />
 
             <ImpedimentsAdvanced analysis={analysis} />
           </>

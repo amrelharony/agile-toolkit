@@ -2,7 +2,8 @@
 
 /**
  * The fields of an impediment, shared by the log form and the editor:
- * title, severity (unset until picked), optional category, description,
+ * title, severity (unset until picked), optional category and blocker
+ * cluster, description,
  * who raised it and who owns it (from the team roster), the raised day
  * (backdatable), a due date, and the resolved day on a resolved one.
  */
@@ -16,7 +17,9 @@ import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, type ToggleOption } from "@/components/ui/toggle-group";
+import { BLOCKER_CLUSTER_MAX } from "@/lib/stores/workspace-types";
 import type { ImpedimentCategory, ImpedimentSeverity } from "@/lib/stores/workspace-types";
+import { DEFAULT_BLOCKER_CLUSTERS } from "@/lib/impediments/clusters";
 import {
   IMPEDIMENT_CATEGORIES,
   IMPEDIMENT_CATEGORY_LABEL,
@@ -69,6 +72,7 @@ export function ImpedimentFields({
   const floor = earliestDay(draft.raisedAt, today) ?? undefined;
   const suggested = typicalDays !== null && raised ? addDays(raised, typicalDays) : null;
   const severityErrorId = useId();
+  const clusterListId = useId();
   const severityRef = useRef<HTMLDivElement>(null);
   // Mark the severity group required and link its message, as Field does
   // for the inputs. ToggleGroup takes no ARIA props, so set them on its
@@ -154,6 +158,29 @@ export function ImpedimentFields({
                 </option>
               ))}
             </select>
+          )}
+        </Field>
+        <Field
+          label="Cluster"
+          hint="Optional. The kind of blocker: pick a usual one or name your own."
+          error={errors.cluster}
+        >
+          {(props) => (
+            <>
+              <Input
+                {...props}
+                list={clusterListId}
+                maxLength={BLOCKER_CLUSTER_MAX}
+                value={draft.cluster}
+                onChange={(e) => update({ cluster: e.target.value })}
+                placeholder="Waiting for a review"
+              />
+              <datalist id={clusterListId}>
+                {DEFAULT_BLOCKER_CLUSTERS.map((c) => (
+                  <option key={c.label} value={c.label} />
+                ))}
+              </datalist>
+            </>
           )}
         </Field>
         <PersonPicker
