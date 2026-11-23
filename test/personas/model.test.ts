@@ -34,7 +34,12 @@ import {
   personaFromNotes,
   roleFromNotes,
 } from "@/lib/personas/from-notes";
-import { INTERVIEW_NOTES_MAX, interviewNotes } from "@/lib/personas/interviews";
+import {
+  INTERVIEW_NOTES_MAX,
+  interviewNotes,
+  nameAwayFromParticipants,
+  participantNames,
+} from "@/lib/personas/interviews";
 
 const AT = "2026-11-20T10:00:00.000Z";
 const persona = (over: Partial<Persona> = {}): Persona => ({
@@ -357,5 +362,44 @@ describe("interviewNotes", () => {
     expect(d.tags.map((t) => t.toLowerCase())).not.toContain("participant");
     // Nor a number left behind by it.
     expect(d.tags.some((t) => /^\d+$/.test(t))).toBe(false);
+  });
+});
+
+describe("participant names a draft never takes", () => {
+  // A stored row may lack its participant, so the lists read one without it too.
+  const log = (...participants: (string | undefined)[]) =>
+    participants.map((participant) => ({ participant }) as Pick<Interview, "participant">);
+
+  it("lists each label, its parts and their first words", () => {
+    expect(
+      participantNames(log("Leo Park", "PM (Sam)", " Dana Lee, engineering manager "))
+    ).toEqual([
+      "Leo Park",
+      "Leo",
+      "PM (Sam)",
+      "PM",
+      "Sam",
+      "Dana Lee, engineering manager",
+      "Dana Lee",
+      "Dana",
+      "engineering manager",
+      "engineering",
+    ]);
+    // A label with a digit names no one; blanks and one letter are skipped.
+    expect(participantNames(log("Customer 3", "", undefined, "A", "leo park"))).toEqual([
+      "Customer 3",
+      "leo park",
+      "leo",
+    ]);
+  });
+
+  it("swaps a drafted name that is a participant's for a made-up one", () => {
+    const interviews = log("Leo Park", "Omar Khalil");
+    expect(nameAwayFromParticipants("Noor", interviews, [])).toBe("Noor");
+    for (const real of ["Leo", " leo ", "LEO PARK", "Omar"]) {
+      const name = nameAwayFromParticipants(real, interviews, ["Maya"]);
+      expect(PERSONA_NAMES).toContain(name);
+      expect(["leo", "omar", "maya"]).not.toContain(name.toLowerCase());
+    }
   });
 });

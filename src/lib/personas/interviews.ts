@@ -10,8 +10,9 @@
 
 import type { Interview } from "@/lib/stores/workspace-types";
 import { anonymiseInterviews } from "@/lib/interviews/model";
+import { nameKey } from "@/lib/team/names";
 import { PERSONA_INTERVIEWS_MAX } from "./model";
-import { PERSONA_NOTES_MAX } from "./from-notes";
+import { PERSONA_NOTES_MAX, draftName } from "./from-notes";
 
 /** The notes' cap: what the draft task takes. */
 export const INTERVIEW_NOTES_MAX = PERSONA_NOTES_MAX;
@@ -58,4 +59,46 @@ export function interviewNotes(selected: readonly Interview[]): string {
     if (kept < lines.length) break;
   }
   return out;
+}
+
+/**
+ * The real names in the log, which a drafted persona must never be called:
+ * each participant's label as typed ("Dana Lee, PM"), each part of it
+ * between commas, semicolons or brackets ("Dana Lee", "Sam" in "PM (Sam)"),
+ * and the first word of a part that holds no digit ("Dana"; "Customer 3"
+ * names no one). They never go to Amr, so the page checks the answer here.
+ */
+export function participantNames(interviews: readonly Pick<Interview, "participant">[]): string[] {
+  const out = new Map<string, string>();
+  const keep = (name: string) => {
+    const key = nameKey(name);
+    if (key.length >= 2 && !out.has(key)) out.set(key, name);
+  };
+  for (const i of interviews) {
+    const label = (i.participant ?? "").replace(/\s+/g, " ").replace(/^[\s,;]+|[\s,;]+$/g, "");
+    if (label.length < 2) continue;
+    keep(label);
+    for (const part of label.split(/[,;()]/).map((p) => p.trim())) {
+      if (!part) continue;
+      keep(part);
+      if (!/\d/.test(part)) keep(part.split(" ")[0]);
+    }
+  }
+  return Array.from(out.values());
+}
+
+/**
+ * A drafted persona's name, or a made-up one in its place when the draft
+ * took the name of someone in the log (`participantNames`): from the
+ * built-in list, skipping those and the library's `names`.
+ */
+export function nameAwayFromParticipants(
+  name: string,
+  interviews: readonly Pick<Interview, "participant">[],
+  names: readonly string[]
+): string {
+  const taken = participantNames(interviews);
+  const key = nameKey(name.replace(/\s+/g, " "));
+  if (!taken.some((n) => nameKey(n) === key)) return name;
+  return draftName([...names, ...taken], name);
 }

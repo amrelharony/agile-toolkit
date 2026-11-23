@@ -28,6 +28,7 @@ import type { AiSource } from "@/lib/ai/task-types";
 import { PERSONA_LIBRARY_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { UI_ID } from "@/lib/interviews/model";
+import { nameAwayFromParticipants } from "@/lib/personas/interviews";
 import {
   EVIDENCE_LABEL,
   LIST_ONE,
@@ -258,7 +259,14 @@ export function PersonaLibraryClient() {
   };
 
   const takeDraft = (data: PersonaFromNotesOutput, source: AiSource, interviewIds: string[]) => {
-    const { fields } = withDraft(draftRef.current, data, { interviewIds });
+    // The interviewees' real names never go to Amr, so a draft can land on
+    // one by chance: it gets a made-up name instead.
+    const name = nameAwayFromParticipants(
+      data.name,
+      interviews,
+      personas.map((p) => p.name)
+    );
+    const { fields } = withDraft(draftRef.current, { ...data, name }, { interviewIds });
     form.update(fields);
     setDraftedBy(source);
     log(PERSONA_LIBRARY_ACTIONS.PERSONA_DRAFTED, {

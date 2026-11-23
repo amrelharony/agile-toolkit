@@ -85,6 +85,9 @@ import {
 import { emptyFields, validatePersona } from "@/app/(tools)/persona-library/form";
 import { buildExample } from "@/app/(tools)/persona-library/example";
 import { personasMarkdown } from "@/app/(tools)/persona-library/markdown";
+import { personaFromNotesFallback } from "@/lib/ai/tasks/persona-library.lite";
+import { PERSONA_NAMES } from "@/lib/personas/from-notes";
+import { interviewNotes } from "@/lib/personas/interviews";
 
 const AT = "2026-11-20T10:00:00.000Z";
 const persona = (id: string, over: Partial<Persona> = {}): Persona => ({
@@ -547,6 +550,49 @@ describe("drafting a persona", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add persona" }));
     expect(stored()[0].interviewIds).toEqual(["i1", "i2"]);
     expect(stored()[0].evidence).toBe("some");
+  });
+
+  it("never calls a draft by an interviewee's real name", async () => {
+    const base: Interview = {
+      id: "i9",
+      date: "2026-11-02T09:00:00.000Z",
+      participant: "Someone",
+      quotes: [
+        { id: "q9", text: "I want dinner sorted before my shift.", tags: [] },
+        { id: "q10", text: "It is frustrating when the box comes late.", tags: [] },
+      ],
+    };
+    // The notes are the same whoever the participant is, so the name the
+    // rules would pick is known before the participant is named after it.
+    const notes = interviewNotes([base]);
+    const picked = personaFromNotesFallback({ notes, tier: "primary", names: [] }).name;
+    const real: Interview = { ...base, participant: `${picked} Park` };
+    expect(interviewNotes([real])).toBe(notes);
+    seed([], { userInterviewLogs: [{ id: "userInterviewLog:current", interviews: [real] }] });
+    renderPage();
+    fireEvent.click(await screen.findByLabelText(new RegExp(`^${picked} Park · 2026-11-02`)));
+    fireEvent.click(screen.getByRole("button", { name: "Draft from the interviews without AI" }));
+    // The real names stay out of what is asked.
+    expect(h.inputs).toEqual([{ notes, tier: "primary", names: [] }]);
+    await screen.findByText(/Drafted without AI\./);
+    const name = (screen.getByLabelText(/^Name/) as HTMLInputElement).value;
+    expect(name).not.toBe(picked);
+    expect(PERSONA_NAMES).toContain(name);
+
+    // A model's answer that lands on the name is swapped too.
+    h.canned = {
+      name: picked,
+      role: "Nurse",
+      goals: [],
+      pains: [],
+      behaviours: [],
+      tags: [],
+    };
+    type(/^Name/, "");
+    fireEvent.click(screen.getByRole("button", { name: "Draft from the interviews without AI" }));
+    await waitFor(() => expect(h.inputs).toHaveLength(2));
+    expect(screen.getByLabelText(/^Name/)).not.toHaveValue(picked);
+    expect(screen.getByLabelText(/^Name/)).not.toHaveValue("");
   });
 
   it("links at most 20 interviews", async () => {
