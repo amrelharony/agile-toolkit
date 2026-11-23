@@ -103,7 +103,7 @@ beforeEach(() => {
   h.undo = null;
   h.markdown = undefined;
   useEstimationGuideStore.setState({ ...initialState });
-  useWorkspaceStore.setState({ stories: [], pokerEstimationLogs: [] });
+  useWorkspaceStore.setState({ stories: [], pokerEstimationLogs: [], pokerAsyncRounds: [] });
 });
 
 // ─── Reference stories (logic) ───────────────────────────────────────────
@@ -473,6 +473,57 @@ describe("the Estimation Guide page", () => {
       "href",
       "/planning-poker"
     );
+  });
+
+  it("doesn't count a queued story an async round holds as waiting, and says how many it holds", async () => {
+    const held = {
+      id: "q1",
+      title: "Held",
+      sourceRef: { tool: "story", id: "u1" },
+      queuedAt: "2026-10-23T00:00:00Z",
+      sessionStoryId: "held-1",
+    };
+    const free = {
+      id: "q2",
+      title: "Free",
+      sourceRef: { tool: "story", id: "u2" },
+      queuedAt: "2026-10-23T00:00:00Z",
+    };
+    const now = new Date().toISOString();
+    const pokerAsyncRounds = [
+      {
+        id: "async_round000001",
+        title: "R",
+        scaleType: "fibonacci" as const,
+        deck: ["1", "2"],
+        stories: [{ id: "held-1", title: "Held" }],
+        replies: [],
+        status: "open" as const,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    useWorkspaceStore.setState({
+      pokerEstimationLogs: [
+        { id: "pokerEstimationLog:current", estimates: [], queue: [held, free] },
+      ],
+      pokerAsyncRounds,
+    });
+    const view = render(<EstimationGuideClient />);
+    expect(
+      await screen.findByText(
+        /1 story is waiting in the Planning Poker queue, 1 in an async round\./
+      )
+    ).toBeInTheDocument();
+    view.unmount();
+
+    useWorkspaceStore.setState({
+      pokerEstimationLogs: [{ id: "pokerEstimationLog:current", estimates: [], queue: [held] }],
+      pokerAsyncRounds,
+    });
+    render(<EstimationGuideClient />);
+    await waitFor(() => expect(exampleBoxes().length).toBeGreaterThan(0));
+    expect(screen.queryByRole("link", { name: /Open Planning Poker/ })).toBeNull();
   });
 });
 

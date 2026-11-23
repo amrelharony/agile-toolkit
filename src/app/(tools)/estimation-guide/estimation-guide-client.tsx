@@ -18,6 +18,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { Story, Workspace } from "@/lib/stores/workspace-types";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
+import { heldQueueCount } from "@/lib/estimation/async-rounds";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { ESTIMATION_GUIDE_ACTIONS } from "@/lib/history/event-actions";
 import { Card, CardContent } from "@/components/ui/card";
@@ -140,9 +141,17 @@ export function EstimationGuideClient() {
   const store = useEstimationGuideStore();
   const { flash, isFlashing } = useFlash();
   const stories = useWorkspaceStore((s) => s.stories ?? NO_STORIES);
-  const queued = useWorkspaceStore(
-    (s) => (s.pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)?.queue?.length ?? 0
+  const pokerQueue = useWorkspaceStore(
+    (s) => (s.pokerEstimationLogs ?? []).find((d) => d.id === POKER_LOG_ID)?.queue
   );
+  const asyncRounds = useWorkspaceStore((s) => s.pokerAsyncRounds);
+  // Queued stories an estimate-without-a-meeting round holds can't start a
+  // session, so they aren't waiting; the line says how many a round holds.
+  const heldInAsync = useMemo(
+    () => heldQueueCount(pokerQueue, asyncRounds),
+    [pokerQueue, asyncRounds]
+  );
+  const queued = (pokerQueue?.length ?? 0) - heldInAsync;
   const gridRef = useRef<HTMLDivElement>(null);
   const scaleRef = useRef<HTMLButtonElement>(null);
   const uid = useId();
@@ -657,7 +666,7 @@ export function EstimationGuideClient() {
             </h2>
             <p className="mt-0.5 text-sm text-sub">
               {queued > 0
-                ? `${plural(queued, "story", "stories")} ${queued === 1 ? "is" : "are"} waiting in the Planning Poker queue. This guide shows under the deck for the card being discussed.`
+                ? `${plural(queued, "story", "stories")} ${queued === 1 ? "is" : "are"} waiting in the Planning Poker queue${heldInAsync > 0 ? `, ${heldInAsync} in an async round` : ""}. This guide shows under the deck for the card being discussed.`
                 : `${plural(unsized, "story", "stories")} ${unsized === 1 ? "has" : "have"} no points yet. Queue ${unsized === 1 ? "it" : "them"} for Planning Poker from Sprint Planning.`}
             </p>
           </div>
