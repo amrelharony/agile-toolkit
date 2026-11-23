@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import {
   allZones,
   canonicalZone,
+  currentZoneName,
   localClock,
   offsetLabel,
   offsetMinutes,
@@ -120,6 +121,20 @@ describe("zone names", () => {
       expect(zones).toContain(canonicalZone(z));
     }
     for (const z of zones.slice(0, 20)) expect(canonicalZone(z)).toBe(z);
+  });
+
+  it("names a zone by today's city and name, whatever spelling the runtime keeps", () => {
+    for (const [zone, city] of [
+      ["Asia/Kolkata", "Kolkata"],
+      ["Europe/Kyiv", "Kyiv"],
+      ["Asia/Kathmandu", "Kathmandu"],
+      ["Asia/Ho_Chi_Minh", "Ho Chi Minh"],
+    ]) {
+      const canonical = canonicalZone(zone)!;
+      expect(zoneLabel(canonical)).toBe(city);
+      expect(currentZoneName(canonical)).toBe(zone);
+    }
+    expect(currentZoneName("Europe/London")).toBe("Europe/London");
   });
 
   it("names a zone by its city, and an offset as people read it", () => {

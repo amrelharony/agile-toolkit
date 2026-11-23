@@ -7,6 +7,7 @@ import { WEEKDAY_LABEL } from "@/lib/sprints/cadence";
 import {
   allZones,
   canonicalZone,
+  currentZoneName,
   offsetLabel,
   offsetMinutes,
   zoneLabel,
@@ -84,17 +85,29 @@ export function DayPicker({
   );
 }
 
-/** The zones a typed text matches: by city or by name, the best first, at most `limit`. */
+/**
+ * The zones a typed text matches: by city or by name, today's or the
+ * runtime's older spelling ("Kolkata" and "Calcutta" both find the zone),
+ * the best first, at most `limit`.
+ */
 export function matchZones(query: string, limit = 6): string[] {
   const q = query.trim().toLowerCase().replace(/\s+/g, "_");
   if (q.length < 2) return [];
   const exact = canonicalZone(query.trim());
   const scored: { zone: string; score: number }[] = [];
   for (const zone of allZones()) {
-    const z = zone.toLowerCase();
-    const city = zoneLabel(zone).toLowerCase().replace(/\s+/g, "_");
+    const names = Array.from(new Set([zone, currentZoneName(zone)])).map((n) => n.toLowerCase());
+    const cities = names.map((n) => n.split("/").pop() ?? n);
     const score =
-      zone === exact ? 0 : city.startsWith(q) ? 1 : z.startsWith(q) ? 2 : z.includes(q) ? 3 : -1;
+      zone === exact
+        ? 0
+        : cities.some((c) => c.startsWith(q))
+          ? 1
+          : names.some((n) => n.startsWith(q))
+            ? 2
+            : names.some((n) => n.includes(q))
+              ? 3
+              : -1;
     if (score >= 0) scored.push({ zone, score });
   }
   return scored
@@ -154,7 +167,7 @@ export function ZonePicker({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onChange(zone)}
               >
-                {zoneLabel(zone)} <span className="text-sub">({zone})</span>
+                {zoneLabel(zone)} <span className="text-sub">({currentZoneName(zone)})</span>
               </button>
             </li>
           ))}

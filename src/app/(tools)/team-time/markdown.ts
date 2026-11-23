@@ -31,7 +31,7 @@ import {
   nextOccurrences,
 } from "@/lib/team-time/rotation";
 import { ANSWER_LABEL, BURDEN_LABEL, bestSlot, tallies } from "@/lib/team-time/slots";
-import { zoneLabel } from "@/lib/team-time/zones";
+import { currentZoneName, zoneLabel } from "@/lib/team-time/zones";
 
 /** One line of text, with Markdown's marks escaped (as the SM Notebook's export does). */
 const oneLine = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -64,7 +64,7 @@ export function teamTimeMarkdown(i: TeamTimeMarkdownInput): string {
     );
     for (const p of i.people) {
       lines.push(
-        `| ${inline(name(p.id))} | ${inline(p.timeZone)} | ${hoursText(p)} | ${daysLabel(p.workingDays)} | ${p.officeDays?.length ? daysLabel(p.officeDays) : "–"} | ${p.site ? inline(p.site) : "–"} |`
+        `| ${inline(name(p.id))} | ${inline(currentZoneName(p.timeZone))} | ${hoursText(p)} | ${daysLabel(p.workingDays)} | ${p.officeDays?.length ? daysLabel(p.officeDays) : "–"} | ${p.site ? inline(p.site) : "–"} |`
       );
     }
     lines.push("");

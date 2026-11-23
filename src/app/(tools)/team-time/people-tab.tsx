@@ -10,7 +10,7 @@ import { daysLabel, hoursText, localTimeText, placeLabel } from "@/lib/team-time
 import { editedPerson, newPerson, personRows, type PersonRow } from "@/lib/team-time/model";
 import { burden } from "@/lib/team-time/slots";
 import type { PersonValues } from "@/lib/team-time/validate";
-import { offsetLabel, offsetMinutes } from "@/lib/team-time/zones";
+import { currentZoneName, offsetLabel, offsetMinutes } from "@/lib/team-time/zones";
 import { undoable } from "@/lib/utils/undoable";
 import type { TeamTimeCtx } from "./context";
 import { PersonForm, blankDraft, draftOf } from "./person-form";
@@ -149,7 +149,7 @@ export function PeopleTab({ ctx }: { ctx: TeamTimeCtx }) {
                       {p ? (
                         <>
                           <p className="text-sm text-sub">
-                            {placeLabel(p)} · {p.timeZone} (
+                            {placeLabel(p)} · {currentZoneName(p.timeZone)} (
                             {offsetLabel(offsetMinutes(p.timeZone, nowMs))})
                           </p>
                           <p className="text-sm text-text">

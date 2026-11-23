@@ -286,6 +286,20 @@ describe("People", () => {
     expect(zone).toHaveValue(canonicalZone("Asia/Tokyo"));
   });
 
+  it("finds a zone by today's city where the runtime keeps an old spelling", async () => {
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Add someone" }));
+    const form = screen.getByRole("form", { name: "Person" });
+    const zone = within(form).getByLabelText(/Time zone/);
+    fireEvent.change(zone, { target: { value: "Kyiv" } });
+    expect(
+      within(form).getByRole("button", { name: /^Kyiv \(Europe\/Kyiv\)/ })
+    ).toBeInTheDocument();
+    fireEvent.change(zone, { target: { value: "Kolkata" } });
+    fireEvent.click(within(form).getByRole("button", { name: /^Kolkata \(Asia\/Kolkata\)/ }));
+    expect(zone).toHaveValue(canonicalZone("Asia/Kolkata"));
+  });
+
   it("keeps one row per person", async () => {
     useWorkspaceStore.setState({ teamTimePeople: [london] });
     await renderPage();

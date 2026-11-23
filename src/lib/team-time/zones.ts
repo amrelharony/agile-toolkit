@@ -112,11 +112,45 @@ export function allZones(): string[] {
   return zoneList;
 }
 
-/** A zone as people say it: its city ("America/Toronto" → "Toronto"), or "UTC". */
+/**
+ * Today's IANA names for the old spellings a runtime may still resolve to
+ * (V8 resolves "Asia/Kolkata" to "Asia/Calcutta" and "Europe/Kyiv" to
+ * "Europe/Kiev"). Only for what people read and type: zones are stored and
+ * compared in the runtime's canonical spelling.
+ */
+const CURRENT_NAMES: Readonly<Record<string, string>> = {
+  "Africa/Asmera": "Africa/Asmara",
+  "America/Buenos_Aires": "America/Argentina/Buenos_Aires",
+  "America/Catamarca": "America/Argentina/Catamarca",
+  "America/Coral_Harbour": "America/Atikokan",
+  "America/Cordoba": "America/Argentina/Cordoba",
+  "America/Godthab": "America/Nuuk",
+  "America/Indianapolis": "America/Indiana/Indianapolis",
+  "America/Jujuy": "America/Argentina/Jujuy",
+  "America/Louisville": "America/Kentucky/Louisville",
+  "America/Mendoza": "America/Argentina/Mendoza",
+  "Asia/Calcutta": "Asia/Kolkata",
+  "Asia/Katmandu": "Asia/Kathmandu",
+  "Asia/Rangoon": "Asia/Yangon",
+  "Asia/Saigon": "Asia/Ho_Chi_Minh",
+  "Atlantic/Faeroe": "Atlantic/Faroe",
+  "Europe/Kiev": "Europe/Kyiv",
+  "Pacific/Enderbury": "Pacific/Kanton",
+  "Pacific/Ponape": "Pacific/Pohnpei",
+  "Pacific/Truk": "Pacific/Chuuk",
+};
+
+/** A zone's name today, for people to read: "Asia/Kolkata" where the runtime says "Asia/Calcutta". */
+export function currentZoneName(zone: string): string {
+  return CURRENT_NAMES[zone] ?? zone;
+}
+
+/** A zone as people say it: its city today ("America/Toronto" → "Toronto", "Asia/Calcutta" → "Kolkata"), or "UTC". */
 export function zoneLabel(zone: string): string {
   if (!zone) return "";
   if (zone === "UTC" || zone === "Etc/UTC") return "UTC";
-  const last = zone.split("/").pop() ?? zone;
+  const name = currentZoneName(zone);
+  const last = name.split("/").pop() ?? name;
   return last.replace(/_/g, " ");
 }
 
