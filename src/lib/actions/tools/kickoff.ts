@@ -22,7 +22,9 @@
  *
  * Every write reads the row through lib/kickoff/model and stamps updatedAt
  * as the page does. Writes to example kickoffs are refused ("example").
- * Sending lines on (risks, rules, scope) stays on the page. Nothing here
+ * Sending lines on (risks, rules, scope) stays on the page. A line's sentTo
+ * lists only the routes whose target is still there, as the page's
+ * liveLink reads them: one deleted there can be sent again. Nothing here
  * reaches other people: every verb is the visitor's own data.
  */
 
@@ -30,6 +32,7 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
+import { browserRiskStore, serverRiskStore } from "./risk-register";
 import {
   KICKOFF_BRIEF_MAX,
   KICKOFF_FORMATS,
@@ -37,12 +40,20 @@ import {
   KICKOFF_KIND,
   KICKOFF_SLIDER_LABEL_MAX,
   KICKOFF_STATUSES,
+  OPPORTUNITY_TREE_ID,
+  ROOT_CAUSE_ANALYSIS_KIND,
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
+  type HandoffRouteId,
   type Kickoff,
   type KickoffItem,
+  type OpportunityTree,
   type TeamMember,
 } from "@/lib/stores/workspace-types";
+import { HYPOTHESIS_TRACKER_ID } from "@/lib/hypotheses/model";
+import { treeNodes } from "@/lib/opportunity-tree/model";
+import { readAnalyses } from "@/lib/root-cause/model";
+import { WA_ID, WA_KIND, normalizeAgreement } from "@/lib/working-agreement/model";
 import { KICKOFF_FORMAT_DEFS, kickoffSection } from "@/lib/kickoff/formats";
 import {
   answerOf,
@@ -82,13 +93,54 @@ interface Store {
   get: (id: string) => Promise<unknown | null>;
   put: (k: Kickoff) => Promise<void>;
   roster: () => Promise<TeamMember[]>;
+  /** The ids a route's targets have now, where its hand-off route finds them. */
+  targetIds: (route: HandoffRouteId) => Promise<string[]>;
 }
+
+const KIND_STORY = "workspace:story";
+const KIND_HT = "workspace:hypothesisTracker";
+const KIND_OT = "workspace:opportunityTree";
+
+const isRow = (r: unknown): r is { id: string } =>
+  typeof r === "object" && r !== null && typeof (r as { id?: unknown }).id === "string";
+
+/** The ids of a list's rows (a malformed row has none). */
+const rowIds = (rows: unknown): string[] =>
+  Array.isArray(rows) ? rows.filter(isRow).map((r) => r.id) : [];
+
+/** The agreement's rule ids, read as its route reads them (none when there is none). */
+const ruleIds = (raw: unknown): string[] =>
+  raw ? normalizeAgreement(raw).rules.map((r) => r.id) : [];
+
+const hypothesesOf = (doc: unknown): unknown =>
+  doc && typeof doc === "object" ? (doc as { hypotheses?: unknown }).hypotheses : undefined;
 
 const browserStore: Store = {
   list: async () => ws().kickoffs ?? [],
   get: async (id) => (ws().kickoffs ?? []).find((k) => k.id === id) ?? null,
   put: async (k) => ws().upsertKickoff(k),
   roster: async () => ws().teamMembers ?? [],
+  targetIds: async (route) => {
+    const w = ws();
+    switch (route) {
+      case "risk":
+        return (await browserRiskStore.list()).records.map((r) => r.id);
+      case "agreement-rule":
+        return ruleIds((w.workingAgreements ?? []).find((d) => d.id === WA_ID));
+      case "hypothesis":
+        return rowIds(
+          hypothesesOf((w.hypothesisTrackers ?? []).find((d) => d.id === HYPOTHESIS_TRACKER_ID))
+        );
+      case "backlog-story":
+        return rowIds(w.stories);
+      case "opportunity":
+        return rowIds(treeNodes(w.opportunityTrees));
+      case "root-cause":
+        return readAnalyses(w.rootCauseAnalyses).map((a) => a.id);
+      default:
+        return [];
+    }
+  },
 };
 
 const serverStore = (userId: string): Store => ({
@@ -98,7 +150,59 @@ const serverStore = (userId: string): Store => ({
     await serverUpsertEntity<Kickoff>(userId, KICKOFF_KIND, k);
   },
   roster: () => serverListEntities<TeamMember>(userId, KIND_TEAM),
+  targetIds: async (route) => {
+    switch (route) {
+      case "risk":
+        return (await serverRiskStore(userId).list()).records.map((r) => r.id);
+      case "agreement-rule":
+        return ruleIds(await serverGetEntity(userId, WA_KIND, WA_ID));
+      case "hypothesis":
+        return rowIds(hypothesesOf(await serverGetEntity(userId, KIND_HT, HYPOTHESIS_TRACKER_ID)));
+      case "backlog-story":
+        return rowIds(await serverListEntities(userId, KIND_STORY));
+      case "opportunity": {
+        const tree = await serverGetEntity<OpportunityTree>(userId, KIND_OT, OPPORTUNITY_TREE_ID);
+        return rowIds(tree?.nodes);
+      }
+      case "root-cause":
+        return readAnalyses(await serverListEntities(userId, ROOT_CAUSE_ANALYSIS_KIND)).map(
+          (a) => a.id
+        );
+      default:
+        return [];
+    }
+  },
 });
+
+/**
+ * Which of a line's links still reach their target, as the page's liveLink
+ * reads them: a line whose target was deleted can be sent again, so it
+ * doesn't count as sent. Each route's targets are read once, and only when
+ * a line was sent on it.
+ */
+async function liveLinks(
+  store: Store,
+  kickoffs: readonly Kickoff[]
+): Promise<(item: KickoffItem) => HandoffRouteId[]> {
+  const routes = new Set<HandoffRouteId>();
+  for (const k of kickoffs) {
+    for (const def of formatOf(k).sections) {
+      for (const item of itemsOf(k, def.id)) for (const l of item.sentTo ?? []) routes.add(l.route);
+    }
+  }
+  const ids = new Map(
+    await Promise.all(
+      Array.from(routes, async (r) => [r, new Set(await store.targetIds(r))] as const)
+    )
+  );
+  return (item) =>
+    (item.sentTo ?? []).filter((l) => ids.get(l.route)?.has(l.targetId)).map((l) => l.route);
+}
+
+async function listState(store: Store) {
+  const kickoffs = readKickoffs(await store.list());
+  return summarize(kickoffs, await liveLinks(store, kickoffs));
+}
 
 /** The kickoff to write, or why not. */
 async function writable(
@@ -111,8 +215,7 @@ async function writable(
   return { kickoff: k };
 }
 
-function summarize(rows: readonly unknown[]) {
-  const kickoffs = readKickoffs(rows);
+function summarize(kickoffs: readonly Kickoff[], sentOn: (item: KickoffItem) => HandoffRouteId[]) {
   const real = kickoffs.filter((k) => !isExampleId(k.id));
   const byFormat = Object.fromEntries(KICKOFF_FORMATS.map((f) => [f, 0])) as Record<
     (typeof KICKOFF_FORMATS)[number],
@@ -158,7 +261,7 @@ function summarize(rows: readonly unknown[]) {
               ...(def.coverTarget ? { covered: coveringItems(k, item.id).length > 0 } : {}),
               // A worry that isn't there (deleted, maybe coming back with Undo) reads as none.
               ...(def.covers ? { covers: coveredWorry(k, item)?.item.id ?? null } : {}),
-              sentTo: (item.sentTo ?? []).map((l) => l.route),
+              sentTo: sentOn(item),
             })),
           };
         }),
@@ -186,10 +289,10 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the kickoffs, newest change first. Each is one of six formats: 'alignment-map' (Team Alignment Map), 'project-poster' (Project Poster), 'team-canvas' (Team Canvas), 'inception' (Inception deck), 'trade-offs' (trade-off sliders) or 'problem-framing' (problem framing). Returns {total, byFormat, teamPurpose: {kickoffId, text}|null (the newest agreed Team Canvas's purpose) (total, byFormat and teamPurpose leave example kickoffs out), kickoffs:{id, example (true for an example from Load example), title, format, formatName, status ('draft'|'agreed'), agreedAt|null, date|null, participants, brief|null, sections:{id, label, kind, count, max, items:{id, text, owner|null, likelihood|null and impact|null and rated (worries and weaknesses), covered (worries), covers|null (the worry id a commitment, resource or need answers), sentTo (routes)}[]}[], sliders:{label, position (1 holds firm), note|null}[]|null, slidersSet, gaps (what's still open, as sentences), statement|null (problem framing), updatedAt}[]}. Create, edit or delete a kickoff with workspace.kickoff.*.",
+    "Summarise the kickoffs, newest change first. Each is one of six formats: 'alignment-map' (Team Alignment Map), 'project-poster' (Project Poster), 'team-canvas' (Team Canvas), 'inception' (Inception deck), 'trade-offs' (trade-off sliders) or 'problem-framing' (problem framing). Returns {total, byFormat, teamPurpose: {kickoffId, text}|null (the newest agreed Team Canvas's purpose) (total, byFormat and teamPurpose leave example kickoffs out), kickoffs:{id, example (true for an example from Load example), title, format, formatName, status ('draft'|'agreed'), agreedAt|null, date|null, participants, brief|null, sections:{id, label, kind, count, max, items:{id, text, owner|null, likelihood|null and impact|null and rated (worries and weaknesses), covered (worries), covers|null (the worry id a commitment, resource or need answers), sentTo (the routes it was sent on whose target is still there; a line whose target was deleted can be sent again)}[]}[], sliders:{label, position (1 holds firm), note|null}[]|null, slidersSet, gaps (what's still open, as sentences), statement|null (problem framing), updatedAt}[]}. Create, edit or delete a kickoff with workspace.kickoff.*.",
   paramsSchema: z.object({}),
-  handler: async () => summarize(await browserStore.list()),
-  mcpHandler: async (_params, ctx) => summarize(await serverStore(ctx.userId).list()),
+  handler: async () => listState(browserStore),
+  mcpHandler: async (_params, ctx) => listState(serverStore(ctx.userId)),
 });
 
 const StartParams = z.object({
