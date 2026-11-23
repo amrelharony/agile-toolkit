@@ -20,7 +20,7 @@ export const impactMapDraftPrompt = defineAiPrompt(impactMapDraftTask, {
     "An impact is a change in behaviour, such as starting, stopping, or doing more or less of something. It is never a feature: features are deliverables.",
     "Keep deliverables small enough to try within a sprint or two.",
     "Actors are groups of people or roles. When an actor is one of the personas given, name it exactly as the persona is named and put that name in persona; never invent persona names, and leave persona out otherwise.",
-    "Never name real people, owners or teams' members.",
+    "Never name real people, owners or team members.",
     "Plain words, sentence case, no emoji, no Markdown.",
   ].join(" "),
   user: ({ goal, measure, context, personas, actors }) =>
