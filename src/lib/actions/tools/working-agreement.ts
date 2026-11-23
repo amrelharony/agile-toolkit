@@ -17,6 +17,8 @@
  *   6. record_check_in — save a dated check-in round.
  *   7. remove_check_in — remove a saved round.
  *   8. publish         — snapshot the rules as the next version.
+ *   9. list_templates  — the four charter templates, applied or not.
+ *  10. apply_template  — write (or rewrite) a template's rules.
  *
  * Every number comes from lib/working-agreement/model, as on the page, so
  * an agent and a person read the same consent, adherence and changes.
@@ -27,15 +29,28 @@ import { nanoid } from "nanoid";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
-import type {
-  CharterCheckInResult,
-  CharterRule,
-  CharterRuleCategory,
-  Sprint,
-  TeamMember,
-  WorkingAgreement,
+import {
+  AI_USE_NEVER_IN,
+  AI_USE_REVIEW,
+  CHARTER_TEMPLATE_IDS,
+  CHARTER_TEMPLATE_MAX,
+  CORE_HOURS_PURPOSES,
+  TEAM_TIME_MAX,
+  type CharterCheckInResult,
+  type CharterRule,
+  type CharterRuleCategory,
+  type Sprint,
+  type TeamMember,
+  type WorkingAgreement,
 } from "@/lib/stores/workspace-types";
+import { TIME_PATTERN } from "@/lib/sprints/cadence";
 import { findRosterMember } from "@/lib/team/names";
+import {
+  TEMPLATE_KEY,
+  applyTemplate,
+  templatesSummary,
+  validateTemplate,
+} from "@/lib/working-agreement/templates";
 import { todayIso } from "@/lib/sprints/series";
 import {
   CHARTER_CATEGORIES,
@@ -65,8 +80,10 @@ import {
   needsSnapshot,
   normalizeAgreement,
   published,
+  ruleKey,
   withCheckIn,
   withConsent,
+  withRuleText,
 } from "@/lib/working-agreement/model";
 
 /** MUST match registerCollection("teamMember", …) in workspace-store.ts. */
@@ -126,8 +143,6 @@ async function change<T extends Record<string, unknown>>(
   await store.putDoc({ ...out.doc, id: WA_ID });
   return out.result;
 }
-
-const ruleKey = (text: string) => text.trim().replace(/\s+/g, " ").replace(/\.$/, "").toLowerCase();
 
 /* ── list_state ─────────────────────────────────────────────────────── */
 
@@ -201,7 +216,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the working agreement with the page's numbers. Returns {exists, total, byCategory: {communication, meetings, decisions, work, conflict, other}, stillWorkingCount, partlyWorkingCount and notWorkingCount (the marks of the check-in in progress, not yet saved), meta: {teamName?, version (0 = never published), publishedAt?, description?}, rules: {id, category, text, description?, agreedBy (the names voting consent), consent: {name, vote: 'consent'|'concern'|'object', note?, at}[], stillWorking? (true, false or 'partly'), consentSummary: {line, consented, concerns, objections, missing (roster members who haven't answered), full (everyone answered, nobody objects)}}[], consent: {rosterSize, fullyConsented, withObjection, missingPeople, objections: {ruleId, text, names}[]}, lastCheckIn: null | {id, date, version, checked, working, partly, pct}, checkIns: {id, date, version, sprintId?, checked, working, partly, pct (a rule partly working counts as half; null when nothing was checked)}[] oldest first, versions: {version, publishedAt, rules}[], unpublishedChanges (the draft differs from the latest version, or was never published; false when there is no snapshot to compare with), needsSnapshot (published before versions were kept: publish once to keep one), changesSinceLatest: null | {added, removed, reworded, recategorised, redescribed}, verdict}.",
+    "Summarise the working agreement with the page's numbers. Returns {exists, total, byCategory: {communication, meetings, decisions, work, conflict, other}, stillWorkingCount, partlyWorkingCount and notWorkingCount (the marks of the check-in in progress, not yet saved), meta: {teamName?, version (0 = never published), publishedAt?, description?}, rules: {id, category, text, description?, agreedBy (the names voting consent), consent: {name, vote: 'consent'|'concern'|'object', note?, at}[], stillWorking? (true, false or 'partly'), template? ({id, slot}: the charter template that wrote it; see list_templates), sourceRef? (the item it was sent from, such as a kickoff's rule), consentSummary: {line, consented, concerns, objections, missing (roster members who haven't answered), full (everyone answered, nobody objects)}}[], consent: {rosterSize, fullyConsented, withObjection, missingPeople, objections: {ruleId, text, names}[]}, lastCheckIn: null | {id, date, version, checked, working, partly, pct}, checkIns: {id, date, version, sprintId?, checked, working, partly, pct (a rule partly working counts as half; null when nothing was checked)}[] oldest first, versions: {version, publishedAt, rules}[], unpublishedChanges (the draft differs from the latest version, or was never published; false when there is no snapshot to compare with), needsSnapshot (published before versions were kept: publish once to keep one), changesSinceLatest: null | {added, removed, reworded, recategorised, redescribed}, verdict}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(await browserStore.getDoc(), await browserStore.roster()),
   mcpHandler: async (_params, ctx) => {
@@ -279,13 +294,13 @@ async function updateRule(store: AgreementStore, params: z.infer<typeof UpdateRu
     ) {
       return { refuse: { updated: false, reason: "duplicate" } };
     }
-    const next: CharterRule = { ...rule };
-    if (params.text) next.text = params.text;
-    if (params.category) next.category = params.category;
-    if (params.description !== undefined) {
-      if (params.description) next.description = params.description;
-      else delete next.description;
-    }
+    // As a hand edit on the page: a changed rule leaves its charter template.
+    const next: CharterRule = withRuleText(
+      rule,
+      params.text ?? rule.text,
+      params.description,
+      params.category
+    );
     return {
       doc: { ...doc, rules: doc.rules.map((r) => (r.id === rule.id ? next : r)) },
       result: { updated: true },
@@ -300,7 +315,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Reword, recategorise or describe a rule by id (ids are in list_state). Params: ruleId, text?, category?, description? ('' removes it). Consent is kept; publish to make the change a new version. Returns {updated: true}, or {updated: false, reason: 'not_found' | 'duplicate'}.",
+    "Reword, recategorise or describe a rule by id (ids are in list_state). Params: ruleId, text?, category?, description? ('' removes it). Consent is kept; publish to make the change a new version. A rule a charter template wrote (its `template` is set) becomes the team's own once changed: it loses `template`, so applying the template again won't overwrite it. Returns {updated: true}, or {updated: false, reason: 'not_found' | 'duplicate'}.",
   paramsSchema: UpdateRuleParams,
   handler: async (params) => updateRule(browserStore, params),
   mcpHandler: async (params, ctx) => updateRule(serverStore(ctx.userId), params),
@@ -505,4 +520,165 @@ registry.register({
   paramsSchema: z.object({}),
   handler: async () => publish(browserStore),
   mcpHandler: async (_params, ctx) => publish(serverStore(ctx.userId)),
+});
+
+/* ── Charter templates ──────────────────────────────────────────────── */
+
+registry.register({
+  id: "tool.working_agreement.list_templates",
+  toolId: "tool.working_agreement",
+  name: "list_templates",
+  category: "read",
+  description:
+    "The four charter templates (urgency-ladder, core-hours, focus-time, ai-use) and whether the charter has each one. Returns {templates: {id, name, applied, appliedAt?, values? (the answers it was applied with), ruleIds (the rules it wrote that are still its own; a rule edited by hand leaves its template)}[]}.",
+  paramsSchema: z.object({}),
+  handler: async () => ({
+    templates: templatesSummary(
+      normalizeAgreement((await browserStore.getDoc()) ?? emptyAgreement())
+    ),
+  }),
+  mcpHandler: async (_params, ctx) => {
+    const doc = await serverStore(ctx.userId).getDoc();
+    return { templates: templatesSummary(normalizeAgreement(doc ?? emptyAgreement())) };
+  },
+});
+
+const M = CHARTER_TEMPLATE_MAX;
+const Time = z.string().regex(TIME_PATTERN).describe("HH:MM");
+const Days = z
+  .array(z.number().int().min(0).max(6))
+  .min(1)
+  .max(7)
+  .describe("0 Sunday to 6 Saturday");
+const Zone = z
+  .string()
+  .trim()
+  .min(1)
+  .max(TEAM_TIME_MAX.zone)
+  .describe('An IANA time zone, such as "Europe/London".');
+
+const ApplyTemplateParams = z
+  .object({
+    template: z.enum(CHARTER_TEMPLATE_IDS),
+    urgencyLadder: z
+      .object({
+        levels: z
+          .array(
+            z.object({
+              id: z.string().trim().max(64).optional(),
+              label: z.string().trim().min(1).max(M.levelLabel),
+              when: z.string().trim().min(1).max(M.levelWhen),
+              channel: z.string().trim().min(1).max(M.levelChannel),
+              replyWithin: z
+                .string()
+                .trim()
+                .min(1)
+                .max(M.levelReplyWithin)
+                .describe('Free text, such as "15 minutes, any time" or "No reply needed".'),
+            })
+          )
+          .min(M.levelsMin)
+          .max(M.levels)
+          .describe("Most urgent first."),
+        afterHours: z
+          .boolean()
+          .optional()
+          .describe("Add the rule that outside working hours only the first level can't wait."),
+      })
+      .optional(),
+    coreHours: z
+      .object({
+        start: Time,
+        end: Time,
+        timeZone: Zone.optional().describe(
+          "The zone the hours are in; defaults to the browser's (UTC over MCP)."
+        ),
+        days: Days,
+        purposes: z.array(z.enum(CORE_HOURS_PURPOSES)).min(1).max(CORE_HOURS_PURPOSES.length),
+        anchorDays: z
+          .array(z.object({ site: z.string().trim().min(1).max(M.site), days: Days }))
+          .max(M.anchorDays)
+          .optional()
+          .describe("Office anchor days per site, such as Team Time's."),
+      })
+      .optional(),
+    focusTime: z
+      .object({
+        days: Days,
+        start: Time,
+        end: Time,
+        timeZone: Zone.nullable()
+          .optional()
+          .describe("One shared zone, or null (the default) for each person's own clock."),
+        weeklyMinHours: z.number().min(M.weeklyMinHoursMin).max(M.weeklyMinHours).optional(),
+      })
+      .optional(),
+    aiUse: z
+      .object({
+        tools: z.array(z.string().trim().min(1).max(M.aiTool)).max(M.aiTools).optional(),
+        neverIn: z.array(z.enum(AI_USE_NEVER_IN)).max(AI_USE_NEVER_IN.length).optional(),
+        neverInOther: z.string().trim().max(M.aiNote).optional(),
+        review: z.enum(AI_USE_REVIEW),
+        customerFacing: z.boolean().optional(),
+        shareWhere: z.string().trim().max(M.aiNote).optional(),
+      })
+      .optional(),
+  })
+  .refine((p) => p[TEMPLATE_KEY[p.template]] !== undefined, {
+    message:
+      "Give the answers for the template you apply: urgencyLadder for urgency-ladder, coreHours for core-hours, focusTime for focus-time, aiUse for ai-use.",
+  });
+
+/** The browser's own zone, or UTC when it has none. */
+const browserZone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    return "UTC";
+  }
+};
+
+async function applyTemplateVerb(
+  store: AgreementStore,
+  params: z.infer<typeof ApplyTemplateParams>,
+  defaultZone: string
+) {
+  const id = params.template;
+  const given = (params[TEMPLATE_KEY[id]] ?? {}) as Record<string, unknown>;
+  const raw =
+    id === "core-hours"
+      ? { ...given, timeZone: given.timeZone ?? defaultZone }
+      : id === "focus-time"
+        ? { ...given, timeZone: given.timeZone ?? null }
+        : given;
+  const checked = validateTemplate(id, raw);
+  if (!checked.ok) return { applied: false, reason: "invalid", errors: checked.errors };
+  const at = new Date().toISOString();
+  return change(store, (doc) => {
+    const out = applyTemplate(doc, id, checked.values, () => crypto.randomUUID(), at);
+    return {
+      doc: out.doc,
+      result: {
+        applied: true,
+        added: out.added,
+        updated: out.updated,
+        removed: out.removed,
+        skipped: out.skipped.map((s) => ({ slot: s.slot, reason: s.reason, ruleId: s.ruleId })),
+        ruleIds: out.ruleIds,
+      },
+    };
+  });
+}
+
+registry.register({
+  id: "tool.working_agreement.apply_template",
+  toolId: "tool.working_agreement",
+  name: "apply_template",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Apply a charter template, as the page's Templates do: the answers are saved with the charter and turned into two or three plain rules (eight at most for all four templates). Params: template (urgency-ladder | core-hours | focus-time | ai-use) and its answers under the matching key: urgencyLadder {levels: {label, when, channel, replyWithin}[] (2–6, most urgent first), afterHours?}; coreHours {start, end (HH:MM), timeZone? (default the browser's, UTC over MCP), days (0 Sunday–6 Saturday), purposes (meetings | quick-replies | pairing, at least one), anchorDays?: {site, days}[] (at most 4)}; focusTime {days, start, end, timeZone? (null, the default: each person's own clock), weeklyMinHours? (1–40)}; aiUse {neverIn? (customer-data | secrets | confidential), neverInOther?, review (as-any-work | closer-look | not-production), customerFacing?, tools? (at most 5, kept with the charter, not as rules), shareWhere?}. Applying again matches the template's rules by line: the same rule is updated in place and keeps its consent (ask the team again if the change matters), a new line is added, a line no longer written is removed; a rule edited by hand is the team's own and isn't touched. A line whose text is already in the charter (a Kickoff rule included) is skipped. Returns {applied: true, added, updated, removed (rule ids), skipped: {slot, reason: 'duplicate', ruleId}[], ruleIds (the template's rules now)}, or {applied: false, reason: 'invalid', errors (by field)}.",
+  paramsSchema: ApplyTemplateParams,
+  handler: async (params) => applyTemplateVerb(browserStore, params, browserZone()),
+  mcpHandler: async (params, ctx) => applyTemplateVerb(serverStore(ctx.userId), params, "UTC"),
 });
