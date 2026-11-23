@@ -561,6 +561,21 @@ describe("drafting a persona", () => {
     expect(screen.getByLabelText("Quote")).toHaveValue("A drafted quote.");
     const goals = within(screen.getByRole("list", { name: "Goals" })).getAllByRole("listitem");
     expect(goals.map((g) => g.textContent)).toEqual(["My goal", "Drafted goal"]);
+
+    // Undo puts the form back as it was before the draft.
+    expect(toastSpy.mock.calls.at(-1)?.[1]).toMatchObject({ kind: "success" });
+    undoToast("Drafted a persona into the form");
+    expect(screen.getByLabelText(/^Name/)).toHaveValue("Ana");
+    expect(screen.getByLabelText(/^Role/)).toHaveValue("");
+    expect(screen.getByLabelText("Quote")).toHaveValue("");
+    expect(
+      within(screen.getByRole("list", { name: "Goals" }))
+        .getAllByRole("listitem")
+        .map((g) => g.textContent)
+    ).toEqual(["My goal"]);
+    expect(screen.queryByRole("list", { name: "Habits" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Drafted without AI\./)).not.toBeInTheDocument();
+    expect(stored()).toEqual([]);
   });
 
   it("drafts from picked interviews: participants renamed, no dates, interviews linked", async () => {

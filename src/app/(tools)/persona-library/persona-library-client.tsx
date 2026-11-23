@@ -281,9 +281,26 @@ export function PersonaLibraryClient() {
       interviews,
       personas.map((p) => p.name)
     );
-    const { fields } = withDraft(draftRef.current, { ...data, name }, { interviewIds });
-    form.update(fields);
-    setDraftedBy(source);
+    const before = draftRef.current;
+    const draftedBefore = draftedBy;
+    const { fields } = withDraft(before, { ...data, name }, { interviewIds });
+    const s = session.current;
+    undoable({
+      label:
+        source === "ai" ? "Amr drafted a persona into the form" : "Drafted a persona into the form",
+      kind: "success",
+      apply: () => {
+        form.update(fields);
+        setDraftedBy(source);
+      },
+      // The form as it was before the draft, unless it has been reset since.
+      revert: () => {
+        if (session.current !== s) return;
+        form.reset(before);
+        setDraftedBy(draftedBefore);
+        focusSoon(nameInput);
+      },
+    });
     log(PERSONA_LIBRARY_ACTIONS.PERSONA_DRAFTED, {
       source: source === "ai" ? "ai" : "rules",
       interviews: interviewIds.length,
