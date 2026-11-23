@@ -22,6 +22,8 @@ import {
   unsizedItems,
   withAnchor,
   withBucketPoints,
+  withItemRestored,
+  withoutItems,
   middleBucket,
 } from "@/lib/relative-sizing/model";
 import {
@@ -141,6 +143,28 @@ describe("moving cards", () => {
     ).board;
     expect(settled.items[0]).toMatchObject({ moves: 0, bucketId: bucket(b, "5") });
     expect(settled.items[0].contested).toBeUndefined();
+  });
+
+  it("takes a card off the board and puts it back at its place, the anchor again", () => {
+    let b = board(3);
+    b = withAnchor(b, "c2", middleBucket(b).id, NOW);
+    const removed = { item: b.items[1], index: 1, anchor: true };
+    const off = withoutItems(b, ["c2"], NOW);
+    expect(off.items.map((i) => i.id)).toEqual(["c1", "c3"]);
+    expect(off.anchorItemId).toBeUndefined();
+    const back = withItemRestored(off, removed, NOW);
+    expect(back.items.map((i) => i.id)).toEqual(["c1", "c2", "c3"]);
+    expect(back.items[1]).toEqual(b.items[1]);
+    expect(back.anchorItemId).toBe("c2");
+    // Already back: nothing changes. Another anchor picked since: it stays.
+    expect(withItemRestored(back, removed, NOW)).toBe(back);
+    const other = withAnchor(off, "c1", middleBucket(off).id, NOW);
+    expect(withItemRestored(other, removed, NOW).anchorItemId).toBe("c1");
+    // A full board takes nothing back.
+    const full = board(100);
+    expect(withItemRestored(full, { ...removed, item: { ...removed.item, id: "x" } }, NOW)).toBe(
+      full
+    );
   });
 
   it("deals the same way from the same seed, round robin, the anchor left out", () => {

@@ -402,6 +402,27 @@ export function withoutItems(board: SizingBoard, ids: readonly string[], now: st
   return next;
 }
 
+/**
+ * The Undo of a card taken off the board: back at its place, and the
+ * anchor again when it was one and no other anchor was picked since. The
+ * board itself when the card is back already or the board is full.
+ */
+export function withItemRestored(
+  board: SizingBoard,
+  removed: { item: SizingItem; index: number; anchor: boolean },
+  now: string
+): SizingBoard {
+  const { item, index, anchor } = removed;
+  if (board.items.some((i) => i.id === item.id) || board.items.length >= SIZING_LIMITS.items) {
+    return board;
+  }
+  const items = [...board.items];
+  items.splice(Math.min(Math.max(0, index), items.length), 0, item);
+  const next = touched(board, { items }, now);
+  if (anchor && !next.anchorItemId) next.anchorItemId = item.id;
+  return next;
+}
+
 /* ── Reading a board ─────────────────────────────────────────────────── */
 
 export interface BoardCounts {

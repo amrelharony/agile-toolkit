@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useRef, type ReactNode } from "react";
-import { Anchor, MessagesSquare, MoveRight } from "lucide-react";
+import { Anchor, MessagesSquare, MoveRight, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { BoardDnd, DragPreview, DraggableCard, DropColumn } from "@/app/(tools)/kanban/board-dnd";
@@ -54,18 +55,23 @@ export function lanesOf(board: SizingBoard): LaneInfo[] {
  * The board: a card per story in "Not placed", a column per bucket, and
  * "Talk about it" for the cards moved too often or put far apart. A card
  * moves by its grip (mouse, pen or finger) or its "Move to…" menu
- * (keyboard, screen reader, phone). The Estimation Guide's reference
- * stories show as dashed cards in their bucket, on this screen only. On a
- * phone the buckets stack, so the page never scrolls sideways.
+ * (keyboard, screen reader, phone), which can also take it off the board
+ * (a mistyped title, or a story split into smaller ones). The Estimation
+ * Guide's reference stories show as dashed cards in their bucket, on this
+ * screen only. On a phone the buckets stack, so the page never scrolls
+ * sideways.
  */
 export function SizingBoardView({
   board,
   onMove,
+  onRemove,
   talk,
 }: {
   board: SizingBoard;
   /** A card was moved to a lane (by drag or menu). */
   onMove: (itemId: string, lane: Lane, focus: () => void) => void;
+  /** A card was taken off the board (from its menu, with Undo). */
+  onRemove?: (itemId: string) => void;
   /** What shows under Talk about it's cards: the panel with its questions and sends. */
   talk?: (item: SizingItem) => ReactNode;
 }) {
@@ -122,6 +128,7 @@ export function SizingBoardView({
             lanes={lanes}
             triggerRef={(el) => triggers.current.set(item.id, el)}
             onMove={(lane) => onMove(item.id, lane, focusCard(item.id))}
+            onRemove={onRemove ? () => onRemove(item.id) : undefined}
           />
           {item.contested && talk?.(item)}
         </div>
@@ -205,17 +212,19 @@ export function SizingBoardView({
   );
 }
 
-/** "Move to…": every other lane, from the keyboard as well as the mouse. */
+/** "Move to…": every other lane, from the keyboard as well as the mouse, and off the board. */
 function MoveMenu({
   item,
   lanes,
   triggerRef,
   onMove,
+  onRemove,
 }: {
   item: SizingItem;
   lanes: LaneInfo[];
   triggerRef: (el: HTMLElement | null) => void;
   onMove: (lane: Lane) => void;
+  onRemove?: () => void;
 }) {
   const here = laneId(laneOf(item));
   return (
@@ -246,6 +255,15 @@ function MoveMenu({
             {l.id === here && <span className="ml-auto text-xs text-sub">here</span>}
           </DropdownMenuItem>
         ))}
+        {onRemove && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onRemove}>
+              <Trash2 aria-hidden="true" />
+              Remove from the board
+            </DropdownMenuItem>
+          </>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );

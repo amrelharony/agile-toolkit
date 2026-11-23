@@ -45,6 +45,7 @@ import {
   unsizedItems,
   withAnchor,
   withBucketPoints,
+  withItemRestored,
   withMode,
   withNewItems,
   withoutItems,
@@ -271,6 +272,25 @@ export function RelativeSizingClient() {
         : `Moved “${short(item?.title ?? "")}” to ${where}.`
     );
     focus();
+  };
+
+  /** A card taken off the board (a mistyped title, a story split up), with Undo. */
+  const removeItem = (b: SizingBoard, itemId: string) => {
+    const cur = freshBoard(b.id);
+    const index = cur ? cur.items.findIndex((i) => i.id === itemId) : -1;
+    if (!cur || index < 0) return;
+    const removed = { item: cur.items[index], index, anchor: cur.anchorItemId === itemId };
+    const label = `Removed “${short(removed.item.title, 40)}” from the board`;
+    undoable({
+      label,
+      apply: () => {
+        writeBoard(b.id, (c) => withoutItems(c, [itemId], nowIso()));
+      },
+      revert: () => {
+        writeBoard(b.id, (c) => withItemRestored(c, removed, nowIso()));
+      },
+    });
+    announce(`${label}.`);
   };
 
   const setMode = (b: SizingBoard, mode: SizingMode) => {
@@ -637,6 +657,7 @@ export function RelativeSizingClient() {
               onNames={setNames}
               actions={{
                 move: (itemId, lane, focus) => move(board, itemId, lane, focus),
+                remove: (itemId) => removeItem(board, itemId),
                 setMode: (m) => setMode(board, m),
                 setBucketPoints: (id, points) => setBucketPoints(board, id, points),
                 setAnchor: (id) => setAnchor(board, id),
@@ -668,6 +689,7 @@ export function RelativeSizingClient() {
 
 interface BoardActions {
   move: (itemId: string, lane: Lane, focus: () => void) => void;
+  remove: (itemId: string) => void;
   setMode: (mode: SizingMode) => void;
   setBucketPoints: (bucketId: string, points: number | undefined) => void;
   setAnchor: (itemId: string) => void;
@@ -799,6 +821,7 @@ function BoardView({
       <SizingBoardView
         board={board}
         onMove={a.move}
+        onRemove={a.remove}
         talk={(item) => (
           <TalkAbout board={board} item={item} notes={notesOf(item)} onSplit={a.split} />
         )}

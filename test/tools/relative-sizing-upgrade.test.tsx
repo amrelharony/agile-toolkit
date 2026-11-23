@@ -335,6 +335,21 @@ describe("more of the board", () => {
     );
   });
 
+  it("takes a card off the board from its menu, and Undo puts it back as it was", async () => {
+    seedBoard({ ...board({ mode: "buckets" }), anchorItemId: "c1" });
+    renderPage();
+    await screen.findByRole("heading", { name: "Checkout" });
+    openMenu("Move to…: Story a");
+    fireEvent.click(screen.getByRole("menuitem", { name: "Remove from the board" }));
+    expect(theBoard().items.map((i) => i.id)).toEqual(["c2", "c3"]);
+    expect(theBoard().anchorItemId).toBeUndefined();
+    await announced("Removed “Story a” from the board.");
+    expect(lastUndo().label).toBe("Removed “Story a” from the board");
+    act(() => lastUndo().revert());
+    expect(theBoard().items.map((i) => i.id)).toEqual(["c1", "c2", "c3"]);
+    expect(theBoard().anchorItemId).toBe("c1");
+  });
+
   it("settles a card placed from Talk about it: its moves start again", async () => {
     seedBoard({
       ...board(),
