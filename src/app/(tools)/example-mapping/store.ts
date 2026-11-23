@@ -7,7 +7,7 @@
 
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { ExampleMap, Story } from "@/lib/stores/workspace-types";
-import { readMap, readMaps } from "@/lib/example-mapping/model";
+import { readMap, readMaps, rowTooBig } from "@/lib/example-mapping/model";
 
 const ws = () => useWorkspaceStore.getState();
 
@@ -25,7 +25,11 @@ export function saveMap(map: ExampleMap): ExampleMap {
   return map;
 }
 
-/** Change a stored map; nothing happens when it is gone or `fn` returns null. */
+/**
+ * Change a stored map; nothing happens when it is gone, `fn` returns null,
+ * or the change would grow it past one synced row (as the CRUD refuses it:
+ * an Undo restore or a link write on a map that grew since).
+ */
 export function patchMap(
   id: string,
   fn: (map: ExampleMap) => ExampleMap | null
@@ -33,7 +37,7 @@ export function patchMap(
   const current = findMap(id);
   if (!current) return null;
   const next = fn(current);
-  if (!next) return null;
+  if (!next || rowTooBig(next, current)) return null;
   ws().upsertExampleMap(next);
   return next;
 }

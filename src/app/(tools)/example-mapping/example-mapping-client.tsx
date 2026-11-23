@@ -50,6 +50,7 @@ import {
   CARD_TEXT_MAX,
   EXAMPLE_MAPPING_PATH,
   EXAMPLE_MAP_ID_PREFIX,
+  MAP_TOO_BIG,
   TIMEBOX_DEFAULT,
   VERDICT_LABEL,
   blankMap,
@@ -60,6 +61,7 @@ import {
   newestFirst,
   questionRoomProblem,
   readMaps,
+  rowTooBig,
   ruleFromQuestion,
   ruleOf,
   ruleRemoval,
@@ -93,7 +95,6 @@ import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { withRefinedPutBack } from "@/lib/sprints/story-status";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
-  ENTITY_ROW_MAX_BYTES,
   type ExampleMap,
   type ExampleMapRule,
   type ExampleMapVerdict,
@@ -102,7 +103,6 @@ import {
 } from "@/lib/stores/workspace-types";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { cn } from "@/lib/utils";
-import { jsonBytes } from "@/lib/utils/json-bytes";
 import { undoable } from "@/lib/utils/undoable";
 import {
   CaptureLine,
@@ -127,8 +127,6 @@ const cap = (t: string | undefined, max: number) => (t ?? "").slice(0, max);
 
 const EXAMPLE_BLOCKED =
   "The example map stays here: clear it and map your own story to send rules and examples on.";
-const TOO_BIG =
-  "This example map is too big to save. Shorten or remove some lines. Nothing was saved.";
 const TIMEBOX_CHOICES = [10, 15, 20, 25, 30, 45, 60] as const;
 
 /** The backlog stories a map can be for: not done, not the example's. */
@@ -199,9 +197,9 @@ export function ExampleMappingClient() {
     if (!now) return null;
     const next = fn(now);
     if (!next) return null;
-    if (jsonBytes(next) > ENTITY_ROW_MAX_BYTES && jsonBytes(next) > jsonBytes(now)) {
-      setStatus(TOO_BIG);
-      announce(TOO_BIG);
+    if (rowTooBig(next, now)) {
+      setStatus(MAP_TOO_BIG);
+      announce(MAP_TOO_BIG);
       return null;
     }
     return saveMap(next);
@@ -446,6 +444,8 @@ export function ExampleMappingClient() {
     if (!target) return say("Its story is no longer in the backlog.");
     const plan = storyWritePlan(target, map);
     if (!plan.ok) return say(plan.problem);
+    // The map records when it was sent: checked first, so a refusal sends nothing.
+    if (rowTooBig(touched(map, { sentAt: nowIso() }, nowIso()), map)) return say(MAP_TOO_BIG);
     if (plan.unchanged) {
       return say(
         `“${shortText(target.title)}” already has these rules and examples${plan.notSent.length > 0 ? `; ${plural(plan.notSent.length, "example", "examples")} didn't fit its 20 scenarios` : ""}.`

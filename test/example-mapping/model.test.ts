@@ -16,6 +16,7 @@ import {
   readMaps,
   ruleFromQuestion,
   ruleRemoval,
+  rowTooBig,
   sameKey,
   splitDescription,
   splitTitle,
@@ -34,7 +35,13 @@ import {
   withoutRule,
 } from "@/lib/example-mapping/model";
 import { STORY_CRITERIA_MAX, STORY_GWT_MAX } from "@/lib/stories/fields";
-import { TOOL_LIST_MAX, type ExampleMap, type Story } from "@/lib/stores/workspace-types";
+import {
+  ENTITY_ROW_MAX_BYTES,
+  TOOL_LIST_MAX,
+  type ExampleMap,
+  type Story,
+} from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 const NOW = "2026-11-23T10:00:00.000Z";
 const map = (over: Partial<ExampleMap> = {}): ExampleMap => ({
@@ -157,6 +164,43 @@ describe("writing within the caps", () => {
     expect(ruleFromQuestion({ id: "q", text: "Only holders?", status: "answered" })).toBe(
       "Only holders?"
     );
+  });
+});
+
+describe("one synced row", () => {
+  // 3-byte text: sixty examples with long Given/When/Then pass one row.
+  const big = () => {
+    let m = withRules(6);
+    const part = "漢".repeat(1000);
+    for (let i = 0; i < 60; i++) {
+      m =
+        withExample(
+          m,
+          {
+            ruleId: `r${Math.floor(i / 10) + 1}`,
+            text: "漢".repeat(200),
+            given: part,
+            when: part,
+            then: part,
+          },
+          `e${i}`,
+          NOW
+        ) ?? m;
+    }
+    return m;
+  };
+
+  it("refuses a change that grows a map past ENTITY_ROW_MAX_BYTES, never one that shrinks it", () => {
+    const m = big();
+    expect(m.examples).toHaveLength(60);
+    expect(jsonBytes(m)).toBeGreaterThan(ENTITY_ROW_MAX_BYTES);
+    expect(rowTooBig(withRule(m, "One more", "r7", NOW)!, m)).toBe(true);
+    // Cutting a map that is too big back down always goes through.
+    const smaller = { ...m, examples: m.examples.slice(1) };
+    expect(rowTooBig(smaller, m)).toBe(false);
+    // Under the row, any change goes through.
+    const small = withRules(2);
+    expect(rowTooBig(withRule(small, "Third", "r3", NOW)!, small)).toBe(false);
   });
 });
 

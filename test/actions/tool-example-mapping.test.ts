@@ -11,6 +11,9 @@
  *   4. answer_question and set_verdict
  *   5. send_to_story: refused with no story, criteria and scenarios written
  *      once, and on the server through the stamped story write
+ *   6. one synced row: a write that would grow a map past
+ *      ENTITY_ROW_MAX_BYTES (3-byte text) is refused with 'too_big', in the
+ *      browser and on the server, and nothing is written
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -28,7 +31,14 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
 import * as serverStore from "@/lib/actions/server-store";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { EXAMPLE_MAP_KIND, type ExampleMap, type Story } from "@/lib/stores/workspace-types";
+import {
+  ENTITY_ROW_MAX_BYTES,
+  EXAMPLE_MAP_KIND,
+  type ExampleMap,
+  type Story,
+} from "@/lib/stores/workspace-types";
+import { GWT_MAX, MAP_TOO_BIG, withExample } from "@/lib/example-mapping/model";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 import "@/lib/actions/tools/example-mapping";
 
@@ -293,5 +303,93 @@ describe("tool.example_mapping.send_to_story", () => {
     expect(storyWrite.refinedAt).toBeTruthy();
     const mapWrite = writes.find((c) => c[1] === EXAMPLE_MAP_KIND)?.[2] as ExampleMap;
     expect(mapWrite.sentAt).toBeTruthy();
+  });
+});
+
+describe("one synced row", () => {
+  // 3-byte text (CJK): a map at its caps passes one row.
+  const cjk = (n: number) => "漢".repeat(n);
+  const full = (ruleId: string) => ({
+    ruleId,
+    text: cjk(200),
+    given: cjk(GWT_MAX),
+    when: cjk(GWT_MAX),
+    then: cjk(GWT_MAX),
+  });
+  const sixRules = () =>
+    map({
+      storyId: "st1",
+      rules: Array.from({ length: 6 }, (_, i) => ({ id: `r${i + 1}`, text: `Rule ${i + 1}` })),
+      questions: [{ id: "q1", text: "Who?", status: "open" }],
+    });
+  /** Full examples while one more still fits the row: the next full one doesn't. */
+  const nearlyFull = (): ExampleMap => {
+    let m = sixRules();
+    for (let i = 0; ; i++) {
+      const next = withExample(m, full(`r${Math.floor(i / 10) + 1}`), `ex_${i}`, m.updatedAt);
+      if (!next || jsonBytes(next) > ENTITY_ROW_MAX_BYTES) return m;
+      m = next;
+    }
+  };
+  /** Sixty full examples: already past one row, as a map stored before this check could be. */
+  const overFull = (): ExampleMap => {
+    let m = sixRules();
+    for (let i = 0; i < 60; i++) {
+      m = withExample(m, full(`r${Math.floor(i / 10) + 1}`), `ex_${i}`, m.updatedAt)!;
+    }
+    return m;
+  };
+  const refused = (r: unknown) =>
+    expect(r).toMatchObject({ reason: "too_big", message: MAP_TOO_BIG });
+
+  it("refuses an example that would take the map past the row, and writes nothing", async () => {
+    const m = nearlyFull();
+    expect(jsonBytes(m)).toBeLessThanOrEqual(ENTITY_ROW_MAX_BYTES);
+    ws().upsertExampleMap(m);
+    const ruleId = `r${Math.floor(m.examples.length / 10) + 1}`;
+    const r = await run("tool.example_mapping.add_example", { mapId: "exmap_a", ...full(ruleId) });
+    expect(r).toMatchObject({ added: false });
+    refused(r);
+    expect(stored()!.examples).toHaveLength(m.examples.length);
+    // A small change that still fits goes through.
+    expect(
+      await run("tool.example_mapping.add_rule", { mapId: "exmap_a", text: "Short rule" })
+    ).toMatchObject({ added: true });
+  });
+
+  it("refuses every growing write on a map already past the row", async () => {
+    const m = overFull();
+    expect(jsonBytes(m)).toBeGreaterThan(ENTITY_ROW_MAX_BYTES);
+    ws().upsertExampleMap(m);
+    ws().upsertStory(story());
+    const before = JSON.stringify(stored());
+    refused(await run("tool.example_mapping.add_rule", { mapId: "exmap_a", text: "One more" }));
+    refused(
+      await run("tool.example_mapping.add_question", { mapId: "exmap_a", text: "And this?" })
+    );
+    refused(
+      await run("tool.example_mapping.answer_question", {
+        mapId: "exmap_a",
+        questionId: "q1",
+        answer: cjk(1000),
+      })
+    );
+    refused(await run("tool.example_mapping.set_verdict", { mapId: "exmap_a", verdict: "split" }));
+    refused(await run("tool.example_mapping.send_to_story", { mapId: "exmap_a" }));
+    expect(JSON.stringify(stored())).toBe(before);
+    // send_to_story checks first: the story isn't written either.
+    expect(ws().stories.find((x) => x.id === "st1")!.acceptanceCriteria).toBeUndefined();
+  });
+
+  it("refuses on the server too, with no row written", async () => {
+    const m = nearlyFull();
+    vi.mocked(serverStore.serverGetEntity).mockImplementation(
+      async (_u, kind) => (kind === EXAMPLE_MAP_KIND ? m : null) as never
+    );
+    const ruleId = `r${Math.floor(m.examples.length / 10) + 1}`;
+    refused(
+      await runMcp("tool.example_mapping.add_example", { mapId: "exmap_a", ...full(ruleId) })
+    );
+    expect(serverStore.serverUpsertEntity).not.toHaveBeenCalled();
   });
 });

@@ -23,7 +23,9 @@
  *                        Given/When/Then, each once.
  *
  * Every write goes through lib/example-mapping/model, so the caps are the
- * page's and the CRUD's, and stamps updatedAt as the page does. The page
+ * page's and the CRUD's (a map grown past one synced row is refused with
+ * reason 'too_big', as the CRUD refuses it), and stamps updatedAt as the
+ * page does. The page
  * logs history, not these verbs. Nothing here reaches other people: every
  * verb is the visitor's own data.
  */
@@ -48,6 +50,7 @@ import {
   CARD_ID_PREFIX,
   CARD_TEXT_MAX,
   GWT_MAX,
+  MAP_TOO_BIG,
   examplesOf,
   exampleRoomProblem,
   mapCounts,
@@ -56,6 +59,7 @@ import {
   questionRoomProblem,
   readMap,
   readMaps,
+  rowTooBig,
   ruleRoomProblem,
   storyLink,
   storyWritePlan,
@@ -123,6 +127,9 @@ async function load(store: Store, id: string): Promise<ExampleMap | null> {
 }
 
 const NOT_FOUND = { reason: "not_found" as const, message: "No example map has that id." };
+
+/** A change that would take the map past one synced row, refused as the CRUD and the page refuse it. */
+const TOO_BIG = { reason: "too_big" as const, message: MAP_TOO_BIG };
 
 /* ── list_state ──────────────────────────────────────────────────────── */
 
@@ -201,6 +208,7 @@ async function addRule(store: Store, p: z.infer<typeof AddRuleParams>) {
   if (!next) {
     return { added: false as const, reason: "full" as const, message: ruleRoomProblem(map) ?? "" };
   }
+  if (rowTooBig(next, map)) return { added: false as const, ...TOO_BIG };
   await store.putMap(next);
   return { added: true as const, ruleId: id, rules: next.rules.length };
 }
@@ -212,7 +220,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Add a rule (a business rule or acceptance criterion) to an example map. Returns {added: true, ruleId, rules}, or {added: false, reason: 'not_found' | 'full', message} (12 rules at most: more is several stories).",
+    "Add a rule (a business rule or acceptance criterion) to an example map. Returns {added: true, ruleId, rules}, or {added: false, reason: 'not_found' | 'full' | 'too_big', message} (12 rules at most: more is several stories; too_big: the map would pass one saved row).",
   paramsSchema: AddRuleParams,
   handler: (p) => addRule(browserStore, p),
   mcpHandler: (p, ctx) => addRule(serverStore(ctx.userId), p),
@@ -247,6 +255,7 @@ async function addExample(store: Store, p: z.infer<typeof AddExampleParams>) {
   const next = withExample(map, p, id, nowIso());
   if (!next)
     return { added: false as const, reason: "refused" as const, message: "Nothing to add." };
+  if (rowTooBig(next, map)) return { added: false as const, ...TOO_BIG };
   await store.putMap(next);
   return { added: true as const, exampleId: id, examples: next.examples.length };
 }
@@ -258,7 +267,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Add a concrete example under one rule of an example map, optionally written as Given/When/Then (all three or none). Returns {added: true, exampleId, examples}, or {added: false, reason: 'not_found' | 'refused', message} (10 examples a rule, 60 a map).",
+    "Add a concrete example under one rule of an example map, optionally written as Given/When/Then (all three or none). Returns {added: true, exampleId, examples}, or {added: false, reason: 'not_found' | 'refused' | 'too_big', message} (10 examples a rule, 60 a map; too_big: the map would pass one saved row).",
   paramsSchema: AddExampleParams,
   handler: (p) => addExample(browserStore, p),
   mcpHandler: (p, ctx) => addExample(serverStore(ctx.userId), p),
@@ -297,6 +306,7 @@ async function addQuestion(store: Store, p: z.infer<typeof AddQuestionParams>) {
       message: questionRoomProblem(map) ?? "",
     };
   }
+  if (rowTooBig(next, map)) return { added: false as const, ...TOO_BIG };
   await store.putMap(next);
   return { added: true as const, questionId: id, open: mapCounts(next).open };
 }
@@ -308,7 +318,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Add an open question to an example map, optionally about one rule and with the owner who will find the answer. Returns {added: true, questionId, open}, or {added: false, reason: 'not_found' | 'refused' | 'full', message} (20 questions at most).",
+    "Add an open question to an example map, optionally about one rule and with the owner who will find the answer. Returns {added: true, questionId, open}, or {added: false, reason: 'not_found' | 'refused' | 'full' | 'too_big', message} (20 questions at most; too_big: the map would pass one saved row).",
   paramsSchema: AddQuestionParams,
   handler: (p) => addQuestion(browserStore, p),
   mcpHandler: (p, ctx) => addQuestion(serverStore(ctx.userId), p),
@@ -360,6 +370,7 @@ async function answerQuestion(store: Store, p: z.infer<typeof AnswerParams>) {
   );
   if (!next)
     return { updated: false as const, reason: "not_found" as const, message: "No such question." };
+  if (rowTooBig(next, map)) return { updated: false as const, ...TOO_BIG };
   await store.putMap(next);
   return { updated: true as const, status, open: mapCounts(next).open };
 }
@@ -371,7 +382,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Answer an example map's question (status answered, the default when an answer is given), drop it, or open it again. Returns {updated: true, status, open}, or {updated: false, reason: 'not_found' | 'refused', message}.",
+    "Answer an example map's question (status answered, the default when an answer is given), drop it, or open it again. Returns {updated: true, status, open}, or {updated: false, reason: 'not_found' | 'refused' | 'too_big', message}.",
   paramsSchema: AnswerParams,
   handler: (p) => answerQuestion(browserStore, p),
   mcpHandler: (p, ctx) => answerQuestion(serverStore(ctx.userId), p),
@@ -392,7 +403,9 @@ const VerdictParams = z.object({
 async function setVerdict(store: Store, p: z.infer<typeof VerdictParams>) {
   const map = await load(store, p.mapId);
   if (!map) return { updated: false as const, ...NOT_FOUND };
-  await store.putMap(withVerdict(map, p.verdict, nowIso()));
+  const next = withVerdict(map, p.verdict, nowIso());
+  if (rowTooBig(next, map)) return { updated: false as const, ...TOO_BIG };
+  await store.putMap(next);
   return { updated: true as const, verdict: p.verdict };
 }
 
@@ -403,7 +416,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set what the team decided about an example map's story: ready, split or not-yet (null clears). Splitting into stories is done on the page. Returns {updated: true, verdict} or {updated: false, reason: 'not_found', message}.",
+    "Set what the team decided about an example map's story: ready, split or not-yet (null clears). Splitting into stories is done on the page. Returns {updated: true, verdict} or {updated: false, reason: 'not_found' | 'too_big', message}.",
   paramsSchema: VerdictParams,
   handler: (p) => setVerdict(browserStore, p),
   mcpHandler: (p, ctx) => setVerdict(serverStore(ctx.userId), p),
@@ -440,8 +453,11 @@ async function sendToStory(store: Store, p: z.infer<typeof SendParams>) {
   }
   const plan = storyWritePlan(story, map);
   if (!plan.ok) return { sent: false as const, reason: "too_long" as const, message: plan.problem };
+  const stamped = touched(map, { sentAt: nowIso() }, nowIso());
+  // Checked before the story is written, so a refusal changes nothing.
+  if (rowTooBig(stamped, map)) return { sent: false as const, ...TOO_BIG };
   if (!plan.unchanged) await store.putStory(plan.next);
-  await store.putMap(touched(map, { sentAt: nowIso() }, nowIso()));
+  await store.putMap(stamped);
   return {
     sent: true as const,
     storyId: story.id,
@@ -458,7 +474,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Write an example map's rules into its linked story's acceptance criteria (as '- rule' lines, each once) and its Given/When/Then examples into the story's scenarios (each once, 20 at most). Returns {sent: true, storyId, rules, examples, notSent} or {sent: false, reason: 'not_found' | 'example' | 'no_story' | 'too_long', message}. Refused when no story is linked or the criteria would pass 2,000 characters.",
+    "Write an example map's rules into its linked story's acceptance criteria (as '- rule' lines, each once) and its Given/When/Then examples into the story's scenarios (each once, 20 at most). Returns {sent: true, storyId, rules, examples, notSent} or {sent: false, reason: 'not_found' | 'example' | 'no_story' | 'too_long' | 'too_big', message}. Refused when no story is linked or the criteria would pass 2,000 characters.",
   paramsSchema: SendParams,
   handler: (p) => sendToStory(browserStore, p),
   mcpHandler: (p, ctx) => sendToStory(serverStore(ctx.userId), p),

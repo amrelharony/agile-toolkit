@@ -11,6 +11,7 @@
  */
 
 import {
+  ENTITY_ROW_MAX_BYTES,
   EXAMPLE_MAP_VERDICTS,
   EXAMPLE_QUESTION_STATUSES,
   HANDOFF_ROUTE_IDS,
@@ -35,6 +36,7 @@ import {
   withStoryGwt,
 } from "@/lib/stories/fields";
 import type { Validation } from "@/lib/utils/form";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 /** Every map id starts with this, as the workspace CRUD makes them. */
 export const EXAMPLE_MAP_ID_PREFIX = "exmap_";
@@ -296,6 +298,21 @@ export function blankMap(input: NewMap, id: string, now: string): ExampleMap {
 /** `map` with `patch` and a fresh `updatedAt`. */
 export function touched(map: ExampleMap, patch: Partial<ExampleMap>, now: string): ExampleMap {
   return { ...map, ...patch, updatedAt: now };
+}
+
+/** What the page and Amr say when a change would take a map past one synced row. */
+export const MAP_TOO_BIG =
+  "This example map is too big to save. Shorten or remove some lines. Nothing was saved.";
+
+/**
+ * Whether writing `next` over `prev` would grow a map past one synced row
+ * (ENTITY_ROW_MAX_BYTES of JSON), as the workspace CRUD refuses it. A
+ * change that shrinks a map, or keeps its size, always goes through, so a
+ * map stored over the limit can still be cut back.
+ */
+export function rowTooBig(next: ExampleMap, prev: ExampleMap): boolean {
+  const size = jsonBytes(next);
+  return size > ENTITY_ROW_MAX_BYTES && size > jsonBytes(prev);
 }
 
 export function ruleOf(map: ExampleMap, ruleId: string): ExampleMapRule | undefined {
