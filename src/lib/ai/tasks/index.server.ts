@@ -22,6 +22,7 @@ import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
 import { notesToActionsExtractPrompt } from "./notes-to-actions.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
 import { personaFromNotesPrompt } from "./persona-library.server";
+import { roamPrompt } from "./pi-planning.server";
 import { themeNamesPrompt } from "./picker.server";
 import { pokerSimilarPrompt } from "./planning-poker.server";
 import { productCanvasDraftPrompt, productCanvasGapsPrompt } from "./product-canvas.server";
@@ -62,6 +63,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   notesToActionsExtractPrompt,
   parkingRoutePrompt,
   personaFromNotesPrompt,
+  roamPrompt,
   themeNamesPrompt,
   pokerSimilarPrompt,
   productCanvasDraftPrompt,

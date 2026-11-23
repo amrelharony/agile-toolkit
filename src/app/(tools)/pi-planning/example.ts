@@ -1,6 +1,15 @@
 import { exampleId, isExampleId } from "@/components/tool-frame/example-data";
 import { dayFrom } from "../dependency-map/format";
-import type { PiItem, PiItemKind, PiObjective, PiState, PiTeam } from "./store";
+import { TRAIN_SCOPE, TRAIN_SCOPE_NAME } from "@/lib/pi-planning/confidence";
+import type {
+  PiConfidenceVote,
+  PiItem,
+  PiItemKind,
+  PiObjective,
+  PiRecord,
+  PiState,
+  PiTeam,
+} from "./store";
 
 const id = (key: string) => exampleId(`pi-${key}`);
 
@@ -33,7 +42,10 @@ export interface ExampleLink {
  * and planning). Checkout is over capacity in iteration 2 and waits on
  * Payments' refund API; Mobile waits on Checkout's guest endpoint, which is
  * already late. Payments still has a feature to size, and one objective is
- * waiting for its business value.
+ * waiting for its business value. Checkout's PCI risk is owned; the train's
+ * confidence vote came in at 3.7 with one vote under 3; Checkout and
+ * Payments have scored what they delivered (94% and 75%) while Mobile's
+ * objective waits for its score; and one earlier PI is closed.
  */
 export function buildExample(now: Date = new Date()): { state: PiState; links: ExampleLink[] } {
   const teams = [
@@ -96,6 +108,12 @@ export function buildExample(now: Date = new Date()): { state: PiState; links: E
     objective("o5", "payments", "Finance sees payouts without a spreadsheet", true),
     objective("o6", "mobile", "Order updates arrive as push notifications", true, 6),
   ];
+  // What the business owners scored at the end: Checkout and Payments so far.
+  const actual: Record<string, number> = { o1: 8, o2: 5, o3: 2, o4: 6 };
+  for (const o of objectives) {
+    const key = o.id.slice(id("").length);
+    if (actual[key] !== undefined) o.actualBusinessValue = actual[key];
+  }
   const links: ExampleLink[] = [
     { itemId: id("c5"), team: "Checkout", dependsOn: "Payments", due: dayFrom(now, 10) },
     { itemId: id("m2"), team: "Mobile", dependsOn: "Checkout", due: dayFrom(now, -2) },
@@ -104,20 +122,64 @@ export function buildExample(now: Date = new Date()): { state: PiState; links: E
     const item = items.find((i) => i.id === link.itemId);
     if (item) item.dependsOn = link.dependsOn;
   }
-  return { state: { teams, items, iterations: 5, objectives }, links };
+  const pci = items.find((i) => i.id === id("c7"));
+  if (pci) {
+    pci.roam = "owned";
+    pci.roamOwner = "Checkout's tech lead";
+    pci.roamNote = "Book the auditor for iteration 2 and share the evidence list a week before.";
+  }
+  const confidence: PiConfidenceVote[] = [
+    {
+      id: id("vote-1"),
+      at: new Date(now.getTime() - 86_400_000).toISOString(),
+      scope: TRAIN_SCOPE,
+      scopeName: TRAIN_SCOPE_NAME,
+      counts: [0, 1, 3, 5, 2],
+      ballots: 11,
+      source: "facilitator",
+    },
+  ];
+  const history: PiRecord[] = [
+    {
+      id: id("pi-earlier"),
+      name: "PI 2026.2",
+      closedAt: dayFrom(now, -84),
+      teams: [
+        { teamId: id("checkout"), name: "Checkout", plannedBv: 24, actualBv: 21 },
+        { teamId: id("payments"), name: "Payments", plannedBv: 20, actualBv: 15 },
+        { teamId: id("mobile"), name: "Mobile", plannedBv: 15, actualBv: 14 },
+      ],
+    },
+  ];
+  return {
+    state: { teams, items, iterations: 5, objectives, confidence, history },
+    links,
+  };
 }
 
 /**
- * The board without the example's teams, items and objectives, and
- * anything the user added to an example team (it would have no team left).
- * Nothing else is touched.
+ * The board without the example's teams, items, objectives, votes and
+ * closed PI, and anything the user added to an example team (it would have
+ * no team left): an item, an objective, a vote for it, or a closed PI of
+ * example teams only. Nothing else is touched, and a list the board never
+ * had stays absent.
  */
 export function withoutExample(state: PiState): PiState {
   const keep = (x: { id: string; teamId: string }) => !isExampleId(x.id) && !isExampleId(x.teamId);
-  return {
+  const next: PiState = {
     ...state,
     teams: state.teams.filter((t) => !isExampleId(t.id)),
     items: state.items.filter(keep),
     objectives: (state.objectives ?? []).filter(keep),
   };
+  if (state.confidence) {
+    next.confidence = state.confidence.filter((v) => !isExampleId(v.id) && !isExampleId(v.scope));
+  }
+  if (state.history) {
+    next.history = state.history.filter(
+      (r) =>
+        !isExampleId(r.id) && !(r.teams.length > 0 && r.teams.every((t) => isExampleId(t.teamId)))
+    );
+  }
+  return next;
 }
