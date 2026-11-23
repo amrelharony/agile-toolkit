@@ -877,6 +877,19 @@ describe("a change the row can't hold is refused before its Undo toast", () => {
     expect(byId("improve_a3")!.steps[0].sentTo).toBeUndefined();
     expect(result.current.rowError).toBe(TOO_BIG);
   });
+
+  it("takes back an analysis opened from an A3 whose link the row can't hold", () => {
+    useWorkspaceStore.setState({ improvements: [a3({ steps: giantSteps() })] });
+    const { result } = hook("improve_a3");
+    let opened: string | null = "not yet";
+    act(() => {
+      opened = result.current.analyzeInRootCause();
+    });
+    expect(opened).toBeNull();
+    expect(ws().rootCauseAnalyses).toEqual([]);
+    expect(byId("improve_a3")!.rootCauseId).toBeUndefined();
+    expect(logs).toEqual([]);
+  });
 });
 
 describe("a Kata", () => {

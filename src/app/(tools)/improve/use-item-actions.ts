@@ -560,11 +560,13 @@ export function useItemActions(itemId: string, log: Log) {
         },
       }
     );
-    if (link && freshImprovement(itemId)?.rootCauseId === link.targetId) {
+    // A link the row couldn't hold was taken back with its analysis: nothing opened.
+    const opened = link && freshImprovement(itemId)?.rootCauseId === link.targetId ? link : null;
+    if (opened) {
       logIt(IMPROVE_ACTIONS.ITEM_UPDATED, { field: "rootCauseId", route: "root-cause" });
       announce("Opened a Root Cause analysis of it. Find the cause there, then use it here.");
     }
-    return link?.targetId ?? null;
+    return opened?.targetId ?? null;
   };
 
   /** Fill "Why it happens" from the linked analysis's root cause, with Undo; the refusal, or null. */
