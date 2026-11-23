@@ -22,6 +22,7 @@ import { cheer } from "@/lib/celebrate/cheer";
 import { KICKOFF_ACTIONS } from "@/lib/history/event-actions";
 import {
   changedSinceAgreed,
+  dayLabel,
   formatOf,
   itemCount,
   kickoffGaps,
@@ -48,19 +49,6 @@ const CollectRoomLazy = dynamic(() => import("./collect-room").then((m) => m.Col
     </p>
   ),
 });
-
-/** "16 Nov 2026" for a day or a time; "" for anything else. */
-export function dayLabel(value: string | undefined): string {
-  if (!value) return "";
-  const d = new Date(value.length === 10 ? `${value}T00:00:00Z` : value);
-  if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    ...(value.length === 10 ? { timeZone: "UTC" } : {}),
-  });
-}
 
 function AgreeBar({ handle }: { handle: KickoffHandle }) {
   const { kickoff: k, write, log, example } = handle;

@@ -92,6 +92,25 @@ export const shortText = (text: string, max = 48): string => cutLine(text, max);
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
+/**
+ * "16 Nov 2026" for a day or a time; "" for anything else. A day
+ * ("YYYY-MM-DD") is that calendar day; a time (an agreed kickoff's
+ * `agreedAt`) is its day where the reader is, so the page and the export
+ * say the same day.
+ */
+export function dayLabel(value: string | undefined): string {
+  if (!value) return "";
+  const day = DAY.test(value);
+  const d = new Date(day ? `${value}T00:00:00Z` : value);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    ...(day ? { timeZone: "UTC" } : {}),
+  });
+}
+
 /* ── Ids ─────────────────────────────────────────────────────────── */
 
 /** A new kickoff's id, as the CRUD makes them. */

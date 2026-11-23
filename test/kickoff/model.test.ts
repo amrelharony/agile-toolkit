@@ -23,6 +23,7 @@ import {
   changedSinceAgreed,
   coveredWorry,
   coveringItems,
+  dayLabel,
   draftItemsFor,
   draftSlidersFor,
   hmwStarters,
@@ -691,6 +692,31 @@ describe("the Markdown", () => {
     );
     expect(framing).toContain("## The problem statement\n\n> For buyers, refunds are slow.");
     expect(kickoffToMarkdown(null, { today: "2026-11-20" })).toContain("No kickoff yet.");
+  });
+
+  it("says the agreed day where the reader is, as the page does, east and west of UTC", () => {
+    const zone = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    // 20:30 UTC on the 20th is the 21st in Tokyo; 03:30 UTC on the 21st is the 20th in Los Angeles.
+    const cases = [
+      ["Asia/Tokyo", "2026-11-20T20:30:00.000Z", "21 Nov 2026"],
+      ["America/Los_Angeles", "2026-11-21T03:30:00.000Z", "20 Nov 2026"],
+    ] as const;
+    try {
+      for (const [tz, agreedAt, day] of cases) {
+        process.env.TZ = tz;
+        const k = kickoff({ format: "trade-offs", status: "agreed", agreedAt, date: "2026-11-16" });
+        expect(dayLabel(agreedAt)).toBe(day);
+        const md = kickoffToMarkdown(k, { today: "2026-11-22" });
+        expect(md).toContain(`Agreed ${day}`);
+        // A plain day stays that day everywhere.
+        expect(md).toContain("16 Nov 2026");
+        expect(md).toContain("Exported 22 Nov 2026.");
+      }
+    } finally {
+      process.env.TZ = zone;
+    }
+    expect(dayLabel("not a day")).toBe("");
+    expect(dayLabel(undefined)).toBe("");
   });
 
   it("escapes a pipe in a trade-off and collapses lines", () => {

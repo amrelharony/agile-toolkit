@@ -6,7 +6,14 @@
  * credit line. Lines are collapsed and table cells escaped.
  */
 
-import { coveredWorry, formatOf, oneLine, orderedSliders, shortText } from "@/lib/kickoff/model";
+import {
+  coveredWorry,
+  dayLabel,
+  formatOf,
+  oneLine,
+  orderedSliders,
+  shortText,
+} from "@/lib/kickoff/model";
 import { PEOPLE_SECTION, type KickoffSectionDef } from "@/lib/kickoff/formats";
 import { creditLine, creditUrl, sectionsMarkdown } from "@/lib/sectioned/model";
 import type { Kickoff, KickoffItem } from "@/lib/stores/workspace-types";
@@ -16,17 +23,11 @@ const cell = (s: string) => oneLine(s).replace(/\|/g, "\\|");
 
 const STATUS_LABEL = { draft: "Draft", agreed: "Agreed" } as const;
 
-/** A day as "16 Nov 2026"; anything else as it is. */
-function dayText(day: string): string {
-  const d = new Date(`${day.slice(0, 10)}T00:00:00Z`);
-  if (Number.isNaN(d.getTime())) return day;
-  return d.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
+/**
+ * A day or a time as "16 Nov 2026", the page's way (`dayLabel`): an agreed
+ * time is its local day, as the page shows it; anything else as it is.
+ */
+const dayText = (value: string): string => dayLabel(value) || value;
 
 function itemLine(k: Kickoff, item: KickoffItem, def: KickoffSectionDef): string {
   const text = oneLine(item.text);
