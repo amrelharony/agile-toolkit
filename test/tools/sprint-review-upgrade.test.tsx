@@ -1498,6 +1498,55 @@ describe("theme tokens", () => {
   });
 });
 
+describe("the tab bar on a phone", () => {
+  const TABS: [full: string, short: string][] = [
+    ["Demo Script", "Demo"],
+    ["Stakeholder Feedback", "Feedback"],
+    ["Showcase Checklist", "Checklist"],
+    ["Velocity Summary", "Velocity"],
+  ];
+
+  it("sits four across in one row below sm, and wraps as before from sm up", () => {
+    renderReview();
+    expect(screen.getByRole("tablist")).toHaveClass(
+      "grid",
+      "w-full",
+      "grid-cols-4",
+      "sm:inline-flex",
+      "sm:w-auto",
+      "sm:flex-wrap"
+    );
+  });
+
+  it("shows a short word below sm, with each tab's full name kept", () => {
+    renderReview();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(TABS.map(([f]) => f));
+    TABS.forEach(([full, short], i) => {
+      const tab = screen.getByRole("tab", { name: full });
+      expect(tab).toBe(tabs[i]);
+      const word = within(tab).getByText(short, { exact: true });
+      expect(word).toHaveClass("sm:hidden");
+      expect(word).toHaveAttribute("aria-hidden", "true");
+      // Label in name: the word shown is part of the full name.
+      expect(full).toContain(short);
+      expect(within(tab).getByText(full, { exact: true })).toHaveClass("hidden", "sm:inline");
+      // No icon below sm, where four across have no room for one.
+      expect(tab.querySelector("svg")).toHaveClass("hidden", "sm:inline");
+      expect(tab).toHaveClass("min-w-0", "px-1.5", "text-xs", "sm:px-3", "sm:text-sm");
+    });
+  });
+
+  it("still opens a tab by its full name", () => {
+    renderReview();
+    openTab("Velocity Summary");
+    expect(screen.getByRole("tab", { name: "Velocity Summary" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+  });
+});
+
 describe("the feedback room on the Feedback tab", () => {
   beforeEach(() => {
     seed({ sprints: [s12, s11], stories: STORIES, sprintGoals: GOALS });

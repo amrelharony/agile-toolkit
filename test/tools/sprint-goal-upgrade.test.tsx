@@ -1194,3 +1194,37 @@ describe("Sprint Goal criteria and key results", () => {
     expect(screen.getByRole("link", { name: "Set OKRs" })).toHaveAttribute("href", "/okrs");
   });
 });
+
+describe("Sprint Goal step tabs on a phone", () => {
+  const STEP_TABS: [full: string, short: string][] = [
+    ["Business Objective", "Objective"],
+    ["Sprint Goal", "Goal"],
+    ["Acceptance Criteria", "Criteria"],
+    ["Key Results", "Results"],
+  ];
+
+  it("shows a word under each icon below sm, and keeps each tab's full name", () => {
+    renderGoal();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.getAttribute("aria-label"))).toEqual(STEP_TABS.map(([f]) => f));
+    STEP_TABS.forEach(([full, short], i) => {
+      const tab = screen.getByRole("tab", { name: full });
+      expect(tab).toBe(tabs[i]);
+      const word = within(tab).getByText(short, { exact: true });
+      // Shown below sm only, and left out of the name (the label is the name).
+      expect(word).toHaveClass("sm:hidden", "text-xs");
+      expect(word).toHaveAttribute("aria-hidden", "true");
+      // Every word shown is part of the name a voice user says.
+      expect(full).toContain(short);
+      // The full label still shows from sm up.
+      expect(within(tab).getByText(full, { exact: true })).toHaveClass("hidden", "sm:inline");
+      // Icon over word on a phone, side by side from sm up.
+      expect(tab).toHaveClass("flex-col", "sm:flex-row");
+    });
+  });
+
+  it("lets the bar grow to fit the stacked tabs", () => {
+    renderGoal();
+    expect(screen.getByRole("tablist")).toHaveClass("h-auto");
+  });
+});

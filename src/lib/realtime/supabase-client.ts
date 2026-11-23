@@ -4,6 +4,9 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 let cachedClient: SupabaseClient | null = null;
 
+/** The realtime client's auth storage key, apart from the auth client's default. */
+export const REALTIME_AUTH_STORAGE_KEY = "agile-toolkit-realtime";
+
 export function getSupabaseClient(): SupabaseClient | null {
   if (typeof window === "undefined") return null;
   if (cachedClient) return cachedClient;
@@ -20,8 +23,18 @@ export function getSupabaseClient(): SupabaseClient | null {
   // here; codes are exchanged only by /auth/callback, which enforces the
   // owner check. Not persisting a session also ignores one planted in
   // localStorage before this change.
+  //
+  // Its own `storageKey`, because the auth client (`getAuthBrowserClient`)
+  // uses the default one: auth-js counts GoTrue clients per storage key and
+  // warns "Multiple GoTrueClient instances" from the second in a browser.
+  // This client never persists, so nothing is written under the key.
   cachedClient = createClient(url, anon, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storageKey: REALTIME_AUTH_STORAGE_KEY,
+    },
     realtime: { params: { eventsPerSecond: 10 } },
   });
 

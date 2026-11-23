@@ -19,7 +19,9 @@ const TabsList = React.forwardRef<
       // clipped the rightmost tabs at 320 px; now the list scrolls and the
       // active tab can be swiped into view. Scrollbar hidden — touch users
       // get the swipe-list behaviour without a chrome eyesore.
-      "inline-flex h-9 items-center justify-start rounded-lg bg-muted p-1 text-muted-foreground max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden",
+      // On touch screens the list grows to fit triggers at the 44 px floor
+      // (`pointer-coarse:h-auto`); a call site's own height still merges.
+      "inline-flex h-9 items-center justify-start rounded-lg bg-muted p-1 text-muted-foreground max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pointer-coarse:h-auto",
       className
     )}
     {...props}
@@ -36,7 +38,9 @@ const TabsTrigger = React.forwardRef<
     className={cn(
       // `shrink-0` so triggers keep their natural width inside the scrolling
       // list — otherwise they squeeze to ellipses before scroll engages.
-      "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow",
+      // `pointer-coarse:min-h-11`: a 44 px touch target on phones and
+      // tablets (the trigger is about 28 px tall otherwise).
+      "inline-flex shrink-0 items-center justify-center whitespace-nowrap rounded-md px-3 py-1 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 data-[state=active]:bg-background data-[state=active]:text-foreground data-[state=active]:shadow pointer-coarse:min-h-11",
       className
     )}
     {...props}
