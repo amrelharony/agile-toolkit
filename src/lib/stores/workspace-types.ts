@@ -1388,6 +1388,8 @@ export interface ReleaseShip {
   gateIds?: string[];
   gates?: Record<string, boolean>;
   gatesOpenAtShip?: number;
+  /** When the release was reopened after this ship (ISO time): notes saved before it were written for this ship. */
+  reopenedAt?: string;
 }
 
 export interface Release {

@@ -513,7 +513,7 @@ async function setStatus(store: ReleaseStore, params: z.infer<typeof statusParam
       reason:
         "Only a rolled-back release reopens for planning: roll it back first (status rolled_back), or add a new release for the next one.",
     };
-  await store.putDoc(withRelease(doc, reopenRelease(r, doc)));
+  await store.putDoc(withRelease(doc, reopenRelease(r, doc, new Date())));
   return { updated: true as const };
 }
 

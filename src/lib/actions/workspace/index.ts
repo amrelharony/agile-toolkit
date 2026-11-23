@@ -2780,6 +2780,11 @@ const ReleaseShipSchema = z.object({
   gateIds: z.array(z.string()).optional(),
   gates: z.record(z.string(), z.boolean()).optional(),
   gatesOpenAtShip: z.number().optional(),
+  // IsoTime is defined further down; this is the same check.
+  reopenedAt: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe("When the release was reopened after this ship (ISO time)."),
 });
 
 const ReleaseSchema = z.object({

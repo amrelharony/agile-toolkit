@@ -362,10 +362,12 @@ export function draftText(draft: ReleaseNotesDraft): string {
 
 /**
  * The day notes were written for, when the release was reopened after
- * they were saved: the latest earlier ship's day; else null. A release
- * keeps no time for its reopen, so notes on a reopened release count as
- * the earlier ship's until they are saved on or after the day it shipped
- * again. Days are local, as ship days are.
+ * they were saved: the latest earlier ship's day; else null. A ship kept
+ * with its reopen time (`reopenedAt`) decides by it: notes saved before
+ * the reopen are that ship's, notes saved after it are the next one's.
+ * A ship kept without one (reopened before the time was kept) counts the
+ * notes as the earlier ship's until they are saved on or after the day it
+ * shipped again. Days are local, as ship days are.
  */
 export function notesOutdatedFor(
   release: Pick<Release, "releaseNotes" | "previousShips" | "shippedDate">
@@ -373,7 +375,14 @@ export function notesOutdatedFor(
   const notes = release.releaseNotes;
   const ships = release.previousShips ?? [];
   if (!notes || ships.length === 0) return null;
-  const last = ships.map((s) => s.shippedDate.slice(0, 10)).reduce((a, b) => (b > a ? b : a));
+  // The latest earlier ship; on a tie, the one kept last.
+  const latest = ships.reduce((a, b) =>
+    b.shippedDate.slice(0, 10) >= a.shippedDate.slice(0, 10) ? b : a
+  );
+  const last = latest.shippedDate.slice(0, 10);
+  const reopened = latest.reopenedAt ? Date.parse(latest.reopenedAt) : NaN;
+  const saved = Date.parse(notes.updatedAt);
+  if (!Number.isNaN(reopened) && !Number.isNaN(saved)) return saved < reopened ? last : null;
   const current = release.shippedDate?.slice(0, 10);
   const written = localDay(notes.updatedAt);
   if (current && current >= last && written && written >= current) return null;

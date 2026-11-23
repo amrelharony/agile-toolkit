@@ -359,7 +359,7 @@ export function ReleaseReadinessClient() {
     if (r.status === "planning") return;
     change(
       r,
-      reopenRelease(r, doc),
+      reopenRelease(r, doc, new Date()),
       `Reopened “${nameOf(r)}” for planning; its ship still counts`,
       () => record(RELEASE_READINESS_ACTIONS.RELEASE_REOPENED, { releaseId: r.id, name: r.name })
     );

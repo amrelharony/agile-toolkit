@@ -28,6 +28,7 @@ import {
   type NotesStory,
 } from "@/lib/releases/notes";
 import { releaseNotesSteps } from "@/lib/releases/notes-steps";
+import { reopenRelease, rollBackRelease, shipRelease } from "@/lib/releases/auto-gates";
 import {
   ENTITY_ROW_MAX_BYTES,
   type Release,
@@ -263,6 +264,38 @@ describe("after a reopen", () => {
         })
       ).toBeNull();
     }
+  });
+
+  it("knows the notes saved after the reopen are the next ship's, once the reopen time is kept", () => {
+    // Shipped on the 10th, notes saved on the 12th, reopened on the 15th.
+    const notes = { audience: "customers" as const, text: "Notes", updatedAt: at("2026-11-12") };
+    const shipped: Release = {
+      ...shipRelease(
+        { id: "r1", name: "v1", plannedDate: "2026-11-10", status: "planning", gates: {} },
+        undefined,
+        {},
+        "2026-11-10"
+      ),
+      releaseNotes: notes,
+    };
+    const reopened = reopenRelease(
+      rollBackRelease(shipped, "2026-11-11"),
+      undefined,
+      new Date(at("2026-11-15"))
+    );
+    expect(reopened.previousShips?.[0].reopenedAt).toBe(at("2026-11-15"));
+    expect(reopened.releaseNotes).toEqual(notes);
+    // Saved before the reopen: written for the 10th's ship, shipped again or not.
+    expect(notesOutdatedFor(reopened)).toBe("2026-11-10");
+    expect(notesOutdatedFor({ ...reopened, shippedDate: "2026-11-20" })).toBe("2026-11-10");
+    // Saved after the reopen, before the next ship: the next ship's, so never flagged.
+    const ahead = { ...reopened, releaseNotes: { ...notes, updatedAt: at("2026-11-16") } };
+    expect(notesOutdatedFor(ahead)).toBeNull();
+    expect(notesOutdatedFor({ ...ahead, shippedDate: "2026-11-20" })).toBeNull();
+    // Without `now`, the kept ship has no time, and the day rule holds.
+    expect(
+      reopenRelease(rollBackRelease(shipped, "2026-11-11")).previousShips?.[0]
+    ).not.toHaveProperty("reopenedAt");
   });
 
   it("reads the day the notes were saved as a local day, not the UTC one", () => {
