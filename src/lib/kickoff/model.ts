@@ -827,20 +827,10 @@ export function hmwStarters(k: Kickoff): string[] {
 
 /**
  * The purpose of the newest agreed Team Canvas (examples left out), for
- * the team charter and Amr; null when there is none.
+ * the team charter and Amr; null when there is none. It lives in
+ * ./purpose so the charter can read it without this model and its formats.
  */
-export function teamPurpose(
-  rows: readonly unknown[] | undefined
-): { kickoffId: string; text: string } | null {
-  const agreed = readKickoffs(rows)
-    .filter((k) => !isExampleId(k.id) && k.format === "team-canvas" && k.status === "agreed")
-    .sort((a, b) => (b.agreedAt ?? b.updatedAt).localeCompare(a.agreedAt ?? a.updatedAt));
-  for (const k of agreed) {
-    const text = answerOf(k, "purpose");
-    if (text) return { kickoffId: k.id, text };
-  }
-  return null;
-}
+export { teamPurpose } from "./purpose";
 
 /* ── Drafted lines ───────────────────────────────────────────────── */
 

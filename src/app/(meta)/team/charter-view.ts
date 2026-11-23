@@ -12,7 +12,7 @@ import type {
   WorkingAgreement,
 } from "@/lib/stores/workspace-types";
 import { activeGoal, targetText } from "@/lib/product-goal/model";
-import { teamPurpose } from "@/lib/kickoff/model";
+import { teamPurpose } from "@/lib/kickoff/purpose";
 import { CEREMONY_LABEL, WEEKDAY_LABEL, type CeremonyCadence } from "@/lib/sprints/cadence";
 import { isExampleSprintId } from "@/lib/sprints/example";
 import { sprintsByEndDate } from "@/lib/sprints/metrics";
