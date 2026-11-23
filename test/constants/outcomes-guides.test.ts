@@ -118,6 +118,7 @@ describe("the Outcomes, quality & library guides describe the pages as they are 
       "product-canvas": "Product Canvas",
       "impact-map": "an Impact Map",
       "strategy-tree": "a Strategy Tree",
+      kickoff: "Kickoff",
     };
     expect(Array.from(senders).sort()).toEqual(Object.keys(named).sort());
     expect(allText(guide("hypothesis-tracker"))).toContain(
