@@ -538,7 +538,8 @@ export type ObstacleRefusal = "blank" | "not_kata" | "list_full";
 export const OBSTACLE_REFUSAL_TEXT: Record<ObstacleRefusal, string> = {
   blank: "Say what's in the way.",
   not_kata: "Obstacles belong to an Improvement Kata.",
-  list_full: `A Kata holds ${TOOL_LIST_MAX.kataObstacles} obstacles at most. Clear or remove one first.`,
+  // Cleared obstacles stay on the list (and count): only a delete frees a place.
+  list_full: `A Kata holds ${TOOL_LIST_MAX.kataObstacles} obstacles at most. Delete one to add another: cleared ones still count.`,
 };
 
 /** An obstacle added to a Kata, open. */

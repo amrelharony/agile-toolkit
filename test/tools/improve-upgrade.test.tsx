@@ -80,8 +80,8 @@ import { buildExample } from "@/app/(tools)/improve/example";
 import { improveToMarkdown } from "@/app/(tools)/improve/markdown";
 import { validateStepDraft } from "@/app/(tools)/improve/step-list";
 import { validateReadingDraft, readingsText } from "@/app/(tools)/improve/readings";
-import { validateObstacleDraft } from "@/app/(tools)/improve/obstacle-list";
-import { useItemActions } from "@/app/(tools)/improve/use-item-actions";
+import { ObstacleList, validateObstacleDraft } from "@/app/(tools)/improve/obstacle-list";
+import { useItemActions, type ItemActions } from "@/app/(tools)/improve/use-item-actions";
 import { fallbackCountermeasures } from "@/lib/ai/tasks/root-cause.lite";
 import { fallbackExperiments } from "@/lib/ai/tasks/improve.lite";
 import { sendHandoff } from "@/lib/handoffs/send";
@@ -847,6 +847,26 @@ describe("a Kata", () => {
     expect(byId("improve_k")!.obstacles[0].text).toBe("Only one reviewer");
     expect(box()).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("Say what's in the way.");
+  });
+
+  it("says a full obstacle list frees a place only by a delete", () => {
+    const obstacles = Array.from({ length: TOOL_LIST_MAX.kataObstacles }, (_, i) => ({
+      id: `o${i}`,
+      text: `Obstacle ${i}`,
+      status: i === 0 ? ("cleared" as const) : ("open" as const),
+    }));
+    render(
+      <ObstacleList
+        item={kata({ obstacles, steps: [] })}
+        actions={{ example: true } as unknown as ItemActions}
+      />
+    );
+    expect(screen.queryByRole("button", { name: "Add obstacle" })).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "A Kata holds 30 obstacles at most. Delete one to add another: cleared ones still count."
+      )
+    ).toBeInTheDocument();
   });
 
   it("sends an obstacle outside the team's control to Impediments", () => {

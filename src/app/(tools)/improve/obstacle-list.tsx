@@ -197,9 +197,7 @@ export function ObstacleList({ item, actions }: { item: Improvement; actions: It
         </ul>
       )}
       {full ? (
-        <p className="text-sm text-sub">
-          A Kata holds {TOOL_LIST_MAX.kataObstacles} obstacles at most. Clear or remove one first.
-        </p>
+        <p className="text-sm text-sub">{OBSTACLE_REFUSAL_TEXT.list_full}</p>
       ) : (
         <ItemForm form={form} submitLabel="Add obstacle" submitIcon={<Plus aria-hidden="true" />}>
           <Field label="What's in the way" error={form.errors.text} required>
