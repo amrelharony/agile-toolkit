@@ -234,7 +234,8 @@ export interface RotationValues {
 /**
  * A rotation, checked: a meeting, 15 to 480 minutes, every 1 to 4 weeks, a
  * real start date, 2 to 4 different times each with a zone Intl knows
- * (stored canonical), and at most 50 attendees.
+ * (stored canonical), and 1 to 50 attendees when it names any (left out:
+ * everyone).
  */
 export function validateRotation(draft: RotationDraft): Validation<RotationValues, RotationField> {
   const errors: FormErrors<RotationField> = {};
@@ -286,7 +287,10 @@ export function validateRotation(draft: RotationDraft): Validation<RotationValue
     errors.options = "Two of the times are the same. Make each one different.";
   }
   const attendees = draft.attendees ? Array.from(new Set(draft.attendees)) : undefined;
-  if (attendees && attendees.length > TEAM_TIME_MAX.attendees) {
+  // Left out means everyone; an empty list would quietly mean everyone too.
+  if (attendees && attendees.length === 0) {
+    errors.attendees = "Pick at least one person who attends.";
+  } else if (attendees && attendees.length > TEAM_TIME_MAX.attendees) {
     errors.attendees = `A rotation counts up to ${TEAM_TIME_MAX.attendees} people.`;
   }
   if (Object.keys(errors).length > 0 || typeof minutes === "string" || !mode) {

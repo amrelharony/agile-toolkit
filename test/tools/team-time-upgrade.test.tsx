@@ -544,6 +544,22 @@ describe("Rotate", () => {
     expect(ws().teamTimeRotations).toEqual([]);
   });
 
+  it("refuses a rotation nobody attends", async () => {
+    useWorkspaceStore.setState({ teamTimePeople: [london, newYork] });
+    await renderPage("rotate");
+    fireEvent.click(screen.getByRole("button", { name: "New rotation" }));
+    const form = screen.getByRole("form", { name: "New rotation" });
+    fireEvent.change(within(form).getByLabelText(/^Meeting/), { target: { value: "Retro" } });
+    const who = within(form).getByRole("group", { name: "Who attends" });
+    fireEvent.click(within(who).getByRole("checkbox", { name: "Lou" }));
+    fireEvent.click(within(who).getByRole("checkbox", { name: "Noor" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Create rotation" }));
+    expect(
+      await within(who).findByText("Pick at least one person who attends.")
+    ).toBeInTheDocument();
+    expect(ws().teamTimeRotations).toEqual([]);
+  });
+
   it("marks the next meeting held, then skips one and keeps the turn", async () => {
     useWorkspaceStore.setState({
       teamTimePeople: [london, newYork],

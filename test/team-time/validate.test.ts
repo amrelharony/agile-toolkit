@@ -184,6 +184,7 @@ describe("validateRotation", () => {
       { attendees: Array.from({ length: 51 }, (_, i) => `p${i}`) },
       "attendees",
     ],
+    ["nobody attending", { attendees: [] }, "attendees"],
   ] as const)("refuses %s", (_label, over, field) => {
     const r = validateRotation({ ...ok, ...over } as typeof ok);
     expect(r.ok).toBe(false);
