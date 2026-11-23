@@ -20,6 +20,7 @@ import { impactMapDraftPrompt } from "./impact-map.server";
 import { impedimentsClusterPrompt } from "./impediments.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { kanbanPoliciesPrompt } from "./kanban.server";
+import { kickoffDraftPrompt } from "./kickoff.server";
 import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
 import { notesToActionsExtractPrompt } from "./notes-to-actions.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
@@ -63,6 +64,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   impedimentsClusterPrompt,
   interruptClassifyPrompt,
   kanbanPoliciesPrompt,
+  kickoffDraftPrompt,
   meetingAuditSuggestPrompt,
   notesToActionsExtractPrompt,
   parkingRoutePrompt,

@@ -20,6 +20,7 @@ import { impactMapDraftTask } from "./impact-map";
 import { impedimentsClusterTask } from "./impediments";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { kanbanPoliciesTask } from "./kanban";
+import { kickoffDraftTask } from "./kickoff";
 import { meetingAuditSuggestTask } from "./meeting-audit";
 import { notesToActionsExtractTask } from "./notes-to-actions";
 import { parkingRouteTask } from "./parking-lot";
@@ -64,6 +65,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   impedimentsClusterTask,
   interruptClassifyTask,
   kanbanPoliciesTask,
+  kickoffDraftTask,
   meetingAuditSuggestTask,
   notesToActionsExtractTask,
   parkingRouteTask,
