@@ -75,6 +75,7 @@ import { RELEASE_DOC_ID } from "@/lib/releases/gates";
 import { releaseNotesSteps } from "@/lib/releases/notes-steps";
 import { isValueCheck, valueCheckSteps } from "@/lib/hypotheses/value-steps";
 import { UNSIZED_BATCH_MIN, unsizedBacklog } from "@/lib/relative-sizing/unsized";
+import { asyncRevealSteps, heldQueueCount } from "@/lib/estimation/async-rounds";
 import { shipEvents, shippedBetween } from "@/lib/releases/model";
 import { gateResults, releaseChecks } from "@/lib/releases/auto-gates";
 import { flagSummary } from "@/lib/flags/model";
@@ -1426,27 +1427,31 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   "planning-poker": rule({
-    select: (ws) => ({ stories: ws.stories }),
-    steps: ({ stories }) => {
+    select: (ws) => ({ stories: ws.stories, asyncRounds: ws.pokerAsyncRounds }),
+    steps: ({ stories, asyncRounds }) => {
+      // Rounds without a meeting to reveal: due, or everyone expected replied.
+      const steps: NextStep[] = asyncRevealSteps(asyncRounds, todayIso());
       const saved = real(stories).filter((s) => fromTool(s, "planning-poker") && inBacklog(s));
-      return saved.length === 0
-        ? []
-        : [
-            {
-              id: "poker-plan",
-              label: "Plan the estimated stories into a sprint",
-              detail: `${plural(saved.length, "story", "stories")} estimated in Planning Poker ${be(saved.length)} waiting in the backlog.`,
-              href: "/sprint-planning",
-            },
-          ];
+      if (saved.length > 0) {
+        steps.push({
+          id: "poker-plan",
+          label: "Plan the estimated stories into a sprint",
+          detail: `${plural(saved.length, "story", "stories")} estimated in Planning Poker ${be(saved.length)} waiting in the backlog.`,
+          href: "/sprint-planning",
+        });
+      }
+      return steps;
     },
   }),
 
   "estimation-guide": rule({
-    select: (ws) => ({ logs: ws.pokerEstimationLogs }),
-    steps: ({ logs }) => {
-      const queue = (logs ?? []).find((d) => d.id === "pokerEstimationLog:current")?.queue ?? [];
-      const waiting = real(queue).length;
+    select: (ws) => ({ logs: ws.pokerEstimationLogs, asyncRounds: ws.pokerAsyncRounds }),
+    steps: ({ logs, asyncRounds }) => {
+      const queue = real(
+        (logs ?? []).find((d) => d.id === "pokerEstimationLog:current")?.queue ?? []
+      );
+      // Queued stories an estimate-without-a-meeting round holds aren't waiting.
+      const waiting = queue.length - heldQueueCount(queue, asyncRounds);
       return waiting === 0
         ? []
         : [

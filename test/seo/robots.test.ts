@@ -62,6 +62,10 @@ describe("robots", () => {
     expect(rule().disallow).toEqual(expect.arrayContaining(["/vip"]));
   });
 
+  it("keeps the estimator's page for a round without a meeting out of the index", () => {
+    expect(rule().disallow).toEqual(expect.arrayContaining(["/planning-poker/estimate"]));
+  });
+
   it("does not block any tool route", () => {
     const disallow = [rule().disallow ?? []].flat();
     for (const path of ["/", "/planning-poker", "/retro", "/comics", "/book", "/history"]) {
