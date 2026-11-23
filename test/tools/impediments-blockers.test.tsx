@@ -288,6 +288,20 @@ describe("Blockers: where the time goes", () => {
     expect(ws().impediments.some((i) => i.title.startsWith("Keeps blocking us"))).toBe(false);
   });
 
+  it("wraps a long cluster's raise button inside the card, never wider than a phone", async () => {
+    const long = "Unclear or changing requirement";
+    useWorkspaceStore.setState({
+      impediments: [imp("i1", "Scope moved", { cluster: long, resolvedAt: ago(1) })],
+    });
+    renderPage();
+    const s = within(await screen.findByRole("region", { name: "Blockers: where the time goes" }));
+    const button = s.getByRole("button", { name: `Raise “${long}” as an impediment` });
+    // Button is whitespace-nowrap by default: at 375 px this label alone is wider than the card.
+    expect(button.className).toMatch(/\bwhitespace-normal\b/);
+    expect(button.className).toMatch(/\bmax-w-full\b/);
+    expect(button.className).toMatch(/\bh-auto\b/);
+  });
+
   it("clusters by keywords without AI, accepted in one write per collection", async () => {
     useWorkspaceStore.setState({
       impediments: [

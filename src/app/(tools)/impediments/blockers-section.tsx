@@ -407,7 +407,7 @@ export function BlockersSection({
                     const open = openImpedimentFor(impediments, c.cluster);
                     return (
                       <li key={c.cluster} className="flex flex-wrap items-center gap-2 text-sm">
-                        <span className="min-w-0 text-text">
+                        <span className="min-w-0 break-words text-text">
                           {c.cluster}{" "}
                           <span className="text-xs text-sub">
                             ({SIDE_LABEL[c.side].toLowerCase()}
@@ -417,10 +417,12 @@ export function BlockersSection({
                         {open ? (
                           <span className="text-xs text-sub">Raised as “{open.title}”</span>
                         ) : (
+                          // A long cluster name wraps inside the button: it never pushes a phone sideways.
                           <Button
                             type="button"
                             variant="outline"
                             size="sm"
+                            className="h-auto max-w-full whitespace-normal break-words py-1.5 text-left md-fine:h-auto"
                             onClick={() => raise(c.cluster)}
                           >
                             <Plus aria-hidden="true" />
