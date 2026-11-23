@@ -59,6 +59,7 @@ import { useProductGoalPrefs } from "@/app/(tools)/product-goal/store";
 import { kickoffDraftFallback, kickoffDraftInputFor } from "@/lib/ai/tasks/kickoff.lite";
 import { HYPOTHESIS_TRACKER_ID } from "@/lib/hypotheses/model";
 import { KICKOFF_ACTIONS } from "@/lib/history/event-actions";
+import { KICKOFF_FORMAT_DEFS } from "@/lib/kickoff/formats";
 import { normalizeKickoff, statementFrom } from "@/lib/kickoff/model";
 import { todayIso } from "@/lib/sprints/series";
 import { exampleId } from "@/lib/utils/example-id";
@@ -205,6 +206,15 @@ describe("the empty state and the example", () => {
     const send = screen.getAllByRole("button", { name: /^Send to…/ });
     expect(send.length).toBeGreaterThan(0);
     for (const b of send) expect(b).toBeDisabled();
+    // The reason shows once in each section that sends, and once for the trade-offs.
+    const [tap] = buildExample();
+    const sending = KICKOFF_FORMAT_DEFS[tap.format].sections.filter(
+      (d) => (d.routes ?? []).length > 0 && (tap.sections[d.id] ?? []).length > 0
+    );
+    expect(sending.length).toBeGreaterThan(1);
+    expect(screen.getAllByText("Example lines aren't sent anywhere.")).toHaveLength(
+      sending.length + 1
+    );
     expect(screen.getByText(/the example keeps nothing/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Collect answers from phones" })).toBeNull();
   });
@@ -701,9 +711,22 @@ describe("the trade-off sliders", () => {
     ]);
   });
 
+  it("says why the order can't be sent with fewer than two trade-offs", () => {
+    seed({ ...deck(), sliders: [{ id: "a", label: "Scope", position: 1 }] });
+    renderPage();
+    expect(screen.getByRole("button", { name: /^Send to… Trade-offs for Tap/ })).toBeDisabled();
+    expect(
+      screen.getByText("Add a second trade-off to send the order to the Decision Log.")
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Add “Easy to use”" }));
+    expect(screen.getByRole("button", { name: /^Send to… Trade-offs for Tap/ })).toBeEnabled();
+    expect(screen.queryByText(/to send the order to the Decision Log/)).toBeNull();
+  });
+
   it("sends the order to the Decision Log, the link kept on the kickoff", () => {
     seed(deck());
     renderPage();
+    expect(screen.queryByText(/to send the order to the Decision Log/)).toBeNull();
     openSend(/^Send to… Trade-offs for Tap/);
     fireEvent.click(screen.getByRole("menuitem", { name: "Decision Log" }));
     expect(ws().decisions).toEqual([

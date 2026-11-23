@@ -6,7 +6,8 @@
  * what its section takes: an owner from the team, a worry's two ratings and
  * what covers it (with "What would take this away?" to add a cover), and
  * the lines a worry covers. Beside it, "Send to…" where the section sends
- * (never on the example, nor while a [placeholder] is left), and the tools
+ * (off on the example, its reason shown once in the section, and while a
+ * [placeholder] is left, its reason under the line), and the tools
  * the section points to ("Open Skills Matrix"), when they exist.
  *
  * Every change goes through the page's `write`, which refuses a row too big
@@ -26,6 +27,7 @@ import { riskSourceProblem } from "@/lib/handoffs/targets/risk";
 import { KICKOFF_ACTIONS } from "@/lib/history/event-actions";
 import { COVER_HINT, PEOPLE_SECTION, type KickoffSectionDef } from "@/lib/kickoff/formats";
 import {
+  KICKOFF_EXAMPLE_NO_SEND,
   coverSections,
   coveredWorry,
   coveringItems,
@@ -424,6 +426,13 @@ export function KickoffSection({
         ) : undefined
       }
       className={className}
-    />
+    >
+      {example && routes.length > 0 && items.length > 0 && (
+        // Once for the section: why every line's Send to… is off.
+        <p className="text-xs text-sub" data-send-blocked>
+          {KICKOFF_EXAMPLE_NO_SEND}
+        </p>
+      )}
+    </SectionItemsCard>
   );
 }

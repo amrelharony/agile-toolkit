@@ -872,9 +872,12 @@ export function withDraftLines(
 
 /* ── Sending lines on ────────────────────────────────────────────── */
 
+/** Why nothing of an example kickoff is sent: beside its sections' and its trade-offs' Send to…. */
+export const KICKOFF_EXAMPLE_NO_SEND = "Example lines aren't sent anywhere.";
+
 /** Why a line can't be sent yet, or null: the example, a [placeholder], no words. */
 export function sendProblem(k: Kickoff, item: KickoffItem): string | null {
-  if (isExampleId(k.id)) return "Example lines aren't sent anywhere.";
+  if (isExampleId(k.id)) return KICKOFF_EXAMPLE_NO_SEND;
   if (!item.text.trim()) return "Write the line first.";
   if (hasPlaceholder(item.text)) return "Fill in the [brackets] before you send it.";
   return null;
@@ -953,6 +956,15 @@ export function itemSource(k: Kickoff, item: KickoffItem, route: HandoffRouteId)
 
 /** The id the slider order's decision is sent under. */
 export const slidersRefId = (k: Pick<Kickoff, "id">): string => `${k.id}:sliders`;
+
+/** Why the slider order can't go to the Decision Log yet, or null: the example, fewer than two. */
+export function slidersSendProblem(k: Kickoff): string | null {
+  if (isExampleId(k.id)) return KICKOFF_EXAMPLE_NO_SEND;
+  const n = k.sliders?.length ?? 0;
+  if (n === 0) return "Add two trade-offs to send their order to the Decision Log.";
+  if (n === 1) return "Add a second trade-off to send the order to the Decision Log.";
+  return null;
+}
 
 /** The slider order as a decision to record: the labels as its options, holds firm first. */
 export function slidersDecisionSource(k: Kickoff): HandoffSource {

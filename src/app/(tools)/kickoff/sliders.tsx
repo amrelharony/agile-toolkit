@@ -29,6 +29,7 @@ import {
   sliderProblem,
   sliderSummary,
   slidersDecisionSource,
+  slidersSendProblem,
   withSlider,
   withoutSlider,
 } from "@/lib/kickoff/model";
@@ -52,7 +53,7 @@ function withSliders(k: Kickoff, sliders: KickoffSlider[], now: string, set: boo
 }
 
 export function SlidersCard({ handle }: { handle: KickoffHandle }) {
-  const { kickoff: k, write, log, example } = handle;
+  const { kickoff: k, write, log } = handle;
   const announce = useAnnounce();
   const list = orderedSliders(k);
   const [draft, setDraft] = useState("");
@@ -177,6 +178,7 @@ export function SlidersCard({ handle }: { handle: KickoffHandle }) {
   const suggestions = SUGGESTED_SLIDERS.filter((s) => !onList.has(lineKey(s)));
   const full = list.length >= TOOL_LIST_MAX.kickoffSliders;
   const summary = sliderSummary(k);
+  const sendBlocked = slidersSendProblem(k);
 
   return (
     <SectionCard
@@ -188,7 +190,7 @@ export function SlidersCard({ handle }: { handle: KickoffHandle }) {
           sentTo={k.sentTo}
           getLinks={() => handle.read()?.sentTo}
           onLinksChange={setLinks}
-          disabled={example || list.length < 2}
+          disabled={sendBlocked !== null}
         />
       }
       contentClassName="space-y-3"
@@ -254,6 +256,12 @@ export function SlidersCard({ handle }: { handle: KickoffHandle }) {
         <p className="text-sm text-sub">No trade-offs yet. Add the first one below.</p>
       )}
       {summary && <p className="text-sm text-text">{summary}</p>}
+      {sendBlocked && (
+        // Why Send to… beside the title is off.
+        <p className="text-xs text-sub" data-send-blocked>
+          {sendBlocked}
+        </p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         <Button
           type="button"
