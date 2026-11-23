@@ -50,7 +50,7 @@ export function ThreePointCheck({
 }) {
   const id = useId();
   const panelId = `${id}-panel`;
-  const errorId = `${id}-error`;
+  const errorId = (field: ThreePointField) => `${id}-${field}-error`;
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<ThreePointDraft>(() => ({ ...start }));
   const cards = numericCards(deck);
@@ -58,8 +58,10 @@ export function ThreePointCheck({
   const checked = validateThreePoint(draft);
   const result = checked.ok ? threePoint(checked.values) : null;
   const card = result ? cardAtOrAbove(deck, result.expected) : null;
-  const errors = checked.ok ? {} : checked.errors;
-  const error = errors.likely ?? errors.pessimistic ?? errors.optimistic ?? null;
+  const errors: Partial<Record<ThreePointField, string>> = checked.ok ? {} : checked.errors;
+  // Each case out of order has its own message (8, 5, 3 breaks both likely
+  // and worst), and each select is described by its own.
+  const failing = FIELDS.filter(({ field }) => errors[field]);
 
   return (
     <div className="rounded-lg border border-border bg-surface-deep">
@@ -94,7 +96,7 @@ export function ThreePointCheck({
                   className={SELECT_CLASS}
                   value={draft[field]}
                   aria-invalid={errors[field] ? true : undefined}
-                  aria-describedby={errors[field] ? errorId : undefined}
+                  aria-describedby={errors[field] ? errorId(field) : undefined}
                   onChange={(e) => setDraft((d) => ({ ...d, [field]: e.target.value }))}
                 >
                   {cards.map((c) => (
@@ -106,20 +108,32 @@ export function ThreePointCheck({
               </div>
             ))}
           </div>
-          {error && (
-            <p id={errorId} role="alert" className="text-xs text-danger">
-              {error}
-            </p>
+          {failing.length > 0 && (
+            <div role="alert" className="space-y-1">
+              {failing.map(({ field }) => (
+                <p key={field} id={errorId(field)} className="text-xs text-danger">
+                  {errors[field]}
+                </p>
+              ))}
+            </div>
           )}
-          {result && card !== null && (
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <p role="status" className="min-w-0 flex-1 basis-48 text-sm text-text">
-                Expected{" "}
-                <span className="font-data font-bold">{formatPoints(result.expected)}</span> points,
-                about {formatPoints(result.low)} to {formatPoints(result.high)}: rounds up to{" "}
-                <span className="font-data font-bold">{card}</span>.{" "}
-                <span className="text-sub">{threePointNote(result)}</span>
-              </p>
+          {/* The status line stays mounted while the panel is open, empty
+              when the cases don't add up, so a screen reader reads the new
+              size once they do (a live region inserted with its text often
+              goes unread). */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p role="status" className="min-w-0 flex-1 basis-48 text-sm text-text">
+              {result && card !== null && (
+                <>
+                  Expected{" "}
+                  <span className="font-data font-bold">{formatPoints(result.expected)}</span>{" "}
+                  points, about {formatPoints(result.low)} to {formatPoints(result.high)}: rounds up
+                  to <span className="font-data font-bold">{card}</span>.{" "}
+                  <span className="text-sub">{threePointNote(result)}</span>
+                </>
+              )}
+            </p>
+            {result && card !== null && (
               <Button
                 type="button"
                 size="sm"
@@ -129,8 +143,8 @@ export function ThreePointCheck({
               >
                 Use {card}
               </Button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       )}
     </div>

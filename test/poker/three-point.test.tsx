@@ -10,6 +10,8 @@ import type { Session } from "@/app/(tools)/planning-poker/types";
  * "Use {card}" picks the card it rounds up to and Accept still commits it.
  * The check is logged in a one-screen session and never in a visitor room
  * (recordHistory off), and the "Estimate to accept" radios stay the same.
+ * Its status line stays mounted while it's open, and each case out of
+ * order is described by its own message.
  */
 
 const h = vi.hoisted(() => ({ log: vi.fn() }));
@@ -205,6 +207,43 @@ describe("the check", () => {
     );
     expect(screen.getByLabelText("Worst case")).toHaveAttribute("aria-invalid", "true");
     expect(screen.queryByRole("button", { name: /^Use / })).toBeNull();
+  });
+
+  it("keeps one status line while open, so a fixed case's size is read out", () => {
+    render(<Harness initial={makeSession({ revealed: true, participants: seats("3", "8") })} />);
+    open();
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Expected 5.2 points");
+    fireEvent.change(screen.getByLabelText("Worst case"), { target: { value: "2" } });
+    // Still there, empty: the same live region, not a new one.
+    expect(screen.getByRole("status")).toBe(status);
+    expect(status.textContent).toBe("");
+    fireEvent.change(screen.getByLabelText("Worst case"), { target: { value: "13" } });
+    expect(screen.getByRole("status")).toBe(status);
+    expect(status).toHaveTextContent("Expected 6 points, about 4.3 to 7.7: rounds up to 8.");
+  });
+
+  it("describes each case out of order by its own message", () => {
+    render(<Harness initial={makeSession({ revealed: true, participants: seats("3", "8") })} />);
+    open();
+    fireEvent.change(screen.getByLabelText("Best case"), { target: { value: "8" } });
+    fireEvent.change(screen.getByLabelText("Worst case"), { target: { value: "3" } });
+    const describedBy = (name: string) => {
+      const select = screen.getByLabelText(name);
+      expect(select).toHaveAttribute("aria-invalid", "true");
+      return document.getElementById(select.getAttribute("aria-describedby") ?? "");
+    };
+    expect(describedBy("Likely")).toHaveTextContent(
+      "The likely case can't be smaller than the best case."
+    );
+    expect(describedBy("Worst case")).toHaveTextContent(
+      "The worst case can't be smaller than the likely case."
+    );
+    expect(screen.getByLabelText("Best case")).not.toHaveAttribute("aria-invalid");
+    expect(screen.getByLabelText("Best case")).not.toHaveAttribute("aria-describedby");
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "The likely case can't be smaller than the best case.The worst case can't be smaller than the likely case."
+    );
   });
 
   it("Use 8 picks 8, and Accept commits it", () => {
