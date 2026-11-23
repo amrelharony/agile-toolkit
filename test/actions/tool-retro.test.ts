@@ -26,7 +26,7 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
 import * as serverStore from "@/lib/actions/server-store";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
+import type { RetroBoard, RetroCard, Sprint } from "@/lib/stores/workspace-types";
 import { retroFormats } from "@/lib/constants/retro-formats";
 
 import "@/lib/actions/tools/retro";
@@ -346,12 +346,19 @@ describe("tool.retro on an Emotional Seismograph board", () => {
       updated: true,
       day: 3,
       charted: true,
+      lastDay: 9,
     });
     expect(cards()[0].day).toBe(3);
     // An action item and a grouped card keep the day, but don't chart by it.
     expect(await run("set_card_day", { cardId: "a1", day: 5 })).toMatchObject({ charted: false });
     expect(await run("set_card_day", { cardId: "g1", day: 6 })).toMatchObject({ charted: false });
-    expect(await run("set_card_day", { cardId: "c1", day: null })).toMatchObject({ updated: true });
+    // With no day, the card isn't drawn.
+    expect(await run("set_card_day", { cardId: "c1", day: null })).toEqual({
+      updated: true,
+      day: null,
+      charted: false,
+      lastDay: 9,
+    });
     expect("day" in cards()[0]).toBe(false);
     expect(await run("set_card_day", { cardId: "nope", day: 1 })).toEqual({
       updated: false,
@@ -366,6 +373,70 @@ describe("tool.retro on an Emotional Seismograph board", () => {
     expect(await run("set_card_day", { cardId: "c1", day: 1 })).toEqual({
       updated: false,
       reason: "no_retro",
+    });
+  });
+
+  it("set_card_day and add_card say a day past the board's last isn't charted", async () => {
+    const sprint: Sprint = {
+      id: "s1",
+      name: "Sprint 12",
+      startDate: "2026-11-09",
+      endDate: "2026-11-18",
+      pointsPlanned: 10,
+      status: "completed",
+    };
+    useWorkspaceStore.setState({
+      sprints: [sprint],
+      retroBoards: [
+        seismoBoard([card({ id: "c1", columnKey: "lows", text: "Outage" })], { sprintId: "s1" }),
+      ],
+    });
+    // A ten-day sprint draws Day 0–9: day 25 is kept but past it.
+    expect(await run("set_card_day", { cardId: "c1", day: 25 })).toEqual({
+      updated: true,
+      day: 25,
+      charted: false,
+      lastDay: 9,
+    });
+    expect(cards()[0].day).toBe(25);
+    const listed = await run<{ seismograph: { unplaced: { cardId: string; day: number }[] } }>(
+      "list_state"
+    );
+    expect(listed.seismograph.unplaced).toMatchObject([{ cardId: "c1", day: 25 }]);
+    expect(await run("set_card_day", { cardId: "c1", day: 9 })).toMatchObject({ charted: true });
+    expect(await run("add_card", { columnKey: "highs", text: "Late demo", day: 12 })).toMatchObject(
+      { added: true, charted: false, lastDay: 9 }
+    );
+    expect(await run("add_card", { columnKey: "highs", text: "Early demo", day: 2 })).toMatchObject(
+      { added: true, charted: true, lastDay: 9 }
+    );
+    // No sprint: Day 0–9 too.
+    useWorkspaceStore.setState({
+      retroBoards: [seismoBoard([card({ id: "c2", columnKey: "steady", text: "Pairing" })])],
+    });
+    expect(await run("set_card_day", { cardId: "c2", day: 10 })).toMatchObject({
+      charted: false,
+      lastDay: 9,
+    });
+  });
+
+  it("set_card_day charts a team card grouped under one sent from another tool", async () => {
+    useWorkspaceStore.getState().upsertRetroBoard(
+      seismoBoard([
+        card({
+          id: "sent",
+          columnKey: "lows",
+          text: "From Root Cause",
+          sourceRef: { tool: "root-cause", id: "rca_1" },
+        }),
+        card({ id: "mine", columnKey: "lows", text: "Outage", groupedWith: "sent" }),
+      ])
+    );
+    expect(await run("set_card_day", { cardId: "mine", day: 2 })).toMatchObject({
+      charted: true,
+    });
+    expect(await run("set_card_day", { cardId: "sent", day: 2 })).toMatchObject({
+      charted: false,
     });
   });
 

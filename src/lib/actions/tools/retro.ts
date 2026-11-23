@@ -198,6 +198,30 @@ function summarize(board: RetroBoard | null) {
   };
 }
 
+/** The days a seismograph board draws: its sprint's (none on the example), Day 0–9 with none. */
+function boardDays(board: RetroBoard, sprints: readonly Sprint[]) {
+  const example = board.cards.some((c) => isExampleId(c.id));
+  const sprintId = example ? undefined : boardSprintId(board);
+  const sprint = sprintId ? sprints.find((s) => s.id === sprintId) : undefined;
+  return seismographDays(sprint);
+}
+
+/**
+ * Whether the board's chart draws `cardId` on its day, and the board's last
+ * day: a team moment (not an action, a carried action, another tool's card,
+ * or a card whose group charts by another card) on a day the board draws.
+ * The sprints are read only when the board looks back on one.
+ */
+async function chartedOn(store: RetroStore, board: RetroBoard, cardId: string) {
+  const sprints = boardSprintId(board) ? await store.listSprints() : [];
+  const days = boardDays(board, sprints);
+  const placement = placedCards(momentCards(board.cards), days);
+  return {
+    charted: placement.placed.some((m) => m.id === cardId),
+    lastDay: days.length > 0 ? days[days.length - 1].day : 0,
+  };
+}
+
 /**
  * An Emotional Seismograph board's chart as list_state reports it: its days
  * (from the board's sprint; Day 0–9 with none, and on the example), the
@@ -206,10 +230,7 @@ function summarize(board: RetroBoard | null) {
  */
 function seismographSummary(board: RetroBoard | null, sprints: readonly Sprint[]) {
   if (!board || !isSeismograph(board)) return null;
-  const example = board.cards.some((c) => isExampleId(c.id));
-  const sprintId = example ? undefined : boardSprintId(board);
-  const sprint = sprintId ? sprints.find((s) => s.id === sprintId) : undefined;
-  const days = seismographDays(sprint);
+  const days = boardDays(board, sprints);
   const placement = placedCards(momentCards(board.cards), days);
   return {
     days: days.map((d) => ({ day: d.day, date: d.date })),
@@ -420,10 +441,12 @@ async function addCard(
     ...newCard(params.columnKey, text),
     ...(keepsDay ? { day: params.day } : {}),
   };
-  await store.putBoard({ ...board, cards: [...board.cards, card] });
+  const next = { ...board, cards: [...board.cards, card] };
+  await store.putBoard(next);
   return {
     added: true,
     id: card.id,
+    ...(keepsDay ? await chartedOn(store, next, card.id) : {}),
     ...(params.day !== undefined && !keepsDay ? { dayIgnored: true } : {}),
   };
 }
@@ -442,12 +465,13 @@ async function setCardDay(store: RetroStore, params: { cardId: string; day: numb
     else next.day = params.day;
     return next;
   });
-  await store.putBoard({ ...board, cards });
+  const next = { ...board, cards };
+  await store.putBoard(next);
   return {
     updated: true,
     day: params.day,
-    // An action, a carried action, another tool's card or a grouped card keeps the day but doesn't chart by it.
-    charted: momentCards(cards).some((m) => m.id === params.cardId),
+    // No day, a day past the board's last, or a card the chart doesn't draw by its own day: false.
+    ...(await chartedOn(store, next, params.cardId)),
   };
 }
 
@@ -540,7 +564,7 @@ registry.register({
   name: "add_card",
   category: "write",
   requiresConfirmation: false,
-  description: `Append a card to a column of the current retro board (text trimmed, at most ${RETRO_CARD_MAX} characters). On an Emotional Seismograph board (formatId seismograph: columns highs, steady, lows) give day, the sprint day it happened. Returns {added: true, id, dayIgnored?: true (day was given but this board isn't a seismograph)}, or {added: false, reason: 'no_retro' (start one with tool.retro.start) | 'unknown_column' (with the board's columns) | 'empty_text'}.`,
+  description: `Append a card to a column of the current retro board (text trimmed, at most ${RETRO_CARD_MAX} characters). On an Emotional Seismograph board (formatId seismograph: columns highs, steady, lows) give day, the sprint day it happened. Returns {added: true, id, charted?, lastDay? (with a day on a seismograph board: whether the chart draws the card on it, false for a day past lastDay, the board's last day; the card keeps the day), dayIgnored?: true (day was given but this board isn't a seismograph)}, or {added: false, reason: 'no_retro' (start one with tool.retro.start) | 'unknown_column' (with the board's columns) | 'empty_text'}.`,
   paramsSchema: z.object({
     columnKey: z
       .string()
@@ -628,7 +652,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Place a card of the current Emotional Seismograph board on the sprint day it happened, or take its day away with day: null. Returns {updated: true, day, charted (false: the card keeps the day but isn't drawn by it, being an action item, a carried-over action, a card sent from another tool, or grouped under another card, whose day the group follows)}, or {updated: false, reason: 'no_retro' | 'not_seismograph' | 'unknown_card'}.",
+    "Place a card of the current Emotional Seismograph board on the sprint day it happened, or take its day away with day: null. Returns {updated: true, day, charted, lastDay (the board's last day: its sprint's last, Day 9 with no sprint)}, or {updated: false, reason: 'no_retro' | 'not_seismograph' | 'unknown_card'}. charted is true only when the chart draws the card on that day. It's false with day: null, with a day past lastDay (the card keeps it and list_state lists it under unplaced), and for a card the chart doesn't draw by its own day: an action item, a carried-over action, a card sent from another tool, or a card whose group charts by another card's day.",
   paramsSchema: z.object({
     cardId: z.string().min(1).describe("The card's id (see list_state)."),
     day: CardDayParam.nullable(),
