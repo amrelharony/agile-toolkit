@@ -17,6 +17,9 @@ const ENTRIES = [
   "src/lib/utils/csv.ts",
   "src/lib/sprints/calendar.ts",
   "src/lib/roadmap/quarters.ts",
+  "src/lib/personas/model.ts",
+  "src/lib/roadmap/epic-source.ts",
+  "src/lib/roadmap/horizons.ts",
 ].map((f) => path.join(ROOT, f));
 const BANNED_PACKAGES = ["react", "react-dom", "zustand", "lucide-react"];
 
