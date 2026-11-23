@@ -213,6 +213,21 @@ describe("estimation, refinement and poker", () => {
       })
     ).toEqual([]);
   });
+
+  it("refinement: size five or more unsized backlog stories together", () => {
+    const unsized = Array.from({ length: 5 }, (_, i) => story({ id: `u${i}`, points: undefined }));
+    const out = steps("refinement", { stories: unsized });
+    expect(out.map((s) => s.id)).toEqual(["refinement-size-together"]);
+    expect(out[0]).toMatchObject({
+      label: "Size 5 unsized stories together",
+      detail: "5 backlog stories have no points. Relative Sizing sizes them in one sitting.",
+      href: "/relative-sizing?stories=unsized",
+    });
+    expect(ids("refinement", { stories: unsized.slice(0, 4) })).toEqual([]);
+    // The example's stories aren't the team's backlog.
+    const examples = unsized.map((s) => ({ ...s, id: `example-${s.id}` }));
+    expect(ids("refinement", { stories: examples })).toEqual([]);
+  });
 });
 
 describe("story-mapper and walking-skeleton", () => {

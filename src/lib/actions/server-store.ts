@@ -313,7 +313,7 @@ export async function serverGetUserStateBlob(
  */
 export const SERVER_WRITABLE_BLOB_KEYS: readonly string[] = [
   "agile-toolkit:card-decks", // CARD_DECKS_STORE_KEY: deal, shuffle and add_card (P2.0c)
-  "agile-toolkit:relative-sizing", // P2.1's MCP handlers
+  "agile-toolkit:relative-sizing", // RELATIVE_SIZING_STORE_KEY: create_board, place, set_bucket_points and apply_sizes (P2.1)
 ];
 
 /**

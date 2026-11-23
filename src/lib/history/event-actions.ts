@@ -1247,7 +1247,7 @@ export const MEETING_AUDIT_ACTIONS = {
 export const EXAMPLE_MAPPING_ACTIONS = {
   /** Payload: mapId, and the storyId when it maps a backlog story. */
   MAP_CREATED: "map_created",
-  /** The title, story or timebox changed. Payload: mapId. */
+  /** The title, story, timebox or a card changed. Payload: mapId, the fields changed (names only), and storyId when Add to backlog linked a story. */
   MAP_UPDATED: "map_updated",
   /** Payload: mapId. */
   MAP_REMOVED: "map_removed",
@@ -1273,7 +1273,7 @@ export const RELATIVE_SIZING_ACTIONS = {
   BOARD_CREATED: "board_created",
   /** Payload: boardId. */
   BOARD_REMOVED: "board_removed",
-  /** A silent sort, a bucket round or a live round began. Payload: boardId, the mode and the story count. */
+  /** A timebox, a deal or a live room began. Payload: boardId, the mode (silent, buckets or live) and the story count. */
   ROUND_STARTED: "round_started",
   /** Payload: boardId, how many stories were placed and how many were outliers. */
   ROUND_SAVED: "round_saved",

@@ -431,6 +431,25 @@ describe("P2.1 example maps", () => {
     expect(upsertEntity).not.toHaveBeenCalled();
   });
 
+  it("put every example under a rule on the map, on both transports", async () => {
+    const one = { ...EXAMPLE_MAP, rules: [{ id: "r1", text: "R" }] };
+    accepts(T, { ...one, examples: [{ id: "e1", ruleId: "r1", text: "A" }] });
+    rejects(T, { ...one, examples: [{ id: "e1", ruleId: "ghost", text: "A" }] });
+    await expect(
+      create(T, { ...one, id: undefined, examples: [{ id: "e1", ruleId: "ghost", text: "A" }] })
+    ).rejects.toThrow(/Every example goes under a rule on the map\./);
+    // Removing a rule that still has examples is refused too.
+    const orphans = { rules: [EXAMPLE_MAP.rules[0]] };
+    await expect(update(T, "exampleMaps", EXAMPLE_MAP, orphans)).rejects.toThrow(
+      /Every example goes under a rule on the map\./
+    );
+    expect(useWorkspaceStore.getState().exampleMaps).toEqual([EXAMPLE_MAP]);
+    await expect(updateOverMcp(T, EXAMPLE_MAP, orphans)).rejects.toThrow(
+      /Every example goes under a rule on the map\./
+    );
+    expect(upsertEntity).not.toHaveBeenCalled();
+  });
+
   it("refuse a map too big for one row, on both transports", async () => {
     // 60 examples with Given, When and Then at their caps, in 3-byte text.
     const examples = Array.from({ length: TOOL_LIST_MAX.mapExamples }, (_, i) => ({

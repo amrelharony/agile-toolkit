@@ -71,6 +71,12 @@ import {
   type StorySave,
 } from "./store";
 import { refinementVerdict } from "./verdict";
+import type { SimilarSource } from "@/components/stories/similar-stories";
+import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
+import { useCardReferences } from "@/app/(tools)/planning-poker/use-card-references";
+import { GUIDE_SCALE, cardsOf } from "@/lib/estimation/decks";
+import { numericCards } from "@/lib/estimation/three-point";
+import { UNSIZED_BATCH_MIN, unsizedBacklog } from "@/lib/relative-sizing/unsized";
 
 type ResetSnapshot = Pick<
   RefinementStore,
@@ -121,6 +127,12 @@ type Show = "all" | "unsized" | "backlog-unsized";
 /** A story nobody has run the story check on yet. */
 const NO_ANSWERS: readonly string[] = [];
 
+/** The guide scale's cards that can hold reference stories: a points scale's, else Fibonacci's. */
+function referenceCards(scaleName: string): string[] {
+  const own = numericCards(cardsOf(scaleName));
+  return own.length > 0 ? own : numericCards(cardsOf(GUIDE_SCALE.fibonacci));
+}
+
 export function RefinementClient() {
   const hydrated = useWorkspaceHydrated();
   const stories = useWorkspaceStore((s) => s.stories);
@@ -137,6 +149,20 @@ export function RefinementClient() {
   );
   const { log } = useHistoryLogger("refinement");
   const exportRef = useRef<HTMLDivElement>(null);
+
+  // "Like this one" beside an unsized story: the workspace's finished
+  // stories, else the guide's reference stories on its points scale.
+  const guideScale = useEstimationGuideStore((s) => s.selectedScale);
+  const references = useCardReferences(null);
+  const similarSource = useMemo<SimilarSource>(
+    () => ({
+      stories: stories ?? [],
+      references: { cards: referenceCards(guideScale), lookup: references },
+    }),
+    [stories, guideScale, references]
+  );
+  // Five or more unsized backlog stories are quicker sized together.
+  const unsizedBatch = unsizedBacklog(stories ?? []).length;
   // The refinedAt a scenario delete left, so its Undo puts the earlier one back.
   const [gwtMarks] = useState(createRefinedMarks);
 
@@ -606,7 +632,10 @@ export function RefinementClient() {
           ) : (
             <p className="text-sm text-sub">Loading the backlog…</p>
           )}
-          {(unsizedToQueue.length > 0 || queuedHere > 0 || readyOwn > 0) && (
+          {(unsizedToQueue.length > 0 ||
+            queuedHere > 0 ||
+            readyOwn > 0 ||
+            unsizedBatch >= UNSIZED_BATCH_MIN) && (
             <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2">
               {unsizedToQueue.length > 0 && (
                 <Button
@@ -623,6 +652,12 @@ export function RefinementClient() {
               {queuedHere > 0 && (
                 <Link href="/planning-poker" className={LINK}>
                   Open Planning Poker ({queuedHere} queued)
+                  <ArrowRight className="h-4 w-4" aria-hidden="true" />
+                </Link>
+              )}
+              {unsizedBatch >= UNSIZED_BATCH_MIN && (
+                <Link href="/relative-sizing?stories=unsized" className={LINK}>
+                  Size {unsizedBatch} unsized stories together in Relative Sizing
                   <ArrowRight className="h-4 w-4" aria-hidden="true" />
                 </Link>
               )}
@@ -705,6 +740,7 @@ export function RefinementClient() {
                       yes: investYes[focused.id] ?? NO_ANSWERS,
                       onChange: (yes) => setInvestYes((all) => ({ ...all, [focused.id]: yes })),
                     }}
+                    similar={similarSource}
                   />
                 ) : (
                   <p className="text-sm text-sub">

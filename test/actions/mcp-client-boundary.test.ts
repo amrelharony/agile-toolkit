@@ -72,12 +72,18 @@ describe("what the MCP handlers call", () => {
   it("imports no client module, React DOM, zustand or the store", () => {
     const { seen, packages, clients } = walk(
       [
+        "src/app/(tools)/estimation-guide/references.ts",
+        "src/lib/estimation/similar.ts",
+        "src/lib/estimation/three-point.ts",
         "src/lib/parking-lot/model.ts",
         "src/lib/parking-lot/route-rules.ts",
         "src/lib/handoffs/links.ts",
+        "src/lib/example-mapping/model.ts",
         "src/lib/facilitator-timers/settings.ts",
         "src/lib/facilitator-timers/model.ts",
         "src/lib/facilitator-timers/sounds.ts",
+        "src/lib/relative-sizing/model.ts",
+        "src/lib/relative-sizing/state.ts",
       ].map(abs)
     );
     expect(clients).toEqual([]);
@@ -94,7 +100,10 @@ describe("the action files", () => {
   it.each([
     // One tool id per line, so tools added side by side merge cleanly.
     "parking-lot",
+    "planning-poker",
+    "example-mapping",
     "facilitator-timers",
+    "relative-sizing",
   ])("%s reaches no client module but the workspace store", (tool) => {
     const { seen, clients } = walk([abs(`src/lib/actions/tools/${tool}.ts`)]);
     expect(clients).toEqual([]);

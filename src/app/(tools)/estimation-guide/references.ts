@@ -17,7 +17,7 @@
 
 import type { Story } from "@/lib/stores/workspace-types";
 import { scales } from "@/lib/constants/scales";
-import { isExampleId } from "@/components/tool-frame/example-data";
+import { isExampleId } from "@/lib/utils/example-id";
 import { defaultDescription, entryKey, readEntry } from "./entries";
 import { exampleReferenceStory, isExampleNote } from "./example";
 import type { EstimationGuideState } from "./store";

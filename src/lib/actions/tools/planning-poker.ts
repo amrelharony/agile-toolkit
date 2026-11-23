@@ -21,6 +21,14 @@
  *                          the same verdict the session screen shows), plus
  *                          the numeric average/median/mode/spread.
  *   5. list_scales       — PURE: the decks (lib/estimation/decks).
+ *   6. three_point       — PURE: a best, likely and worst case weighed into an
+ *                          expected size, its spread and the card it rounds
+ *                          up to (lib/estimation/three-point), as the host's
+ *                          Three-point check shows after Reveal.
+ *   7. similar_stories   — READ: finished stories like a story being sized,
+ *                          with their points, and the Estimation Guide's
+ *                          reference stories (lib/estimation/similar). Words
+ *                          only: an action runs no AI task.
  *
  * The log is agent-managed: the realtime client deliberately does NOT write to
  * it (session-screen renders for guests/promoted-hosts too, whose workspace
@@ -32,8 +40,18 @@
 import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverGetEntity, serverUpsertEntity } from "../server-store";
-import type { PokerEstimationLog, PokerEstimate, PokerRound } from "@/lib/stores/workspace-types";
+import {
+  serverGetEntity,
+  serverGetUserStateBlob,
+  serverListEntities,
+  serverUpsertEntity,
+} from "../server-store";
+import type {
+  PokerEstimationLog,
+  PokerEstimate,
+  PokerRound,
+  Story,
+} from "@/lib/stores/workspace-types";
 import { SCALES, SCALE_LABELS, type ScaleType } from "@/lib/estimation/decks";
 import {
   consensusLabel,
@@ -42,6 +60,18 @@ import {
   estimateCards,
   isEstimateCard,
 } from "@/lib/estimation/consensus";
+import {
+  THREE_POINT_MAX,
+  cardAtOrAbove,
+  isAboveDeck,
+  threePoint,
+  threePointNote,
+  validateThreePoint,
+} from "@/lib/estimation/three-point";
+import { SIMILAR_LIMIT, medianPoints, similarStories } from "@/lib/estimation/similar";
+import { scales } from "@/lib/constants/scales";
+import { pinnedIds, resolveReferenceStories } from "@/app/(tools)/estimation-guide/references";
+import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
 
 const KIND_PE = "workspace:pokerEstimationLog";
 // MUST match PE_ID in planning-poker-client.tsx.
@@ -261,6 +291,150 @@ registry.register({
     "List the built-in estimation scales. Returns {scales: {fibonacci, tshirt, custom}, labels}. Pure reference data.",
   paramsSchema: z.object({}),
   handler: async () => ({ scales: SCALES, labels: SCALE_LABELS }),
+});
+
+/* ---- three-point check and similar stories ---------------------------- */
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Most matches `similar_stories` returns. */
+const SIMILAR_STORIES_MAX = 5;
+/** MUST match registerCollection("story", …) in workspace-store.ts. */
+const KIND_STORY = "workspace:story";
+/** The Estimation Guide's store key (createPersistedStore("estimation-guide")). */
+const GUIDE_STORE_KEY = "agile-toolkit:estimation-guide";
+
+function threePointCheck(p: {
+  optimistic: number;
+  likely: number;
+  pessimistic: number;
+  scale?: ScaleType;
+  deck?: string[];
+}) {
+  const r = threePoint(p);
+  if (!r) {
+    const checked = validateThreePoint({
+      optimistic: String(p.optimistic),
+      likely: String(p.likely),
+      pessimistic: String(p.pessimistic),
+    });
+    const problem =
+      (checked.ok ? undefined : Object.values(checked.errors).find(Boolean)) ??
+      "Give a best, likely and worst case with best <= likely <= worst.";
+    return { computed: false as const, problem };
+  }
+  const deck = deckFor([], p.scale, p.deck);
+  return {
+    computed: true as const,
+    expected: round2(r.expected),
+    sd: round2(r.sd),
+    low: round2(r.low),
+    high: round2(r.high),
+    // Null on a deck that isn't points (T-shirt sizes).
+    card: cardAtOrAbove(deck, r.expected),
+    // Past the largest card: `card` is only the top one, and the story
+    // wants splitting.
+    aboveDeck: isAboveDeck(deck, r.expected),
+    note: threePointNote(r),
+  };
+}
+
+/**
+ * The guide's pinned reference stories on its chosen scale (a numeric one;
+ * a T-shirt pick reads Fibonacci's pins), the team's stories only: the
+ * guide's example pins aren't the team's work.
+ */
+function guideReferences(guide: unknown, stories: readonly Story[]) {
+  const g = (guide && typeof guide === "object" ? guide : {}) as Record<string, unknown>;
+  const numeric = (name: string) =>
+    scales.some((s) => s.name === name && s.values.every((v) => typeof v === "number"));
+  const chosen = typeof g.selectedScale === "string" ? g.selectedScale : "";
+  const scale = numeric(chosen) ? chosen : "Fibonacci";
+  const values = scales.find((s) => s.name === scale)?.values ?? [];
+  const items: { card: string; id: string; title: string; points: number | null }[] = [];
+  for (const value of values) {
+    const ids = pinnedIds(g.referenceStoryIds, scale, value);
+    for (const story of resolveReferenceStories(ids, stories)) {
+      if (story.example) continue;
+      items.push({
+        card: String(value),
+        id: story.id,
+        title: story.title,
+        points: story.points ?? null,
+      });
+    }
+  }
+  return { scale, stories: items };
+}
+
+function similarResult(
+  params: { title: string; notes?: string; limit?: number },
+  stories: readonly Story[],
+  guide: unknown
+) {
+  const matches = similarStories({ title: params.title, notes: params.notes }, stories, {
+    limit: params.limit ?? SIMILAR_LIMIT,
+  });
+  return {
+    matches: matches.map((m) => ({
+      id: m.story.id,
+      title: m.story.title,
+      points: m.story.points ?? null,
+      shared: m.shared,
+      score: round2(m.score),
+      doneAt: m.story.doneAt ?? null,
+    })),
+    medianPoints: medianPoints(matches.map((m) => m.story.points ?? 0)),
+    references: guideReferences(guide, stories),
+  };
+}
+
+/** The guide as this browser holds it (its store waits to be asked, as Poker's panel does). */
+async function browserGuide(): Promise<unknown> {
+  const persist = useEstimationGuideStore.persist;
+  if (!persist.hasHydrated()) await persist.rehydrate();
+  return useEstimationGuideStore.getState();
+}
+
+// ──────── tool.planning_poker.three_point (pure) ────────
+registry.register({
+  id: "tool.planning_poker.three_point",
+  toolId: "tool.planning_poker",
+  name: "three_point",
+  category: "read",
+  description:
+    "Three-point check for one story, as the host's check after Reveal and the Estimation Guide show it: a best (optimistic), likely and worst (pessimistic) case in points, 0 to 1000, with best <= likely <= worst. Returns {computed: true, expected: (O + 4M + P) / 6, sd: (P - O) / 6, low and high (expected -/+ sd), card (the smallest card on the deck at or above expected, else the top card; null on a T-shirt deck), aboveDeck (true when expected is past the deck's largest card: card is then only the top card, so say the story is bigger than any card and should be split), note (narrow, some uncertainty or wide)}, or {computed: false, problem}. Give the deck as scale (fibonacci | tshirt) or deck (the cards in order); Fibonacci otherwise. Pure: it changes no estimate, the team still picks the card.",
+  paramsSchema: z.object({
+    optimistic: z.number().min(0).max(THREE_POINT_MAX),
+    likely: z.number().min(0).max(THREE_POINT_MAX),
+    pessimistic: z.number().min(0).max(THREE_POINT_MAX),
+    scale: z.enum(["fibonacci", "tshirt", "custom"]).optional(),
+    deck: z.array(z.string().max(32)).max(32).optional().describe("The cards in deck order."),
+  }),
+  handler: async (params) => threePointCheck(params),
+});
+
+// ──────── tool.planning_poker.similar_stories ────────
+registry.register({
+  id: "tool.planning_poker.similar_stories",
+  toolId: "tool.planning_poker",
+  name: "similar_stories",
+  category: "read",
+  description:
+    "Finished stories that read like a story being sized, with the points they took, so the team can compare (Planning Poker shows the same list to the host after Reveal, Refinement beside an unsized story). Matching is by shared title words (notes count less); done stories with points only, never the example's. Returns {matches: {id, title, points, shared (words both mention), score 0-1, doneAt}[] best first, medianPoints (null with no match), references: {scale, stories: {card, id, title, points}[]} (the Estimation Guide's pinned reference stories, to fall back on when nothing matches)}. Read only.",
+  paramsSchema: z.object({
+    title: z.string().trim().min(1).max(500),
+    notes: z.string().max(1000).optional(),
+    limit: z.number().int().min(1).max(SIMILAR_STORIES_MAX).optional(),
+  }),
+  handler: async (params) => similarResult(params, ws().stories ?? [], await browserGuide()),
+  mcpHandler: async (params, ctx) => {
+    const [stories, guide] = await Promise.all([
+      serverListEntities<Story>(ctx.userId, KIND_STORY),
+      serverGetUserStateBlob(ctx.userId, GUIDE_STORE_KEY),
+    ]);
+    return similarResult(params, stories, guide);
+  },
 });
 
 /* ======================================================================== *
