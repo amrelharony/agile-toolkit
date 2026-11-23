@@ -313,6 +313,7 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
   const [day, setDay] = useState(() => localClock(ctx.zone, ctx.now.getTime() + 86_400_000).day);
   const [time, setTime] = useState("14:00");
   const [addError, setAddError] = useState<string | null>(null);
+  const [fillNote, setFillNote] = useState<string | null>(null);
   const t = tallies(poll);
   const best = bestSlot(poll);
   const slots = sortedSlots(poll);
@@ -340,6 +341,16 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
   const fill = () => {
     const prev = poll;
     const next = { ...poll, answers: fillFromHours(poll, ctx.people, names), updatedAt: at() };
+    // A poll keeps up to 50 answers: say who couldn't be added.
+    const leftOut = ctx.people.filter((p) => {
+      const all = names.get(p.id) ?? [];
+      return all.length > 0 && answerRowIndex(next.answers, all) < 0;
+    }).length;
+    const note =
+      leftOut > 0
+        ? `A poll keeps up to ${TEAM_TIME_MAX.answers} people's answers, so ${leftOut} ${leftOut === 1 ? "person wasn't" : "people weren't"} filled in.`
+        : null;
+    setFillNote(note);
     undoable({
       label: "Filled the answers from everyone's hours",
       apply: () => {
@@ -349,9 +360,16 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
           answers: next.answers.length,
         });
       },
-      revert: () => ctx.writer.put("polls", prev),
+      revert: () => {
+        ctx.writer.put("polls", prev);
+        setFillNote(null);
+      },
     });
-    ctx.announce("Filled the answers from everyone's hours");
+    ctx.announce(
+      note
+        ? `Filled the answers from everyone's hours. ${note}`
+        : "Filled the answers from everyone's hours"
+    );
   };
 
   const choose = (slotId: string) => {
@@ -474,6 +492,12 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
           </Button>
         </div>
       </div>
+
+      {fillNote && (
+        <p className="text-xs text-sub" role="status">
+          {fillNote}
+        </p>
+      )}
 
       {chosen && (
         <div className="space-y-2 rounded-md border border-success bg-success/10 p-2" role="status">

@@ -7,11 +7,12 @@
  */
 
 import { isoDayNumber, isoFromDayNumber, weekdayOf } from "@/lib/sprints/calendar";
-import type {
-  TeamTimeAnswer,
-  TeamTimePerson,
-  TeamTimePoll,
-  TeamTimePollAnswer,
+import {
+  TEAM_TIME_MAX,
+  type TeamTimeAnswer,
+  type TeamTimePerson,
+  type TeamTimePoll,
+  type TeamTimePollAnswer,
 } from "@/lib/stores/workspace-types";
 import { nameKey } from "@/lib/team/names";
 import { slotLabel } from "./format";
@@ -229,7 +230,9 @@ export function answerRowIndex(
  * The poll's answers with every person's missing picks filled from their
  * hours. Picks already recorded stay; people are matched by name. `names`
  * gives each person's names (`answerNames`): the first is written, any
- * other finds a row recorded under it, which then takes the first.
+ * other finds a row recorded under it, which then takes the first. A poll
+ * keeps up to 50 answers, so nobody new is added past that (the CRUD and
+ * the row reader hold the same cap).
  */
 export function fillFromHours(
   poll: Pick<TeamTimePoll, "slots" | "answers" | "minutes">,
@@ -249,6 +252,7 @@ export function fillFromHours(
     let row = at >= 0 ? answers[at] : null;
     if (row && nameKey(row.name) !== nameKey(name)) row.name = name;
     if (!row) {
+      if (answers.length >= TEAM_TIME_MAX.answers) continue;
       row = { name, picks: {} };
       answers.push(row);
     }

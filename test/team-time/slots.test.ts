@@ -20,7 +20,7 @@ import {
   tallies,
 } from "@/lib/team-time/slots";
 import { LINK_OPTION_CHARS } from "@/lib/quick-vote/link";
-import type { TeamTimePoll } from "@/lib/stores/workspace-types";
+import { TEAM_TIME_MAX, type TeamTimePoll } from "@/lib/stores/workspace-types";
 import { AT, london, newYork, person, t, tokyo } from "./fixtures";
 
 const hour = (start: string, minutes = 60) => [t(start), t(start) + minutes * 60_000] as const;
@@ -121,6 +121,18 @@ describe("answers and tallies", () => {
       { name: "Noor", picks: { a: "no", b: "yes" } },
     ]);
     expect(tallies({ ...p, answers: filled }).a).toEqual({ yes: 0, maybe: 0, no: 2 });
+  });
+
+  it("adds nobody new past the poll's 50 answers", () => {
+    const people = Array.from({ length: TEAM_TIME_MAX.people }, (_, i) =>
+      person({ id: `p${i}`, name: `P${i}` })
+    );
+    const names = new Map(people.map((p) => [p.id, p.name]));
+    const p = poll({ answers: [{ name: "Kim", picks: { a: "yes" } }] });
+    const filled = fillFromHours(p, people, names);
+    expect(filled).toHaveLength(TEAM_TIME_MAX.answers);
+    expect(filled[0]).toEqual({ name: "Kim", picks: { a: "yes" } });
+    expect(filled.at(-1)?.name).toBe(`P${TEAM_TIME_MAX.answers - 2}`);
   });
 
   it("never takes someone else's name today as another name of a person", () => {

@@ -502,6 +502,24 @@ describe("Find a time", () => {
     expect(ws().teamTimePolls?.[0].answers).toEqual([]);
   });
 
+  it("says who Fill from hours left out when the poll is full", async () => {
+    const people = Array.from({ length: 50 }, (_, i) => ({
+      ...london,
+      id: `p${i}`,
+      name: `P${i}`,
+    }));
+    useWorkspaceStore.setState({
+      teamTimePeople: people,
+      teamTimePolls: [poll({ answers: [{ name: "Kim", picks: { a: "yes" } }] })],
+    });
+    await renderPage("find");
+    fireEvent.click(screen.getByRole("button", { name: "Fill from hours" }));
+    expect(ws().teamTimePolls?.[0].answers).toHaveLength(50);
+    expect(
+      screen.getByText("A poll keeps up to 50 people's answers, so 1 person wasn't filled in.")
+    ).toHaveAttribute("role", "status");
+  });
+
   it("keeps a person's answers after the roster renames them, counting them once", async () => {
     useWorkspaceStore.setState({
       teamMembers: [{ id: "m1", name: "Louise" }],
