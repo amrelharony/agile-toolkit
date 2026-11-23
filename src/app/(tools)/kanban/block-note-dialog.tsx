@@ -37,7 +37,7 @@ import {
 } from "@/lib/stores/workspace-types";
 import { DEFAULT_BLOCKER_CLUSTERS } from "@/lib/impediments/clusters";
 import { isResolved } from "@/lib/impediments/model";
-import { openSpellIndex, type SpellNote } from "@/lib/flow/block-stamps";
+import { openSpellIndex, withSpellNote, type SpellNote } from "@/lib/flow/block-stamps";
 import { blockNotedPayload } from "@/lib/kanban/workflow";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
 import { sendHandoff, type HandoffLinkStore } from "@/lib/handoffs/send";
@@ -223,6 +223,13 @@ function BlockNoteForm({
       side: c.side ?? null,
       sentTo: links(),
     };
+    // Nothing to write: no Undo toast for a no-op, just close.
+    const preview = withSpellNote(before, note);
+    if (!preview || preview === before) {
+      announce(`Nothing changed for “${item.title}”.`);
+      onClose();
+      return;
+    }
     let wrote = false;
     undoable({
       label: "Saved why it's blocked",

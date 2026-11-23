@@ -649,6 +649,36 @@ describe("the block note", () => {
     expect(boardCard("w").blockLog).toEqual([{ from: expect.any(String) }]);
   });
 
+  it("closes without an Undo toast when Save why changes nothing", async () => {
+    seed({
+      cards: [
+        card("w", "Wallet payments", {
+          blocked: true,
+          blockLog: [
+            {
+              from: ago(2),
+              cause: "Waiting on review",
+              cluster: "Waiting for a review",
+              side: "internal",
+            },
+          ],
+        }),
+      ],
+    });
+    const stored = boardCard("w").blockLog;
+    renderBoard();
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Why: Waiting on review: Wallet payments$/ })
+    );
+    const dialog = await screen.findByRole("dialog");
+    toastSpy.mockClear();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save why" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(logged(KANBAN_ACTIONS.BLOCK_NOTED)).toHaveLength(0);
+    expect(boardCard("w").blockLog).toBe(stored);
+  });
+
   it("names a new cluster with its side, and logs it as custom without its name", async () => {
     seed({ cards: [blocked()] });
     renderBoard();
