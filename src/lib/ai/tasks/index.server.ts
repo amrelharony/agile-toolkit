@@ -13,6 +13,7 @@ import { agendaPrompt } from "./facilitator-timers.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
+import { roamPrompt } from "./pi-planning.server";
 import { themeNamesPrompt } from "./picker.server";
 import { productGoalDraftPrompt } from "./product-goal.server";
 import { groupTopicsPrompt, surprisePlanPrompt } from "./retro.server";
@@ -35,6 +36,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   interruptClassifyPrompt,
   meetingAuditSuggestPrompt,
   parkingRoutePrompt,
+  roamPrompt,
   themeNamesPrompt,
   productGoalDraftPrompt,
   surprisePlanPrompt,
