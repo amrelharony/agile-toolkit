@@ -24,6 +24,18 @@
  *                         draft needs its missing lines before it moves on.
  *   5. record_result    — the measured number; returns the suggested
  *                         verdict and never applies it.
+ *   Value checks (P2.5): did the shipped work deliver?
+ *   6. list_value_candidates — stories done and epics finished in the
+ *                         last 90 days that no hypothesis checks yet.
+ *   7. add_value_check  — a running hypothesis that follows one, measured
+ *                         by a metric, a key result or in words, read some
+ *                         days after it shipped (checked as the page's
+ *                         "Check its value" form checks it).
+ *   8. set_measured_by  — how any hypothesis is measured, or none.
+ *   9. read_measure     — what "Read the metric" would record (read only;
+ *                         record_result writes it).
+ *  10. use_ab_result    — its linked A/B test's result into what we learned,
+ *                         and the measured number when the test is in.
  *
  * Every rule comes from lib/hypotheses (the page uses it too). Entity kind
  * "workspace:hypothesisTracker" + the fixed HYPOTHESIS_TRACKER_ID match
@@ -34,8 +46,48 @@ import { z } from "zod";
 import { nanoid } from "nanoid";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverGetEntity, serverUpsertEntity } from "../server-store";
-import type { Hypothesis, HypothesisStatus, HypothesisTracker } from "@/lib/stores/workspace-types";
+import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
+import type {
+  AbTest,
+  EpicRoadmap,
+  Hypothesis,
+  HypothesisMeasuredBy,
+  HypothesisStatus,
+  HypothesisTracker,
+  Okr,
+  ProductMetric,
+  Story,
+} from "@/lib/stores/workspace-types";
+import {
+  AB_TEST_KIND,
+  MEASURED_BY_KINDS,
+  PRODUCT_METRIC_KIND,
+  SHIPPED_KINDS,
+} from "@/lib/stores/workspace-types";
+import { EPIC_ROADMAP_ID } from "@/lib/roadmap/epic-source";
+import { testForHypothesis } from "@/lib/experiments/model";
+import {
+  AB_RESULT_REASON,
+  DEFAULT_LOOK_AFTER,
+  MEASURED_NOTE_MAX,
+  SHIPPED_TITLE_MAX,
+  VALUE_CHECK_DAYS,
+  abResultUpdate,
+  applyValueCheck,
+  isDue,
+  isValueCheck,
+  keyResultRef,
+  measuredByOf,
+  readMeasure,
+  shippedCandidates,
+  validateValueCheck,
+  valueCheckDraft,
+  valueSummary,
+  withMeasuredBy,
+  type ValueCheckDraft,
+  type ValueCheckField,
+  type ValueCheckSources,
+} from "@/lib/hypotheses/value";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { isExampleId } from "@/lib/utils/example-id";
 import type { FormErrors } from "@/lib/utils/form";
@@ -94,14 +146,28 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 interface TrackerStore {
   get(): Promise<HypothesisTracker | null>;
   put(doc: HypothesisTracker): Promise<void>;
+  /** What value checks are read against: the product metrics and the OKRs (read only). */
+  sources(): Promise<ValueCheckSources>;
+  /** The A/B tests, read live (the A/B Calculator writes them). */
+  tests(): Promise<AbTest[]>;
+  /** The shipped work value checks follow: the stories and the epic roadmap (read only). */
+  work(): Promise<{ stories: Story[]; roadmaps: EpicRoadmap[] }>;
   /** Over MCP the server's day may be behind the user's (see latestDay). */
   onServer: boolean;
 }
+
+/** The other tools' entity kinds the value checks read. */
+const KIND_OKR = "workspace:okr";
+const KIND_STORY = "workspace:story";
+const KIND_EPIC_ROADMAP = "workspace:epicRoadmap";
 
 const browserStore: TrackerStore = {
   get: async () =>
     (ws().hypothesisTrackers ?? []).find((d) => d.id === HYPOTHESIS_TRACKER_ID) ?? null,
   put: async (doc) => ws().upsertHypothesisTracker(doc),
+  sources: async () => ({ metrics: ws().productMetrics ?? [], okrs: ws().okrs ?? [] }),
+  tests: async () => ws().abTests ?? [],
+  work: async () => ({ stories: ws().stories ?? [], roadmaps: ws().epicRoadmaps ?? [] }),
   onServer: false,
 };
 
@@ -111,6 +177,21 @@ function serverStore(userId: string): TrackerStore {
       (await serverGetEntity<HypothesisTracker>(userId, KIND_HT, HYPOTHESIS_TRACKER_ID)) ?? null,
     put: async (doc) => {
       await serverUpsertEntity<HypothesisTracker>(userId, KIND_HT, doc);
+    },
+    sources: async () => {
+      const [metrics, okrs] = await Promise.all([
+        serverListEntities<ProductMetric>(userId, PRODUCT_METRIC_KIND),
+        serverListEntities<Okr>(userId, KIND_OKR),
+      ]);
+      return { metrics, okrs };
+    },
+    tests: () => serverListEntities<AbTest>(userId, AB_TEST_KIND),
+    work: async () => {
+      const [stories, roadmap] = await Promise.all([
+        serverListEntities<Story>(userId, KIND_STORY),
+        serverGetEntity<EpicRoadmap>(userId, KIND_EPIC_ROADMAP, EPIC_ROADMAP_ID),
+      ]);
+      return { stories, roadmaps: roadmap ? [roadmap] : [] };
     },
     onServer: true,
   };
@@ -139,6 +220,8 @@ function summarize(doc: HypothesisTracker | null) {
   };
   for (const h of real) if (h.status in byStatus) byStatus[h.status] += 1;
   const rate = validationRate(real);
+  const today = todayLocalISO();
+  const value = valueSummary(real, today);
   return {
     exists: doc !== null,
     total: real.length,
@@ -149,11 +232,21 @@ function summarize(doc: HypothesisTracker | null) {
     validationRate: rate.rate === null ? null : round2(rate.rate),
     verdict: hypothesisVerdict(rate),
     needsDetail: real.filter((h) => missingFields(h).length > 0).length,
+    valueChecks: {
+      total: value.total,
+      open: value.open,
+      due: value.due,
+      validated: value.validated,
+      invalidated: value.invalidated,
+      inconclusive: value.inconclusive,
+      rate: value.rate === null ? null : round2(value.rate),
+    },
     hypotheses: hypotheses.map((h) => ({
       ...h,
       missing: missingFields(h),
       suggestedVerdict: suggestVerdict(h),
       suggestion: suggestionText(h),
+      valueCheck: isValueCheck(h) ? { due: isDue(h, today), checkOn: h.checkOn ?? null } : null,
     })),
   };
 }
@@ -164,7 +257,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise hypotheses, as the page does. Example rows (ids starting 'example-') are the page's demo: every count and the verdict leave them out, and they are still listed in hypotheses. Returns {exists, total (hypotheses without the examples), examples (how many example rows), byStatus: {drafted, running, validated, invalidated, inconclusive}, decisive (validated + invalidated), inconclusive, validationRate (0..1, validated over decisive; null while no result is decisive; inconclusive results aren't counted), verdict (one sentence), needsDetail (hypotheses missing what we'll do or the success metric, e.g. hand-off drafts: fill them with update_hypothesis), hypotheses: each stored row plus missing ('willDo' | 'successMetric')[], suggestedVerdict ({verdict: 'validated' | 'invalidated', met, margin (actual − target, positive = better), moved? (actual − baseline)} or null without a target and a measured actual) and suggestion (that in words, or null)}. A suggestion is never applied: set_status does that.",
+    "Summarise hypotheses, as the page does. Example rows (ids starting 'example-') are the page's demo: every count and the verdict leave them out, and they are still listed in hypotheses. Returns {exists, total (hypotheses without the examples), examples (how many example rows), byStatus: {drafted, running, validated, invalidated, inconclusive}, decisive (validated + invalidated), inconclusive, validationRate (0..1, validated over decisive; null while no result is decisive; inconclusive results aren't counted), verdict (one sentence), needsDetail (hypotheses missing what we'll do or the success metric, e.g. hand-off drafts: fill them with update_hypothesis), hypotheses: each stored row plus missing ('willDo' | 'successMetric')[], suggestedVerdict ({verdict: 'validated' | 'invalidated', met, margin (actual − target, positive = better), moved? (actual − baseline)} or null without a target and a measured actual) and suggestion (that in words, or null) and valueCheck ({due, checkOn} for a value check, a hypothesis that follows shipped work, whose stored shipped, checkOn and measuredBy are in the row; else null), valueChecks: {total, open, due (open, on or past checkOn, no measured result), validated, invalidated, inconclusive, rate (validated over decisive value checks; null with none)}}. A suggestion is never applied: set_status does that.",
   paramsSchema: z.object({}),
   handler: async () => summarize(await browserStore.get()),
   mcpHandler: async (_params, ctx) => summarize(await serverStore(ctx.userId).get()),
@@ -493,4 +586,291 @@ registry.register({
   paramsSchema: RecordSchema,
   handler: async (params) => recordResult(browserStore, params),
   mcpHandler: async (params, ctx) => recordResult(serverStore(ctx.userId), params),
+});
+
+/* ── Value checks (P2.5) ─────────────────────────────────────────────── */
+
+const MeasuredBySchema = z
+  .object({
+    kind: z.enum(MEASURED_BY_KINDS),
+    metricId: z
+      .string()
+      .max(200)
+      .optional()
+      .describe("With kind metric: a product metric's id (workspace.product_metric.list)."),
+    okrId: z.string().max(200).optional().describe("With kind key-result: the objective's id."),
+    keyResultId: z
+      .string()
+      .max(200)
+      .optional()
+      .describe("With kind key-result: the key result's id."),
+    note: z
+      .string()
+      .max(MEASURED_NOTE_MAX)
+      .optional()
+      .describe("With kind words: how you'll tell, in words."),
+  })
+  .describe(
+    "How it is measured: a product metric (metricId), a key result (okrId and keyResultId) or in words (note)."
+  );
+
+/** The measure params as the form holds them, so measuredByOf judges both alike. */
+const measureDraftOf = (m: z.infer<typeof MeasuredBySchema>) => ({
+  measuredKind: m.kind,
+  metricId: m.metricId ?? "",
+  keyResult: m.okrId && m.keyResultId ? keyResultRef(m.okrId, m.keyResultId) : "",
+  note: m.note ?? "",
+});
+
+/** The form's value-check errors under the agent's param names. */
+const VALUE_PARAM_OF: Partial<Record<ValueCheckField, string>> = {
+  shippedOn: "doneAt",
+  lookAfter: "lookAfterDays",
+  measuredKind: "measuredBy.kind",
+  metricId: "measuredBy.metricId",
+  keyResult: "measuredBy.keyResultId",
+  note: "measuredBy.note",
+  direction: "target.direction",
+  targetValue: "target.value",
+  baseline: "target.baseline",
+  unit: "target.unit",
+};
+
+/* ── list_value_candidates ───────────────────────────────────────────── */
+
+async function listValueCandidates(store: TrackerStore) {
+  const [doc, work] = await Promise.all([store.get(), store.work()]);
+  const candidates = shippedCandidates(
+    { stories: work.stories, roadmaps: work.roadmaps, hypotheses: doc?.hypotheses ?? [] },
+    todayLocalISO()
+  );
+  return { total: candidates.length, candidates };
+}
+
+registry.register({
+  id: "tool.hypothesis_tracker.list_value_candidates",
+  toolId: "tool.hypothesis_tracker",
+  name: "list_value_candidates",
+  category: "read",
+  description:
+    "List the shipped work a value check could follow, as the page's 'Shipped work to check' does: stories done in the last 90 days (by the day they were done) and finished epics on the Epic Roadmap (every linked story done; on the latest day one was, else doneAt null, and the user picks the day), with no hypothesis checking them yet, the newest first. Example rows are left out. Returns {total, candidates: {kind: story | epic, id, title, doneAt (YYYY-MM-DD) | null}[]}. Add one with add_value_check.",
+  paramsSchema: z.object({}),
+  handler: async () => listValueCandidates(browserStore),
+  mcpHandler: async (_params, ctx) => listValueCandidates(serverStore(ctx.userId)),
+});
+
+/* ── add_value_check ─────────────────────────────────────────────────── */
+
+const LookAfter = z
+  .number()
+  .int()
+  .refine((d) => (VALUE_CHECK_DAYS as readonly number[]).includes(d), {
+    message: VALUE_CHECK_DAYS.join(", "),
+  });
+
+const AddValueCheckSchema = z.object({
+  kind: z.enum(SHIPPED_KINDS).describe("What shipped: a story or an epic."),
+  id: z.string().min(1).max(200).describe("Its id, from list_value_candidates."),
+  doneAt: IsoDay.optional().describe(
+    "The day it shipped (YYYY-MM-DD): needed for an epic whose candidate has doneAt null; else it defaults to the candidate's. Not in the future."
+  ),
+  lookAfterDays: LookAfter.optional().describe(
+    `Days after shipping to read it: ${VALUE_CHECK_DAYS.join(", ")} (default ${DEFAULT_LOOK_AFTER}). checkOn = doneAt + these days.`
+  ),
+  measuredBy: MeasuredBySchema,
+  target: TargetSchema.optional().describe(
+    "Needed when measuredBy is a metric or a key result: the number it should reach."
+  ),
+  believe: Text.optional().describe(
+    "Default: “shipping ‘<title>’ gave people the value we expected”."
+  ),
+  willDo: Text.optional(),
+  toLearn: Text.optional(),
+  successMetric: Text.optional(),
+});
+
+async function addValueCheck(store: TrackerStore, p: z.infer<typeof AddValueCheckSchema>) {
+  const today = todayLocalISO();
+  const [doc, work, sources] = await Promise.all([store.get(), store.work(), store.sources()]);
+  const hypotheses = doc?.hypotheses ?? [];
+  if (hypotheses.some((h) => h.shipped?.kind === p.kind && h.shipped.id === p.id)) {
+    return { added: false, reason: "already_checked" };
+  }
+  const candidate = shippedCandidates(
+    { stories: work.stories, roadmaps: work.roadmaps, hypotheses },
+    today
+  ).find((c) => c.kind === p.kind && c.id === p.id);
+  if (!candidate) {
+    return {
+      added: false,
+      reason: "not_found",
+      message:
+        "Not a story done or an epic finished in the last 90 days: see list_value_candidates.",
+    };
+  }
+  if (!candidate.doneAt && !p.doneAt) {
+    return {
+      added: false,
+      reason: "needs_day",
+      message:
+        "None of this epic's stories says when it was done: give doneAt, agreed with the user.",
+    };
+  }
+  const base = valueCheckDraft(candidate, today);
+  const draft: ValueCheckDraft = {
+    ...base,
+    ...measureDraftOf(p.measuredBy),
+    shippedOn: p.doneAt ?? candidate.doneAt ?? today,
+    title: candidate.title.slice(0, SHIPPED_TITLE_MAX),
+    lookAfter: p.lookAfterDays ?? DEFAULT_LOOK_AFTER,
+    believe: p.believe ?? base.believe,
+    willDo: p.willDo ?? base.willDo,
+    toLearn: p.toLearn ?? base.toLearn,
+    successMetric: p.successMetric ?? base.successMetric,
+    direction: p.target?.direction ?? "",
+    targetValue: p.target ? String(p.target.value) : "",
+    unit: p.target?.unit ?? "",
+    baseline: p.target?.baseline !== undefined ? String(p.target.baseline) : "",
+  };
+  const checked = validateValueCheck(draft, latestDay(today, store.onServer), sources);
+  if (!checked.ok) {
+    const errors = Object.fromEntries(
+      Object.entries(checked.errors).map(([k, v]) => [
+        VALUE_PARAM_OF[k as ValueCheckField] ?? k,
+        v ?? "",
+      ])
+    );
+    return { added: false, reason: "invalid", errors };
+  }
+  const h = applyValueCheck({ id: nanoid(8) }, checked.values);
+  await store.put(withHypothesis(doc, h));
+  return { added: true, id: h.id, checkOn: h.checkOn, shipped: h.shipped };
+}
+
+registry.register({
+  id: "tool.hypothesis_tracker.add_value_check",
+  toolId: "tool.hypothesis_tracker",
+  name: "add_value_check",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Check the value of shipped work, as the page's 'Check its value' form does: a running hypothesis that follows a story or epic from list_value_candidates, first in the list. Params: kind, id, doneAt? (the ship day; needed when the candidate has none), lookAfterDays? (7, 14, 30, 60 or 90; default 30; checkOn = doneAt + these days, never before the ship day), measuredBy {kind: metric (metricId) | key-result (okrId, keyResultId) | words (note ≤200)}, target? (needed for a metric or a key result: {direction, value, unit?, baseline?}), and the four lines believe, willDo, toLearn, successMetric (each optional, pre-filled from the title as on the page). Returns {added: true, id, checkOn, shipped} or {added: false, reason: 'already_checked' | 'not_found' | 'needs_day' (with a message) | 'invalid' (with errors: {param: message})}.",
+  paramsSchema: AddValueCheckSchema,
+  handler: async (params) => addValueCheck(browserStore, params),
+  mcpHandler: async (params, ctx) => addValueCheck(serverStore(ctx.userId), params),
+});
+
+/* ── set_measured_by ─────────────────────────────────────────────────── */
+
+const SetMeasuredBySchema = z.object({
+  hypothesisId: z.string(),
+  measuredBy: MeasuredBySchema.nullable().describe("null clears it."),
+});
+
+async function setMeasuredBy(store: TrackerStore, p: z.infer<typeof SetMeasuredBySchema>) {
+  const [doc, sources] = await Promise.all([store.get(), store.sources()]);
+  const h = doc?.hypotheses.find((x) => x.id === p.hypothesisId);
+  if (!doc || !h) return { updated: false, reason: "not_found" };
+  let measuredBy: HypothesisMeasuredBy | null = null;
+  if (p.measuredBy) {
+    const r = measuredByOf(measureDraftOf(p.measuredBy), sources);
+    if (!r.ok) {
+      return {
+        updated: false,
+        reason: "invalid",
+        errors: { [VALUE_PARAM_OF[r.field] ?? r.field]: r.error },
+      };
+    }
+    measuredBy = r.measuredBy;
+  }
+  await store.put(withHypothesis(doc, withMeasuredBy(h, measuredBy)));
+  return { updated: true, id: h.id, measuredBy };
+}
+
+registry.register({
+  id: "tool.hypothesis_tracker.set_measured_by",
+  toolId: "tool.hypothesis_tracker",
+  name: "set_measured_by",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Say how a hypothesis is measured, as the card's 'Measured by' does (any hypothesis, not only a value check): measuredBy {kind: metric (metricId of a product metric) | key-result (okrId and keyResultId) | words (note ≤200)}, or null to clear it. The metric or key result must exist. Returns {updated: true, id, measuredBy | null} or {updated: false, reason: 'not_found' | 'invalid' (with errors)}.",
+  paramsSchema: SetMeasuredBySchema,
+  handler: async (params) => setMeasuredBy(browserStore, params),
+  mcpHandler: async (params, ctx) => setMeasuredBy(serverStore(ctx.userId), params),
+});
+
+/* ── read_measure ────────────────────────────────────────────────────── */
+
+const HypothesisIdSchema = z.object({ hypothesisId: z.string() });
+
+async function readMeasureVerb(store: TrackerStore, p: z.infer<typeof HypothesisIdSchema>) {
+  const [doc, sources] = await Promise.all([store.get(), store.sources()]);
+  const h = doc?.hypotheses.find((x) => x.id === p.hypothesisId);
+  if (!h) return { found: false };
+  const read = readMeasure(h, sources);
+  if (read.state !== "ready") {
+    return {
+      found: true,
+      state: read.state,
+      ...(read.state === "no_reading" ? { measure: read.measure.name, checkOn: read.checkOn } : {}),
+      ...(read.state === "no_target" ? { measure: read.measure.name } : {}),
+    };
+  }
+  const next = { ...h, actual: read.reading.value };
+  return {
+    found: true,
+    state: "ready",
+    measure: read.measure.name,
+    checkOn: read.checkOn,
+    reading: read.reading,
+    suggestedVerdict: suggestVerdict(next),
+    suggestion: suggestionText(next),
+  };
+}
+
+registry.register({
+  id: "tool.hypothesis_tracker.read_measure",
+  toolId: "tool.hypothesis_tracker",
+  name: "read_measure",
+  category: "read",
+  description:
+    "What the card's 'Read the metric' would record for a value check measured by a product metric or a key result: the first reading (or check-in) on or after its checkOn. Saves nothing: record_result writes the number, once the user agrees. Returns {found: false}, {found: true, state: 'none' (not a value check on a metric or key result) | 'missing' (the metric or key result is gone) | 'no_target' | 'no_reading' (with measure, checkOn)}, or {found: true, state: 'ready', measure, checkOn, reading {date, value}, suggestedVerdict, suggestion} (the verdict that reading would suggest).",
+  paramsSchema: HypothesisIdSchema,
+  handler: async (params) => readMeasureVerb(browserStore, params),
+  mcpHandler: async (params, ctx) => readMeasureVerb(serverStore(ctx.userId), params),
+});
+
+/* ── use_ab_result ───────────────────────────────────────────────────── */
+
+async function applyAbResult(store: TrackerStore, p: z.infer<typeof HypothesisIdSchema>) {
+  const [doc, tests] = await Promise.all([store.get(), store.tests()]);
+  const h = doc?.hypotheses.find((x) => x.id === p.hypothesisId);
+  if (!doc || !h) return { updated: false, reason: "not_found" };
+  const test = testForHypothesis(tests, h.id);
+  if (!test) return { updated: false, reason: "no_test", message: AB_RESULT_REASON.no_test };
+  const r = abResultUpdate(h, test);
+  if (!r.ok) return { updated: false, reason: r.reason, message: AB_RESULT_REASON[r.reason] };
+  await store.put(withHypothesis(doc, r.next));
+  return {
+    updated: true,
+    testId: test.id,
+    sentence: r.sentence,
+    actualSet: r.actualSet,
+    ...(r.actualSet ? { actual: r.next.actual } : {}),
+    suggestedVerdict: r.suggestedVerdict,
+  };
+}
+
+registry.register({
+  id: "tool.hypothesis_tracker.use_ab_result",
+  toolId: "tool.hypothesis_tracker",
+  name: "use_ab_result",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Use a hypothesis's A/B test result, as the card's 'Use the A/B result' does: the test linked to it in the A/B Calculator (hypothesisId; the most recently updated one) adds its result sentence to what we learned, on its own line and once. It sets the measured result (B's rate in %) only when the target's unit is '%', the test has its planned sample a version and the result is significant at the plan's confidence. It never sets the status: apply suggestedVerdict with set_status once the user agrees. Returns {updated: true, testId, sentence, actualSet, actual?, suggestedVerdict | null} or {updated: false, reason: 'not_found' | 'no_test' | 'no_result' (no counts yet) | 'already_used' | 'too_long' (what we learned has no room), message?}.",
+  paramsSchema: HypothesisIdSchema,
+  handler: async (params) => applyAbResult(browserStore, params),
+  mcpHandler: async (params, ctx) => applyAbResult(serverStore(ctx.userId), params),
 });
