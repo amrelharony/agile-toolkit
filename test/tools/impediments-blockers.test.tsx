@@ -240,9 +240,14 @@ describe("Blockers: where the time goes", () => {
     renderPage();
     const s = within(await screen.findByRole("region", { name: "Blockers: where the time goes" }));
     const list = within(s.getByRole("list", { name: "Blockers to cluster" }));
+    const set = list.getByRole("button", { name: "Set the cluster for Pay with a saved card" });
+    expect(set).toBeDisabled();
     fireEvent.change(list.getByRole("combobox", { name: "Cluster for Pay with a saved card" }), {
       target: { value: "Another team" },
     });
+    // Choosing writes nothing (an arrow key on a closed select changes it): Set does.
+    expect(ws().stories[0].blockLog?.[0]).not.toHaveProperty("cluster");
+    fireEvent.click(set);
     expect(ws().stories[0].blockLog?.[0]).toMatchObject({
       cluster: "Another team",
       side: "external",
@@ -255,6 +260,31 @@ describe("Blockers: where the time goes", () => {
     undoLast();
     expect(ws().stories[0].blockLog?.[0]).not.toHaveProperty("cluster");
     expect(ws().stories[0].blockLog?.[0]).not.toHaveProperty("side");
+  });
+
+  it("moves focus to the next blocker once one is clustered, then to the verdict", async () => {
+    useWorkspaceStore.setState({
+      impediments: [imp("i1", "Anything", { cluster: "Another team" })],
+      stories: [
+        story("a", { title: "First one", blocked: true, blockLog: [{ from: stamp(1) }] }),
+        story("b", { title: "Second one", blocked: true, blockLog: [{ from: stamp(2) }] }),
+      ],
+    });
+    renderPage();
+    const s = within(await screen.findByRole("region", { name: "Blockers: where the time goes" }));
+    const setFor = (title: string) => {
+      fireEvent.change(s.getByRole("combobox", { name: `Cluster for ${title}` }), {
+        target: { value: "Waiting for a review" },
+      });
+      fireEvent.click(s.getByRole("button", { name: `Set the cluster for ${title}` }));
+    };
+    setFor("First one");
+    await waitFor(() =>
+      expect(s.getByRole("combobox", { name: "Cluster for Second one" })).toHaveFocus()
+    );
+    setFor("Second one");
+    expect(s.queryByRole("list", { name: "Blockers to cluster" })).toBeNull();
+    await waitFor(() => expect(s.getByText(/^Waiting for a review cost the most/)).toHaveFocus());
   });
 
   it("names a new cluster with its side, written on the card's spell", async () => {
@@ -303,6 +333,7 @@ describe("Blockers: where the time goes", () => {
       "Legal sign-off"
     );
     fireEvent.change(select, { target: { value: "Legal sign-off" } });
+    fireEvent.click(s.getByRole("button", { name: "Set the cluster for Data retention" }));
     const spell = (id: string) => ws().stories.find((x) => x.id === id)?.blockLog?.[0];
     expect(spell("a")).toMatchObject({ cluster: "Legal sign-off", side: "external" });
     expect(spell("b")).toMatchObject({ cluster: "Legal sign-off", side: "external" });

@@ -75,6 +75,14 @@ const BlockersParetoChart = dynamic(
   { ssr: false }
 );
 
+/**
+ * Focus what `find` returns once React has re-rendered: a clustered row
+ * leaves the list, and focus would otherwise drop to <body>.
+ */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
 const NO_STORIES: Story[] = [];
 const NO_BOARDS: KanbanBoard[] = [];
 
@@ -207,6 +215,9 @@ export function BlockersSection({
   // Newest first (the read sorts them), so the AI's fitter trims the oldest.
   const unclustered = read.unclustered;
   const [allRows, setAllRows] = useState(false);
+  const shownRows = allRows ? unclustered : unclustered.slice(0, UNCLUSTERED_ROWS_SHOWN);
+  const listRef = useRef<HTMLUListElement>(null);
+  const verdictRef = useRef<HTMLParagraphElement>(null);
   /** Every cluster on offer: the defaults, then the ones the team named. */
   const known = useMemo(() => {
     const seen = new Set(DEFAULT_BLOCKER_CLUSTERS.map((c) => clusterKey(c.label)));
@@ -243,6 +254,7 @@ export function BlockersSection({
   function pick(row: BlockerRow, cluster: string, side?: BlockSide) {
     // A cluster the team named keeps the side it was given: written on every row it goes on.
     const sideTo = side ?? clusterSideOf(cluster, read.rows, impediments) ?? undefined;
+    const at = shownRows.findIndex((r) => r.key === row.key);
     const n = writeClusters(
       sameCluster([targetOf(row)], cluster, sideTo),
       `Put “${row.title}” under ${cluster}`
@@ -250,6 +262,13 @@ export function BlockersSection({
     if (n === 0) return;
     log(IMPEDIMENT_ACTIONS.BLOCKERS_CLUSTERED, { blockers: 1, clusters: 1, source: "manual" });
     setStatus(`Put “${row.title}” under ${cluster}.`);
+    // The row leaves the list: focus the row that took its place, else the one
+    // before it, else the verdict, rather than dropping to the page.
+    focusSoon(() => {
+      const selects = listRef.current?.querySelectorAll<HTMLElement>("select");
+      if (!selects || selects.length === 0) return verdictRef.current;
+      return selects[Math.min(Math.max(at, 0), selects.length - 1)];
+    });
   }
 
   function acceptClusters(list: ClusterSuggestion[], source: AiSource) {
@@ -352,7 +371,10 @@ export function BlockersSection({
         <p role="status" aria-live="polite" className="text-sm text-text empty:hidden">
           {status}
         </p>
-        <p className="text-sm font-medium text-text">{read.verdict}</p>
+        {/* Focus lands here once the last blocker to cluster has gone. */}
+        <p ref={verdictRef} tabIndex={-1} className="text-sm font-medium text-text outline-none">
+          {read.verdict}
+        </p>
 
         {read.rows.length === 0 ? (
           <p className="text-sm text-sub">
@@ -524,10 +546,11 @@ export function BlockersSection({
               </p>
             )}
             <ul
+              ref={listRef}
               className="divide-y divide-border rounded-lg border border-border"
               aria-label="Blockers to cluster"
             >
-              {(allRows ? unclustered : unclustered.slice(0, UNCLUSTERED_ROWS_SHOWN)).map((r) => (
+              {shownRows.map((r) => (
                 <UnclusteredRow key={r.key} row={r} known={known} onPick={pick} />
               ))}
             </ul>
@@ -552,10 +575,13 @@ function UnclusteredRow({
   known: { defaults: string[]; own: string[] };
   onPick: (row: BlockerRow, cluster: string, side?: BlockSide) => void;
 }) {
-  const [adding, setAdding] = useState(false);
+  // Choosing is apart from writing: on Windows a closed select changes on
+  // each arrow key, and a write on change would take the row away mid-way.
+  const [choice, setChoice] = useState("");
   const [name, setName] = useState("");
   const [side, setSide] = useState<BlockSide>("internal");
   const [error, setError] = useState<string | null>(null);
+  const adding = choice === NEW_CLUSTER;
   const kind = row.kind === "impediment" ? "Impediment" : row.kind === "story" ? "Story" : "Card";
 
   const save = () => {
@@ -565,14 +591,14 @@ function UnclusteredRow({
       return;
     }
     onPick(row, v.values, side);
-    setAdding(false);
+    setChoice("");
     setName("");
     setError(null);
   };
 
   return (
     <li className="space-y-2 px-3 py-2">
-      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_16rem] sm:items-center">
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_18rem] sm:items-center">
         <div className="min-w-0">
           <p className="break-words text-sm text-text">{row.title}</p>
           <p className="break-words text-xs text-sub">
@@ -583,35 +609,49 @@ function UnclusteredRow({
               : ""}
           </p>
         </div>
-        <select
-          aria-label={`Cluster for ${row.title}`}
-          className={SELECT_CLASS}
-          value=""
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === NEW_CLUSTER) setAdding(true);
-            else if (v) onPick(row, v);
-          }}
-        >
-          <option value="">Pick a cluster</option>
-          <optgroup label="Usual clusters">
-            {known.defaults.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </optgroup>
-          {known.own.length > 0 && (
-            <optgroup label="Your clusters">
-              {known.own.map((c) => (
+        <div className="flex min-w-0 items-center gap-2">
+          <select
+            aria-label={`Cluster for ${row.title}`}
+            className={`${SELECT_CLASS} min-w-0 flex-1`}
+            value={choice}
+            onChange={(e) => {
+              setChoice(e.target.value);
+              setError(null);
+            }}
+          >
+            <option value="">Pick a cluster</option>
+            <optgroup label="Usual clusters">
+              {known.defaults.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
               ))}
             </optgroup>
+            {known.own.length > 0 && (
+              <optgroup label="Your clusters">
+                {known.own.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <option value={NEW_CLUSTER}>New cluster…</option>
+          </select>
+          {!adding && (
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="shrink-0"
+              disabled={!choice}
+              aria-label={`Set the cluster for ${row.title}`}
+              onClick={() => choice && onPick(row, choice)}
+            >
+              Set
+            </Button>
           )}
-          <option value={NEW_CLUSTER}>New cluster…</option>
-        </select>
+        </div>
       </div>
       {adding && (
         <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
@@ -652,7 +692,15 @@ function UnclusteredRow({
             <Button type="button" size="sm" onClick={save}>
               Save cluster
             </Button>
-            <Button type="button" size="sm" variant="ghost" onClick={() => setAdding(false)}>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setChoice("");
+                setError(null);
+              }}
+            >
               Cancel
             </Button>
           </div>
