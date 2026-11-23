@@ -316,7 +316,7 @@ export const GUIDES: ToolGuide[] = [
       "Add a chart for a sprint or an epic, then its scopes, each linked to a story or an epic if you like.",
       "Drag a dot, or type its position from 0 to 100. The top of the hill is where the last unknown is solved.",
       "Check in once a week to save the positions with a note. Pick an earlier check-in to see what moved forward, what moved back and what didn't move at all.",
-      "A scope that hasn't moved offers Raise as an impediment, and Check marks a scope its linked story disagrees with.",
+      "A scope stuck uphill for a week offers Raise as an impediment, and Check marks a scope its linked story disagrees with.",
       "Ask Amr drafts the week's update and the questions to ask. Without AI, the page lists what moved and what is stuck.",
     ],
     tips: ["A dot that sits just below the top for weeks is the one to talk about."],

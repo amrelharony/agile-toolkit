@@ -498,7 +498,7 @@ export const GUIDES: ToolGuide[] = [
       "Start it to claim the timer, then add notes, bugs, questions and ideas, one line each.",
       "At the end, send the bugs to Bug Triage with one Undo.",
       "Debrief: how much was covered, how the time split between testing, bugs and setup, and what's next.",
-      "Ask Amr suggests charters from a story's notes and criteria, and Suggest without AI builds them from its risks.",
+      "Ask Amr suggests charters from a story's notes and criteria, and Suggest charters without AI builds them from its Given/When/Then and ten lenses, such as limits, roles or a slow network.",
     ],
     tips: ["One charter per session: a new idea becomes the next session's charter."],
     timebox: "A session is usually 45 to 90 minutes.",
