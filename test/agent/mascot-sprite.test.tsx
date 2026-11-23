@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
-import MascotSprite from "@/components/agent/mascot/mascot-sprite";
+import MascotSprite, { auraFilter } from "@/components/agent/mascot/mascot-sprite";
+import styles from "@/components/agent/mascot/mascot-assistant.module.css";
 import { FX_FADE_MS } from "@/components/agent/mascot/mascot-fx";
 import {
   chooseShot,
@@ -315,14 +316,48 @@ describe("<MascotSprite />", () => {
     ).toMatch(/^(9|10|11)deg$/);
   });
 
-  it("shows the aura only when one is set", () => {
+  it("shows the aura only when one is set, as a hard 2px offset marked data-amr-aura", () => {
     const images = stubImage();
     const { container } = render(<MascotSprite />);
     act(() => images[0].onload?.());
     const body = container.querySelector<HTMLElement>("[data-amr-lean] > div")!;
     expect(body.style.filter).toBe("");
+    expect(body).not.toHaveAttribute("data-amr-aura");
     act(() => useMascotStore.getState().setAuraColor("#ff8800"));
-    expect(body.style.filter).toContain("#ff8800");
+    expect(body.style.filter).toBe("drop-shadow(2px 2px 0 #ff8800)");
+    // High contrast's off switch (mascot-assistant.module.css) finds it by this.
+    expect(body).toHaveAttribute("data-amr-aura");
+    expect(body.className).toContain(styles.swing);
+    act(() => useMascotStore.getState().setAuraColor(null));
+    expect(body.style.filter).toBe("");
+    expect(body).not.toHaveAttribute("data-amr-aura");
+  });
+
+  it("paints a brand hex aura in its theme token, and a token as it is", () => {
+    const images = stubImage();
+    const { container } = render(<MascotSprite />);
+    act(() => images[0].onload?.());
+    const body = container.querySelector<HTMLElement>("[data-amr-lean] > div")!;
+    act(() => useMascotStore.getState().setAuraColor("#22c55e"));
+    expect(body.style.filter).toBe("drop-shadow(2px 2px 0 var(--success))");
+    act(() => useMascotStore.getState().setAuraColor("var(--accent3)"));
+    expect(body.style.filter).toBe("drop-shadow(2px 2px 0 var(--accent3))");
+  });
+});
+
+describe("auraFilter", () => {
+  it("is a hard offset with no blur, never a glow", () => {
+    for (const c of ["#ff8800", "#00ff88", "var(--danger)"]) {
+      const f = auraFilter(c);
+      expect(f).toMatch(/^drop-shadow\(2px 2px 0 \S/);
+      expect(f).not.toMatch(/blur|0 0 \d+px/);
+    }
+  });
+
+  it("maps the brand hexes onto their theme tokens", () => {
+    expect(auraFilter("#00FF88")).toBe("drop-shadow(2px 2px 0 var(--neon-green))");
+    expect(auraFilter("#ef4444")).toBe("drop-shadow(2px 2px 0 var(--danger))");
+    expect(auraFilter("#123456")).toBe("drop-shadow(2px 2px 0 #123456)");
   });
 });
 

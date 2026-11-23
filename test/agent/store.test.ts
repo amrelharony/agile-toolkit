@@ -86,6 +86,105 @@ describe("useAgentStore – pending tool resolution", () => {
 });
 
 /**
+ * How the panel was opened, for its focus owner (use-panel-focus): a key
+ * (Enter or Space on Amr or the header's opener, Ctrl/Cmd+J) or a pointer.
+ * Code that opens it without saying leaves it unknown.
+ */
+describe("useAgentStore – openedVia", () => {
+  beforeEach(() => {
+    useAgentStore.getState().closeSheet();
+  });
+
+  afterEach(() => {
+    useAgentStore.getState().closeSheet();
+  });
+
+  it("is unknown while the panel is closed", () => {
+    expect(useAgentStore.getState()).toMatchObject({ open: false, openedVia: null });
+  });
+
+  it.each(["keyboard", "pointer"] as const)("records a %s open", (via) => {
+    useAgentStore.getState().openSheet({ via });
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: via });
+  });
+
+  it("stays unknown when code opens the panel without saying how", () => {
+    useAgentStore.getState().openSheet();
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: null });
+    // An empty options object says nothing either.
+    useAgentStore.getState().closeSheet();
+    useAgentStore.getState().openSheet({});
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: null });
+  });
+
+  it("follows the newest open request while the panel is already open", () => {
+    useAgentStore.getState().openSheet({ via: "pointer" });
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: "keyboard" });
+  });
+
+  it("toggleSheet opens with the way in it is given", () => {
+    useAgentStore.getState().toggleSheet({ via: "keyboard" });
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: "keyboard" });
+    useAgentStore.getState().toggleSheet();
+    useAgentStore.getState().toggleSheet({ via: "pointer" });
+    expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: "pointer" });
+  });
+
+  it("is forgotten by every close path", () => {
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    useAgentStore.getState().closeSheet();
+    expect(useAgentStore.getState()).toMatchObject({ open: false, openedVia: null });
+
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    // A toggle's closing branch, with a way in it has no use for.
+    useAgentStore.getState().toggleSheet({ via: "pointer" });
+    expect(useAgentStore.getState()).toMatchObject({ open: false, openedVia: null });
+  });
+});
+
+/**
+ * The header's opener only opens. Pressed with a key while the panel is open,
+ * it bumps focusRequest, which the focus owner watches to bring focus in.
+ */
+describe("useAgentStore – focusRequest", () => {
+  beforeEach(() => {
+    useAgentStore.getState().closeSheet();
+  });
+
+  afterEach(() => {
+    useAgentStore.getState().closeSheet();
+  });
+
+  const request = () => useAgentStore.getState().focusRequest;
+
+  it("bumps on a keyboard open request while the panel is open", () => {
+    useAgentStore.getState().openSheet({ via: "pointer" });
+    const before = request();
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    expect(request()).toBe(before + 1);
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    expect(request()).toBe(before + 2);
+  });
+
+  it("stays put on the first open, a pointer request and a request that says nothing", () => {
+    const before = request();
+    // The first open: the [open] effect places focus, nothing to ask again.
+    useAgentStore.getState().openSheet({ via: "keyboard" });
+    expect(request()).toBe(before);
+    useAgentStore.getState().openSheet({ via: "pointer" });
+    useAgentStore.getState().openSheet();
+    useAgentStore.getState().openSheet({});
+    expect(request()).toBe(before);
+    // A toggle closes an open panel instead; opening a closed one is a first open.
+    useAgentStore.getState().toggleSheet({ via: "keyboard" });
+    useAgentStore.getState().toggleSheet({ via: "keyboard" });
+    expect(useAgentStore.getState().open).toBe(true);
+    expect(request()).toBe(before);
+  });
+});
+
+/**
  * Tapping Amr and Ctrl/Cmd+J close the panel through toggleSheet, so its
  * closing branch must do everything closeSheet does: clear "Approve all"
  * and deny a card that is still waiting (audit toggle-keeps-autoapprove).
@@ -125,6 +224,21 @@ describe("useAgentStore – toggleSheet", () => {
       // zustand copies state on every set, so put the real action back
       // explicitly rather than relying on a spy restore.
       useAgentStore.setState({ closeSheet: original });
+    }
+  });
+
+  it("toggling open goes through openSheet, with the way in", () => {
+    const original = useAgentStore.getState().openSheet;
+    const openSheet = vi.fn(original);
+    useAgentStore.setState({ openSheet });
+    try {
+      useAgentStore.getState().toggleSheet({ via: "keyboard" });
+      expect(openSheet).toHaveBeenCalledTimes(1);
+      expect(openSheet).toHaveBeenCalledWith({ via: "keyboard" });
+      expect(useAgentStore.getState()).toMatchObject({ open: true, openedVia: "keyboard" });
+    } finally {
+      useAgentStore.setState({ openSheet: original });
+      useAgentStore.getState().closeSheet();
     }
   });
 
@@ -228,6 +342,32 @@ describe("useAgentStore – the reply the live turn writes to", () => {
     expect(useAgentStore.getState().streamingMessageId).toBe("a1");
     s.setActiveConversation(meta("c1"), [msg("u1", "user")]);
     expect(useAgentStore.getState().streamingMessageId).toBeNull();
+  });
+});
+
+describe("useAgentStore – where a picked-up thread left off", () => {
+  beforeEach(fresh);
+
+  it("is the last message of a thread opened with its messages, and nothing for a fresh chat", () => {
+    const s = useAgentStore.getState();
+    expect(useAgentStore.getState().resumedAfter).toBeNull();
+    s.setActiveConversation(meta("c1"), [msg("u1", "user"), msg("a1")]);
+    expect(useAgentStore.getState().resumedAfter).toBe("a1");
+    // Messages asked since stay after it.
+    s.appendMessage(msg("u2", "user"));
+    expect(useAgentStore.getState().resumedAfter).toBe("a1");
+    // The same thread reloaded is no new pick-up.
+    s.setActiveConversation(meta("c1"), [msg("u1", "user"), msg("a1"), msg("u2", "user")]);
+    expect(useAgentStore.getState().resumedAfter).toBe("a1");
+
+    s.setActiveConversation(meta("c2"), []);
+    expect(useAgentStore.getState().resumedAfter).toBeNull();
+    s.setActiveConversation(meta("c1"), [msg("a1")]);
+    s.reset();
+    expect(useAgentStore.getState().resumedAfter).toBeNull();
+    s.setActiveConversation(meta("c1"), [msg("a1")]);
+    s.setActiveConversation(null, []);
+    expect(useAgentStore.getState().resumedAfter).toBeNull();
   });
 });
 

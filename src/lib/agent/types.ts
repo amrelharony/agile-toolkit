@@ -3,7 +3,17 @@
  * format so we can pass our messages array straight through to Claude.
  */
 
-export type TextBlock = { type: "text"; text: string };
+export type TextBlock = {
+  type: "text";
+  text: string;
+  /**
+   * Narration the client wrote in an assistant message, not the model's own
+   * words (client.ts roundLimitNote standing in for a wrap-up): the chat draws
+   * it as a narration caption, never in Amr's balloon. On the block, so it is
+   * stored with the content; the wire still sends it as assistant text.
+   */
+  note?: true;
+};
 export type ToolUseBlock = {
   type: "tool_use";
   id: string;

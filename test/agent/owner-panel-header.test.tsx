@@ -3,11 +3,13 @@
  * panel-chrome's slots): New chat and History in the actions slot, before the
  * shell's Close; under the name plate, the open thread's title or "New chat",
  * and "Your chats" in History. In History the History button is "Back to chat"
- * with an arrow: the same button, so focus stays on it when History opens,
- * with a dot while a confirm card waits in the chat behind it.
+ * with an arrow: the same button, so focus is never dropped as History opens
+ * or closes, with a dot while a confirm card waits in the chat behind it.
  *
  * The chat, History's list and the usage bar are markers here; the shell keeps
- * whether History shows, as MascotAssistant does.
+ * whether History shows, as MascotAssistant does. With the real list, focus
+ * moves on from the button into History's search on the way in
+ * (conversation-list.test.tsx pins that).
  */
 
 import { useState } from "react";
@@ -25,6 +27,10 @@ vi.mock("@/components/agent/conversation-list", () => ({
 }));
 vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
   RateLimitBar: () => <div data-testid="rate-limit-bar" />,
+}));
+const focusAfterNewChat = vi.hoisted(() => vi.fn());
+vi.mock("@/components/agent/chat/chat-composer", () => ({
+  focusComposerAfterNewChat: focusAfterNewChat,
 }));
 
 import OwnerAgentPanel, { CARD_WAITING_NOTE } from "@/components/agent/mascot/owner-agent-panel";
@@ -101,10 +107,78 @@ describe("the owner's header actions", () => {
     fireEvent.click(historyButton());
     expect(screen.getByTestId("conversation-list")).toBeInTheDocument();
 
+    focusAfterNewChat.mockClear();
     fireEvent.click(within(header()).getByRole("button", { name: "New chat" }));
     expect(useAgentStore.getState().activeConversationId).toBeNull();
     expect(screen.queryByTestId("conversation-list")).toBeNull();
     expect(screen.getByTestId("agent-conversation")).toBeInTheDocument();
+    // The fresh chat's message box takes focus, even on a touch screen
+    // (chat-composer.test pins what the call does).
+    expect(focusAfterNewChat).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("New chat in More (the shell's, under 360 px)", () => {
+  const MOVE = { corner: "bottomRight", onMove: () => {} } as const;
+  const openMore = () =>
+    fireEvent.keyDown(within(header()).getByRole("button", { name: "More" }), { key: "Enter" });
+  /** Radix hands focus on as the menu closes, a tick after it unmounts. */
+  const settle = () => act(() => new Promise((r) => setTimeout(r, 0)));
+  const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+
+  it("hands focus to the fresh chat's box as the menu closes, not to More", async () => {
+    const onNewChat = vi.fn();
+    render(
+      <>
+        <PanelHeader move={MOVE} onNewChat={onNewChat} onClose={() => {}} />
+        <textarea aria-label="Message" data-amr-composer="" />
+      </>
+    );
+    openMore();
+    fireEvent.click(screen.getByRole("menuitem", { name: "New chat" }));
+    await settle();
+    expect(onNewChat).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(box()).toHaveFocus();
+
+    // Picked once: the next close (Escape, with no choice) gives More its focus back.
+    openMore();
+    fireEvent.keyDown(screen.getByRole("menu"), { key: "Escape" });
+    await settle();
+    expect(within(header()).getByRole("button", { name: "More" })).toHaveFocus();
+  });
+
+  it("gives focus back to More with no box to take it, and after any other choice", async () => {
+    const view = render(<PanelHeader move={MOVE} onNewChat={() => {}} onClose={() => {}} />);
+    const more = within(header()).getByRole("button", { name: "More" });
+    openMore();
+    fireEvent.click(screen.getByRole("menuitem", { name: "New chat" }));
+    await settle();
+    expect(more).toHaveFocus();
+    view.unmount();
+
+    render(
+      <>
+        <PanelHeader move={MOVE} onNewChat={() => {}} onClose={() => {}} />
+        <textarea aria-label="Message" data-amr-composer="" />
+      </>
+    );
+    openMore();
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /top left/i }));
+    await settle();
+    expect(within(header()).getByRole("button", { name: "More" })).toHaveFocus();
+    expect(box()).not.toHaveFocus();
+  });
+});
+
+describe("the chat under the header", () => {
+  it("leaves its padding to the chat's frame, inside the scroller (agent-panel-touch pins it there)", () => {
+    render(<Shell />);
+    // Padding out here would sit outside the frame's scroller, which clips the
+    // composer's and Send's focus rings at its edges.
+    const wrapper = screen.getByTestId("agent-conversation").parentElement!;
+    expect(wrapper).toHaveClass("flex", "min-h-0", "flex-1", "flex-col");
+    expect(wrapper.className).not.toMatch(/(?:^|\s)p[xy]?-\d/);
   });
 });
 

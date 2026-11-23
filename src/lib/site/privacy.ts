@@ -38,6 +38,7 @@ import {
   VISITOR_AI_KEPT,
   VISITOR_AI_SENT,
   VISITOR_ROOM_CONSENT_TEXT,
+  VOICE_INPUT_DISCLOSURE,
   VOTE_ROOM_CONSENT_TEXT,
   WALL_ROOM_CONSENT_TEXT,
   YOUR_DATA_SAVED_HERE,
@@ -108,8 +109,8 @@ export function ownKeyProviders(): string[] {
 }
 
 /**
- * The table: one row per part of the site. Live rooms and Amr's AI appear only
- * when this build has them on.
+ * The table: one row per part of the site. Live rooms and Amr's AI (with its
+ * dictation row) appear only when this build has them on.
  */
 export function privacyRows(): PrivacyRow[] {
   // With Amr's AI on, a tool's Ask Amr button is the one way a tool sends
@@ -229,6 +230,22 @@ export function privacyRows(): PrivacyRow[] {
         { says: "The same card says:", text: VISITOR_AI_KEPT },
         {
           text: "Site-wide totals, with nothing that points to a visitor, are kept for 30 days.",
+        },
+      ],
+    });
+    rows.push({
+      id: "amr-voice",
+      part: "Dictation in Amr's AI chat",
+      when: "Only if you choose Use voice in his chat",
+      leaves: [
+        {
+          text: "Nothing to this site. Your browser's own speech recognition hears you, and it may send the sound of your voice to the company that makes the browser.",
+        },
+        { says: "Before your first dictation, the chat says:", text: VOICE_INPUT_DISCLOSURE },
+      ],
+      kept: [
+        {
+          text: "Nothing by us. This browser remembers that you chose Use voice, so the chat asks only once, and a backup file never includes that choice. What the browser's maker keeps is up to it.",
         },
       ],
     });

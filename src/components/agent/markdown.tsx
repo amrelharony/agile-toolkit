@@ -20,12 +20,21 @@
  * - Each block renders through a memo, and the parser keeps finished blocks
  *   (parseBlocks with a cache), so while a reply streams only its last block
  *   re-renders.
+ * - `lead` letters a reply's opening sentence (DNA-SPEC section 5) inside its
+ *   first paragraph, in Shantell at a rem size, as strip-parts' AmrBalloon
+ *   letters its own: lib/agent/chat-view decides it (findLead), by character
+ *   position, so once given it never moves as the reply streams on. Inline
+ *   code in it stays `font-data`. It is drawn in the paragraph rather than
+ *   cut off the source, because the words after it, parsed alone, could read
+ *   as a list or a heading.
+ * - ChatLink is the link to the site's own pages that every Amr chat surface
+ *   uses: it closes the phone's sheet on its way.
  */
 
 import { Fragment } from "react";
 import Link from "next/link";
 import { parseBlocks, tokenizeInline } from "@/lib/agent/markdown";
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo, useState, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 import {
   createBlockCache,
@@ -35,9 +44,38 @@ import {
   type ListItem,
   type TableAlign,
 } from "@/lib/agent/markdown";
+import { useAmrPanel } from "./mascot/panel-context";
 
 /** The accessible name of a table's scrolling region. */
 const TABLE_REGION_LABEL = "Table, scrolls sideways";
+
+/**
+ * A link to one of the site's own pages, in the same tab. No prefetch: the
+ * model writes these paths (and tool results or pasted text can steer it), so
+ * nothing is fetched until a click. Beside a floating panel the chat stays
+ * open across the navigation; the phone's sheet covers the page, so there it
+ * closes on its way (Amr's panel context), and while the sheet's Back marker
+ * is the newest history entry the page replaces it.
+ *
+ * Exported for every link to the site's own pages inside an Amr chat surface
+ * (a reply's links here, a step's or a note's), so each one closes the sheet
+ * the same way.
+ */
+export function ChatLink({ href, children }: { href: string; children: ReactNode }) {
+  const panel = useAmrPanel();
+  const sheet = panel.layout === "sheet";
+  return (
+    <Link
+      href={href}
+      prefetch={false}
+      replace={sheet && panel.replaceOnNavigate}
+      onClick={sheet ? panel.onNavigate : undefined}
+      className="text-accent underline underline-offset-2"
+    >
+      {children}
+    </Link>
+  );
+}
 
 function Inline({ text }: { text: string }) {
   return (
@@ -62,20 +100,13 @@ function Inline({ text }: { text: string }) {
               </code>
             );
           case "link":
-            // The site's own pages open here, in the same tab (the chat stays
-            // open across the navigation); anything else opens a new tab.
-            // No prefetch: the model writes these paths (and tool results or
-            // pasted text can steer it), so nothing is fetched until a click.
+            // The site's own pages open here, in the same tab (ChatLink);
+            // anything else opens a new tab.
             if (t.internal) {
               return (
-                <Link
-                  key={i}
-                  href={t.href}
-                  prefetch={false}
-                  className="text-accent underline underline-offset-2"
-                >
+                <ChatLink key={i} href={t.href}>
                   {t.value}
-                </Link>
+                </ChatLink>
               );
             }
             // A mail link hands off to the mail app: no new tab to announce.
@@ -220,7 +251,45 @@ function CodeView({ block }: { block: Extract<Block, { type: "code" }> }) {
   );
 }
 
-const BlockView = memo(function BlockView({ block }: { block: Block }) {
+/**
+ * A paragraph's text parted after the reply's lead: [the lead, the rest], or
+ * null when the paragraph doesn't open with it once its leading spaces are
+ * dropped (none given, or a lead for some other text).
+ */
+function cutLead(text: string, lead: string | null | undefined): [string, string] | null {
+  if (!lead) return null;
+  const at = text.length - text.replace(/^\s+/, "").length;
+  return text.startsWith(lead, at) ? [lead, text.slice(at + lead.length)] : null;
+}
+
+/** A paragraph. With a lead, it opens lettered; the rest keeps its own spaces, so none is added. */
+function ParagraphView({ text, lead }: { text: string; lead?: string | null }) {
+  const cut = cutLead(text, lead);
+  return (
+    <p dir="auto" className="whitespace-pre-wrap break-words">
+      {cut ? (
+        <>
+          {/* The face AmrBalloon gives its lead (comic/strip-parts.tsx). */}
+          <span className="font-display text-[0.9375rem]" data-balloon-lead="">
+            <Inline text={cut[0]} />
+          </span>
+          <Inline text={cut[1]} />
+        </>
+      ) : (
+        <Inline text={text} />
+      )}
+    </p>
+  );
+}
+
+const BlockView = memo(function BlockView({
+  block,
+  lead,
+}: {
+  block: Block;
+  /** The reply's lead, given to its first block only: lettered when that block is a paragraph opening with it. */
+  lead?: string | null;
+}) {
   switch (block.type) {
     case "code":
       return <CodeView block={block} />;
@@ -248,15 +317,22 @@ const BlockView = memo(function BlockView({ block }: { block: Block }) {
     case "hr":
       return <hr className="border-rule" />;
     default:
-      return (
-        <p dir="auto" className="whitespace-pre-wrap break-words">
-          <Inline text={block.text} />
-        </p>
-      );
+      return <ParagraphView text={block.text} lead={lead} />;
   }
 });
 
-export function Markdown({ source }: { source: string }) {
+export function Markdown({
+  source,
+  lead,
+}: {
+  source: string;
+  /**
+   * The reply's lettered lead as markdown source (lib/agent/chat-view
+   * findLead): drawn in Shantell at the start of the first paragraph, which
+   * must open with it. Left out, or null, nothing is lettered.
+   */
+  lead?: string | null;
+}) {
   // One cache per reply: it keeps the finished blocks, so each streamed
   // chunk parses only the last one, and the memo skips the rest.
   const [cache] = useState(createBlockCache);
@@ -264,7 +340,7 @@ export function Markdown({ source }: { source: string }) {
   return (
     <div className="space-y-2">
       {blocks.map((block, i) => (
-        <BlockView key={i} block={block} />
+        <BlockView key={i} block={block} lead={i === 0 ? lead : undefined} />
       ))}
     </div>
   );

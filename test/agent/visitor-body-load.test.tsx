@@ -68,7 +68,7 @@ import { useAgentStore } from "@/lib/agent/store";
 const VISITOR = { status: "anonymous", user: null };
 const OWNER = { status: "authenticated", user: { id: "u1" } };
 
-const amrButton = () => screen.getByRole("button", { name: /assistant$/ });
+const amrButton = () => screen.getByRole("button", { name: "Ask Amr" });
 
 /** Collects requestIdleCallback callbacks, so the test decides when the browser is idle. */
 function stubIdle() {
@@ -223,6 +223,14 @@ describe("LazyVisitorBody", () => {
     expect(loading).toHaveClass("sr-only");
     expect(loading.parentElement).toHaveAttribute("aria-busy", "true");
     expect(loading.parentElement).toHaveClass("h-full");
+    // Never a blank panel: the same pen scribbling as the owner's chat
+    // (PanelLoading), decorative, with no likeness of Amr.
+    expect(loading.parentElement).toHaveAttribute("data-panel-loading");
+    expect(loading.parentElement!.querySelector(".ink-scribble")).toHaveAttribute(
+      "aria-hidden",
+      "true"
+    );
+    expect(loading.parentElement!.querySelector("img, canvas")).toBeNull();
     expect(screen.queryByTestId("visitor-body")).toBeNull();
 
     release();

@@ -2157,6 +2157,37 @@ body:has(dialog[open]) [data-sonner-toaster] {
   }
 }
 
+/* AMR SHEET — Amr's chat as the phone's full-height sheet (components/agent/
+   mascot/mascot-assistant sets html[data-amr-sheet] while it is open in that
+   layout, and makes main inert; the docked timer makes itself inert). The
+   sheet covers the page, so the page
+   holds still behind it: the document doesn't scroll, and a one-finger
+   swipe on the sheet's own chrome (its header, a footer) moves nothing. Its
+   scrollers ([data-amr-scroll]) pan up and down and keep their scrolling to
+   themselves, never handing it on to the page. Two fingers still zoom
+   everywhere in the sheet, so a reader can enlarge the chat and pinch back
+   out (WCAG 1.4.4, as on /canvas and the comics overlay): touch-action
+   narrows along ancestors, so each rule names pinch-zoom itself. The
+   floating card and the side panel leave the page live, so none of this
+   applies to them. */
+html[data-amr-sheet] {
+  overflow: hidden;
+}
+html[data-amr-sheet] [data-agent-sheet-root] {
+  touch-action: pinch-zoom;
+}
+html[data-amr-sheet] [data-agent-sheet-root] [data-amr-scroll] {
+  touch-action: pan-y pinch-zoom;
+  overscroll-behavior: contain;
+}
+/* Its toasts sit over the site header, one at a time (layout/app-toaster):
+   a row no taller than the header's own (3.5rem), even around a 44 px Undo
+   button on touch, so a toast ends above the sheet. Beats sonner's padding
+   on specificity, as its style tag lands after this file. */
+html[data-amr-sheet] [data-sonner-toast][data-styled="true"] {
+  padding-block: 5px;
+}
+
 /* Presentation mode (components/presentation/presentation-mode): bigger
    type for a shared screen, and the app's own chrome out of the way. */
 html[data-presenting="true"] {

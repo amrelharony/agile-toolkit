@@ -62,10 +62,16 @@ vi.mock("@/components/agent/mascot/rate-limit-bar", () => ({
   RateLimitBar: () => <div data-testid="rate-limit-bar" />,
 }));
 
-import ScenesTab, { COMPANION_TITLES } from "@/components/agent/mascot/scenes-tab";
+import ScenesTab, {
+  COMPANION_TITLES,
+  SCENES_ANNOUNCE_MS,
+} from "@/components/agent/mascot/scenes-tab";
+import { SEARCH_ANNOUNCE_MS } from "@/components/agent/mascot/visitor-guide";
+import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { MascotAssistant } from "@/components/agent/mascot/mascot-assistant";
 import { PANEL_SUBTITLE } from "@/components/agent/mascot/panel-chrome";
 import VisitorAgentPanel from "@/components/agent/mascot/visitor-agent-panel";
+import { focusComposerAfterNewChat } from "@/components/agent/chat/chat-composer";
 import { ChatVisibleContext } from "@/components/agent/chat-visibility";
 import { EXPANSION_SHEETS } from "@/components/agent/mascot/engine/expansion-table";
 import { EXPANSION_TITLES } from "@/components/agent/mascot/engine/expansion-titles";
@@ -73,7 +79,8 @@ import { SCENE_THUMBS, THUMB_INDEX } from "@/components/agent/mascot/engine/scen
 import { COMPANION_SCENES, SCENES, galleryScene } from "@/components/agent/mascot/engine/scenes";
 import { useMascotStore } from "@/lib/agent/mascot/store";
 import { useAgentStore } from "@/lib/agent/store";
-import type { PendingToolUse } from "@/lib/agent/types";
+import type { ChatMessage, PendingToolUse } from "@/lib/agent/types";
+import { VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION } from "@/lib/visitor-ai/consent";
 
 const FAMILY_HEADINGS: Array<[string, string]> = [
   ["reading", "Reading"],
@@ -91,6 +98,9 @@ const labelsIn = (list: HTMLElement) =>
     .map((b) => b.getAttribute("aria-label"));
 
 const play = (title: string) => screen.getByRole("button", { name: `Play: ${title}` });
+
+/** The count under the filter, by its words (it is not a live region). */
+const countLine = (text: string) => screen.getByText(text, { selector: "p" });
 
 beforeEach(() => {
   h.unshipped = new Set();
@@ -137,9 +147,25 @@ describe("the Scenes tab", () => {
         )
       );
     }
-    expect(screen.getByRole("status")).toHaveTextContent(
-      `${COMPANION_SCENES.play.length + EXPANSION_SHEETS.length} scenes.`
-    );
+    expect(
+      countLine(
+        `${COMPANION_SCENES.play.length + EXPANSION_SHEETS.length} scenes. Tap one and Amr acts it out, just for fun.`
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("heads each family in sentence case, under the name plate, on the strip's paper", () => {
+    render(<ScenesTab onPlay={() => {}} />);
+    const root = screen.getByTestId("mascot-scenes");
+    for (const heading of screen.getAllByRole("heading")) {
+      // The plate is the panel's h2; History's groups are h3s too.
+      expect(heading.tagName, heading.textContent ?? "").toBe("H3");
+      expect(heading).toHaveClass("sticky", "bg-bg", "text-xs", "font-semibold", "text-sub");
+      expect(heading).not.toHaveClass("bg-surface-deep");
+    }
+    // No capitals for show anywhere in the tab (the panel's comic rule).
+    expect(root.querySelectorAll(".uppercase")).toHaveLength(0);
+    expect(root.innerHTML).not.toMatch(/uppercase/);
   });
 
   it("leaves out a scene whose pack doesn't ship, and a family with none", () => {
@@ -170,7 +196,7 @@ describe("the Scenes tab", () => {
     expect(screen.getAllByRole("button", { name: /^Play: / })).toHaveLength(1);
     expect(play(EXPANSION_TITLES.x120)).toBeInTheDocument();
     expect(screen.getAllByRole("heading").map((el) => el.textContent)).toEqual(["Play"]);
-    expect(screen.getByRole("status")).toHaveTextContent("1 scene matches “KEYSTONE”.");
+    expect(countLine("1 scene matches “KEYSTONE”.")).toBeInTheDocument();
 
     // A straight apostrophe finds a curly one.
     fireEvent.change(filter, { target: { value: "model's limits" } });
@@ -183,14 +209,45 @@ describe("the Scenes tab", () => {
     ].filter((t) => t.toLowerCase().includes("story"));
     expect(matching.length).toBeGreaterThan(1);
     expect(screen.getAllByRole("button", { name: /^Play: / })).toHaveLength(matching.length);
-    expect(screen.getByRole("status")).toHaveTextContent(
-      `${matching.length} scenes match “story”.`
-    );
+    expect(countLine(`${matching.length} scenes match “story”.`)).toBeInTheDocument();
 
     fireEvent.change(filter, { target: { value: "zzqx" } });
     expect(screen.queryAllByRole("button", { name: /^Play: / })).toEqual([]);
     expect(screen.queryAllByRole("list")).toEqual([]);
-    expect(screen.getByRole("status")).toHaveTextContent("No scenes match “zzqx”.");
+    expect(countLine("No scenes match “zzqx”.")).toBeInTheDocument();
+  });
+
+  it("reads the count out once typing has stopped, through the app's one announcer", () => {
+    expect(SCENES_ANNOUNCE_MS).toBe(SEARCH_ANNOUNCE_MS);
+    vi.useFakeTimers();
+    try {
+      render(
+        <LiveAnnouncerProvider>
+          <ScenesTab onPlay={() => {}} />
+        </LiveAnnouncerProvider>
+      );
+      const root = screen.getByTestId("mascot-scenes");
+      const live = '[role="status"], [role="alert"], [role="log"], [aria-live]';
+      expect(root.querySelectorAll(live)).toHaveLength(0);
+      const said = screen.getByTestId("live-polite");
+      // The list as it opens is not read out.
+      act(() => vi.advanceTimersByTime(SCENES_ANNOUNCE_MS + 50));
+      expect(said).toHaveTextContent("");
+
+      const filter = screen.getByLabelText("Find a scene");
+      fireEvent.change(filter, { target: { value: "stor" } });
+      act(() => vi.advanceTimersByTime(SCENES_ANNOUNCE_MS - 100));
+      // Still typing: the wait starts again.
+      fireEvent.change(filter, { target: { value: "zzqx" } });
+      act(() => vi.advanceTimersByTime(SCENES_ANNOUNCE_MS - 1));
+      expect(said).toHaveTextContent("");
+      // The announcer's own 50 ms clear-then-say comes after the wait.
+      act(() => vi.advanceTimersByTime(1 + 50));
+      expect(said).toHaveTextContent("No scenes match “zzqx”.");
+      expect(root.querySelectorAll(live)).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("plays the scene tapped, then closes the panel so he's in view", () => {
@@ -318,6 +375,8 @@ describe("the Scenes button in Amr's panel", () => {
   });
 
   const scenesButton = () => screen.getByRole("button", { name: "Amr's scenes" });
+  const header = () => document.querySelector<HTMLElement>("[data-panel-header]")!;
+  const inHeader = (name: string) => within(header()).queryByRole("button", { name });
 
   const confirmation = (resolve: (approved: boolean) => void): PendingToolUse => ({
     toolUseId: "c1",
@@ -365,6 +424,8 @@ describe("the Scenes button in Amr's panel", () => {
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
     expect(screen.getByText("Create Sprint 47?")).toBeVisible();
     expect(scenesButton()).toBeDisabled();
+    // Its tooltip waits on the card in the card's own terms: no "denied".
+    expect(scenesButton()).toHaveAttribute("title", "Scenes, once the waiting card is answered");
     fireEvent.click(scenesButton());
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
     expect(resolve).not.toHaveBeenCalled();
@@ -393,14 +454,38 @@ describe("the Scenes button in Amr's panel", () => {
     expect(screen.getByTestId("mascot-visitor-guide")).toBeVisible();
   });
 
+  it("stays away while his failed figure is tried again, and comes back once he is drawn", async () => {
+    h.auth = { status: "anonymous", user: null };
+    h.figureFails = true;
+    render(<MascotAssistant />);
+    await screen.findByTestId("mascot-visitor-guide");
+    fireEvent.keyDown(window, { key: "Shift" });
+    // It failed: the plate stands in, and a try of its own is to come.
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Amr's scenes" })).toBeNull());
+    await waitFor(() => expect(screen.queryByTestId("mascot-sprite")).toBeNull());
+
+    // The try mounts his figure again; until it is drawn the button stays away.
+    h.figureFails = false;
+    await waitFor(() => expect(screen.getByTestId("mascot-sprite")).toBeInTheDocument(), {
+      timeout: 4000,
+    });
+    expect(screen.queryByRole("button", { name: "Amr's scenes" })).toBeNull();
+
+    act(() => useMascotStore.setState({ ready: true }));
+    expect(scenesButton()).toBeEnabled();
+  });
+
   it("keeps the header to one line on a narrow phone", async () => {
     h.auth = { status: "authenticated", user: { id: "u1" } };
     render(<MascotAssistant />);
     await screen.findByTestId("agent-conversation");
-    // The owner's step fills the header's one subtitle line, which truncates.
+    // The owner's step fills the header's one subtitle line, which truncates
+    // and adds nothing to the header's width (w-0 min-w-full); the plate's
+    // column shrinks down to the plate and no further, so the plate never lies
+    // over an icon.
     const subtitle = screen.getByText(PANEL_SUBTITLE.owner).closest("p");
-    expect(subtitle).toHaveClass("truncate");
-    expect(subtitle!.parentElement).toHaveClass("min-w-0");
+    expect(subtitle).toHaveClass("truncate", "w-0", "min-w-full");
+    expect(subtitle!.parentElement).toHaveClass("min-w-min", "flex-1");
     expect(scenesButton().parentElement).toHaveClass("shrink-0");
   });
 
@@ -410,14 +495,22 @@ describe("the Scenes button in Amr's panel", () => {
     expect(await screen.findByTestId("agent-conversation")).toBeInTheDocument();
     expect(scenesButton()).toHaveAttribute("title", "Scenes");
     expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
-    // A header icon: 44 px on a touch screen.
-    expect(scenesButton()).toHaveClass("pointer-coarse:min-h-11", "pointer-coarse:min-w-11");
+    // A header icon: 44 px on a touch screen, in px so 200% text grows only the words.
+    expect(scenesButton()).toHaveClass(
+      "pointer-coarse:min-h-[44px]",
+      "pointer-coarse:min-w-[44px]"
+    );
 
     fireEvent.click(scenesButton());
     expect(await screen.findByTestId("mascot-scenes")).toBeInTheDocument();
     expect(scenesButton()).toHaveAttribute("aria-pressed", "true");
     // The chat stays mounted underneath, hidden, so a turn in flight goes on.
     expect(screen.getByTestId("agent-conversation")).not.toBeVisible();
+    // The header names the scenes, not the chat under them, and keeps the
+    // owner's New chat and History, which take turns with them.
+    expect(within(header()).getByText(PANEL_SUBTITLE.scenes)).toBeInTheDocument();
+    expect(within(header()).queryByText(PANEL_SUBTITLE.owner)).toBeNull();
+    expect(inHeader("New chat")).toBeInTheDocument();
 
     const history = screen.getByRole("button", { name: "Conversation history" });
     fireEvent.click(history);
@@ -459,6 +552,69 @@ describe("the Scenes button in Amr's panel", () => {
     expect(guide).toBeVisible();
   });
 
+  it("keeps the consent card's Back and step out of the header while the scenes cover it", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+    h.auth = { status: "anonymous", user: null };
+    window.localStorage.removeItem(VISITOR_AI_CONSENT_KEY);
+    render(<MascotAssistant />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await waitFor(() => expect(inHeader("Back to tool finder")).not.toBeNull());
+    expect(within(header()).getByText(PANEL_SUBTITLE.consent)).toBeInTheDocument();
+
+    fireEvent.click(scenesButton());
+    await screen.findByTestId("mascot-scenes");
+    // Nothing in the header acts on the card nobody can see, or names its step.
+    expect(inHeader("Back to tool finder")).toBeNull();
+    expect(within(header()).queryByText(PANEL_SUBTITLE.consent)).toBeNull();
+    expect(within(header()).getByText(PANEL_SUBTITLE.scenes)).toBeInTheDocument();
+
+    // Back from the scenes, the card's own way back and step return.
+    fireEvent.click(scenesButton());
+    expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+    expect(inHeader("Back to tool finder")).toBeInTheDocument();
+    expect(within(header()).getByText(PANEL_SUBTITLE.consent)).toBeInTheDocument();
+    expect(within(header()).queryByText(PANEL_SUBTITLE.scenes)).toBeNull();
+  });
+
+  it("offers no Back or Clear chat over the scenes for a chat they hide", async () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+    h.auth = { status: "anonymous", user: null };
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+    try {
+      render(<MascotAssistant />);
+      fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+      await screen.findByLabelText("Message");
+      const chat: ChatMessage[] = [
+        {
+          id: "u1",
+          role: "user",
+          content: [{ type: "text", text: "How do I run a retro?" }],
+          createdAt: "2026-11-16T09:00:00Z",
+        },
+      ];
+      act(() => useAgentStore.setState({ chatProfile: "visitor", messages: chat }));
+      expect(inHeader("Clear chat")).toBeInTheDocument();
+      expect(inHeader("Back to tool finder")).toBeInTheDocument();
+
+      fireEvent.click(scenesButton());
+      await screen.findByTestId("mascot-scenes");
+      // A clear here would empty a chat nobody can see.
+      expect(inHeader("Clear chat")).toBeNull();
+      expect(inHeader("Back to tool finder")).toBeNull();
+      expect(within(header()).queryByText(PANEL_SUBTITLE.chat)).toBeNull();
+      expect(within(header()).getByText(PANEL_SUBTITLE.scenes)).toBeInTheDocument();
+      expect(useAgentStore.getState().messages).toEqual(chat);
+
+      fireEvent.click(scenesButton());
+      expect(screen.queryByTestId("mascot-scenes")).toBeNull();
+      expect(inHeader("Clear chat")).toBeInTheDocument();
+      expect(inHeader("Back to tool finder")).toBeInTheDocument();
+      expect(within(header()).getByText(PANEL_SUBTITLE.chat)).toBeInTheDocument();
+    } finally {
+      window.localStorage.removeItem(VISITOR_AI_CONSENT_KEY);
+    }
+  });
+
   it("shows for a visitor with Amr's AI, plays the scene tapped and closes the panel", async () => {
     vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
     h.auth = { status: "anonymous", user: null };
@@ -478,6 +634,20 @@ describe("the Scenes button in Amr's panel", () => {
     expect(screen.queryByTestId("mascot-scenes")).toBeNull();
     expect(scenesButton()).toHaveAttribute("aria-pressed", "false");
   });
+
+  it("closes the panel its one way for a scene tapped, so focus comes back to Amr", async () => {
+    h.auth = { status: "anonymous", user: null };
+    render(<MascotAssistant />);
+    fireEvent.click(scenesButton());
+    await screen.findByTestId("mascot-scenes");
+    const scene = play(EXPANSION_TITLES.x112);
+    scene.focus();
+    fireEvent.click(scene);
+    expect(useAgentStore.getState().open).toBe(false);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    // No opener held focus when the panel opened: his own button takes it.
+    expect(document.querySelector("[data-amr-button]")).toHaveFocus();
+  });
 });
 
 describe("a chat hidden under the scenes", () => {
@@ -493,12 +663,16 @@ describe("a chat hidden under the scenes", () => {
     Element.prototype.scrollIntoView = scrollIntoView;
     scrollTo.mockClear();
     scrollIntoView.mockClear();
+    // The composer reads a media query (its narrow width), and the describe
+    // above unstubs every global, test/setup's matchMedia among them.
+    stubDesktop();
     useAgentStore.getState().reset();
   });
 
   afterEach(() => {
     Element.prototype.scrollTo = original.scrollTo;
     Element.prototype.scrollIntoView = original.scrollIntoView;
+    vi.unstubAllGlobals();
     useAgentStore.getState().reset();
   });
 
@@ -508,10 +682,15 @@ describe("a chat hidden under the scenes", () => {
     </ChatVisibleContext.Provider>
   );
 
-  it("focuses the message box and scrolls to the latest message once it shows again", () => {
+  it("focuses the message box and scrolls to the latest message once it shows again", async () => {
     const { rerender } = render(panel(false));
     const box = screen.getByRole("textbox", { name: "Message" });
     expect(box).not.toHaveFocus();
+    // jsdom has no layout: the log holds 1000 px in a 200 px view, so a pin
+    // to its end has somewhere to go.
+    const log = screen.getByRole("log", { name: "Conversation" });
+    Object.defineProperty(log, "scrollHeight", { configurable: true, value: 1000 });
+    Object.defineProperty(log, "clientHeight", { configurable: true, value: 200 });
 
     act(() =>
       useAgentStore.getState().appendMessage({
@@ -521,10 +700,40 @@ describe("a chat hidden under the scenes", () => {
         createdAt: "2026-11-16T08:00:00Z",
       })
     );
+    // The frame the log's writes wait for has run, and wrote nothing.
+    await act(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+        )
+    );
     expect(scrollTo).not.toHaveBeenCalled();
 
     rerender(panel(true));
     expect(box).toHaveFocus();
-    expect(scrollTo).toHaveBeenCalled();
+    // The chat frame follows the log from its newest line again, with the
+    // log's own scrollTo, never scrollIntoView.
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 800, behavior: "instant" }));
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it("puts focus in the box after a New chat from under the scenes once it shows, on a touch screen too", () => {
+    // A touch screen: nothing but New chat puts focus in the box.
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(pointer: coarse)",
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+    const { rerender } = render(panel(true));
+    const box = screen.getByRole("textbox", { name: "Message" });
+    expect(box).not.toHaveFocus();
+
+    rerender(panel(false));
+    act(() => focusComposerAfterNewChat());
+    // Hidden, the box can't take it: the request waits for it to show.
+    expect(box).not.toHaveFocus();
+    rerender(panel(true));
+    expect(box).toHaveFocus();
   });
 });

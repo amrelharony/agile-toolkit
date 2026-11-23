@@ -17,8 +17,9 @@
  *    hold the plate's outline, and give the you caption a heavier start edge,
  *    so it never reads as narration once both fills turn to Canvas;
  *  - the panel's entrance (.panelEnter, mascot-assistant.module.css): opacity
- *    and the scale property from its tail, never transform, and nothing at all
- *    under reduced motion;
+ *    and the scale property from its tail (the phone's sheet slides up from its
+ *    edge on translate instead), never transform, and nothing at all under
+ *    reduced motion;
  *  - the page scrolls smoothly only for readers who haven't asked for less motion.
  * The last block builds globals.css and the module the way Next does (Tailwind
  * or CSS modules, then its minifier) and runs the AMR markers of
@@ -725,10 +726,16 @@ describe("forced colours", () => {
 
 describe("the panel's entrance (.panelEnter)", () => {
   const tree = postcss.parse(MODULE_SOURCE);
-  const mine: CssRule[] = [];
+  const all: CssRule[] = [];
   tree.walkRules((r) => {
-    if (r.selectors.some((s) => /\.panelEnter\b/.test(s))) mine.push(r);
+    if (r.selectors.some((s) => /\.panelEnter\b/.test(s))) all.push(r);
   });
+  /** The phone's full-height sheet has an entrance of its own: it slides from its edge. */
+  const SHEET_SELECTOR = '.panelEnter[data-amr-layout="sheet"]';
+  const isSheet = (r: CssRule) => r.selectors.every((s) => s.trim() === SHEET_SELECTOR);
+  /** The floating card's and the side panel's entrance: it grows from the tail. */
+  const mine = all.filter((r) => !isSheet(r));
+  const sheet = all.filter(isSheet);
   /** The at-rules a rule sits in, innermost first. */
   function within(r: CssRule): AtRule[] {
     const out: AtRule[] = [];
@@ -743,20 +750,25 @@ describe("the panel's entrance (.panelEnter)", () => {
     );
   const starting = mine.filter((r) => within(r).some((a) => a.name === "starting-style"));
   const moving = mine.filter((r) => decls(r).transition !== undefined);
+  const transitioned = (r: CssRule) =>
+    decls(r)
+      .transition.split(/,(?![^(]*\))/)
+      .map((part) => part.trim().split(/\s+/)[0]);
+  const guarded = (r: CssRule) =>
+    within(r).some(
+      (a) => a.name === "media" && a.params === "(prefers-reduced-motion: no-preference)"
+    );
 
   it("never sets transform: opacity and the scale property only", () => {
     expect(mine.length).toBeGreaterThanOrEqual(3);
-    for (const r of mine) {
+    for (const r of all) {
       r.walkDecls((d) => {
         expect(d.prop, r.selector).not.toBe("transform");
         expect(d.prop, r.selector).not.toBe("animation");
       });
     }
     expect(moving).toHaveLength(1);
-    const props = decls(moving[0])
-      .transition.split(/,(?![^(]*\))/)
-      .map((part) => part.trim().split(/\s+/)[0]);
-    expect(props).toEqual(["opacity", "scale"]);
+    expect(transitioned(moving[0])).toEqual(["opacity", "scale"]);
   });
 
   it("starts at opacity 0 and 96% in @starting-style, so the finished state is the fallback", () => {
@@ -779,10 +791,6 @@ describe("the panel's entrance (.panelEnter)", () => {
   });
 
   it("moves nothing under reduced motion: the transition and its start live only under no-preference", () => {
-    const guarded = (r: CssRule) =>
-      within(r).some(
-        (a) => a.name === "media" && a.params === "(prefers-reduced-motion: no-preference)"
-      );
     expect(guarded(moving[0])).toBe(true);
     expect(guarded(starting[0])).toBe(true);
     // The guard itself is top level, so no other condition hides it.
@@ -794,6 +802,141 @@ describe("the panel's entrance (.panelEnter)", () => {
     const base = mine.filter((r) => within(r).length === 0);
     expect(base).toHaveLength(1);
     expect(decls(base[0])).toEqual({ "transform-origin": "var(--panel-origin, 50% 100%)" });
+  });
+
+  it("slides the phone's sheet up from its bottom edge on translate, at --dur-sheet-in, never scaling it", () => {
+    // DNA-SPEC §8: a sheet slides from its edge. Only under no-preference.
+    expect(sheet).toHaveLength(2);
+    for (const r of sheet) expect(guarded(r), r.selector).toBe(true);
+    const [move] = sheet.filter((r) => decls(r).transition !== undefined);
+    expect(transitioned(move)).toEqual(["opacity", "translate"]);
+    expect(decls(move).transition.replace(/\s+/g, " ")).toBe(
+      "opacity var(--dur-sheet-in) var(--ease-calm), translate var(--dur-sheet-in) var(--ease-calm)"
+    );
+    const [start] = sheet.filter((r) => within(r).some((a) => a.name === "starting-style"));
+    expect(decls(start)).toEqual({ opacity: "0", scale: "none", translate: "0 100%" });
+    expect(section("MOTION FOUNDATIONS", "PAGE SETTLE")).toMatch(/--dur-sheet-in:\s*\d+ms;/);
+  });
+});
+
+describe("Amr himself (mascot-assistant.module.css)", () => {
+  const tree = postcss.parse(MODULE_SOURCE);
+  const all: CssRule[] = [];
+  tree.walkRules((r) => {
+    // Keyframe steps (0%, 50%, to) are rules too; they aren't selectors.
+    if (r.parent?.type === "atrule" && (r.parent as AtRule).name.endsWith("keyframes")) return;
+    all.push(r);
+  });
+  /** The at-rules a rule sits in, innermost first. */
+  function within(r: CssRule): AtRule[] {
+    const out: AtRule[] = [];
+    for (let p = r.parent; p && p.type !== "root"; p = p.parent) {
+      if (p.type === "atrule") out.push(p as AtRule);
+    }
+    return out;
+  }
+  const decls = (r: CssRule): Record<string, string> =>
+    Object.fromEntries(
+      r.nodes
+        .filter((n): n is Declaration => n.type === "decl")
+        .map((d) => [d.prop, d.important ? `${d.value} !important` : d.value])
+    );
+  const flat = (s: string) => s.replace(/\s+/g, " ").trim();
+  /** The top-level rule (outside any @media) whose selectors are exactly `selectors`. */
+  function only(...selectors: string[]): Record<string, string> {
+    const found = all.filter(
+      (r) =>
+        within(r).length === 0 &&
+        r.selectors.length === selectors.length &&
+        r.selectors.every((s, i) => flat(s) === selectors[i])
+    );
+    expect(found, selectors.join(", ")).toHaveLength(1);
+    return decls(found[0]);
+  }
+
+  it("draws no soft light on him: no blur, glow or drop shadow anywhere in the module", () => {
+    tree.walkDecls((d) => {
+      expect(d.value, `${d.prop} in ${(d.parent as CssRule).selector}`).not.toMatch(
+        /blur\(|drop-shadow\(|rgba\(/
+      );
+      if (d.prop === "box-shadow" || d.prop === "text-shadow") {
+        throw new Error(`${d.prop} in ${(d.parent as CssRule).selector}`);
+      }
+    });
+    // The one filter left is high contrast's switch for his aura.
+    const filters: string[] = [];
+    tree.walkDecls("filter", (d) => {
+      filters.push(`${flat((d.parent as CssRule).selector)} { ${d.value} }`);
+    });
+    expect(filters).toEqual([
+      ':global(.hc) .swing[data-amr-aura], :global([data-theme="hc"]) .swing[data-amr-aura] { none }',
+    ]);
+  });
+
+  it("puts no ground under his feet: no ground class, no pseudo-element, no ellipse", () => {
+    for (const r of all) {
+      expect(r.selector).not.toMatch(/ground|::?before|::?after/);
+      const body = decls(r);
+      expect(body["border-radius"], r.selector).not.toBe("50%");
+      expect(body.background ?? "", r.selector).not.toMatch(/gradient/);
+      expect(body["background-image"] ?? "", r.selector).not.toMatch(/gradient/);
+    }
+  });
+
+  it("bobs him with no filter, and holds him still under reduced motion", () => {
+    const bob = only(".bob");
+    expect(bob.animation).toMatch(/^amrBob 4s ease-in-out infinite$/);
+    expect(bob.filter).toBeUndefined();
+    expect(MODULE_SOURCE).not.toMatch(/\.float\b|mascotFloat/);
+    const still = all.find(
+      (r) =>
+        r.selectors.includes(".bob") &&
+        within(r).some((a) => a.name === "media" && a.params === "(prefers-reduced-motion: reduce)")
+    );
+    expect(still, "a reduced-motion rule for .bob").toBeDefined();
+    expect(decls(still!).animation).toBe("none");
+    // Docked in the phone's sheet he is never scaled, not even by a hover a tap left stuck.
+    expect(only(".bob[data-amr-docked]:hover")).toEqual({ transform: "none" });
+  });
+
+  it("draws focus on his hit span in --ring, close in, on pen corners, not around his box", () => {
+    expect(only(".figure [data-mascot-hit]")).toEqual({ "border-radius": "var(--panel-radius)" });
+    expect(only(".figure:focus-visible")).toEqual({ outline: "none" });
+    const ring = only(".figure:focus-visible [data-mascot-hit]");
+    expect(ring.outline).toBe("2px solid var(--ring)");
+    expect(parseFloat(ring["outline-offset"])).toBeGreaterThan(0);
+    expect(parseFloat(ring["outline-offset"])).toBeLessThanOrEqual(2);
+  });
+
+  it("moves high contrast's heavier outline onto him, beating its rule for every control", () => {
+    // globals.css rings every focused control in high contrast with an
+    // !important outline at (0,2,0); the box loses it to a more specific one.
+    expect(SOURCE).toMatch(/\.hc \*:focus-visible,\s*\[data-theme="hc"\] \*:focus-visible \{/);
+    expect(
+      only(":global(.hc) .figure:focus-visible", ':global([data-theme="hc"]) .figure:focus-visible')
+    ).toEqual({ outline: "none !important" });
+    expect(
+      only(
+        ":global(.hc) .figure:focus-visible [data-mascot-hit]",
+        ':global([data-theme="hc"]) .figure:focus-visible [data-mascot-hit]'
+      )
+    ).toEqual({ outline: "3px solid var(--accent)" });
+  });
+
+  it("turns his aura off in high contrast, over the inline style that paints it", () => {
+    expect(
+      only(":global(.hc) .swing[data-amr-aura]", ':global([data-theme="hc"]) .swing[data-amr-aura]')
+    ).toEqual({ filter: "none !important" });
+  });
+
+  it("names a local class in every selector, as Next's pure CSS modules require", async () => {
+    const require = createRequire(path.join(ROOT, "package.json"));
+    const local = require("next/dist/compiled/postcss-modules-local-by-default");
+    await expect(
+      postcss([local({ mode: "pure" })]).process(MODULE_SOURCE, {
+        from: "mascot-assistant.module.css",
+      })
+    ).resolves.toBeDefined();
   });
 });
 
@@ -857,6 +1000,17 @@ describe("the built CSS", () => {
     // The entrance comes from the module alone, its class hashed but still named.
     expect(mascot).toContain("@starting-style{.mascot-assistant_panelEnter__Ab1c2{");
     expect(failing(globals)).toEqual([MARKERS.AMR[7].name]);
+  }, 60_000);
+
+  it("keeps Amr's high-contrast aura switch and his hit-span focus, their classes hashed", async () => {
+    // stripWhitespace takes the descendant combinators out too.
+    const mascot = await buildModule();
+    const swing = "mascot-assistant_swing__Ab1c2[data-amr-aura]";
+    expect(mascot).toContain(`.hc.${swing},[data-theme=hc].${swing}{filter:none!important}`);
+    expect(mascot).toContain(
+      ".mascot-assistant_figure__Ab1c2:focus-visible[data-mascot-hit]{outline:2pxsolidvar(--ring);"
+    );
+    expect(mascot).not.toMatch(/blur\(|drop-shadow\(/);
   }, 60_000);
 
   it("keeps the forced-colours guard where no caption is used: it is outside the layer", async () => {
