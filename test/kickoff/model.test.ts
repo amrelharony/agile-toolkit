@@ -28,6 +28,7 @@ import {
   draftSlidersFor,
   hmwStarters,
   itemSource,
+  kickoffCatalogProblem,
   kickoffGaps,
   moveSlider,
   normalizeKickoff,
@@ -238,6 +239,89 @@ describe("normalizeKickoff", () => {
       kickoff({ id: "c", format: "inception", updatedAt: LATER }),
     ];
     expect(readKickoffs(rows).map((k) => k.id)).toEqual(["c", "a"]);
+  });
+});
+
+describe("what a written kickoff may hold (kickoffCatalogProblem)", () => {
+  const canvas = kickoff({ id: "kickoff_c", format: "team-canvas" });
+  const deck = kickoff({ id: "kickoff_d", format: "inception" });
+
+  it("names what the format doesn't take, each of which the reader drops", () => {
+    const cases: [Kickoff, RegExp][] = [
+      [
+        { ...canvas, sections: { worries: [item("w", "Slow")] } },
+        new RegExp(
+          `^“worries” isn't a section of the Team Canvas format\\. Its sections: ${KICKOFF_FORMAT_DEFS[
+            "team-canvas"
+          ].sections
+            .map((d) => d.id)
+            .join(", ")}\\.$`
+        ),
+      ],
+      [
+        { ...canvas, sections: { purpose: [item("a", "One"), item("b", "Two")] } },
+        /^“purpose” holds one answer, not 2\.$/,
+      ],
+      [
+        {
+          ...deck,
+          sections: { worries: Array.from({ length: 21 }, (_, i) => item(`w${i}`, `W${i}`)) },
+        },
+        /^“worries” holds up to 20 lines, not 21\.$/,
+      ],
+      [
+        { ...canvas, sections: { rules: [item("r", "Pair", { owner: "Ana" })] } },
+        /^Lines in “rules” have no owner/,
+      ],
+      [
+        { ...deck, sections: { needs: [item("n", "A contact", { likelihood: 3 })] } },
+        /^Lines in “needs” aren't rated/,
+      ],
+      [
+        { ...canvas, sections: { rules: [item("r", "Pair", { covers: "w1" })] } },
+        /^Lines in “rules” can't cover a worry/,
+      ],
+      [
+        { ...canvas, sliders: [{ id: "s", label: "Scope", position: 1 }] },
+        /^The Team Canvas format has no trade-off sliders/,
+      ],
+    ];
+    for (const [row, message] of cases) {
+      expect(kickoffCatalogProblem(row)).toMatch(message);
+      // Each is something the next read would lose.
+      expect(normalizeKickoff(row)).not.toEqual(row);
+    }
+  });
+
+  it("takes every row the page and Amr's verbs write, a missing worry's cover included", () => {
+    for (const k of buildExample(new Date(AT))) expect(kickoffCatalogProblem(k)).toBeNull();
+    for (const format of KICKOFF_FORMATS) {
+      const k = blankKickoff({ id: `kickoff_${format}`, format, title: "T", now: AT });
+      expect(kickoffCatalogProblem(k)).toBeNull();
+    }
+    const covered = {
+      ...deck,
+      sections: {
+        worries: [item("w1", "Slow", { likelihood: 2, impact: 4 })],
+        needs: [item("n1", "A contact", { owner: "Omar", covers: "w1" })],
+        people: [],
+      },
+    };
+    // A section the format lacks is named even when it is empty.
+    expect(kickoffCatalogProblem(covered)).toMatch(/^“people” isn't a section/);
+    const { people: _people, ...sections } = covered.sections;
+    void _people;
+    expect(kickoffCatalogProblem({ ...covered, sections })).toBeNull();
+    expect(
+      kickoffCatalogProblem({
+        ...covered,
+        sections: { ...sections, worries: [] },
+      })
+    ).toBeNull();
+    // An empty owner says nothing, so it isn't refused.
+    expect(
+      kickoffCatalogProblem({ ...canvas, sections: { rules: [item("r", "Pair", { owner: " " })] } })
+    ).toBeNull();
   });
 });
 

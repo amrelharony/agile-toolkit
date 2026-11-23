@@ -277,6 +277,53 @@ export function normalizeKickoff(raw: unknown): Kickoff | null {
   };
 }
 
+/**
+ * What a written kickoff holds that its format doesn't take, as one
+ * sentence, or null: what `normalizeKickoff` would drop on the next read,
+ * so the page's and the verbs' next write would delete it. That is a
+ * section the format doesn't have, more lines than a section holds, an
+ * owner, ratings or a `covers` on a section without them, and sliders on a
+ * format without trade-offs. For the CRUD (workspace.kickoff), which
+ * refuses such a write instead of reporting a success the page then undoes.
+ * A `covers` whose worry is missing is fine: it is kept (see `cleanItem`).
+ */
+export function kickoffCatalogProblem(
+  k: Pick<Kickoff, "format" | "sections" | "sliders">
+): string | null {
+  const def = kickoffFormat(k.format);
+  if (!def) return `“${String(k.format)}” isn't a kickoff format.`;
+  for (const [key, items] of Object.entries(k.sections ?? {})) {
+    const section = def.sections.find((d) => d.id === key);
+    if (!section) {
+      return `“${key}” isn't a section of the ${def.name} format. Its sections: ${def.sections
+        .map((d) => d.id)
+        .join(", ")}.`;
+    }
+    const lines = items ?? [];
+    if (section.kind !== "list" && lines.length > 1) {
+      return `“${key}” holds one answer, not ${lines.length}.`;
+    }
+    if (section.kind === "list" && lines.length > section.max) {
+      return `“${key}” holds up to ${section.max} lines, not ${lines.length}.`;
+    }
+    for (const item of lines) {
+      if (!section.owner && item.owner?.trim()) {
+        return `Lines in “${key}” have no owner: leave out "owner".`;
+      }
+      if (!section.ratings && (item.likelihood !== undefined || item.impact !== undefined)) {
+        return `Lines in “${key}” aren't rated: leave out "likelihood" and "impact".`;
+      }
+      if (!section.covers && item.covers !== undefined) {
+        return `Lines in “${key}” can't cover a worry: leave out "covers".`;
+      }
+    }
+  }
+  if (!def.hasSliders && (k.sliders?.length ?? 0) > 0) {
+    return `The ${def.name} format has no trade-off sliders: leave out "sliders".`;
+  }
+  return null;
+}
+
 /** Every readable kickoff of `rows`, newest change first. */
 export function readKickoffs(rows: readonly unknown[] | undefined): Kickoff[] {
   return newestFirst((rows ?? []).flatMap((r) => normalizeKickoff(r) ?? []));
