@@ -653,7 +653,10 @@ function RotationCard({
           </p>
         </div>
       )}
-      <p className="text-xs text-sub">Times on the {zoneLabel(ctx.zone)} clock.</p>
+      <p className="text-xs text-sub">
+        Times on the {zoneLabel(ctx.zone)} clock. A meeting nobody skips counts as held a day after
+        it starts.
+      </p>
     </li>
   );
 }

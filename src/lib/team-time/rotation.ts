@@ -6,23 +6,30 @@
  * - Cycle k starts on `startDate + 7 × everyWeeks × k` days. Its meeting is
  *   on the first day on or after that with the option's weekday, at the
  *   option's time on the option's clock (`wallToUtc` on the real date).
- * - A held row belongs to the cycle its date falls in. The plan goes on
- *   from the cycle after the last held one; a meeting that started less
- *   than a day ago still shows, so it can be marked held or skipped.
+ * - A held or skipped row belongs to the cycle its date falls in, and that
+ *   cycle is done. A past cycle nobody marked counts as held on the time
+ *   the plan gave it: it uses its turn and its points count, so the
+ *   rotation goes on when nobody presses Mark held, and a copied schedule
+ *   stays right. Only Skip keeps the turn. Points count back 52 cycles (as
+ *   many as the held list keeps); an older cycle nobody marked only uses
+ *   its turn.
+ * - A meeting that started less than a day ago still shows, so it can be
+ *   marked held or skipped.
  * - "In turn" goes round the options, from the one after the last held.
- *   "Fairest" picks the option that keeps the highest running total (held
- *   plus planned) lowest, the in-turn order breaking ties.
+ *   "Fairest" picks the option of each cycle that keeps the highest running
+ *   total (held plus planned) lowest, the in-turn order breaking ties.
  * - A skipped meeting counts nothing and uses no turn: the next takes the
  *   same option. A team holiday (on the option's clock) is skipped the same
  *   way, as the ceremony dates skip it.
  */
 
 import { isoDayNumber, isoFromDayNumber, weekdayOf } from "@/lib/sprints/calendar";
-import type {
-  TeamTimeHeld,
-  TeamTimePerson,
-  TeamTimeRotation,
-  TeamTimeRotationOption,
+import {
+  TEAM_TIME_MAX,
+  type TeamTimeHeld,
+  type TeamTimePerson,
+  type TeamTimeRotation,
+  type TeamTimeRotationOption,
 } from "@/lib/stores/workspace-types";
 import { DAY_MS, MINUTE_MS } from "./overlap";
 import { burden, type Burden } from "./slots";
@@ -34,6 +41,8 @@ export const ROTATION_PLAN_COUNT = 8;
 export const MARK_GRACE_MS = DAY_MS;
 /** How far ahead the plan looks before it gives up (holidays, a far start date). */
 const MAX_CYCLES = 520;
+/** How many cycles back a meeting nobody marked still counts its points (as many as the held list keeps). */
+const PRESUMED_CYCLES = TEAM_TIME_MAX.held;
 
 type Person = Pick<TeamTimePerson, "id" | "timeZone" | "start" | "end" | "workingDays">;
 
@@ -126,39 +135,157 @@ export function heldOccurrences(
   return out;
 }
 
-/** The index of the option after the last held (not skipped) meeting's, in turn: 0 with none. */
-function nextTurn(rotation: TeamTimeRotation): number {
-  const n = rotation.options.length;
+/** The index of the option after `optionId` in turn (0 for an option that's gone). */
+function turnAfter(rotation: TeamTimeRotation, optionId: string): number {
+  const at = rotation.options.findIndex((o) => o.id === optionId);
+  return at < 0 ? 0 : (at + 1) % rotation.options.length;
+}
+
+/** The turn after the last held (not skipped) meeting of a cycle before `before`: 0 with none. */
+function turnBefore(rotation: TeamTimeRotation, before: number): number {
   let last: TeamTimeHeld | null = null;
   let lastCycle = -Infinity;
   for (const h of rotation.held) {
     if (h.skipped) continue;
-    const c = cycleOf(rotation, h.date) ?? -Infinity;
+    const c = cycleOf(rotation, h.date);
+    if (c === null || c >= before) continue;
     if (c >= lastCycle) {
       lastCycle = c;
       last = h;
     }
   }
-  if (!last || n === 0) return 0;
-  const at = rotation.options.findIndex((o) => o.id === last!.optionId);
-  return at < 0 ? 0 : (at + 1) % n;
+  return last ? turnAfter(rotation, last.optionId) : 0;
 }
 
-/** The last cycle a held or skipped row covers, or -1 with none. */
-function lastMarkedCycle(rotation: TeamTimeRotation): number {
-  let last = -1;
+/** The meetings the plan walks through: past ones nobody marked (counted as held), and the ones ahead. */
+interface Plan {
+  presumed: Occurrence[];
+  planned: Occurrence[];
+}
+
+/**
+ * Walks the cycles in order. A cycle with a held or skipped row is done (a
+ * held one takes the turn). Any other cycle gets its option, in turn or
+ * fairest; when that meeting started more than a day ago it counts as held
+ * (`presumed`), otherwise it is planned. It stops after `count` planned.
+ */
+function walk(
+  rotation: TeamTimeRotation,
+  people: readonly Person[],
+  now: number,
+  count: number,
+  holidays: ReadonlySet<string>
+): Plan {
+  const plan: Plan = { presumed: [], planned: [] };
+  const n = rotation.options.length;
+  if (n === 0 || count <= 0) return plan;
+  const attendees = rotationAttendees(rotation, people);
+  const totals = new Map<string, number>();
+  for (const p of attendees) totals.set(p.id, 0);
+  const add = (burdens: Record<string, Burden>) => {
+    for (const [id, b] of Object.entries(burdens)) totals.set(id, (totals.get(id) ?? 0) + b);
+  };
+  for (const h of heldOccurrences(rotation, people)) add(h.burdens);
+  const marked = new Map<number, TeamTimeHeld[]>();
   for (const h of rotation.held) {
     const c = cycleOf(rotation, h.date);
-    if (c !== null && c > last) last = c;
+    if (c !== null) marked.set(c, [...(marked.get(c) ?? []), h]);
   }
-  return last;
+  const lastMarked = Math.max(-1, ...Array.from(marked.keys()));
+  const shownFrom = now - MARK_GRACE_MS;
+  const nowCycle = cycleOf(rotation, new Date(shownFrom).toISOString().slice(0, 10)) ?? 0;
+  // Unmarked cycles from here on count their points; older ones only use their turn.
+  const countFrom = nowCycle - PRESUMED_CYCLES;
+  const first = Math.max(0, Math.min(lastMarked + 1, countFrom));
+  const stop = Math.max(0, lastMarked + 1) + MAX_CYCLES;
+  let turn = turnBefore(rotation, first);
+  for (let k = first; k < stop && plan.planned.length < count; k++) {
+    const marks = marked.get(k);
+    if (marks) {
+      const held = marks.filter((h) => !h.skipped).at(-1);
+      if (held) turn = turnAfter(rotation, held.optionId);
+      continue;
+    }
+    // Each option for this cycle, in turn order from the one due; in turn
+    // only the one due, Fairest any of them.
+    const order = Array.from({ length: n }, (_, i) => rotation.options[(turn + i) % n]);
+    const candidates = order
+      .map((option, i) => ({ option, i, at: occurrenceAt(rotation, k, option) }))
+      .filter(
+        (c): c is { option: TeamTimeRotationOption; i: number; at: NonNullable<typeof c.at> } =>
+          c.at !== null && !holidays.has(c.at.date)
+      )
+      .filter((c) => rotation.mode === "fairest" || c.i === 0);
+    if (candidates.length === 0) continue;
+    const counted = k >= countFrom;
+    let pick = candidates[0];
+    let burdens: Record<string, Burden> | null = null;
+    if (rotation.mode === "fairest" && counted) {
+      let bestScore = Infinity;
+      for (const c of candidates) {
+        const b = burdensFor(attendees, c.at.start, c.at.end);
+        let score = 0;
+        for (const p of attendees) score = Math.max(score, (totals.get(p.id) ?? 0) + b[p.id]);
+        if (score < bestScore) {
+          bestScore = score;
+          pick = c;
+          burdens = b;
+        }
+      }
+    }
+    turn = (rotation.options.indexOf(pick.option) + 1) % n;
+    const ahead = pick.at.start >= shownFrom;
+    if (!ahead && !counted) continue;
+    burdens ??= burdensFor(attendees, pick.at.start, pick.at.end);
+    add(burdens);
+    (ahead ? plan.planned : plan.presumed).push({
+      cycle: k,
+      date: pick.at.date,
+      optionId: pick.option.id,
+      start: new Date(pick.at.start).toISOString(),
+      end: new Date(pick.at.end).toISOString(),
+      burdens,
+    });
+  }
+  return plan;
+}
+
+/** The last walk of each rotation: the page asks for its plan and its totals at the same time. */
+const lastWalk = new WeakMap<
+  TeamTimeRotation,
+  { people: readonly Person[]; now: number; count: number; holidays: string; plan: Plan }
+>();
+
+function walkOnce(
+  rotation: TeamTimeRotation,
+  people: readonly Person[],
+  from: Date | number,
+  count: number,
+  holidays: readonly string[] = []
+): Plan {
+  const now = typeof from === "number" ? from : from.getTime();
+  const key = holidays.join(",");
+  const hit = lastWalk.get(rotation);
+  if (
+    hit &&
+    hit.people === people &&
+    hit.now === now &&
+    hit.count === count &&
+    hit.holidays === key
+  ) {
+    return hit.plan;
+  }
+  const plan = walk(rotation, people, now, count, new Set(holidays));
+  lastWalk.set(rotation, { people, now, count, holidays: key, plan });
+  return plan;
 }
 
 /**
  * The next `count` meetings from `from` (a meeting that started less than a
  * day ago included), each with its option and every attendee's burden.
  * `holidays` are the team's days off ("YYYY-MM-DD"), skipped on the
- * option's clock.
+ * option's clock. A past meeting nobody marked counts as held, so the plan
+ * goes on after it.
  */
 export function nextOccurrences(
   rotation: TeamTimeRotation,
@@ -167,62 +294,7 @@ export function nextOccurrences(
   count = ROTATION_PLAN_COUNT,
   opts: { holidays?: readonly string[] } = {}
 ): Occurrence[] {
-  const n = rotation.options.length;
-  if (n === 0 || count <= 0) return [];
-  const now = typeof from === "number" ? from : from.getTime();
-  const holidays = new Set(opts.holidays ?? []);
-  const attendees = rotationAttendees(rotation, people);
-  const totals = new Map<string, number>();
-  for (const p of attendees) totals.set(p.id, 0);
-  for (const h of heldOccurrences(rotation, people)) {
-    for (const [id, b] of Object.entries(h.burdens)) totals.set(id, (totals.get(id) ?? 0) + b);
-  }
-  let turn = nextTurn(rotation);
-  const out: Occurrence[] = [];
-  const firstCycle = Math.max(0, lastMarkedCycle(rotation) + 1);
-  for (let k = firstCycle; k < firstCycle + MAX_CYCLES && out.length < count; k++) {
-    // Each option for this cycle, in turn order from the one due; in turn
-    // only the one due, Fairest any whose meeting is still ahead.
-    const order = Array.from({ length: n }, (_, i) => rotation.options[(turn + i) % n]);
-    const open = order
-      .map((option, i) => ({ option, i, at: occurrenceAt(rotation, k, option) }))
-      .filter(
-        (c): c is { option: TeamTimeRotationOption; i: number; at: NonNullable<typeof c.at> } =>
-          c.at !== null && c.at.start >= now - MARK_GRACE_MS && !holidays.has(c.at.date)
-      )
-      .filter((c) => rotation.mode === "fairest" || c.i === 0);
-    if (open.length === 0) continue;
-    let pick = open[0];
-    let pickedBurdens = burdensFor(attendees, pick.at.start, pick.at.end);
-    if (rotation.mode === "fairest") {
-      let bestScore = Infinity;
-      for (const c of open) {
-        const burdens = burdensFor(attendees, c.at.start, c.at.end);
-        let score = 0;
-        for (const p of attendees) {
-          score = Math.max(score, (totals.get(p.id) ?? 0) + burdens[p.id]);
-        }
-        if (score < bestScore) {
-          bestScore = score;
-          pick = c;
-          pickedBurdens = burdens;
-        }
-      }
-    }
-    const picked = { ...pick.at, burdens: pickedBurdens };
-    const option = pick.option;
-    for (const [id, b] of Object.entries(picked.burdens)) totals.set(id, (totals.get(id) ?? 0) + b);
-    out.push({
-      cycle: k,
-      date: picked.date,
-      optionId: option.id,
-      start: new Date(picked.start).toISOString(),
-      end: new Date(picked.end).toISOString(),
-      burdens: picked.burdens,
-    });
-    turn = (rotation.options.indexOf(option) + 1) % n;
-  }
-  return out;
+  return [...walkOnce(rotation, people, from, count, opts.holidays).planned];
 }
 
 /** Each attendee's late or night points, held plus planned, and the spread. */
@@ -234,7 +306,10 @@ export interface BurdenTotals {
   spread: number;
 }
 
-/** Points per attendee over the held meetings and the next `count` planned ones. */
+/**
+ * Points per attendee over the held meetings (marked, or past with nobody
+ * marking them) and the next `count` planned ones.
+ */
 export function burdenTotals(
   rotation: TeamTimeRotation,
   people: readonly Person[],
@@ -249,8 +324,10 @@ export function burdenTotals(
       if (points.has(id)) points.set(id, (points.get(id) ?? 0) + b);
     }
   };
+  const plan = walkOnce(rotation, people, from, count, opts.holidays);
   heldOccurrences(rotation, people).forEach(add);
-  nextOccurrences(rotation, people, from, count, opts).forEach(add);
+  plan.presumed.forEach(add);
+  plan.planned.forEach(add);
   const totals = attendees.map((p) => ({ personId: p.id, points: points.get(p.id) ?? 0 }));
   const values = totals.map((t) => t.points);
   return {

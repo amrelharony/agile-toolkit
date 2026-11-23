@@ -1,8 +1,8 @@
 /**
  * Rotations: the occurrence of each cycle on its option's clock, In turn
  * against Fairest, a skip that keeps the turn, holidays skipped, a meeting
- * that started less than a day ago still listed, the totals and the
- * fairness line, and the held cap.
+ * that started less than a day ago still listed and one nobody marked
+ * counted as held, the totals and the fairness line, and the held cap.
  */
 
 import { describe, expect, it } from "vitest";
@@ -92,9 +92,34 @@ describe("occurrences", () => {
     ]);
   });
 
-  it("still lists a meeting that started less than a day ago, then drops it", () => {
+  it("still lists a meeting that started less than a day ago, then counts it as held", () => {
     expect(plan(rotation(), t("2026-11-17T12:00:00Z"))[0]).toBe("2026-11-17 A");
-    expect(plan(rotation(), t("2026-11-18T12:00:00Z"))[0]).toBe("2026-11-24 A");
+    expect(plan(rotation(), t("2026-11-18T12:00:00Z"))[0]).toBe("2026-11-24 B");
+  });
+
+  it("keeps going round when nobody marks three meetings", () => {
+    expect(plan(rotation(), t("2026-12-02T12:00:00Z"))).toEqual([
+      "2026-12-08 B",
+      "2026-12-15 A",
+      "2026-12-22 B",
+      "2026-12-29 A",
+    ]);
+  });
+
+  it("plans the same meetings later as it did before, in turn and fairest", () => {
+    // Three meetings (Tue 17 Nov to Tue 1 Dec) are more than a day past.
+    const later = t("2026-12-03T00:00:00Z");
+    for (const mode of ["in-turn", "fairest"] as const) {
+      const r = rotation({ mode });
+      const before = nextOccurrences(r, people, FROM, 8).map((o) => `${o.date} ${o.optionId}`);
+      const after = nextOccurrences(r, people, later, 5).map((o) => `${o.date} ${o.optionId}`);
+      expect(after).toEqual(before.slice(3));
+    }
+  });
+
+  it("still keeps the turn for a skip between meetings nobody marked", () => {
+    const skipped = rotation({ held: [{ date: "2026-11-24", optionId: "B", skipped: true }] });
+    expect(plan(skipped, t("2026-11-26T00:00:00Z"))[0]).toBe("2026-12-01 B");
   });
 
   it("counts its attendees only, everyone when it names none", () => {
@@ -124,6 +149,15 @@ describe("totals", () => {
         () => "New York"
       )
     ).toBe("Noor carries 4 of 5 late or night points. Add a time that suits New York.");
+  });
+
+  it("counts the points of past meetings nobody marked", () => {
+    // A, B and A passed unmarked (Noor 2 at night on each A, Lou 1 late on B), then B planned.
+    const totals = burdenTotals(rotation(), people, t("2026-12-02T12:00:00Z"), 1);
+    expect(totals.totals).toEqual([
+      { personId: "london", points: 2 },
+      { personId: "ny", points: 4 },
+    ]);
   });
 
   it("says when the points are shared, or when there are none", () => {
