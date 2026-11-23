@@ -50,6 +50,7 @@
  */
 
 import { cleanText, shareableText } from "../sanitize";
+import { sealOf, tieSender } from "../sender-tie";
 import {
   WALL_LIMITS,
   WALL_MAX_SCORERS,
@@ -390,16 +391,12 @@ export function applyWallIntent(
   if (wall.recent.includes(key)) return { ok: false, duplicate: true, wall };
   // `by` is self-declared: the id's first request ties it to its tab's
   // secret, and a request under that id with another secret (or none) is
-  // someone else's. Refused before anything about a post is looked at, so
-  // it can't tell whose a post is.
-  const seal = ctx.secret ? lockOf(ctx.secret) : "";
-  const tied = wall.senders?.get(by);
-  if (tied !== undefined && tied !== seal) return refuse("not-admitted");
-  if (tied === undefined && (wall.senders?.size ?? 0) >= WALL_MAX_SENDERS) {
-    return refuse("not-admitted");
-  }
-  const senders: ReadonlyMap<string, string> =
-    tied === undefined ? new Map(wall.senders ?? []).set(by, seal) : (wall.senders ?? new Map());
+  // someone else's (`sender-tie.ts`, shared with the vote rounds). Refused
+  // before anything about a post is looked at, so it can't tell whose a
+  // post is.
+  const tie = tieSender(wall.senders, by, sealOf(ctx.secret), WALL_MAX_SENDERS);
+  if (!tie.ok) return refuse("not-admitted");
+  const senders = tie.senders;
   const recent = [...wall.recent, key].slice(-WALL_LIMITS.recentRing);
   const accept = (next: HostWall): WallIntentResult => ({
     ok: true,
