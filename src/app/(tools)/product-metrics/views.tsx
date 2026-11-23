@@ -402,11 +402,15 @@ export function HeartPanel({
 export function FunnelPanel({
   funnel,
   missingStages,
+  example = false,
   onSetUp,
   periodForm,
 }: {
   funnel: FunnelView;
+  /** Stages with no metric of the team's own. */
   missingStages: number;
+  /** The funnel shown is the example's (the team has no stage of its own). */
+  example?: boolean;
   onSetUp: () => void;
   periodForm: React.ReactNode;
 }) {
@@ -429,9 +433,11 @@ export function FunnelPanel({
       {missingStages > 0 && (
         <div className="flex flex-wrap items-center gap-2 text-sm text-sub">
           <p>
-            {missingStages === 5
-              ? "No funnel yet: one metric for each of the five stages."
-              : `${missingStages} of the five stages have no metric yet.`}
+            {example
+              ? "This is the example's funnel. Set up your own stages to add your team's counts."
+              : missingStages === 5
+                ? "No funnel yet: one metric for each of the five stages."
+                : `${missingStages} of the five stages have no metric yet.`}
           </p>
           <Button type="button" size="sm" variant="outline" onClick={onSetUp}>
             Set up the funnel

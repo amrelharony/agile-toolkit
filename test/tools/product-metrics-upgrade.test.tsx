@@ -363,6 +363,42 @@ describe("the funnel", () => {
     );
   });
 
+  it("never writes a period on the example's stages: the team sets up its own first", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Load an example/ }));
+    view("AARRR funnel");
+    expect(
+      screen.getByText(
+        "This is the example's funnel. Set up your own stages to add your team's counts."
+      )
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Add a period" })).toBeNull();
+    const exampleBefore = metrics().filter((m) => m.aarrr);
+    fireEvent.click(screen.getByRole("button", { name: "Set up the funnel" }));
+    const own = metrics().filter((m) => m.aarrr && !m.id.startsWith("example-"));
+    expect(own.map((m) => m.aarrr)).toEqual([
+      "acquisition",
+      "activation",
+      "retention",
+      "referral",
+      "revenue",
+    ]);
+    const form = screen.getByRole("region", { name: "Add a period" });
+    fireEvent.change(within(form).getByLabelText(/^Acquisition/), { target: { value: "100" } });
+    fireEvent.change(within(form).getByLabelText(/^Activation/), { target: { value: "40" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Add the period" }));
+    const today = todayIso();
+    expect(
+      metrics()
+        .filter((m) =>
+          m.readings.some((r) => r.date === today && (r.value === 100 || r.value === 40))
+        )
+        .map((m) => m.id.startsWith("example-"))
+    ).toEqual([false, false]);
+    expect(metrics().filter((m) => m.aarrr && m.id.startsWith("example-"))).toEqual(exampleBefore);
+    expect(logs.at(-1)).toMatchObject({ action: PRODUCT_METRICS_ACTIONS.FUNNEL_PERIOD_ADDED });
+  });
+
   it("sets up the missing stages, then adds a period, each with Undo", async () => {
     seed([metric({ id: "metric_acq", name: "Visitors", aarrr: "acquisition" })]);
     renderPage();

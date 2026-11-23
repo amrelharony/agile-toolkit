@@ -133,6 +133,10 @@ function writeProblem(rows: readonly ProductMetric[]): string | null {
 
 const newMetricId = (example = false) => `${example ? "example-pm-" : ""}metric_${nanoid(8)}`;
 
+/** Each funnel stage's metric among the team's own rows only. */
+const teamStages = (rows: readonly ProductMetric[]) =>
+  stageMetrics(usableMetrics(rows, { withExamples: false }));
+
 type Editing = { kind: "new"; draft: MetricDraft } | { kind: "edit"; id: string } | null;
 
 export function ProductMetricsClient() {
@@ -157,8 +161,11 @@ export function ProductMetricsClient() {
   const { northStar, inputs } = northStarView(metrics);
   const heart = heartView(metrics);
   const funnel = funnelView(metrics);
-  const byStage = stageMetrics(metrics);
+  // The funnel shows the example's stages while the team has none, but a
+  // period and the set-up only ever write the team's own (as add_funnel_period).
+  const byStage = teamStages(metrics);
   const missingStages = AARRR_STAGES.filter((s) => !byStage[s]).length;
+  const exampleFunnel = funnel.stages.some((s) => s.metric !== null && isExampleId(s.metric.id));
   const hypotheses = useMemo(
     () => (trackers ?? []).flatMap((t) => (Array.isArray(t?.hypotheses) ? t.hypotheses : [])),
     [trackers]
@@ -324,10 +331,13 @@ export function ProductMetricsClient() {
   };
 
   const addFunnelPeriod = (values: FunnelValues) => {
-    const all = current();
-    const own = stageMetrics(all);
+    // Only the team's own stage metrics take a period: never the example's.
+    const own = teamStages(current());
     const now = new Date().toISOString();
     const stages = AARRR_STAGES.filter((s) => values.counts[s] !== undefined);
+    if (stages.some((s) => !own[s])) {
+      return refuse("A stage counted here has no metric of your own yet: set up the funnel first.");
+    }
     const before = stages.map((s) => own[s] as ProductMetric);
     const results = stages.map((s) =>
       withReading(
@@ -352,20 +362,15 @@ export function ProductMetricsClient() {
       apply: () => put(writes),
       revert: () => put(before),
     });
-    const real = writes.find((w) => !isExampleId(w.id));
-    if (real) {
-      log(PRODUCT_METRICS_ACTIONS.FUNNEL_PERIOD_ADDED, {
-        date: values.date,
-        stages: stages.length,
-      });
-    }
+    log(PRODUCT_METRICS_ACTIONS.FUNNEL_PERIOD_ADDED, { date: values.date, stages: stages.length });
     done(`Added the period of ${values.date}.`);
   };
 
   const setUpFunnel = () => {
     const now = new Date().toISOString();
     const templates = metricTemplates({ framework: "aarrr", existing: [] });
-    const rows = AARRR_STAGES.filter((s) => !stageMetrics(current())[s]).map((stage) => {
+    const own = teamStages(current());
+    const rows = AARRR_STAGES.filter((s) => !own[s]).map((stage) => {
       const t = templates.find((x) => x.aarrrStage === stage);
       return metricFromValues(
         {
@@ -607,6 +612,7 @@ export function ProductMetricsClient() {
             <FunnelPanel
               funnel={funnel}
               missingStages={missingStages}
+              example={exampleFunnel}
               onSetUp={setUpFunnel}
               periodForm={
                 missingStages < 5 ? (
