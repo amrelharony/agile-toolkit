@@ -125,6 +125,15 @@ describe("empty state and the example", () => {
     expect(logs).toEqual([]);
   });
 
+  it("still offers its own example while only the EBM example's measures are there", async () => {
+    seed([metric({ id: "example-ebm-nps", name: "NPS", kva: "current-value" })]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Load an example/ }));
+    expect(screen.getByText("Example data.")).toBeInTheDocument();
+    expect(metrics().some((m) => m.id.startsWith("example-pm-"))).toBe(true);
+    expect(metrics().some((m) => m.id === "example-ebm-nps")).toBe(true);
+  });
+
   it("clears only its own rows: an EBM example row stays, read as the EBM example's", async () => {
     seed([
       metric({ id: "example-ebm-nps", name: "NPS", kva: "current-value" }),

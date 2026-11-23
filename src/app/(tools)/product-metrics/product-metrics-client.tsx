@@ -61,6 +61,7 @@ import {
   emptyFunnelDraft,
   funnelView,
   heartView,
+  isEbmExample,
   isMetricsExample,
   latestText,
   metricDraftFor,
@@ -158,6 +159,9 @@ export function ProductMetricsClient() {
   const metrics = useMemo(() => usableMetrics(stored), [stored]);
   const productGoal = productGoalLine(goals);
   const hasExample = metrics.some((m) => isMetricsExample(m.id));
+  // The EBM example's measures are EBM's: with only those, this page is still
+  // empty and offers its own example (as the EBM page ignores rows it doesn't use).
+  const pageRows = metrics.filter((m) => !isEbmExample(m.id));
   const { northStar, inputs } = northStarView(metrics);
   const heart = heartView(metrics);
   const funnel = funnelView(metrics);
@@ -494,7 +498,7 @@ export function ProductMetricsClient() {
         </p>
       )}
 
-      {metrics.length === 0 && !editing ? (
+      {pageRows.length === 0 && !editing ? (
         <EmptyState
           icon={Gauge}
           action={
