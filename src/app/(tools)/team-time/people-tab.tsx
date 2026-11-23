@@ -5,6 +5,7 @@ import { Clock, Pencil, Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TEAM_TIME_ACTIONS } from "@/lib/history/event-actions";
 import type { TeamTimePerson } from "@/lib/stores/workspace-types";
+import { findRosterMember } from "@/lib/team/names";
 import { daysLabel, hoursText, localTimeText, placeLabel } from "@/lib/team-time/format";
 import { editedPerson, newPerson, personRows, type PersonRow } from "@/lib/team-time/model";
 import { burden } from "@/lib/team-time/slots";
@@ -60,6 +61,10 @@ export function PeopleTab({ ctx }: { ctx: TeamTimeCtx }) {
     guestRef.current?.focus();
   };
 
+  // The member the row is, or the one its name is: a row saved here links to the roster.
+  const memberIdFor = (row: PersonRow | null) => (name: string) =>
+    row?.member?.id ?? findRosterMember(ctx.roster, name)?.id;
+
   const formFor = (row: PersonRow | null) => {
     if (row?.person) {
       return (
@@ -67,6 +72,7 @@ export function PeopleTab({ ctx }: { ctx: TeamTimeCtx }) {
           initial={draftOf(row.person)}
           others={others(row.person.id)}
           nameLocked={Boolean(row.member)}
+          memberIdFor={memberIdFor(row)}
           submitLabel="Save"
           now={ctx.now}
           onSave={(v) => save(row.person, v)}
@@ -80,6 +86,7 @@ export function PeopleTab({ ctx }: { ctx: TeamTimeCtx }) {
         initial={blankDraft(member ? { name: member.name, teamMemberId: member.id } : {})}
         others={others(null)}
         nameLocked={Boolean(member)}
+        memberIdFor={memberIdFor(row)}
         submitLabel="Add"
         now={ctx.now}
         onSave={(v) => save(null, v)}

@@ -48,12 +48,15 @@ export function draftOf(p: TeamTimePerson): PersonDraft {
 /**
  * One person's zone, hours and days. Nothing is saved until it checks out
  * (`validatePerson`, the same rules as Amr's set_person); after a failed
- * save the first field with a problem gets focus.
+ * save the first field with a problem gets focus. A row not yet linked to
+ * the roster is linked to the member its name is (`memberIdFor`), as
+ * set_person does, so a rename on the roster keeps it.
  */
 export function PersonForm({
   initial,
   others,
   nameLocked,
+  memberIdFor,
   submitLabel,
   now,
   onSave,
@@ -64,6 +67,8 @@ export function PersonForm({
   others: readonly TeamTimePerson[];
   /** A roster member's name comes from the roster. */
   nameLocked?: boolean;
+  /** The roster member a name is, if any. */
+  memberIdFor?: (name: string) => string | undefined;
   submitLabel: string;
   now: Date;
   onSave: (values: PersonValues) => void;
@@ -83,7 +88,8 @@ export function PersonForm({
 
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    const checked = validatePerson(draft, others);
+    const memberId = draft.teamMemberId ?? memberIdFor?.(draft.name);
+    const checked = validatePerson(memberId ? { ...draft, teamMemberId: memberId } : draft, others);
     if (!checked.ok) {
       setErrors(checked.errors);
       setTries((n) => n + 1);

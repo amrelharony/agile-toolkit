@@ -234,6 +234,35 @@ describe("People", () => {
     ).toBeInTheDocument();
   });
 
+  it("links someone added under a roster name, so a rename on the roster keeps one row", async () => {
+    useWorkspaceStore.setState({ teamMembers: [{ id: "m1", name: "Sam" }] });
+    const view = await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Add someone" }));
+    const form = screen.getByRole("form", { name: "Person" });
+    fireEvent.change(within(form).getByLabelText(/^Name/), { target: { value: "sam" } });
+    fireEvent.change(within(form).getByLabelText(/Time zone/), { target: { value: "UTC" } });
+    fireEvent.click(within(form).getByRole("button", { name: "Add" }));
+    expect(ws().teamTimePeople).toHaveLength(1);
+    expect(ws().teamTimePeople?.[0]).toMatchObject({ teamMemberId: "m1" });
+    act(() => useWorkspaceStore.setState({ teamMembers: [{ id: "m1", name: "Samuel" }] }));
+    const list = within(view.container).getByRole("list", { name: "People" });
+    expect(within(list).getAllByRole("listitem")).toHaveLength(1);
+    expect(within(list).getByText("Samuel")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Set time zone for Samuel" })).toBeNull();
+  });
+
+  it("links a row the page matched to a member by name when it is edited", async () => {
+    useWorkspaceStore.setState({
+      teamMembers: [{ id: "m1", name: "Lou" }],
+      teamTimePeople: [london],
+    });
+    await renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Lou" }));
+    const form = screen.getByRole("form", { name: "Person" });
+    fireEvent.click(within(form).getByRole("button", { name: "Save" }));
+    expect(ws().teamTimePeople?.[0]).toMatchObject({ id: "london", teamMemberId: "m1" });
+  });
+
   it("refuses a zone it doesn't know and puts focus on it", async () => {
     await renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Add someone" }));
