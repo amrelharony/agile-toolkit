@@ -232,7 +232,22 @@ export function PersonaLibraryClient() {
     const items = draftRef.current[list];
     if (items.length >= PERSONA_POINTS_MAX) return `Full: ${PERSONA_POINTS_MAX} is the most.`;
     if (items.some((x) => x.toLowerCase() === point.toLowerCase())) return "Already on the list.";
-    form.update({ [list]: [...items, point] } as Partial<PersonaFields>);
+    const s = session.current;
+    undoable({
+      label: `Added ${LIST_ONE[list]} “${short(point)}”`,
+      kind: "success",
+      apply: () =>
+        form.update({ [list]: [...draftRef.current[list], point] } as Partial<PersonaFields>),
+      // Only from the form it was added to, and only while it is still there.
+      revert: () => {
+        if (session.current !== s) return;
+        const cur = draftRef.current[list];
+        if (!cur.includes(point)) return;
+        form.update({
+          [list]: cur.filter((x) => x !== point),
+        } as Partial<PersonaFields>);
+      },
+    });
     return null;
   };
 

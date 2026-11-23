@@ -156,6 +156,14 @@ const undoLast = () => {
   expect(opts?.action).toBeTruthy();
   act(() => opts?.action?.onClick());
 };
+/** Presses Undo on the toast with this label: the last one, or the `nth` (0 = first). */
+const undoToast = (label: string, nth?: number) => {
+  const calls = toastSpy.mock.calls.filter((c) => c[0] === label);
+  const call = nth === undefined ? calls.at(-1) : calls[nth];
+  const opts = call?.[1] as { action?: { onClick: () => void } } | undefined;
+  expect(opts?.action).toBeTruthy();
+  act(() => opts?.action?.onClick());
+};
 const renderPage = () =>
   render(
     <LiveAnnouncerProvider>
@@ -326,6 +334,37 @@ describe("adding and editing", () => {
     fireEvent.change(screen.getByLabelText("Add a goal"), { target: { value: "eat well" } });
     fireEvent.click(screen.getByRole("button", { name: "Add goal" }));
     expect(screen.getByText("Already on the list.")).toBeInTheDocument();
+  });
+
+  it("adds a point with Undo, which takes it back only from the form it went into", async () => {
+    seed([persona("persona_a")]);
+    renderPage();
+    const addGoal = async (text: string) => {
+      fireEvent.change(await screen.findByLabelText("Add a goal"), { target: { value: text } });
+      fireEvent.click(screen.getByRole("button", { name: "Add goal" }));
+    };
+    await addGoal("Eat well");
+    await addGoal("Cook less");
+    const goals = () =>
+      within(screen.getByRole("list", { name: "Goals" }))
+        .getAllByRole("listitem")
+        .map((li) => li.textContent);
+    expect(goals()).toEqual(["Eat well", "Cook less"]);
+    const [label, opts] = toastSpy.mock.calls.at(-1) ?? [];
+    expect(label).toBe("Added goal “Cook less”");
+    expect(opts).toMatchObject({ kind: "success" });
+    // Undo of the first add takes that point back, leaving the later one.
+    undoToast("Added goal “Eat well”");
+    expect(goals()).toEqual(["Cook less"]);
+
+    // An add to an edit that was then cancelled is never taken back from another form.
+    fireEvent.click(screen.getByRole("button", { name: "Edit Maya" }));
+    await addGoal("Sleep more");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await addGoal("Sleep more");
+    undoToast("Added goal “Sleep more”", 0);
+    expect(screen.getByRole("list", { name: "Goals" })).toHaveTextContent("Sleep more");
+    expect(stored()[0].goals).toEqual(["Dinner in 30 minutes"]);
   });
 
   it("edits a persona in the same form, keeping its id and createdAt", async () => {
