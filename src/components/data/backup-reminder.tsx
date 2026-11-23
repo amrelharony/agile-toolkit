@@ -2,10 +2,8 @@
 
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { saveAs } from "file-saver";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
-import { backupFilename, collectBackup, serializeBackup } from "@/lib/data/backup";
-import { recordBackup } from "@/lib/data/backup-meta";
+import { downloadBackup } from "@/lib/data/download-backup";
 import { backupReminderDue, recordBackupReminder } from "@/lib/data/backup-reminder";
 import { isQuietRoute } from "@/lib/gamification/quiet";
 import { toast } from "@/lib/utils/toast";
@@ -41,11 +39,7 @@ export function BackupReminder() {
         action: {
           label: "Download backup",
           onClick: () => {
-            const blob = new Blob([serializeBackup(collectBackup())], {
-              type: "application/json",
-            });
-            saveAs(blob, backupFilename());
-            recordBackup();
+            downloadBackup();
           },
         },
       });

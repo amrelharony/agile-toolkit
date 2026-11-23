@@ -1,7 +1,7 @@
 /**
  * Hand-offs: one tool sends an item to another.
  *
- *   retro action      → impediment, Kanban card
+ *   retro action      → impediment, Kanban card, backlog story
  *   standup blocker   → impediment
  *   premortem cause   → risk
  *   story-map card    → Planning Poker queue

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { ballotAad, type VoteCrypto } from "@/lib/realtime/vote-room/crypto";
@@ -143,6 +143,9 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+// The live room loads once a room opens (next/dynamic): warm it so the first wait is short.
+beforeAll(() => import("@/components/collab/vote-room/host-vote-room"));
+
 describe("VoteRoundPanel: an allocation tool", () => {
   it("offers paper splits when live rounds are off", async () => {
     vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", "");
@@ -157,7 +160,7 @@ describe("VoteRoundPanel: an allocation tool", () => {
     renderAllocation({ blockedReason: "Set the players and their budget first." });
     expect(screen.getByText("Set the players and their budget first.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Run a live round" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Enter counts instead" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Enter counts" })).toBeNull();
   });
 
   it("asks for items when there's nothing to split", () => {

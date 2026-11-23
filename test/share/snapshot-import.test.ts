@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { SNAPSHOT_IMPORTERS, snapshotValidators } from "@/lib/share/snapshot-import";
 import { KR_CHECK_IN_CAP, type StoryMap } from "@/lib/stores/workspace-types";
+import { RETRO_ARCHIVE_LIMIT } from "@/app/(tools)/retro/archive";
 
 beforeEach(() => {
   useWorkspaceStore.setState({ retroBoards: [], prioritizations: [], okrs: [], storyMaps: [] });
@@ -58,15 +59,16 @@ describe("snapshot import", () => {
   });
 
   it("makes room among full past retros, and Undo puts the oldest back", () => {
-    const past = Array.from({ length: 20 }, (_, i) => ({
+    // Past retros are full: one a day, the oldest first.
+    const past = Array.from({ length: RETRO_ARCHIVE_LIMIT }, (_, i) => ({
       ...retroState,
       id: `retro:${i}`,
-      archivedAt: `2026-01-${String(i + 1).padStart(2, "0")}T10:00:00.000Z`,
+      archivedAt: new Date(Date.UTC(2026, 0, 1 + i, 10)).toISOString(),
     }));
     useWorkspaceStore.setState({ retroBoards: past as never });
     const undo = SNAPSHOT_IMPORTERS.retro.importState(retroState);
     const ids = useWorkspaceStore.getState().retroBoards!.map((b) => b.id);
-    expect(ids).toHaveLength(20);
+    expect(ids).toHaveLength(RETRO_ARCHIVE_LIMIT);
     expect(ids).not.toContain("retro:0");
     undo!();
     expect(

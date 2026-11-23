@@ -82,6 +82,13 @@ export const VISITOR_HEADERS = {
   peakEnds: "x-visitor-ai-peak-ends",
 } as const;
 
+/**
+ * The finish_reason of the last event when the route ends an answer at its own
+ * time limit (lib/visitor-ai/time-limit.ts). The model never sends it, so the
+ * browser can tell "stopped by the clock" from a finished answer and say so.
+ */
+export const VISITOR_TIME_LIMIT_FINISH = "time_limit";
+
 /** Error codes, in the JSON body `{ error: code }` of a refusal. */
 export type VisitorErrorCode =
   /** 503: visitor AI is switched off (env or the config row). */
@@ -115,7 +122,7 @@ export type VisitorErrorCode =
   /** 504: the AI service didn't start answering in time. */
   | "timeout";
 
-/** Refusals that mean "no more AI today/now": the panel falls back to the offline guide. */
+/** Refusals that mean "no more AI today/now": the panel falls back to the tool finder. */
 export const VISITOR_FALLBACK_CODES: ReadonlySet<VisitorErrorCode> = new Set<VisitorErrorCode>([
   "disabled",
   "meter_unavailable",

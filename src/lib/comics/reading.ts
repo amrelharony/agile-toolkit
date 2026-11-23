@@ -157,6 +157,22 @@ export interface FirstRead {
   weekStreak: number;
 }
 
+/** The reading milestones the trophies mark: the tenth story read, a fourth week running. */
+export const MILESTONE_STORIES = 10;
+export const MILESTONE_WEEKS = 4;
+
+/**
+ * Whether this very read reached a milestone: it made the tenth story, or it was
+ * the first story of the fourth week running. `streakBefore` is the week streak
+ * just before it, so a second story in that same week (still four) isn't one.
+ */
+export function reachedMilestone(first: FirstRead, streakBefore: number): boolean {
+  return (
+    first.total === MILESTONE_STORIES ||
+    (first.weekStreak === MILESTONE_WEEKS && streakBefore !== MILESTONE_WEEKS)
+  );
+}
+
 /**
  * Note that story `ep` has been read. Returns null if it already was, or if the
  * note couldn't be kept: a story is only ever counted once.

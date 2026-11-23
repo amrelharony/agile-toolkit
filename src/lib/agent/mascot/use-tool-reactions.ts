@@ -15,11 +15,12 @@ import { useEffect } from "react";
 import { useHistoryStore } from "@/lib/history/history-store";
 import type { HistoryEvent } from "@/lib/history/types";
 import { RUN_LENGTH, RUN_WINDOW_MS, WORK_REACTIONS, pickFresh, remember } from "./brain/choose";
+import { noteTrouble } from "./companion";
 import { EMITTED, toolActionScenes } from "./context/tool-scenes";
 import { feel } from "./mind";
 import { useMascotStore, type MascotReaction } from "./store";
 import { installTimerWatch } from "./timer-watch";
-import { onToolMoment } from "./tool-moments";
+import { cheerPose, onToolMoment } from "./tool-moments";
 import { isCheerRecent, noteToolReaction } from "./use-celebration-reactions";
 
 /** One reaction at most this often, so a burst of edits isn't a jumping fit. */
@@ -225,6 +226,7 @@ export function installToolReactions(
   };
 
   const onAction = (toolId: string, action: string) => {
+    if (reactionForAction(action) === "downcast") noteTrouble(); // whatever answers it
     const scene = sceneForEvent(toolId, action, shipped, random);
     if (scene) return offer(`scene:${scene}`, RANK.scene);
     const pose = reactionForAction(action);
@@ -233,7 +235,13 @@ export function installToolReactions(
   };
   const onMoment = (toolId: string, name: string) => {
     const scene = sceneForMoment(toolId, name, shipped, random);
-    if (scene) offer(`scene:${scene}`, RANK.moment);
+    if (scene) return offer(`scene:${scene}`, RANK.moment);
+    // A tool asked him to celebrate (lib/celebrate/cheer.ts) and its table
+    // names no scene for it: his own cheer, or a dance for a milestone.
+    const pose = cheerPose(momentName(name));
+    if (!pose) return;
+    feel("finished");
+    offer(pose, RANK.moment);
   };
 
   let seen = lastId(useHistoryStore.getState().events);

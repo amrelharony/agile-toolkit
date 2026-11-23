@@ -3,8 +3,9 @@
 /**
  * Facilitator mode for the Vote phase. On one shared screen the facilitator
  * picks who the next vote belongs to ("Voting as"), and each person spends
- * their own MAX_VOTES. "Me (single voter)" is the board's original single
- * budget. Without a team roster the facilitator types the names in.
+ * their own budget (the board's "Votes each"). "Me (single voter)" is the
+ * board's original single budget. Without a team roster the facilitator
+ * types the names in.
  */
 
 import Link from "next/link";
@@ -15,7 +16,6 @@ import { Input } from "@/components/ui/input";
 import { Field } from "@/components/ui/field";
 import { ToggleGroup, type ToggleOption } from "@/components/ui/toggle-group";
 import type { Validation } from "@/lib/utils/form";
-import { MAX_VOTES } from "../types";
 import { votesCastBy } from "../helpers";
 
 /** The "Me (single voter)" choice: no name, so votes count in `userVotes`. */
@@ -36,6 +36,7 @@ export function validateVoterName(draft: VoterDraft): Validation<string, "name">
 export function VoterPicker({
   names,
   votesBy,
+  votesPerPerson,
   voter,
   onVoterChange,
   showAddVoter,
@@ -44,6 +45,8 @@ export function VoterPicker({
   /** Everyone who can vote, roster first. */
   names: string[];
   votesBy?: Record<string, number>;
+  /** Votes each person has (the board's "Votes each"). */
+  votesPerPerson: number;
   /** The name voting now, or SINGLE_VOTER. */
   voter: string;
   onVoterChange: (voter: string) => void;
@@ -61,7 +64,7 @@ export function VoterPicker({
   const options: ToggleOption<string>[] = [
     { value: SINGLE_VOTER, label: "Me (single voter)" },
     ...names.map((name) => {
-      const left = Math.max(0, MAX_VOTES - votesCastBy(votesBy, name));
+      const left = Math.max(0, votesPerPerson - votesCastBy(votesBy, name));
       return { value: name, label: `${name} · ${left} left` };
     }),
   ];
@@ -81,7 +84,7 @@ export function VoterPicker({
         />
       </div>
       <p className="text-xs text-sub">
-        On a shared screen, pick a name before each vote. Everyone gets {MAX_VOTES} votes.
+        On a shared screen, pick a name before each vote. Everyone gets {votesPerPerson} votes.
       </p>
       {showAddVoter && (
         <div className="flex flex-wrap items-end gap-x-3 gap-y-2">

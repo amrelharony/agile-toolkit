@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import {
   act,
   fireEvent,
@@ -157,6 +157,10 @@ import { useAutoSeat } from "@/app/(tools)/planning-poker/use-auto-seat";
 import { LOCAL_SESSION_KEY } from "@/app/(tools)/planning-poker/local-session";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import type { Session } from "@/app/(tools)/planning-poker/types";
+import { SHORTENED_MARK } from "@/app/(tools)/planning-poker/visitor-session";
+import { pokerQueueRoute, storyQueueSource } from "@/lib/handoffs/targets/poker-queue";
+import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 
 type FakeChannel = (typeof h.channels)[number];
 
@@ -223,7 +227,8 @@ function addStory(title: string) {
 }
 
 /** The host's path: lobby → "Start a live room" → consent → live. */
-function startLiveRoom(name = "Ana") {
+/** Starts the room, then waits for its bar: it loads only once a room opens (next/dynamic). */
+async function startLiveRoom(name = "Ana") {
   const utils = render(<PlanningPokerClient />);
   fireEvent.click(screen.getByRole("button", { name: "Start a live room" }));
   const dialog = screen.getByRole("dialog", { name: "Start a live Planning Poker room" });
@@ -234,8 +239,12 @@ function startLiveRoom(name = "Ana") {
   presenceSync(ch);
   const hostId = states(ch)[0]?.by;
   if (!hostId) throw new Error("the host never sent its session");
+  await screen.findByRole("button", { name: "Copy link" });
   return { ...utils, ch, hostId };
 }
+
+// The room bar's module, warmed so the first wait for it is short.
+beforeAll(() => import("@/app/(tools)/planning-poker/poker-room-bar"));
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_VISITOR_ROOMS", "1");
@@ -269,6 +278,30 @@ describe("Start a live room (host, tool page)", () => {
     h.auth = { status: "authenticated", user: owner };
     render(<PlanningPokerClient />);
     expect(screen.queryByRole("button", { name: "Start a live room" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "How will you run it?" })).toBeNull();
+  });
+
+  it("sits beside Start Session as the two named ways, with the room's limits", () => {
+    render(<PlanningPokerClient />);
+    const choice = screen.getByRole("group", { name: "How will you run it?" });
+    const one = within(choice).getByRole("group", { name: "One screen" });
+    const own = within(choice).getByRole("group", { name: "Everyone on their own device" });
+    expect(within(one).getByRole("button", { name: "Start Session" })).toBeInTheDocument();
+    expect(within(own).getByRole("button", { name: "Start a live room" })).toBeInTheDocument();
+    expect(within(own).getByText(/No account needed, for you or your guests\./)).toHaveTextContent(
+      "Up to 20 people, for up to 3 hours. We store nothing."
+    );
+    // The card under it still explains the one-screen way.
+    expect(screen.getByText("Running it with your team")).toBeInTheDocument();
+    expect(screen.getByText(/On one screen: share it in your meeting/)).toBeInTheDocument();
+  });
+
+  it("still starts on one screen when the form is submitted (Enter in a field)", () => {
+    render(<PlanningPokerClient />);
+    fireEvent.submit(screen.getByLabelText("Session name").closest("form")!);
+    expect(h.client.channel).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.queryByRole("group", { name: "How will you run it?" })).toBeNull();
   });
 
   it("opens no channel before consent, nor when consent is cancelled", () => {
@@ -285,24 +318,24 @@ describe("Start a live room (host, tool page)", () => {
     expect(screen.getByRole("button", { name: "Start Session" })).toBeInTheDocument();
   });
 
-  it("goes live on a visitor channel with a 12-character code after consent", () => {
-    const { ch, hostId } = startLiveRoom("Ana");
+  it("goes live on a visitor channel with a 12-character code after consent", async () => {
+    const { ch, hostId } = await startLiveRoom("Ana");
     expect(h.client.channel).toHaveBeenCalledTimes(1);
     expect(ch.name).toMatch(/^visitor:planning-poker:[23456789A-HJKMNP-Z]{12}$/);
     const code = ch.name.split(":")[2];
     // The host's seat is the consented identity.
     expect(hostId).toMatch(/^[A-Za-z0-9_-]{16}$/);
     expect(states(ch)[0].state).toMatchObject({ roomCode: code, hostId, host: "Ana" });
-    // The chip carries the code and the copy link; no squad invite.
-    expect(screen.getByText(code)).toBeInTheDocument();
+    // The chip carries the code (in groups of four) and the copy link; no squad invite.
+    expect(screen.getByText(code.match(/.{4}/g)!.join("-"))).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Copy link" })).toBeInTheDocument();
     expect(screen.getByText("1 of 20 people")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Invite squad" })).toBeNull();
     expect(screen.queryByText("Browser-only")).toBeNull();
   });
 
-  it("removes a participant: kick message, seat gone, later rows ignored", () => {
-    const { ch, hostId } = startLiveRoom();
+  it("removes a participant: kick message, seat gone, later rows ignored", async () => {
+    const { ch, hostId } = await startLiveRoom();
     arrive(ch, ME.id, ME.name);
     const withMe = (vote: string | null) => ({
       state: {
@@ -331,8 +364,8 @@ describe("Start a live room (host, tool page)", () => {
     ).toEqual([hostId]);
   });
 
-  it("logs nothing to history and writes nothing back while live", () => {
-    startLiveRoom();
+  it("logs nothing to history and writes nothing back while live", async () => {
+    await startLiveRoom();
     addStory("Checkout flow");
     const deck = screen.getByRole("radiogroup", { name: "Your vote" });
     fireEvent.click(within(deck).getByRole("radio", { name: "5" }));
@@ -341,8 +374,43 @@ describe("Start a live room (host, tool page)", () => {
     expect(h.log).not.toHaveBeenCalled();
   });
 
-  it("ending the room keeps the session locally, with only the host's seat", () => {
-    const { ch, hostId } = startLiveRoom();
+  it("takes a queue of fully described stories without going over the room's size limit", async () => {
+    // 40 backlog stories with full notes and acceptance criteria: about
+    // 160,000 characters of description, more than the room sends at once.
+    const text = (word: string) => `- ${word} of the story\n`.repeat(120).slice(0, 2_000);
+    useWorkspaceStore.setState({ pokerEstimationLogs: [] });
+    for (let i = 0; i < 40; i++) {
+      pokerQueueRoute.send(
+        storyQueueSource({
+          id: `st${i}`,
+          title: `Queued story ${i}`,
+          notes: text("note"),
+          acceptanceCriteria: text("criterion"),
+        })
+      );
+    }
+    const { ch } = await startLiveRoom();
+    const before = states(ch).length;
+    fireEvent.click(screen.getByRole("button", { name: "Add queued stories (40)" }));
+
+    // The room got the session, with every story: nothing was refused.
+    expect(h.toast.error).not.toHaveBeenCalled();
+    expect(states(ch).length).toBeGreaterThan(before);
+    const sent = states(ch).at(-1)!;
+    expect(sent.state.stories.map((st) => st.title)).toEqual(
+      Array.from({ length: 40 }, (_, i) => `Queued story ${i}`)
+    );
+    expect(JSON.stringify(sent).length).toBeLessThanOrEqual(VISITOR_LIMITS.maxPayloadChars);
+    // Each description was shortened, and says so.
+    for (const st of sent.state.stories) {
+      expect(st.description?.startsWith("- note of the story")).toBe(true);
+      expect(st.description?.endsWith(SHORTENED_MARK)).toBe(true);
+    }
+    useWorkspaceStore.setState({ pokerEstimationLogs: [] });
+  });
+
+  it("ending the room keeps the session locally, with only the host's seat", async () => {
+    const { ch, hostId } = await startLiveRoom();
     const code = ch.name.split(":")[2];
     addStory("Checkout flow");
     arrive(ch, ME.id, ME.name);
@@ -376,8 +444,8 @@ describe("Start a live room (host, tool page)", () => {
     expect(h.client.channel).toHaveBeenCalledTimes(1);
   });
 
-  it("restoring the session after a refresh never reconnects the room", () => {
-    const first = startLiveRoom();
+  it("restoring the session after a refresh never reconnects the room", async () => {
+    const first = await startLiveRoom();
     addStory("Checkout flow");
     arrive(first.ch, ME.id, ME.name);
     send(first.ch, "poker:state", {

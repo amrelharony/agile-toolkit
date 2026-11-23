@@ -1,0 +1,18 @@
+{
+  "about": "Single-slot corrections on top of the refined release (refined-original-release.json). scripts/patch-refined-slots.py writes them into the sources folder; scripts/build-mascot-packs.py refuses a folder where a patched sheet is still the release's. The cell PNGs live with the sources, outside git.",
+  "patches": [
+    {
+      "sheet": "S64",
+      "file": "S64-lights.png",
+      "slot": 4,
+      "frame": "lights.sweep",
+      "cell": "S64-slot4-flashlight.png",
+      "cell_sha256": "371eee2b56e049179e586977343a92e818a4e63070434c23fcbdf11d79a181f8",
+      "source": "AMR_Flashlight_Corrected_API.zip of 17 November 2026 (closed-grip revision, gpt-image-2.5 through the API): AMR_Flashlight_Corrected_384x512.png",
+      "why": "The release drew his lowered left hand as a small claw, and the torch threw no light. The revision redraws the whole frame from the approved standing master: a natural left hand with the watch on that wrist, the torch held in a closed grip in his right, and a warm beam from its lens.",
+      "pixels_sha256": "ff02c9c5a35b3cd5d6f233983705e7c790b0969b4ea7bc1297017cfac468eb02",
+      "head_scale": 1.1,
+      "head_scale_why": "The redrawn head came out about 16% under the live idle's and its scene neighbours' (width 0.79, height 0.84), so it shrank for 1.1 s between lights.torch and lights.ok. x1.10 brings it to width 0.88, height 0.92, inside the 15% rule; three judges passed it with no seam at the collar, lanyard or hairline (x1.18 overshot the neighbours)."
+    }
+  ]
+}

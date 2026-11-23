@@ -161,18 +161,23 @@ export function KudosWall({
   }, [kudos, limit]);
 
   if (kudos.length === 0) {
+    // The guest kudos page puts this straight on the page paper, grained in
+    // Comic and Night: a flat bg-bg under the see-through box keeps the grain
+    // out from behind its words.
     return (
-      <div
-        role="status"
-        aria-live="polite"
-        className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-surface/40 px-6 py-12 text-center"
-      >
-        <Sparkles className="h-8 w-8 text-accent/40" aria-hidden="true" />
-        <p className="text-sm text-text">No kudos yet</p>
-        <p className="text-xs text-sub max-w-sm">
-          Send the first one with the form on the left. Kudos appear here for everyone in the
-          session.
-        </p>
+      <div className="rounded-lg bg-bg">
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-surface/40 px-6 py-12 text-center"
+        >
+          <Sparkles className="h-8 w-8 text-accent/40" aria-hidden="true" />
+          <p className="text-sm text-text">No kudos yet</p>
+          <p className="text-xs text-sub max-w-sm">
+            Send the first one with the form on the left. Kudos appear here for everyone in the
+            session.
+          </p>
+        </div>
       </div>
     );
   }

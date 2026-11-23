@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import type { RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import {
+  RETRO_ACTION_ROUTES,
   RETRO_CURRENT_ID,
   collectRetroActions,
   summarizeRetroActions,
+  targetDoneIn,
   withActionDone,
   withActionPatch,
 } from "@/lib/retro/actions";
@@ -91,6 +93,77 @@ describe("collectRetroActions", () => {
   it("summarises open, overdue and done", () => {
     const actions = collectRetroActions([OLD, LAST, CURRENT], { today: "2026-10-22" });
     expect(summarizeRetroActions(actions)).toEqual({ open: 4, overdue: 1, done: 1 });
+  });
+});
+
+describe("where a retro action can go, and when its target closes it", () => {
+  const link = (route: "impediment" | "kanban" | "backlog-story" | "risk", targetId: string) => ({
+    route,
+    targetId,
+    at: "2026-10-06",
+  });
+
+  it("offers the impediments log, the Flow board and the backlog as a story", () => {
+    expect(RETRO_ACTION_ROUTES).toEqual(["impediment", "kanban", "backlog-story"]);
+  });
+
+  it("reads a story as done only while it exists and is in Done", () => {
+    const done = targetDoneIn({
+      stories: [
+        { id: "st-done", title: "A", status: "done" },
+        { id: "st-open", title: "B", status: "in_progress" },
+      ],
+    });
+    expect(done(link("backlog-story", "st-done"))).toBe(true);
+    expect(done(link("backlog-story", "st-open"))).toBe(false);
+    // A deleted story: the link stops counting, so the action is open again.
+    expect(done(link("backlog-story", "st-gone"))).toBe(false);
+  });
+
+  it("keeps the impediment and Kanban rules, and says no for a route it can't read", () => {
+    const done = targetDoneIn({
+      impediments: [
+        {
+          id: "i1",
+          title: "VPN",
+          severity: "high",
+          raisedAt: "2026-10-01",
+          resolvedAt: "2026-10-03",
+        },
+        { id: "i2", title: "CI", severity: "low", raisedAt: "2026-10-01" },
+      ],
+      kanbanBoards: [
+        {
+          id: "kanban:current",
+          cards: [
+            { id: "k1", title: "Done card", column: "done" },
+            { id: "k2", title: "Open card", column: "backlog" },
+          ],
+        } as never,
+      ],
+    });
+    expect(done(link("impediment", "i1"))).toBe(true);
+    expect(done(link("impediment", "i2"))).toBe(false);
+    expect(done(link("kanban", "k1"))).toBe(true);
+    expect(done(link("kanban", "k2"))).toBe(false);
+    expect(done(link("risk", "i1"))).toBe(false);
+    // Nothing to read at all.
+    expect(targetDoneIn({})(link("backlog-story", "st-done"))).toBe(false);
+  });
+
+  it("closes an action through its story, and reopens it when the story is deleted", () => {
+    const sent = board(RETRO_CURRENT_ID, [card("s1", { sentTo: [link("backlog-story", "st-1")] })]);
+    const read = (stories: { id: string; title: string; status: "done" | "todo" }[]) =>
+      collectRetroActions([sent], {
+        today: "2026-10-22",
+        targetDone: targetDoneIn({ stories }),
+      })[0];
+    expect(read([{ id: "st-1", title: "S", status: "todo" }])).toMatchObject({ done: false });
+    expect(read([{ id: "st-1", title: "S", status: "done" }])).toMatchObject({
+      done: true,
+      closedByTarget: true,
+    });
+    expect(read([])).toMatchObject({ done: false, closedByTarget: false });
   });
 });
 

@@ -3,8 +3,11 @@
 /**
  * The lobby: name the session, pick a deck, say who you are, then start a
  * session on this screen, one with the queued stories, or a visitor's live
- * room. Every start goes through the same checks (./lobby), so a bad deck
- * says so here instead of being dropped by the room.
+ * room. Where a live room is offered, the two starts sit side by side as
+ * the two named ways to run it ("One screen", "Everyone on their own
+ * device", see components/collab/run-modes). Every start goes through the
+ * same checks (./lobby), so a bad deck says so here instead of being
+ * dropped by the room.
  */
 
 import { useRef } from "react";
@@ -15,7 +18,7 @@ import { Field } from "@/components/ui/field";
 import { SectionCard } from "@/components/shared/section-card";
 import { useItemForm } from "@/components/shared/item-form";
 import { LoadExampleButton } from "@/components/tool-frame/example-data";
-import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
+import { RunModeChoice } from "@/components/collab/run-modes";
 import { cn } from "@/lib/utils";
 import { SCALE_LABELS, type ScaleType } from "./types";
 import {
@@ -28,8 +31,6 @@ import {
   type LobbyField,
   type StartValues,
 } from "./lobby";
-
-const ROOM_TTL_HOURS = Math.round(VISITOR_LIMITS.hardTtlMs / 3_600_000);
 
 export interface StartData extends StartValues {
   /** Open the session with the queued stories already in it. */
@@ -80,6 +81,12 @@ export function LobbyScreen({
     if (!form.submit()) mode.current = "plain";
   };
   const preview = deckFor(draft);
+  // A plain start, on this screen. Enter in a field does the same.
+  const startButton = (
+    <Button type="submit" className="font-semibold h-11">
+      Start Session
+    </Button>
+  );
 
   return (
     <div className="max-w-xl mx-auto flex flex-col gap-6">
@@ -175,9 +182,41 @@ export function LobbyScreen({
             )}
           </Field>
 
-          <Button type="submit" className="font-semibold h-11">
-            Start Session
-          </Button>
+          {onStartLive ? (
+            <RunModeChoice
+              oneScreen={{
+                description: "You run it here and share your screen. Add your team once it starts.",
+                action: startButton,
+              }}
+              ownDevice={{
+                description:
+                  "Everyone votes from their own phone or laptop, through a link or a QR code.",
+                action: liveRoomPending ? (
+                  <div className="flex flex-wrap items-center gap-2" role="status">
+                    <Loader2 className="h-4 w-4 animate-spin text-accent" aria-hidden="true" />
+                    <span className="text-sm text-text">Opening the live room…</span>
+                    {onCancelLive && (
+                      <Button type="button" variant="ghost" size="sm" onClick={onCancelLive}>
+                        Cancel
+                      </Button>
+                    )}
+                  </div>
+                ) : (
+                  <Button
+                    type="button"
+                    variant="toolkit"
+                    onClick={() => startAs("live")}
+                    className="gap-2"
+                  >
+                    <Radio className="h-4 w-4" aria-hidden="true" />
+                    Start a live room
+                  </Button>
+                ),
+              }}
+            />
+          ) : (
+            startButton
+          )}
         </form>
         {queuedCount > 0 && (
           <div className="flex flex-col gap-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
@@ -202,38 +241,10 @@ export function LobbyScreen({
         <p className="text-sm text-sub">
           {isOwner
             ? "Guest joiners use a squad invite (Settings → Squads). Once you start a session you can invite your squad from the header."
-            : "This session runs on your screen. Share it in your meeting and add your team once it starts. Read each story aloud, record everyone's card face down or pass the screen round, then reveal together and agree the estimate."}
+            : onStartLive
+              ? "On one screen: share it in your meeting and add your team once it starts. Read each story aloud, record everyone's card face down or pass the screen round, then reveal together and agree the estimate. In a live room everyone picks their own card, and the room closes when you end it."
+              : "This session runs on your screen. Share it in your meeting and add your team once it starts. Read each story aloud, record everyone's card face down or pass the screen round, then reveal together and agree the estimate."}
         </p>
-        {onStartLive && (
-          <div className="mt-2 flex flex-col gap-2 border-t border-border pt-3">
-            <p className="text-sm text-sub">
-              Or start a live room: everyone votes from their own device through a link. Up to{" "}
-              {VISITOR_LIMITS.maxMembers} people. Nothing is stored, and the room closes when you
-              end it, or after {ROOM_TTL_HOURS} hours.
-            </p>
-            {liveRoomPending ? (
-              <div className="flex flex-wrap items-center gap-2" role="status">
-                <Loader2 className="h-4 w-4 animate-spin text-accent" aria-hidden="true" />
-                <span className="text-sm text-text">Opening the live room…</span>
-                {onCancelLive && (
-                  <Button type="button" variant="ghost" size="sm" onClick={onCancelLive}>
-                    Cancel
-                  </Button>
-                )}
-              </div>
-            ) : (
-              <Button
-                type="button"
-                variant="toolkit"
-                onClick={() => startAs("live")}
-                className="gap-2 self-start"
-              >
-                <Radio className="h-4 w-4" aria-hidden="true" />
-                Start a live room
-              </Button>
-            )}
-          </div>
-        )}
       </SectionCard>
     </div>
   );

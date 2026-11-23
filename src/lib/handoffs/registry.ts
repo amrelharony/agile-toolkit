@@ -2,8 +2,9 @@
  * Hand-off routes, and the small link helpers both sides use.
  *
  * Which source offers which route is decided at the call site (a retro
- * action offers impediment and kanban; a premortem cause offers risk), so a
- * route knows only how to create, remove and find its target.
+ * action offers impediment, kanban and backlog story; a premortem cause
+ * offers risk), so a route knows only how to create, remove and find its
+ * target.
  *
  * `decision` writes the one decision record the Decision Log, DACI and
  * RAPID share (workspace.decisions, lib/decisions). A route whose target
@@ -14,6 +15,7 @@
  */
 
 import type { HandoffLink, HandoffRef, HandoffRoute, HandoffRouteId } from "./types";
+import { findLink } from "./links";
 import { impedimentRoute } from "./targets/impediment";
 import { kanbanRoute } from "./targets/kanban";
 import { riskRoute } from "./targets/risk";
@@ -25,6 +27,7 @@ import { hypothesisRoute } from "./targets/hypothesis";
 import { decisionRoute } from "./targets/decision";
 import { dependencyRoute } from "./targets/dependency";
 import { opportunityRoute } from "./targets/opportunity";
+import { rootCauseRoute } from "./targets/root-cause";
 
 /** One route per id in HANDOFF_ROUTE_IDS: a stored link on any of them reads through its route. */
 export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
@@ -39,6 +42,7 @@ export const HANDOFF_ROUTES: Readonly<Record<HandoffRouteId, HandoffRoute>> = {
   decision: decisionRoute,
   dependency: dependencyRoute,
   opportunity: opportunityRoute,
+  "root-cause": rootCauseRoute,
 };
 
 export function getHandoffRoute(id: HandoffRouteId): HandoffRoute {
@@ -66,6 +70,9 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   "scrum-of-scrums": { name: "Scrum of Scrums", href: "/scrum-of-scrums" },
   // Run the sprint
   "async-standup": { name: "async standup", href: "/async-standup" },
+  // An open impediment planned into a sprint as a story (Sprint Planning's
+  // "From the last retro" panel): the story links back to the log.
+  impediments: { name: "impediments", href: "/impediments" },
   "sprint-review": { name: "Sprint Review", href: "/sprint-review" },
   // Retrospect & improve
   "six-hats": { name: "six hats", href: "/six-hats" },
@@ -108,6 +115,19 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   "squad-session": { name: "Squad Session Kit", href: "/squad-session" },
   // A story's question for the team, sent from the story's page.
   comics: { name: "Agile at Work", href: "/comics" },
+  // Phase 42, the tools plan's phase 1: listed ahead of their senders, which
+  // each tool's builder adds (a parked point, a countermeasure, wall feedback
+  // turned into backlog items, an interrupt, a note).
+  "parking-lot": { name: "parking lot", href: "/parking-lot" },
+  "root-cause": { name: "root-cause analysis", href: "/root-cause" },
+  "audience-wall": { name: "Audience Wall", href: "/audience-wall" },
+  // A saved vote's result, sent to the Decision Log or the retro.
+  "quick-vote": { name: "Quick Vote", href: "/quick-vote" },
+  "interrupt-buffer": { name: "interrupt buffer", href: "/interrupt-buffer" },
+  "sm-notebook": { name: "Scrum Master Notebook", href: "/sm-notebook" },
+  // A contributing factor taken to Root Cause (its analysis's sourceRef): the
+  // plan's hand-off from Post-Mortem, whose sender Root Cause's builder adds.
+  "post-mortem": { name: "post-mortem", href: "/post-mortem" },
 };
 
 /** The sending tool, or undefined for one not listed (never an inherited key like "constructor"). */
@@ -136,33 +156,17 @@ export function sourceHref(ref: HandoffRef | undefined): string | null {
   if ((ref?.tool === "squad-session" || ref?.tool === "comics") && ref.doc) {
     return `${tool.href}?ep=${encodeURIComponent(ref.doc)}`;
   }
+  // A countermeasure sent from Root Cause opens its analysis.
+  if (ref?.tool === "root-cause" && ref.id) {
+    return `${tool.href}?analysis=${encodeURIComponent(ref.id)}`;
+  }
   return tool.href;
 }
 
 /* ── Links on the source item ────────────────────────────────────────── */
 
-export function findLink(
-  links: readonly HandoffLink[] | undefined,
-  route: HandoffRouteId
-): HandoffLink | undefined {
-  return (links ?? []).find((l) => l.route === route);
-}
-
-/** The links with `link` recorded; it replaces an older link on its route. */
-export function withLink(
-  links: readonly HandoffLink[] | undefined,
-  link: HandoffLink
-): HandoffLink[] {
-  return [...(links ?? []).filter((l) => l.route !== link.route), link];
-}
-
-/** The links without `link` (matched on route and target). */
-export function withoutLink(
-  links: readonly HandoffLink[] | undefined,
-  link: HandoffLink
-): HandoffLink[] {
-  return (links ?? []).filter((l) => !(l.route === link.route && l.targetId === link.targetId));
-}
+// The plain list helpers live in ./links, which loads no route.
+export { findLink, withLink, withoutLink } from "./links";
 
 /**
  * The link on `route` whose target still exists. A send whose target was

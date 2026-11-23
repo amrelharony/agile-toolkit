@@ -1,4 +1,0 @@
-Contact: mailto:a.elharony@gmail.com
-Expires: 2027-05-23T00:00:00.000Z
-Preferred-Languages: en
-Canonical: https://agile.amrelharony.com/.well-known/security.txt

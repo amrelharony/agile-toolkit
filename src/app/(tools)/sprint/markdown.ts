@@ -7,7 +7,8 @@ import {
   daysOverdue,
   impedimentStatus,
 } from "@/lib/impediments/model";
-import { cockpitTiles, localDay, type CockpitData } from "./view";
+import { RISK_LEVEL_LABEL } from "@/lib/sprints/risk";
+import { cockpitNotes, cockpitTiles, localDay, type CockpitData } from "./view";
 import { cockpitVerdict } from "./verdict";
 
 /** A table cell: one line, pipes escaped. */
@@ -83,6 +84,20 @@ export function cockpitMarkdown({
   );
   if (sprint.goal?.trim()) lines.push(`**Goal:** ${cell(sprint.goal)}  `);
   lines.push("", cockpitVerdict(data, today));
+
+  // The goal check, while the sprint runs (lib/sprints/risk).
+  const { risk } = data;
+  if (risk?.applies) {
+    lines.push("", `**Goal check: ${RISK_LEVEL_LABEL[risk.level]}.** ${cell(risk.headline)}`);
+    if (risk.reasons.length > 0) {
+      lines.push(
+        "",
+        ...risk.reasons.map(
+          (r) => `- ${RISK_LEVEL_LABEL[r.level]}: ${cell(r.text)} Try: ${cell(r.tryThis)}`
+        )
+      );
+    }
+  }
 
   lines.push(
     "",
@@ -206,6 +221,13 @@ export function cockpitMarkdown({
     );
   }
 
+  if (data.interrupts) {
+    lines.push("", "## Interrupt buffer", "", cell(data.interrupts.summary));
+    if (data.interrupts.over) {
+      lines.push("", "The buffer is spent: the Emergency Procedure applies.");
+    }
+  }
+
   lines.push("", "## Retrospective", "");
   const { retro } = data;
   if (retro.currentCards > 0) {
@@ -216,6 +238,9 @@ export function cockpitMarkdown({
   } else {
     lines.push("No retro for this sprint yet.");
   }
+  // How much of the retro's improvement work the sprint holds, as its card says.
+  const improvement = cockpitNotes(data).find((n) => n.id !== "goal-answer");
+  if (improvement) lines.push("", `**Improvement work:** ${cell(improvement.title)}.`);
   if (data.openActions.length > 0) {
     lines.push(
       "",

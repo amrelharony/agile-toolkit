@@ -15,6 +15,7 @@
 
 import type { SpritePose } from "./sprite-poses";
 import { clip, s, times, type Clip, type FrameRef, type Step } from "./clips";
+import { EXPANSION_SHEETS, type ExpansionFamily } from "./expansion-table";
 
 /** A frame of a context sheet, which the manifest has only once its pack ships. */
 const f = (id: string, ms: number): Step => s(id as FrameRef, ms);
@@ -24,8 +25,30 @@ const swing = (a: string, b: string, ms: number, n: number): Step[] => times(n, 
 
 type Fallback = SpritePose;
 
-function scene(name: string, fallback: Fallback, steps: Step[]): [string, Clip] {
-  return [name, clip(`scene:${name}`, fallback, steps)];
+function scene(
+  name: string,
+  fallback: Fallback,
+  steps: Step[],
+  extra: Partial<Pick<Clip, "loop" | "still">> = {}
+): [string, Clip] {
+  return [name, clip(`scene:${name}`, fallback, steps, extra)];
+}
+
+/**
+ * A companion scene (docs/mascot/companion-scenes.json, N01–N10): its pack's
+ * frames as [pose, ms], in story order. `hold` frames repeat for as long as the
+ * scene is held (HOLD_SCENES), and the first of them is the reduced-motion still.
+ */
+function companion(
+  pack: string,
+  fallback: Fallback,
+  frames: Array<[string, number]>,
+  hold?: Array<[string, number]>
+): [string, Clip] {
+  const step = ([pose, ms]: [string, number]) => f(`${pack}.${pose}`, ms);
+  if (!hold) return scene(pack, fallback, frames.map(step));
+  const loop = hold.map(step);
+  return scene(pack, fallback, frames.map(step), { loop, still: loop[0].f });
 }
 
 /** A tool sheet's scene (S65 on): its frames as [pose, ms], from the pack it's named after. */
@@ -36,6 +59,34 @@ function tool(name: string, fallback: Fallback, frames: Array<[string, number]>)
     fallback,
     frames.map(([pose, ms]) => f(`${pack}.${pose}`, ms))
   );
+}
+
+/**
+ * An expansion scene (docs/mascot/expansion-sheets.json, X001–X124): its pack's key
+ * poses in order, each 600 ms, the last held 1.6 s and the reduced-motion still (the
+ * release's loop rule for all of them: play once, hold the final pose). A sheet whose
+ * final beats are drawn wrong ends on its table's `last` until redrawn; a named
+ * variant ends earlier where a trigger holds an earlier beat (x112.filter), where
+ * a tool's preview must stop before an outcome nothing records (x036.preview), or
+ * where a real event did less than the sheet's last beats show (x016.sent).
+ *
+ * The stand-in while a pack loads is a pose with no gesture: the review pose's
+ * thumbs-up would read as a pass several of these rules forbid.
+ */
+const EXPANSION_FALLBACK: Readonly<Record<ExpansionFamily, Fallback>> = {
+  reading: "idle",
+  tools: "idle",
+  team: "idle",
+  cast: "idle",
+  guides: "waiting",
+  play: "idle",
+};
+
+function expansion(pack: string, fallback: Fallback, last = 8, name = pack): [string, Clip] {
+  const steps = Array.from({ length: last }, (_, i) =>
+    f(`${pack}.${i + 1}`, i + 1 === last ? 1600 : 600)
+  );
+  return scene(name, fallback, steps);
 }
 
 const LIST: Array<[string, Clip]> = [
@@ -1260,6 +1311,153 @@ const LIST: Array<[string, Clip]> = [
     ["fixed", 1200],
     ["wipe", 1100],
   ]),
+
+  // ── Companion scenes (N01–N10, docs/mascot/companion-scenes.json) ───────────
+  // Baked scenes, a colleague beside him in most. When each may play is the
+  // sheet's `gate`; the hooks are listed in COMPANION_SCENES below.
+  companion("reviewer", "review", [
+    ["offer", 600],
+    ["book", 600],
+    ["compare", 600],
+    ["correct", 600],
+    ["show", 600],
+    ["approve", 600],
+    ["present", 1050],
+  ]),
+  companion("dino", "review", [
+    ["offer", 600],
+    ["take", 600],
+    ["consider", 600],
+    ["choose", 600],
+    ["return", 600],
+    ["keep", 600],
+    ["present", 1050],
+  ]),
+  companion("rabbit", "waiting", [
+    ["arrive", 400],
+    ["pause", 400],
+    ["reassure", 400],
+    ["card", 400],
+    ["present", 500],
+    ["encourage", 500],
+    ["relax", 500],
+  ]),
+  companion("octopus", "waiting", [
+    ["offer", 600],
+    ["pause", 600],
+    ["collect", 600],
+    ["organise", 600],
+    ["focus", 600],
+    ["park", 600],
+    ["handle", 1050],
+  ]),
+  companion("ahwa", "idle", [
+    ["after", 600],
+    ["glance", 600],
+    ["look", 600],
+    ["chuckle", 600],
+    ["relax", 600],
+    ["settle", 600],
+    ["calm", 1050],
+  ]),
+  companion("escape", "jumping", [
+    ["slip", 600],
+    ["reach", 600],
+    ["catch", 600],
+    ["examine", 600],
+    ["place", 600],
+    ["pin", 600],
+    ["show", 1050],
+  ]),
+  companion("comic", "review", [
+    ["hold", 600],
+    ["read", 600],
+    ["idea", 600],
+    ["take", 600],
+    ["close", 600],
+    ["offer", 600],
+    ["encourage", 1050],
+  ]),
+  companion("retry", "waiting", [
+    ["notice", 600],
+    ["sympathy", 600],
+    ["unfold", 600],
+    ["smooth", 600],
+    ["show", 600],
+    ["offer", 600],
+    ["encourage", 1050],
+  ]),
+  // Held while a two-choice card waits: the offer once, then waiting, no default.
+  companion(
+    "decide",
+    "waiting",
+    [
+      ["present", 600],
+      ["blue", 600],
+      ["purple", 600],
+      ["both", 600],
+      ["step", 600],
+    ],
+    [
+      ["wait-a", 1500],
+      ["wait-b", 1500],
+    ]
+  ),
+  // Held while the visitor's own Quiet setting applies: the bell covered, then calm.
+  companion(
+    "quiet",
+    "idle",
+    [
+      ["bell", 600],
+      ["notice", 600],
+      ["cover", 600],
+      ["hush", 600],
+      ["away", 600],
+    ],
+    [
+      ["settle-a", 3000],
+      ["settle-b", 3000],
+    ]
+  ),
+  ...EXPANSION_SHEETS.map(({ pack, family, last }) =>
+    expansion(pack, EXPANSION_FALLBACK[family], last)
+  ),
+  // Search tools: the explanatory filter moment only (X112's first five beats, held on
+  // 5); the full scene's beats 6–8 are its deliberate reset.
+  expansion("x112", "waiting", 5, "x112.filter"),
+  // The tool lab's previews (context/tool-scenes.ts): each stops before the outcome its
+  // trigger keeps for an event the tool doesn't record.
+  // Tech Radar's ring and direction are in the payload: the peg drawn free, not yet seated.
+  expansion("x025", "idle", 3, "x025.lift"),
+  // Vuln Burndown has no recheck: the tile mended, the collar raised, before the fit check.
+  expansion("x036", "idle", 4, "x036.preview"),
+  // A11y Tracker has no keyboard retest: the lip folded down (the fix), before the retest.
+  expansion("x038", "idle", 5, "x038.preview"),
+  // LLM Eval Tracker logs scores, not a comparison: the strips lined up, no mismatch shown.
+  expansion("x040", "idle", 4, "x040.preview"),
+  // Hallucination Log records no source: the footing inspected, the claim not yet on it.
+  expansion("x043", "idle", 4, "x043.preview"),
+  // AI Red Team has no rerun: the flap latched and the hook regripped, before the rerun.
+  expansion("x049", "idle", 5, "x049.preview"),
+  // RLHF Log logs ties too, unseen: the blinded pair compared, before a preference is kept.
+  expansion("x051", "idle", 5, "x051.compare"),
+  // Real events elsewhere (EVENT_SCENES, the cast rows of context/tool-scenes.ts) that
+  // stop before a beat claiming more than the event did.
+  // The guestbook only takes a note in to wait for approval: the note written and the pen
+  // capped, not beat 8 presenting the page as if the note showed there.
+  expansion("x016", "idle", 7, "x016.sent"),
+  // A love or a Seen answer is kept here and maybe counted: the card brought to the slot,
+  // before beat 7 drops it in (illustration only, by its own beat) and 8's thumbs-up. It
+  // ends on beat 5, since beat 6's box swings in front of him (AMR-EXPANSION-FIX-1.md).
+  expansion("x017", "idle", 5, "x017.card"),
+  // A test created hasn't run: the spacer fitted and the cart back at the start, before
+  // beat 7 shows it crossing the join.
+  expansion("x095", "idle", 6, "x095.setup"),
+  // Present mode: the eight beats, then frame 8 held for as long as the presentation lasts.
+  scene("x111.present", "idle", [...expansion("x111", "idle")[1].steps], {
+    loop: [f("x111.8", 2000)],
+    still: "x111.8" as FrameRef,
+  }),
 ];
 
 /** Every scene, by name (`sun`, `rain.under`, `poker.reveal`, …). */
@@ -1269,3 +1467,82 @@ export type SceneName = string;
 
 /** The reaction that plays a scene. */
 export const sceneReaction = (name: SceneName) => `scene:${name}` as const;
+
+/**
+ * Where explicit play (the Scenes tab, /play x###) wants a named variant rather
+ * than the whole sheet. X112's rule holds beat 5, the explanatory filter moment;
+ * its beats 6–8 are a deliberate reset, so asked for, it plays the filter variant.
+ * The Scenes tab shows each one by the beat it holds (GALLERY_HOLDS in
+ * scripts/build-mascot-expansion.py; a test keeps the two equal).
+ */
+const GALLERY_VARIANTS: Readonly<Record<string, SceneName>> = {
+  x112: "x112.filter",
+};
+
+/** The scene an expansion pack plays when the visitor asks for it: its gallery variant, or itself. */
+export const galleryScene = (pack: string): SceneName => GALLERY_VARIANTS[pack] ?? pack;
+
+/**
+ * The expansion scenes real events play outside the tool table, by event: a
+ * reader's moments, Which Colleague, the Squad Session Kit and two guides. Each
+ * plays only on its event's success branch (docs/mascot/expansion-triggers.md
+ * names the code), once he's on screen and its pack ships
+ * (lib/agent/mascot/event-scenes.ts). The cast encounters play from their tools'
+ * rows in context/tool-scenes.ts.
+ */
+export const EVENT_SCENES = {
+  /** A flashcard turned to its lesson, the first time on a visit. */
+  flashcard: "x004",
+  /** Which Colleague's answer, for each person who plays. */
+  colleague: "x005",
+  /** A story's link shared, or copied. */
+  share: "x006",
+  /** A read reaching a milestone itself: the tenth story, or the fourth week running. */
+  milestone: "x015",
+  /** A guestbook note the server took in, waiting to be read. */
+  guestbook: "x016.sent",
+  /** The first love given or Seen this at work answer on a story, on a visit. */
+  feedback: "x017.card",
+  /** The reader's own guess at the hidden panel, the same whichever they pick. */
+  guess: "x018",
+  /** A Squad Session started. */
+  squadKit: "x021",
+  /** Dragged from the bottom right to the bottom left (the move it draws), once he has landed. */
+  corner: "x108",
+  /** The interface sounds switched off by the visitor. */
+  mute: "x109",
+} as const;
+
+/**
+ * Scenes that are held, not played once, and where they stand among his poses
+ * (engine/sprite-poses.ts): a `decision` wait beats talking and the idle poses
+ * (only being handled, a reaction or a phone tilt shows over it); `calm` gives
+ * way to talking too.
+ */
+export const HOLD_SCENES: Readonly<Record<string, "decision" | "calm">> = {
+  decide: "decision",
+  quiet: "calm",
+  // X111 holds its final pose while a confirmed presentation lasts.
+  "x111.present": "calm",
+};
+
+/** The hold that keeps a scene up (store.ts MascotHold). */
+export const sceneHold = (name: SceneName) => `scene:${name}` as const;
+
+/**
+ * The companion scenes, by when they truthfully play (docs/mascot/companion-scenes.json
+ * `gate`). `play` are the ones the visitor may ask for with /play: illustrations,
+ * never standing for something that happened.
+ */
+export const COMPANION_SCENES = {
+  /** Played only when the visitor asks (/play): no real review or retry exists to bind to. */
+  play: ["reviewer", "dino", "rabbit", "octopus", "ahwa", "escape", "comic", "retry", "quiet"],
+  /** The stuck offer: the rabbit's worry, his calm, one next step; help shows at once. */
+  stuck: "rabbit",
+  /** A story read to its end for the first time: an idea to try, in place of the jump. */
+  storyRead: "comic",
+  /** Held while a real two-choice card waits for the visitor. */
+  decision: "decide",
+  /** Held after the visitor turns him down to Quiet, while it lasts. */
+  quiet: "quiet",
+} as const;

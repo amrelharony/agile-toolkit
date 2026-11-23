@@ -19,13 +19,12 @@ import {
   clipFrames,
   clipMs,
   type Clip,
+  type PoseHold,
 } from "./clips";
-import { SCENES } from "./scenes";
+import { HOLD_SCENES, SCENES } from "./scenes";
 
-export const SHEET = { columns: 8, rows: 11, cellW: 192, cellH: 208 } as const;
-/** Rows of the cell Amr's figure stands in (below is empty, above is headroom). */
-export const FIGURE_TOP = 25;
-export const FIGURE_BOTTOM = 202;
+/** The sheet's cell and the figure's rows live in figure-metrics.ts (no imports). */
+export { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "./figure-metrics";
 
 export type SpritePose =
   | "idle"
@@ -194,19 +193,39 @@ export function clipPacks(c: Clip): PackId[] {
 
 /**
  * Held poses, most important first. Being let go (flying, falling) and a
- * long-press beat a reaction; the rest give way to one.
+ * long-press beat a reaction; the rest give way to one. Under a reaction, the
+ * phone's tilt comes first, then a decision the visitor is making (a held
+ * scene, HOLD_SCENES), then the page and the idle poses; a calm held scene
+ * gives way to talking as well.
  */
-const HOLDS_OVER_REACTIONS: readonly MascotHold[] = ["flying", "falling", "highFive"];
-const HOLDS_UNDER_REACTIONS: readonly MascotHold[] = [
-  "whoa",
-  "tipLeft",
-  "tipRight",
-  "wind",
-  "peekHide",
-  "watching",
-  "dozing",
-  "sitting",
-];
+const HOLDS_OVER_REACTIONS: readonly PoseHold[] = ["flying", "falling", "highFive"];
+const PHONE_HOLDS: readonly PoseHold[] = ["whoa", "tipLeft", "tipRight"];
+const PAGE_HOLDS: readonly PoseHold[] = ["wind", "peekHide", "watching", "dozing", "sitting"];
+
+/**
+ * A held scene's shot: its own key, so the same scene played as a reaction
+ * (/play) is a new shot that starts from its beginning, not from the hold's clock.
+ */
+function heldShot(shot: Shot, hold: MascotHold): Shot {
+  return shot.anim === "clip" && shot.clip
+    ? { ...shot, key: `hold:${shot.clip.name}`, hold }
+    : shot;
+}
+
+/** The first held scene of this rank whose sheet has shipped. */
+function heldScene(
+  holds: readonly MascotHold[],
+  rank: "decision" | "calm"
+): { hold: MascotHold; clip: Clip } | undefined {
+  for (const h of holds) {
+    if (!h.startsWith("scene:")) continue;
+    const name = h.slice("scene:".length);
+    if (HOLD_SCENES[name] !== rank) continue;
+    const c = shippedScene(name);
+    if (c) return { hold: h, clip: c };
+  }
+  return undefined;
+}
 
 export interface ShotInput {
   /** Set while he's carried. */
@@ -241,6 +260,8 @@ export interface Shot {
   still?: boolean;
   /** Packs this shot is waiting for (a live-sheet pose stands in meanwhile). */
   needs?: PackId[];
+  /** The held scene this shot shows: its clock runs from when it first showed. */
+  hold?: MascotHold;
 }
 
 function poseShot(pose: SpritePose, reducedMotion: boolean, speed: number): Shot {
@@ -296,10 +317,16 @@ export function chooseShot(input: ShotInput): Shot {
     }
     return poseShot(def.pose, reducedMotion, speed);
   }
-  const held = HOLDS_UNDER_REACTIONS.find((h) => holds.includes(h));
+  const phone = PHONE_HOLDS.find((h) => holds.includes(h));
+  if (phone) return clipShot(HOLD_CLIPS[phone], input);
+  const deciding = heldScene(holds, "decision");
+  if (deciding) return heldShot(clipShot(deciding.clip, input), deciding.hold);
+  const held = PAGE_HOLDS.find((h) => holds.includes(h));
   if (held) return clipShot(HOLD_CLIPS[held], input);
   if (micro) return poseShot(micro, reducedMotion, speed);
   if (talking) return clipShot(TALK_CLIP, input);
+  const calm = heldScene(holds, "calm");
+  if (calm) return heldShot(clipShot(calm.clip, input), calm.hold);
   if (look !== null && !reducedMotion) {
     return { key: `look-${look}`, ...lookCell(look), anim: "none", frames: 1, seconds: 0 };
   }

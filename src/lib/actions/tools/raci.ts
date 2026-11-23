@@ -412,6 +412,7 @@ registry.register({
   name: "reset",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Clear the whole RACI matrix",
   description:
     "Clear the whole matrix: every column, row and cell. The page's Clear the matrix offers Undo; this does not. Returns {reset: true, roles, activities} (what was cleared).",
   paramsSchema: z.object({}),

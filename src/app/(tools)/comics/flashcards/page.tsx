@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
 import { FLASHCARDS_ROUTE } from "@/lib/comics/entry";
+import { posterCover } from "@/lib/comics/poster-panels";
 import { listStudyCards } from "@/lib/comics/store";
 import type { StudyCard } from "@/lib/comics/types";
 import { comicMetadata } from "../comic-metadata";
@@ -21,8 +22,8 @@ export const metadata: Metadata = comicMetadata({
 
 /**
  * /comics/flashcards: every story as a card, the book's 26 as printed on the
- * posters and then the weekly ones that are out. Static: the deck is in the
- * page, and the cards turn in the browser.
+ * posters and then the weekly ones that are out, each with its first panel.
+ * Static: the deck is in the page, and the cards turn in the browser.
  */
 export default async function FlashcardsPage() {
   const book: StudyCard[] = BOOK_EPISODES.map(({ ep, title, lesson, question }) => ({
@@ -30,6 +31,7 @@ export default async function FlashcardsPage() {
     title,
     lesson,
     question,
+    cover: posterCover(ep),
   }));
   const cards = [...book, ...(await listStudyCards())];
   return (

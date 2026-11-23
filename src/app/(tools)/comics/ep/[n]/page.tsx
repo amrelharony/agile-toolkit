@@ -5,6 +5,7 @@ import { CountDisclosure, VisitRecorder } from "@/components/visits/visit-record
 import { BOOK_EPISODES, bookEpisode, type BookEpisode } from "@/lib/comics/book-episodes";
 import { BOOK_EPISODE_COUNT, comicHref, parseEp } from "@/lib/comics/entry";
 import { panelImageUrl } from "@/lib/comics/images";
+import { posterPanels, posterShareUrl } from "@/lib/comics/poster-panels";
 import { jsonLdScript, storyJsonLd } from "@/lib/comics/rights";
 import {
   getReleasedStory,
@@ -43,11 +44,11 @@ import { comicsArt } from "@/lib/ink/drawings/pages/comics";
  * direct visits back). Static, so it reads no cookies and no query: a poster, a
  * kudos card and a shared link all open this same page.
  *
- * Episodes 1-26 are the printed book's. They're never put online, so their page
- * is what the poster and kudos card print, word for word from the campaign's
- * data file (lib/comics/book-episodes), and points to the book for the comic.
- * Episodes 27 on are the weekly stories, from the store, and say "coming soon"
- * until they're out.
+ * Episodes 1-26 are the printed book's. Their page is the poster: its four
+ * panels (lib/comics/poster-panels) and what it prints, word for word from the
+ * campaign's data file (lib/comics/book-episodes), and it points to the book for
+ * the full story. Episodes 27 on are the weekly stories, from the store, and say
+ * "coming soon" until they're out.
  *
  * Every book episode is prerendered, so an outage can't break a printed link:
  * a read that throws keeps the copy from the build or the last good refresh.
@@ -85,6 +86,7 @@ export async function generateMetadata({ params }: StoryPageProps): Promise<Meta
       description: book.lesson,
       canonical,
       index: false,
+      image: posterShareUrl(ep),
     });
   }
   const story = await getReleasedStory(ep);
@@ -105,7 +107,7 @@ export async function generateMetadata({ params }: StoryPageProps): Promise<Meta
   });
 }
 
-/** What a book episode's poster and kudos card print, and where to read it. */
+/** A book episode's poster: its panels, what it prints, and where to read on. */
 function BookEpisodePage({
   episode,
   latest,
@@ -114,11 +116,12 @@ function BookEpisodePage({
   latest: readonly StorySummary[];
 }) {
   const { ep, title } = episode;
+  const panels = posterPanels(ep);
   return (
     <>
       {/* Beside the wrapper, not in it: its entrance leaves a transform behind,
           and the intro's fixed overlay would cover the wrapper, not the screen. */}
-      <PosterIntro ep={ep} title={title} panels={[]} />
+      <PosterIntro ep={ep} title={title} panels={panels} />
       <ToolPageWrapper art={comicsArt} title={title} description={`Episode ${ep}, by Amr Elharony`}>
         <VisitRecorder path="/comics" />
         <div className="space-y-4">
@@ -126,6 +129,7 @@ function BookEpisodePage({
             <span className="sr-only">Habit: </span>
             <PrintThemeChip theme={episode.theme} />
           </p>
+          <ComicPanels panels={panels} title={title} ep={ep} />
           <EpisodeNotes
             lesson={episode.lesson}
             question={episode.question}

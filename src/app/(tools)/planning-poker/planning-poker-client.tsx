@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { motion, AnimatePresence } from "framer-motion";
 import { WifiOff } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
@@ -12,6 +13,7 @@ import { isRealtimeAvailable } from "@/lib/realtime/supabase-client";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
 import type { Story, Workspace } from "@/lib/stores/workspace-types";
 import { undoable } from "@/lib/utils/undoable";
+import { withRefinedPutBack } from "@/lib/sprints/story-status";
 import { toast } from "@/lib/utils/toast";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import {
@@ -35,8 +37,8 @@ import {
 import { ExampleNotice, isExampleId } from "@/components/tool-frame/example-data";
 import { SessionScreen } from "./session-screen";
 import { usePokerSession } from "./use-poker-session";
-import { PokerRoomBar } from "./poker-room-bar";
-import { withHostOnly } from "./visitor-session";
+import { useRoomExtras } from "@/lib/realtime/use-room-extras";
+import { fitStoriesToVisitorRoom, withHostOnly } from "./visitor-session";
 import {
   adoptLocalSession,
   clearLocalSession,
@@ -51,8 +53,19 @@ import { LobbyScreen, type StartData } from "./lobby-screen";
 import { loggedQueueStoryIds, planBacklogSave, planSize, savedCount } from "./backlog";
 import { useCardReferences } from "./use-card-references";
 import { toMarkdown } from "./markdown";
+import { pokerCsv, sessionTicketKeys } from "./csv";
 import { generateRoomCode } from "./room-code";
 import { signalGamification } from "@/lib/gamification/signal";
+
+// A visitor's live room only: the room's bar (its timer, big screen and
+// chip) and the reactions load when a room opens, not with the page.
+const PokerRoomBar = dynamic(() => import("./poker-room-bar").then((m) => m.PokerRoomBar), {
+  ssr: false,
+});
+const RoomReactions = dynamic(
+  () => import("@/components/collab/room-reactions").then((m) => m.RoomReactions),
+  { ssr: false }
+);
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -122,6 +135,8 @@ export function PlanningPokerClient() {
     idleWarning,
     keepRoomOpen,
   } = pokerHook;
+  // A visitor room's countdown and reactions (no port, so nothing, otherwise).
+  const roomExtras = useRoomExtras(pokerHook.extras);
 
   useEffect(() => {
     if (!pendingInitial) return;
@@ -251,8 +266,12 @@ export function PlanningPokerClient() {
 
   const addQueued = () => {
     if (!session) return;
-    const stories = takeQueuedStories(session.stories.map((st) => st.id));
-    if (stories.length === 0) return;
+    const taken = takeQueuedStories(session.stories.map((st) => st.id));
+    if (taken.length === 0) return;
+    // A live room can't send a session over its size limit, and a queue of
+    // stories with notes and acceptance criteria would pass it: their
+    // descriptions are shortened to fit. The stories keep theirs in full.
+    const stories = visitorRoom ? fitStoriesToVisitorRoom(session, taken) : taken;
     addFromQueue(stories.map((st) => st.id));
     setSession((prev) => (prev ? { ...prev, stories: [...prev.stories, ...stories] } : prev));
   };
@@ -302,23 +321,30 @@ export function PlanningPokerClient() {
         ? `${plan.update.length} given ${plan.update.length === 1 ? "its" : "their"} points`
         : "",
     ].filter(Boolean);
+    const stamps = new Map<string, string | undefined>();
     undoable({
       label: `Saved ${n} ${n === 1 ? "story" : "stories"} to the backlog`,
       description: notes.length > 0 ? `${notes.join(", ")}.` : undefined,
       apply: () => {
         for (const st of plan.create) upsertStory(st);
         for (const { after } of plan.update) upsertStory(after);
+        // The refinedAt each points write left, for the Undo to take back.
+        const saved = useWorkspaceStore.getState().stories;
+        for (const { before } of plan.update) {
+          stamps.set(before.id, saved.find((x) => x.id === before.id)?.refinedAt);
+        }
       },
       revert: () => {
         const now = useWorkspaceStore.getState().stories;
         for (const st of plan.create) if (now.some((x) => x.id === st.id)) removeStory(st.id);
-        // Only the points go back: anything else edited since stays.
+        // Only the points go back, with the refinedAt from before them unless
+        // the story was refined since: anything else edited since stays.
         for (const { before } of plan.update) {
           const cur = now.find((x) => x.id === before.id);
           if (!cur) continue;
           const restored: Story = { ...cur, points: before.points };
           if (before.points === undefined) delete restored.points;
-          upsertStory(restored);
+          upsertStory(withRefinedPutBack(restored, stamps.get(before.id), before.refinedAt));
         }
       },
     });
@@ -439,6 +465,21 @@ export function PlanningPokerClient() {
   };
 
   const markdown = useMemo(() => toMarkdown(session), [session]);
+  // The Export menu's CSV: each story's ticket key (its title when it has
+  // none), the summary and the agreed estimate, ready for a tracker.
+  const csvData = useMemo(
+    () =>
+      pokerCsv(
+        session,
+        sessionTicketKeys(session?.stories ?? [], {
+          queue,
+          estimates: loggedEstimates,
+          stories: backlogStories,
+          fromQueue,
+        })
+      ),
+    [session, queue, loggedEstimates, backlogStories, fromQueue]
+  );
   const references = useCardReferences(session?.scaleType, session?.scale);
 
   // ─── AI prompt config (owner only, derived from current session) ───
@@ -535,6 +576,9 @@ export function PlanningPokerClient() {
                 idleWarning={idleWarning}
                 onKeepOpen={keepRoomOpen}
                 keepsSession
+                extras={roomExtras}
+                session={session}
+                bigScreen
               />
             )}
             <SessionScreen
@@ -545,7 +589,7 @@ export function PlanningPokerClient() {
               onLeave={handleLeave}
               extraHeaderActions={
                 <>
-                  <ExportButton filename="planning-poker" markdown={markdown} />
+                  <ExportButton filename="planning-poker" markdown={markdown} csvData={csvData} />
                   {promptConfig && <AiPromptGenerator config={promptConfig} />}
                   {/* The example (and what's kept of it) has no room to invite to. */}
                   {activeRoomCode !== null && !visitorRoom && (
@@ -595,7 +639,9 @@ export function PlanningPokerClient() {
               }
               recordHistory={!visitorRoom}
               onRemoveParticipant={visitorRoom ? (p) => kick(p.id) : undefined}
+              revealAtZero={visitorRoom ? roomExtras.timer : null}
             />
+            {visitorRoom && <RoomReactions extras={roomExtras} className="pt-2" />}
           </motion.div>
         )}
       </AnimatePresence>

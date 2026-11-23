@@ -55,7 +55,14 @@ import ComicStoryPage, {
 } from "@/app/(tools)/comics/ep/[n]/page";
 import ComicLicensePage, { metadata as licenseMetadata } from "@/app/(tools)/comics/license/page";
 import { BOOK_SHARE_URL } from "@/lib/book/art";
+import { bookDescriptionFor } from "@/lib/comics/book-descriptions";
+import { BOOK_DIALOGUE } from "@/lib/comics/book-dialogue";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
+import { POSTER_ART } from "@/lib/comics/poster-panels.generated";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { useMascotStore } from "@/lib/agent/mascot/store";
+
+const STORAGE = "https://ref.supabase.co/storage/v1/object/public/comic-panels/";
 
 const STORY: Story = {
   ep: 30,
@@ -161,12 +168,62 @@ describe("a book episode", () => {
       "href",
       "/kudos?ep=12&src=comics"
     );
-    // Never put online: the comic is in the book, so no panels and no promise that it's coming.
-    expect(screen.queryByRole("button", { name: /full screen/ })).toBeNull();
+    // The poster's four panels, never a promise that the comic is coming.
+    expect(
+      screen.getAllByRole("button", { name: /^Open panel \d of 4 full screen$/ })
+    ).toHaveLength(4);
     expect(screen.queryByText("The comic will appear here soon")).toBeNull();
     expect(document.querySelector('script[type="application/ld+json"]')).toBeNull();
     // The scan that brought someone here is counted, and the page says so.
     expect(screen.getByText(/one anonymous count when you arrive/)).toBeTruthy();
+  });
+
+  it("shows the poster's panels, described, with the words they carry", async () => {
+    render(await ComicStoryPage(params(12)));
+    const panels = within(screen.getByRole("region", { name: "Comic panels" }));
+    const pictures = panels.getAllByRole("img");
+    expect(pictures.map((img) => img.getAttribute("src"))).toEqual(
+      POSTER_ART[12].panels.map((files) => `${STORAGE}${files.small}`)
+    );
+    expect(pictures.map((img) => img.getAttribute("alt"))).toEqual(
+      [1, 2, 3, 4].map((n) => bookDescriptionFor(12, n))
+    );
+    expect(pictures.every((img) => img.getAttribute("alt"))).toBe(true);
+    // The speech is in the art, so the transcript carries it for a screen reader.
+    const [first] = BOOK_DIALOGUE[12].panels[0].dialogue;
+    expect(panels.getByText(first.line)).toBeTruthy();
+    // No srcset: every page loads the 768 px file.
+    expect(pictures[0].getAttribute("srcset")).toBeNull();
+    expect(pictures[0].getAttribute("loading")).toBe("eager");
+    expect(pictures[1].getAttribute("loading")).toBe("lazy");
+  });
+
+  it("opens a panel full screen at its larger size", async () => {
+    render(await ComicStoryPage(params(12)));
+    fireEvent.click(screen.getByRole("button", { name: "Open panel 2 of 4 full screen" }));
+    const dialog = screen.getByRole("dialog", { name: /panel 2 of 4/ });
+    expect(within(dialog).getByRole("img").getAttribute("src")).toBe(
+      `${STORAGE}${POSTER_ART[12].panels[1].full}`
+    );
+  });
+
+  it("gives the poster intro the same four panels", async () => {
+    render(await ComicStoryPage(params(12)));
+    const overlay = document.querySelector('[data-intro-overlay="poster"]');
+    const windows = Array.from(overlay?.querySelectorAll("img") ?? []);
+    expect(windows.map((img) => img.getAttribute("src"))).toEqual(
+      POSTER_ART[12].panels.map((files) => `${STORAGE}${files.small}`)
+    );
+  });
+
+  it("shows the words alone where there's no Supabase address to load the art from", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    render(await ComicStoryPage(params(12)));
+    expect(screen.getByRole("heading", { level: 1, name: "But You Were Closed!" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Comic panels" })).toBeNull();
+    expect(screen.getByText("Ask your team:")).toBeTruthy();
+    const meta = await storyMetadata(params(12));
+    expect(meta.openGraph?.images).toEqual([`https://agile.amrelharony.com${BOOK_SHARE_URL}`]);
   });
 
   it("renders all 26 from the campaign's data file", async () => {
@@ -188,7 +245,11 @@ describe("a book episode", () => {
     render(await ComicStoryPage(params(12)));
     expect(screen.getByRole("heading", { level: 1, name: "But You Were Closed!" })).toBeTruthy();
     expect(screen.queryByText("An edited title")).toBeNull();
-    expect(screen.queryByRole("button", { name: /full screen/ })).toBeNull();
+    // The poster's panels, never the row's.
+    const sources = within(screen.getByRole("region", { name: "Comic panels" }))
+      .getAllByRole("img")
+      .map((img) => img.getAttribute("src"));
+    expect(sources).toEqual(POSTER_ART[12].panels.map((files) => `${STORAGE}${files.small}`));
     expect(h.extrasCalls).toEqual([]);
   });
 
@@ -216,13 +277,14 @@ describe("a book episode", () => {
     );
   });
 
-  it("stays out of search and points at the public address", async () => {
+  it("stays out of search, points at the public address and previews as its poster", async () => {
     const meta = await storyMetadata(params(12));
     expect(meta.title).toBe("But You Were Closed! — Agile at Work");
     expect(meta.robots).toEqual({ index: false, follow: true });
     expect(meta.alternates?.canonical).toBe("/comics?ep=12");
     expect(meta.other).toEqual({ robots: "noai, noimageai" });
-    expect(meta.openGraph?.images).toEqual([`https://agile.amrelharony.com${BOOK_SHARE_URL}`]);
+    expect(meta.openGraph?.images).toEqual([`${STORAGE}${POSTER_ART[12].share}`]);
+    expect(meta.twitter).toMatchObject({ images: [`${STORAGE}${POSTER_ART[12].share}`] });
   });
 });
 
@@ -243,6 +305,88 @@ describe("the plain address", () => {
     for (const habit of ["Focus", "Ownership", "Real needs", "Trust"]) {
       expect(within(index).getAllByText(habit).length).toBeGreaterThan(0);
     }
+  });
+
+  it("shows each book episode with its poster's first panel, loaded as it nears the screen", async () => {
+    render(await ComicsPage());
+    const index = screen.getByRole("region", { name: "The 26 episodes in the book" });
+    const links = within(index)
+      .getAllByRole("link")
+      .filter((a) => a.getAttribute("href")?.startsWith("/comics?ep="));
+    const covers = links.map((a) => a.querySelector("img"));
+    expect(covers.map((img) => img?.getAttribute("src"))).toEqual(
+      BOOK_EPISODES.map((e) => `${STORAGE}${POSTER_ART[e.ep].panels[0].small}`)
+    );
+    // The title names the link, so the picture says nothing of its own.
+    expect(covers.every((img) => img?.getAttribute("alt") === "")).toBe(true);
+    expect(covers.every((img) => img?.getAttribute("loading") === "lazy")).toBe(true);
+  });
+
+  it("adds each book picture only once its card nears the screen, holding its space until then", async () => {
+    const observers: { margin?: string; seen: (el: Element) => void; observed: Set<Element> }[] =
+      [];
+    class NearObserver {
+      readonly observed = new Set<Element>();
+      constructor(
+        readonly callback: IntersectionObserverCallback,
+        readonly options: IntersectionObserverInit = {}
+      ) {
+        observers.push({
+          margin: options.rootMargin,
+          observed: this.observed,
+          seen: (el) =>
+            callback(
+              [
+                {
+                  target: el,
+                  isIntersecting: true,
+                  intersectionRatio: 0,
+                } as unknown as IntersectionObserverEntry,
+              ],
+              this as never
+            ),
+        });
+      }
+      observe(el: Element) {
+        this.observed.add(el);
+      }
+      unobserve(el: Element) {
+        this.observed.delete(el);
+      }
+      disconnect() {
+        this.observed.clear();
+      }
+      takeRecords() {
+        return [];
+      }
+    }
+    vi.stubGlobal("IntersectionObserver", NearObserver);
+    try {
+      render(await ComicsPage());
+      const index = screen.getByRole("region", { name: "The 26 episodes in the book" });
+      // Nothing downloads with the page, and each card already has the picture's square.
+      expect(within(index).queryAllByRole("presentation")).toEqual([]);
+      const first = within(index).getByRole("link", { name: /^Episode 1:/ });
+      const slot = first.firstElementChild as HTMLElement;
+      expect(slot.style.aspectRatio).toBe("1536 / 1536");
+      const near = observers.find((o) => o.margin === "300px 0px");
+      expect(near?.observed.size).toBe(26);
+      act(() => near!.seen(slot));
+      const pictures = within(index).getAllByRole("presentation");
+      expect(pictures).toHaveLength(1);
+      expect(pictures[0].getAttribute("src")).toBe(`${STORAGE}${POSTER_ART[1].panels[0].small}`);
+      expect(near?.observed.size).toBe(25);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("lists the book's episodes as words alone where the art can't load", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    render(await ComicsPage());
+    const index = screen.getByRole("region", { name: "The 26 episodes in the book" });
+    expect(within(index).queryAllByRole("img")).toEqual([]);
+    expect(within(index).getAllByRole("link", { name: /^Episode \d+:/ })).toHaveLength(26);
   });
 
   it("offers the open kudos cards' scanners a way to thank someone", async () => {
@@ -817,6 +961,106 @@ describe("a story's guess, Seen this at work and Try it this week", () => {
     expect(within(team).getByRole("heading", { name: "Try it this week" })).toBeTruthy();
     expect(within(team).getByText("Ask who else keeps notes only on paper.")).toBeTruthy();
   });
+
+  describe("and Amr", () => {
+    const queue = () => useMascotStore.getState().reactionQueue;
+    beforeEach(() => useMascotStore.setState({ ready: true, reactionQueue: [] }));
+    afterEach(() => useMascotStore.setState({ ready: false, reactionQueue: [] }));
+
+    it.each(GUESS.options)(
+      "opens his own envelope on the reader's guess, the same for “%s”",
+      async (option) => {
+        render(await ComicStoryPage(params(30)));
+        await act(async () => {
+          fireEvent.click(screen.getByRole("button", { name: option }));
+        });
+        expect(queue()).toEqual([`scene:${EVENT_SCENES.guess}`]);
+      }
+    );
+
+    it("plays nothing for Just show me, or for a guess made before", async () => {
+      const { unmount } = render(await ComicStoryPage(params(30)));
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Just show me" }));
+      });
+      expect(queue()).toEqual([]);
+      unmount();
+      localStorage.setItem(
+        "agile-toolkit:comics:reading",
+        JSON.stringify({ read: {}, sent: {}, asked: {}, guessed: { 30: 0 }, seen: {} })
+      );
+      await act(async () => {
+        render(await ComicStoryPage(params(30)));
+      });
+      expect(queue()).toEqual([]);
+    });
+
+    it("plays nothing for a Seen answer this browser didn't keep, and the love after still plays", async () => {
+      // The browser can't keep the answer: nothing plays.
+      const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("QuotaExceededError");
+      });
+      try {
+        const { unmount } = render(await ComicStoryPage(params(30)));
+        const seen = screen.getByRole("region", { name: "Seen this at work?" });
+        await act(async () => {
+          fireEvent.click(within(seen).getByRole("button", { name: "Yes, I've seen this" }));
+        });
+        expect(queue()).toEqual([]);
+        unmount();
+      } finally {
+        setItem.mockRestore();
+      }
+
+      // Another tab answered after this page loaded: this answer isn't the first.
+      render(await ComicStoryPage(params(30)));
+      localStorage.setItem(
+        "agile-toolkit:comics:reading",
+        JSON.stringify({ read: {}, sent: {}, asked: {}, guessed: {}, seen: { 30: 1 } })
+      );
+      const seen = screen.getByRole("region", { name: "Seen this at work?" });
+      await act(async () => {
+        fireEvent.click(within(seen).getByRole("button", { name: "Yes, I've seen this" }));
+      });
+      expect(queue()).toEqual([]);
+      // Neither spent the visit's once: the love that follows plays it.
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Love this" }));
+      });
+      expect(queue()).toEqual([`scene:${EVENT_SCENES.feedback}`]);
+    });
+
+    it("holds his feedback card at the slot for the visit's first Seen answer or love", async () => {
+      const { unmount } = render(await ComicStoryPage(params(30)));
+      const seen = screen.getByRole("region", { name: "Seen this at work?" });
+      await act(async () => {
+        fireEvent.click(within(seen).getByRole("button", { name: "Yes, I've seen this" }));
+      });
+      expect(queue()).toEqual([`scene:${EVENT_SCENES.feedback}`]);
+      // The love that follows is the same visit's feedback: once between them.
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Love this" }));
+      });
+      expect(queue()).toHaveLength(1);
+      unmount();
+
+      // The next visit: taking the love back plays nothing, giving it again does.
+      useMascotStore.setState({ reactionQueue: [] });
+      await act(async () => {
+        render(await ComicStoryPage(params(30)));
+      });
+      const heart = screen.getByRole("button", { name: "Love this" });
+      expect(heart.getAttribute("aria-pressed")).toBe("true");
+      await act(async () => {
+        fireEvent.click(heart);
+      });
+      expect(queue()).toEqual([]);
+      await act(async () => {
+        fireEvent.click(heart);
+      });
+      expect(queue()).toEqual([`scene:${EVENT_SCENES.feedback}`]);
+    });
+  });
 });
 
 describe("static generation", () => {
@@ -893,7 +1137,8 @@ describe("the gallery", () => {
     const thisWeek = within(screen.getByRole("region", { name: "Newest story" })).getByRole(
       "presentation"
     );
-    const cards = art.filter((img) => img !== thisWeek);
+    const bookIndex = screen.getByRole("region", { name: "The 26 episodes in the book" });
+    const cards = art.filter((img) => img !== thisWeek && !bookIndex.contains(img));
     expect(thisWeek.getAttribute("loading")).toBe("eager");
     expect(thisWeek.getAttribute("fetchpriority")).toBe("high");
     expect(thisWeek.getAttribute("src")).toContain("-768.webp");
@@ -903,6 +1148,14 @@ describe("the gallery", () => {
       expect(img.getAttribute("loading")).toBe("lazy");
       expect(img.hasAttribute("fetchpriority")).toBe(false);
       expect(img.getAttribute("src")).toContain("-768.webp");
+    }
+    // And the book's 26 posters, small and lazy too.
+    const book = art.filter((img) => bookIndex.contains(img));
+    expect(book.length).toBe(26);
+    for (const img of book) {
+      expect(img.getAttribute("loading")).toBe("lazy");
+      expect(img.hasAttribute("fetchpriority")).toBe(false);
+      expect(img.getAttribute("src")).toMatch(/\/posters\/ep-\d{2}\.p1\.[0-9a-f]{10}\.768\.webp$/);
     }
   });
 
@@ -988,6 +1241,22 @@ describe("the licence page", () => {
     expect(screen.getByText(/Intranets, training, slides, newsletters and printed/)).toBeTruthy();
     expect(screen.getByText(/no editing or cropping/)).toBeTruthy();
     expect(screen.getByText(/covers the comic only/)).toBeTruthy();
+  });
+
+  it("says under the form what is kept and for how long, and links the privacy page", () => {
+    const { container } = render(<ComicLicensePage />);
+    const note = container.querySelector<HTMLElement>("[data-privacy-note]")!;
+    expect(note.textContent).toBe(
+      "We keep what you send so Amr can reply, until you ask us to remove it. We don't keep your IP address. More in What leaves your browser."
+    );
+    expect(within(note).getByRole("link", { name: "What leaves your browser" })).toHaveAttribute(
+      "href",
+      "/privacy"
+    );
+    // Under the form, not inside it.
+    const form = container.querySelector("form")!;
+    expect(form.contains(note)).toBe(false);
+    expect(form.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("validates inline before sending anything", async () => {

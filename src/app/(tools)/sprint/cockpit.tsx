@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,13 +11,17 @@ import { NewSprintDialog } from "@/components/sprints/new-sprint-dialog";
 import { SprintHeader } from "@/components/sprints/sprint-header";
 import { SprintTiles } from "@/components/sprints/sprint-tiles";
 import { CloseSprintDialog, type CarryOverPlan } from "@/components/sprints/close-sprint-dialog";
+import { AddToCalendar } from "@/components/sprints/add-to-calendar";
 import { LoadingSprints } from "@/components/sprints/start";
+import { WallView } from "@/components/presentation/wall-view";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
   AsyncUpdate,
   Impediment,
+  InterruptItem,
   RetroBoard,
   Sprint,
+  SprintGoal,
   SprintReview,
   SprintSeries,
   StandupEntry,
@@ -31,23 +35,34 @@ import { sprintHref, useSelectedSprint } from "@/lib/sprints/use-selected-sprint
 import { dayForDate, seriesFor, sprintLengthDays, todayIso } from "@/lib/sprints/series";
 import { withBurndownDay } from "@/lib/sprints/day-writes";
 import { averageScore, sprintScores } from "@/lib/sprints/compare";
-import { points, type TileId } from "@/lib/sprints/hub-view";
+import { points, sprintDayLine, type TileId } from "@/lib/sprints/hub-view";
 import { updateSeries, updateSprint } from "@/lib/sprints/store";
 import { cadenceCalendar, nextCeremonies, type CeremonyCadence } from "@/lib/sprints/cadence";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
-import { cockpitTiles, flowCards, gatherCockpitData, type CockpitData } from "./view";
+import {
+  cockpitNotes,
+  cockpitTiles,
+  daysLeftLine,
+  flowCards,
+  gatherCockpitData,
+  type CockpitData,
+} from "./view";
 import { cockpitVerdict } from "./verdict";
 import { cockpitMarkdown } from "./markdown";
 import { buildExample, type CockpitExample } from "./example";
 import { carryOverLine, closeSprint, type ClosedSprint } from "./close";
+import type { OutcomeValues } from "@/app/(tools)/sprint-goal/outcome";
 import { FlowStrip } from "./components/flow-strip";
 import { NextCeremony } from "./components/next-ceremony";
 import { Blockers } from "./components/blockers";
 import { MiniBurndown } from "./components/mini-burndown";
+import { CockpitNotes } from "./components/notes";
 import { StartFlow } from "./components/start-flow";
+import { CockpitRisk } from "./components/risk";
+import { CockpitWallContent, WallModeButton } from "./components/wall";
 
 export const TOOL_ID = "sprint";
 
@@ -59,9 +74,19 @@ const NO_UPDATES: AsyncUpdate[] = [];
 const NO_MEMBERS: TeamMember[] = [];
 const NO_BOARDS: RetroBoard[] = [];
 const NO_REVIEWS: SprintReview[] = [];
+const NO_GOALS: SprintGoal[] = [];
+const NO_INTERRUPTS: InterruptItem[] = [];
 
 /** The tiles the home card keeps; the full page shows them all. */
 const COMPACT_TILES: readonly TileId[] = ["committed", "done", "remaining", "gap", "blockers"];
+
+/**
+ * What the page does, in one sentence, shown while the saved sprints load. The
+ * server can't read them, so without it the first HTML of /sprint, all a
+ * search engine or an assistant reads, said only "Loading sprints…".
+ */
+export const COCKPIT_ABOUT =
+  "This page shows the sprint your team is running: where it stands today, the next ceremony, the burndown and what is blocking it.";
 
 const slug = (s: string) =>
   s
@@ -78,10 +103,12 @@ export interface SprintCockpitProps {
 /**
  * The Sprint Cockpit: the current sprint on one page. With no sprint it runs
  * the start flow (team, sprint, ceremony times) or shows an example; with one
- * it shows the verdict, the next ceremony, the ceremony strip, the numbers
- * (from the sprint board when its stories have points, else the daily log),
- * the burndown, and what is blocking the sprint. Everything comes from the
- * other tools' data; nothing is typed twice.
+ * it shows the verdict, its notes (a closed sprint's goal still unanswered,
+ * how much improvement work the sprint holds), the next ceremony, the
+ * ceremony strip, the numbers (from the sprint board when its stories have
+ * points, else the daily log), the burndown, and what is blocking the
+ * sprint. Everything comes from the other tools' data; nothing is typed
+ * twice.
  */
 export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const hydrated = useWorkspaceHydrated();
@@ -94,13 +121,28 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
   const teamMembers = useWorkspaceStore((s) => s.teamMembers) ?? NO_MEMBERS;
   const retroBoards = useWorkspaceStore((s) => s.retroBoards) ?? NO_BOARDS;
   const reviews = useWorkspaceStore((s) => s.sprintReviews) ?? NO_REVIEWS;
+  // For "Did we meet the sprint goal?" on a closed sprint.
+  const sprintGoals = useWorkspaceStore((s) => s.sprintGoals) ?? NO_GOALS;
+  // The interrupt buffer's tile and the goal check read the logged interrupts.
+  const interruptItems = useWorkspaceStore((s) => s.interruptItems) ?? NO_INTERRUPTS;
   const [cadence, updateCadence] = useCeremonyCadence();
   const { log } = useHistoryLogger(TOOL_ID);
-  const [today] = useState(() => todayIso());
-  const [now] = useState(() => new Date());
+  const [today, setToday] = useState(() => todayIso());
+  const [now, setNow] = useState(() => new Date());
+  // Wall mode moves the day and the clock on (as it opens and on every
+  // refresh), so the next ceremony, the day line and the goal check never
+  // freeze at the time the page was loaded. The day only changes at midnight,
+  // so the data is gathered again then, not every minute.
+  const moveClock = useCallback(() => {
+    setNow(new Date());
+    setToday(todayIso());
+  }, []);
   const [creating, setCreating] = useState(false);
   const [example, setExample] = useState<CockpitExample | null>(null);
   const calendar = useMemo(() => cadenceCalendar(cadence), [cadence]);
+  // The close just made, so the dialog's finished step can add the goal
+  // answer to it (and to its Undo).
+  const lastClose = useRef<ClosedSprint | null>(null);
 
   const selectedId = selected?.id;
   const data = useMemo(
@@ -118,10 +160,12 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
             reviews,
             sprints,
             today,
-            // Done when the impediment or Kanban card an action was sent to is finished.
+            goals: sprintGoals,
+            // Done when the impediment, Kanban card or story an action was sent to is finished.
             targetDone: (link) => getHandoffRoute(link.route).isDone?.(link.targetId) ?? false,
             // The burndown's ideal line and projection count the team's working days.
             calendar,
+            interruptItems,
           })
         : null,
     [
@@ -136,7 +180,9 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
       reviews,
       sprints,
       today,
+      sprintGoals,
       calendar,
+      interruptItems,
     ]
   );
 
@@ -170,6 +216,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
           },
         });
         const done = closed.result;
+        lastClose.current = done;
         if (done) {
           log(SPRINT_COCKPIT_ACTIONS.SPRINT_CLOSED, {
             sprintId: done.sprint.id,
@@ -186,6 +233,10 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
               : {}),
           });
         }
+      },
+      answerGoal: (values) => {
+        // Only for the sprint that close closed: never another one's answer.
+        if (lastClose.current?.sprint.id === selectedId) lastClose.current.answerGoal(values);
       },
       reopen: (status) => {
         write({ status });
@@ -216,7 +267,8 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
 
   let body: React.ReactNode;
   if (!hydrated) {
-    body = <LoadingSprints tall />;
+    // The home card sits under home's own words; only the page needs the sentence.
+    body = <LoadingSprints tall about={compact ? undefined : COCKPIT_ABOUT} />;
   } else if (example) {
     body = (
       <ExampleCockpit
@@ -225,6 +277,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
         now={now}
         cadence={cadence}
         compact={compact}
+        onClock={moveClock}
         onStart={() => setCreating(true)}
         onExit={() => setExample(null)}
       />
@@ -242,6 +295,7 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
         onCadence={updateCadence}
         compact={compact}
         commands={commands}
+        onClock={moveClock}
         onNewSprint={() => setCreating(true)}
       />
     );
@@ -275,6 +329,8 @@ export function SprintCockpit({ compact = false }: SprintCockpitProps) {
 export interface CockpitCommands {
   edit: (patch: Partial<Omit<Sprint, "id">>) => void;
   close: (pointsCompleted: number, carryOver?: CarryOverPlan) => void;
+  /** Record the goal answer as part of the close just made (its Undo covers it). */
+  answerGoal: (values: OutcomeValues) => void;
   reopen: (status: Exclude<Sprint["status"], "completed">) => void;
   logDay: (day: number, remaining: number) => void;
   select: (id: string) => void;
@@ -291,6 +347,7 @@ function CockpitBody({
   onCadence,
   compact,
   commands,
+  onClock,
   onNewSprint,
 }: {
   sprints: readonly Sprint[];
@@ -306,12 +363,15 @@ function CockpitBody({
   compact: boolean;
   /** Absent in the read-only example. */
   commands?: CockpitCommands;
+  /** Move `today` and `now` on: wall mode calls it as it opens and on every refresh. */
+  onClock?: () => void;
   onNewSprint?: () => void;
 }) {
   const { sprint } = data;
   const readOnly = !commands;
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [wall, setWall] = useState(false);
 
   const cards = useMemo(() => flowCards(data), [data]);
   // The rating is Sprint Comparison's computed average, so the two agree.
@@ -339,11 +399,16 @@ function CockpitBody({
           ),
     [readOnly, sprint, sprints, allStories, allSeries, goals, moodEntries, moodPulses, healthChecks]
   );
-  const tiles = useMemo(() => {
-    const all = cockpitTiles(data, sprints, today, { rating });
-    return compact ? all.filter((t) => COMPACT_TILES.includes(t.id)) : all;
-  }, [data, sprints, today, compact, rating]);
+  const allTiles = useMemo(
+    () => cockpitTiles(data, sprints, today, { rating }),
+    [data, sprints, today, rating]
+  );
+  const tiles = useMemo(
+    () => (compact ? allTiles.filter((t) => COMPACT_TILES.includes(t.id)) : allTiles),
+    [allTiles, compact]
+  );
   const verdict = useMemo(() => cockpitVerdict(data, today), [data, today]);
+  const notes = useMemo(() => cockpitNotes(data), [data]);
   const upcoming = useMemo(() => nextCeremonies(sprint, cadence, now), [sprint, cadence, now]);
   const day = dayForDate(sprint, today);
   const ended = day !== null && day > sprintLengthDays(sprint);
@@ -373,17 +438,25 @@ function CockpitBody({
               </Button>
             )}
           </div>
-          <ExportButton
-            filename={`sprint-report-${slug(sprint.name)}`}
-            markdown={report}
-            clipboardText={report}
-            jsonData={{
-              sprint,
-              series,
-              stories: data.sprintStories,
-              impediments: data.sprintImpediments,
-            }}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            <WallModeButton
+              onOpen={() => {
+                onClock?.();
+                setWall(true);
+              }}
+            />
+            <ExportButton
+              filename={`sprint-report-${slug(sprint.name)}`}
+              markdown={report}
+              clipboardText={report}
+              jsonData={{
+                sprint,
+                series,
+                stories: data.sprintStories,
+                impediments: data.sprintImpediments,
+              }}
+            />
+          </div>
         </div>
       )}
 
@@ -402,6 +475,17 @@ function CockpitBody({
         {verdict}
       </p>
 
+      <CockpitRisk
+        risk={data.risk}
+        sprint={sprint}
+        day={data.burndown.todayDay}
+        length={data.burndown.length}
+        compact={compact}
+        withNote={!readOnly}
+      />
+
+      <CockpitNotes notes={notes} />
+
       <NextCeremony
         occurrences={upcoming}
         now={now}
@@ -409,7 +493,18 @@ function CockpitBody({
         cadence={cadence}
         sprintLengthDays={sprintLengthDays(sprint)}
         onCadence={compact ? undefined : onCadence}
-      />
+      >
+        {/* The team's own sprint on the full page: not the home card, not the example. */}
+        {!compact && !readOnly && (
+          <AddToCalendar
+            sprint={sprint}
+            cadence={cadence}
+            actions={data.openActions}
+            now={now}
+            place="cockpit"
+          />
+        )}
+      </NextCeremony>
 
       <FlowStrip cards={cards} />
 
@@ -447,6 +542,27 @@ function CockpitBody({
         </p>
       )}
 
+      {!compact && (
+        <WallView
+          open={wall}
+          onClose={() => setWall(false)}
+          title={sprint.name || "Sprint"}
+          onRefresh={onClock}
+        >
+          {(tick) => (
+            <CockpitWallContent
+              dayLine={daysLeftLine(sprintDayLine(sprint, today))}
+              goal={sprint.goal?.trim() || undefined}
+              verdict={verdict}
+              risk={data.risk}
+              tiles={allTiles}
+              next={upcoming[0]}
+              now={new Date(tick.now)}
+            />
+          )}
+        </WallView>
+      )}
+
       {commands && (
         <CloseSprintDialog
           open={closing}
@@ -457,10 +573,9 @@ function CockpitBody({
           stories={stories}
           sprints={sprints}
           nextLengthDays={cadence.sprintLengthDays}
-          onConfirm={(pointsCompleted, carry) => {
-            commands.close(pointsCompleted, carry);
-            setClosing(false);
-          }}
+          // The dialog stays up for its finished step and closes itself.
+          onConfirm={(pointsCompleted, carry) => commands.close(pointsCompleted, carry)}
+          onGoalOutcome={commands.answerGoal}
         />
       )}
     </div>
@@ -479,6 +594,7 @@ function ExampleCockpit({
   now,
   cadence,
   compact,
+  onClock,
   onStart,
   onExit,
 }: {
@@ -487,6 +603,7 @@ function ExampleCockpit({
   now: Date;
   cadence: CeremonyCadence;
   compact: boolean;
+  onClock?: () => void;
   onStart: () => void;
   onExit: () => void;
 }) {
@@ -506,6 +623,7 @@ function ExampleCockpit({
         sprints: example.sprints,
         today,
         calendar: cadenceCalendar(cadence),
+        interruptItems: example.interruptItems,
       }),
     [example, sprint, series, today, cadence]
   );
@@ -534,6 +652,7 @@ function ExampleCockpit({
         now={now}
         cadence={cadence}
         compact={compact}
+        onClock={onClock}
       />
     </div>
   );

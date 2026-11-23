@@ -57,8 +57,16 @@ export interface VoteCrypto {
   verify(sigPublic: string, input: string, sig: string): Promise<boolean>;
   /** `answers` encrypted to the host's round key, bound to `aad`. */
   seal(hostEcdh: string, aad: string, answers: AnswerString): Promise<SealedBallot>;
-  /** The answer string inside `env`, or null if it doesn't open under this round's key and `aad`. */
-  open(k: HostKeyPair, env: BallotEnvelope, aad: string): Promise<string | null>;
+  /**
+   * The answer string inside `env`, or null if it doesn't open under this
+   * round's key and `aad`. Only the sealed parts are read, so a wall room's
+   * post envelope opens the same way (`wall-room/protocol.ts`).
+   */
+  open(
+    k: HostKeyPair,
+    env: Pick<BallotEnvelope, "epk" | "iv" | "ct">,
+    aad: string
+  ): Promise<string | null>;
 }
 
 // ── Encoding ─────────────────────────────────────────────────────────

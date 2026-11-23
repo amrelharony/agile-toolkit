@@ -4,7 +4,7 @@ import * as React from "react";
 import { Check, Copy } from "lucide-react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { FLASH_MS, useFlash } from "@/hooks/use-flash";
-import { copyToClipboard } from "@/lib/utils/export";
+import { copyToClipboard } from "@/lib/utils/clipboard";
 import { toast } from "@/lib/utils/toast";
 
 export interface CopyButtonProps extends Omit<ButtonProps, "onClick" | "children" | "onCopy"> {

@@ -15,6 +15,7 @@ import {
   atPageEnd,
   createScrollSpeed,
   installPageSenses,
+  OWN_OUTCOME,
   type PageHooks,
 } from "@/components/agent/mascot/engine/interactions/page";
 import {
@@ -37,6 +38,8 @@ import {
   skidFor,
 } from "@/components/agent/mascot/engine/interactions/sensors";
 import { tiltLook } from "@/components/agent/mascot/engine/sprite-poses";
+import { canStroll } from "@/components/agent/mascot/engine/senses";
+import { useAgentStore } from "@/lib/agent/store";
 
 describe("the director", () => {
   it("allows one unprompted reaction every 20 s, each with its own cooldown", () => {
@@ -190,6 +193,52 @@ describe("the idle ladder", () => {
   });
 });
 
+describe("when he may stroll", () => {
+  /** A screen: a mouse (fine pointer) or not, phone width or not. */
+  function stubScreen({ fine = true, phone = false } = {}) {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(pointer: fine)" ? fine : query.includes("max-width") ? phone : false,
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }));
+  }
+  const atBottom = { reducedMotion: false, parkedTop: () => false };
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useAgentStore.setState({ open: false });
+  });
+
+  it("on a desktop with a mouse, parked at the bottom, with his panel shut", () => {
+    stubScreen();
+    useAgentStore.setState({ open: false });
+    expect(canStroll(atBottom)).toBe(true);
+  });
+
+  it("never while his panel is open, so he doesn't wander off from it", () => {
+    stubScreen();
+    useAgentStore.setState({ open: true });
+    expect(canStroll(atBottom)).toBe(false);
+    useAgentStore.setState({ open: false });
+    expect(canStroll(atBottom)).toBe(true);
+  });
+
+  it("not with less motion asked for, parked up top, on a phone, or without a mouse", () => {
+    stubScreen();
+    expect(canStroll({ ...atBottom, reducedMotion: true })).toBe(false);
+    expect(canStroll({ ...atBottom, parkedTop: () => true })).toBe(false);
+    stubScreen({ phone: true });
+    expect(canStroll(atBottom)).toBe(false);
+    stubScreen({ fine: false });
+    expect(canStroll(atBottom)).toBe(false);
+  });
+});
+
 describe("the morning stretch", () => {
   afterEach(() => localStorage.clear());
 
@@ -255,6 +304,19 @@ describe("page moments", () => {
       window.dispatchEvent(new Event("offline"));
       window.dispatchEvent(new Event("online"));
       expect(acts).toEqual(["thumbsUp", "yes", "downcast", "yes"]);
+    });
+
+    it("leaves a form that answers its own outcome to it: no fist pump before the server has", () => {
+      install();
+      const wrap = document.createElement("div");
+      wrap.setAttribute("data-mascot-outcome", "");
+      const form = document.createElement("form");
+      wrap.appendChild(form);
+      document.body.appendChild(wrap);
+      form.dispatchEvent(new Event("submit", { bubbles: true }));
+      expect(acts).toEqual([]);
+      expect(form.closest(OWN_OUTCOME)).toBe(wrap);
+      wrap.remove();
     });
 
     it("watches typing on the page, not in his own panel or on a phone", () => {

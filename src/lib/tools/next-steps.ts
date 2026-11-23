@@ -20,6 +20,7 @@ import { edgeStatus, isOverdue, validEdges } from "@/lib/dependencies/edges";
 import { findCapacityPlan, pointsForecast } from "@/lib/sprints/capacity";
 import { velocity } from "@/lib/sprints/metrics";
 import { carryOver } from "@/lib/sprints/progress";
+import { JIRA_SOURCE_TOOL } from "@/lib/jira/csv-export";
 import { todayIso } from "@/lib/sprints/series";
 import { pickDefaultSprint, sprintHref } from "@/lib/sprints/use-selected-sprint";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
@@ -40,6 +41,7 @@ import {
 import { reviewDocId, reviewHasContent } from "@/lib/sprints/review-doc";
 import { selectCadenceDoc } from "@/lib/sprints/use-ceremony-cadence";
 import { goalDocId } from "@/lib/sprints/goal-doc";
+import { unansweredGoal } from "@/app/(tools)/sprint-goal/doc";
 import { cycleStats } from "@/lib/kanban/flow";
 import { impedimentStatus } from "@/lib/impediments/model";
 import { RETRO_CURRENT_ID, collectRetroActions, followThroughByRetro } from "@/lib/retro/actions";
@@ -270,10 +272,47 @@ export interface NextStep {
 
 export interface NextStepRule<S extends object> {
   select: (ws: Workspace) => S;
+  /** No steps (`[]`) while the rule's model is still loading (`ready`). */
   steps: (slices: S) => NextStep[];
+  /** A rule whose model loads on demand (`lazyRule`): whether it has. */
+  ready?: () => boolean;
+  /** Loads the rule's model, once (`loadNextStepRule` calls it). */
+  load?: () => Promise<void>;
 }
 
 const rule = <S extends object>(r: NextStepRule<S>) => r as unknown as NextStepRule<object>;
+
+/**
+ * A rule whose steps need a tool's own model (the tools plan's phase 1
+ * tools): the model loads when a page asks for this rule
+ * (`loadNextStepRule`, which `<NextStepCard>` calls), not with this table,
+ * which every tool page fetches. Until it has, the rule gives no steps.
+ */
+function lazyRule<S extends object, M>(
+  loadModel: () => Promise<M>,
+  r: { select: (ws: Workspace) => S; steps: (slices: S, model: M) => NextStep[] }
+): NextStepRule<object> {
+  let model: M | null = null;
+  let loading: Promise<void> | null = null;
+  return rule<S>({
+    select: r.select,
+    steps: (slices) => (model ? r.steps(slices, model) : []),
+    ready: () => model !== null,
+    load: () =>
+      (loading ??= loadModel().then(
+        (m) => {
+          model = m;
+        },
+        (error: unknown) => {
+          // A lost chunk: the next ask tries again.
+          loading = null;
+          throw error;
+        }
+      )),
+  });
+}
+
+const nextStepsPhase42 = () => import("@/lib/tools/next-steps-phase42");
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -1321,6 +1360,18 @@ const RULES: Record<string, NextStepRule<object>> = {
           });
         }
       }
+      // A Jira export often comes without points: size those before planning them in.
+      const unsizedImports = all.filter(
+        (s) => fromTool(s, JIRA_SOURCE_TOOL) && inBacklog(s) && unestimated(s)
+      );
+      if (unsizedImports.length > 0) {
+        steps.push({
+          id: "planning-refine-imported",
+          label: "Refine the stories imported from Jira",
+          detail: `${plural(unsizedImports.length, "story", "stories")} imported from the Jira CSV ${be(unsizedImports.length)} in the backlog with no points. Check them against the Definition of Ready and size them before planning.`,
+          href: "/refinement",
+        });
+      }
       return steps;
     },
   }),
@@ -1644,6 +1695,22 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Tools plan, phase 1. The logic and its tests are in lib/tools/next-steps-phase42.
+  "product-goal": lazyRule(nextStepsPhase42, {
+    select: (ws) => ({ goals: ws.productGoals, sprints: ws.sprints, stories: ws.stories }),
+    steps: ({ goals, sprints, stories }, m) => m.productGoalSteps({ goals, sprints, stories }),
+  }),
+
+  "backlog-health": lazyRule(nextStepsPhase42, {
+    select: (ws) => ({
+      stories: ws.stories,
+      backlogItems: ws.backlogItems,
+      goals: ws.productGoals,
+    }),
+    steps: ({ stories, backlogItems, goals }, m) =>
+      m.backlogHealthSteps({ stories, backlogItems, goals }),
+  }),
+
   // Run the sprint.
   kanban: rule({
     select: (ws) => ({
@@ -1731,10 +1798,27 @@ const RULES: Record<string, NextStepRule<object>> = {
       reviews: ws.sprintReviews,
       stories: ws.stories,
       cadences: ws.ceremonyCadences,
+      goals: ws.sprintGoals,
     }),
-    steps: ({ sprints, impediments, reviews, stories, cadences }) => {
+    steps: ({ sprints, impediments, reviews, stories, cadences, goals }) => {
+      // The last sprint closed with a goal and no answer to "Did we meet
+      // it?": the close dialog asks, but it can be skipped, and a Scrum
+      // Master who closes from here may never open Sprint Goal or the Review.
+      const [lastClosed] = completed(sprints).sort((a, b) => b.endDate.localeCompare(a.endDate));
+      const goalStep: NextStep[] =
+        lastClosed && unansweredGoal(goals, lastClosed)
+          ? [
+              {
+                id: "cockpit-goal-answer",
+                label: `Answer whether ${lastClosed.name} met its goal`,
+                detail:
+                  "It closed without an answer to “Did we meet the sprint goal?”. The Sprint Review, the retro and Sprint Comparison read it.",
+                href: sprintHref("/sprint-goal", lastClosed.id),
+              },
+            ]
+          : [];
       const sprint = focusSprint(sprints);
-      if (!sprint) return [];
+      if (!sprint) return goalStep;
       const today = todayIso();
       const steps: NextStep[] = [];
       const overdue = real(impediments).filter(
@@ -1781,7 +1865,8 @@ const RULES: Record<string, NextStepRule<object>> = {
           href: sprintHref("/sprint-review", sprint.id),
         });
       }
-      return steps;
+      // After what the running sprint needs today.
+      return [...steps, ...goalStep];
     },
   }),
 
@@ -1841,6 +1926,112 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Tools plan, phase 1.
+  picker: rule({
+    select: (ws) => ({
+      members: ws.teamMembers,
+      sprints: ws.sprints,
+      cadences: ws.ceremonyCadences,
+    }),
+    steps: ({ members, sprints, cadences }) => {
+      const steps: NextStep[] = [];
+      if (real(members).length === 0) {
+        steps.push({
+          id: "picker-team",
+          label: "Add your team",
+          detail: "The wheel and the role rotation pick from the people on the Team page.",
+          href: "/team",
+        });
+      }
+      const sprint = activeSprint(sprints);
+      if (sprint) {
+        const now = new Date();
+        const cadence = normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }));
+        const [next] = nextCeremonies(sprint, cadence, now, 1);
+        if (next && next.at.getTime() - now.getTime() <= TIMER_LEAD_MS) {
+          steps.push({
+            id: "picker-ceremony",
+            label: `Go on to the ${CEREMONY_LABEL[next.kind]}`,
+            detail: `It starts ${whenLabel(next.at, now)}. You've picked who runs it; open it there.`,
+            href: sprintHref(CEREMONY_HREF[next.kind], sprint.id),
+          });
+        }
+      }
+      return steps;
+    },
+  }),
+
+  // Audience Wall's saved walls live in its own tool store, not the
+  // workspace: its steps read what the walls sent on (backlog stories)
+  // and when the next review is due.
+  "audience-wall": rule({
+    select: (ws) => ({ stories: ws.stories, sprints: ws.sprints }),
+    steps: ({ stories, sprints }) => {
+      const steps: NextStep[] = [];
+      const fromWall = real(stories).filter(
+        (s) => fromTool(s, "audience-wall") && inBacklog(s) && !s.readiness?.ready
+      ).length;
+      if (fromWall > 0) {
+        steps.push({
+          id: "audience-wall-refine",
+          label: "Refine the stories from the wall's feedback",
+          detail: `${plural(fromWall, "story", "stories")} from Audience Wall ${be(fromWall)} on the backlog, not refined yet.`,
+          href: "/refinement",
+        });
+      }
+      const ending = activeSprint(sprints);
+      const today = todayIso();
+      // A full ISO end date counts as its day.
+      const end = ending && !hasSyntheticDates(ending) ? ending.endDate.slice(0, 10) : null;
+      if (ending && end && end <= today) {
+        steps.push({
+          id: "audience-wall-review",
+          label: `Collect the feedback on ${ending.name} in a feedback room`,
+          detail: `${end === today ? "The sprint ends today." : "The sprint has ended."} Sprint Review's Feedback tab runs a room, and the posts join the feedback when you save them.`,
+          href: sprintHref("/sprint-review", ending.id),
+        });
+      }
+      return steps;
+    },
+  }),
+
+  // Facilitator Timers keep their runs in the browser tab: the steps read
+  // what the session still owes (parked points) and the next ceremony to time.
+  "facilitator-timers": rule({
+    select: (ws) => ({
+      sprints: ws.sprints,
+      cadences: ws.ceremonyCadences,
+      parked: ws.parkingLotItems,
+    }),
+    steps: ({ sprints, cadences, parked }) => {
+      const steps: NextStep[] = [];
+      const open = real(parked).filter((p) => p.status === "open").length;
+      if (open > 0) {
+        steps.push({
+          id: "timers-parking-lot",
+          label: `Go through the ${plural(open, "parked point")}`,
+          detail: `${open === 1 ? "It is" : "They are"} still open in the Parking Lot. Keep the last minutes of the session for ${open === 1 ? "it" : "them"}.`,
+          href: "/parking-lot",
+        });
+      }
+      const sprint = activeSprint(sprints);
+      if (sprint) {
+        const now = new Date();
+        const cadence = normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }));
+        const [next] = nextCeremonies(sprint, cadence, now, 1);
+        if (next) {
+          steps.push({
+            id: "timers-next-ceremony",
+            label: `Time the ${CEREMONY_LABEL[next.kind]} to its agenda`,
+            detail: `It's ${whenLabel(next.at, now)}. The Ceremony Timer gives each part its time-box and every speaker a fair turn.`,
+            href: `/ceremony-timer?agenda=${next.kind}`,
+          });
+        }
+      }
+      return steps;
+    },
+  }),
+
   "sprint-review": rule({
     select: (ws) => ({
       sprints: ws.sprints,
@@ -1890,6 +2081,50 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Parking Lot (tools plan phase 1): the open points wait for the end-of-meeting review.
+  "parking-lot": lazyRule(() => import("@/lib/parking-lot/model"), {
+    select: (ws) => ({ items: ws.parkingLotItems }),
+    steps: ({ items }, m) => m.parkingLotSteps(items),
+  }),
+
+  // Tools plan, phase 1. The logic and its tests are in lib/tools/next-steps-phase42.
+  "interrupt-buffer": lazyRule(nextStepsPhase42, {
+    select: (ws) => ({ sprints: ws.sprints, items: ws.interruptItems }),
+    steps: ({ sprints, items }, m) => m.interruptBufferSteps({ sprints, items }),
+  }),
+
+  // A vote's result goes on: a proposed decision to settle, a topic for the retro.
+  "quick-vote": rule({
+    select: (ws) => ({ decisions: ws.decisions, boards: ws.retroBoards }),
+    steps: ({ decisions, boards }) => {
+      const steps: NextStep[] = [];
+      const proposed = real(decisions).filter(
+        (d) => d.sourceRef?.tool === "quick-vote" && d.status === "proposed"
+      );
+      if (proposed.length > 0) {
+        steps.push({
+          id: "quick-vote-decide",
+          label: `Record the decision on “${proposed[0].title}”`,
+          detail: `${plural(proposed.length, "vote")} ${be(proposed.length)} in the Decision Log as proposed. Accept it, or say why not.`,
+          href: decisionHref(proposed[0].id),
+        });
+      }
+      const board = (boards ?? []).find((b) => b.id === RETRO_CURRENT_ID && !b.archivedAt);
+      const topics = real(board?.cards).filter(
+        (c) => c.sourceRef?.tool === "quick-vote" && !c.isActionItem
+      ).length;
+      if (topics > 0) {
+        steps.push({
+          id: "quick-vote-retro",
+          label: "Talk the vote through at the retro",
+          detail: `${plural(topics, "vote result")} ${be(topics)} on the retro board.`,
+          href: "/retro",
+        });
+      }
+      return steps;
+    },
+  }),
+
   // Retrospect & improve.
   retro: rule({
     select: (ws) => ({ boards: ws.retroBoards, sprints: ws.sprints }),
@@ -1924,9 +2159,10 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
-  "retro-actions": rule({
+  // Recurring themes (tools plan, phase 1) load with the rule.
+  "retro-actions": lazyRule(() => import("@/lib/retro/recurring-themes"), {
     select: (ws) => ({ boards: ws.retroBoards }),
-    steps: ({ boards }) => {
+    steps: ({ boards }, { recurringThemes }) => {
       const steps: NextStep[] = [];
       const all = boards ?? [];
       const overdue = collectRetroActions(all, { today: todayIso() }).filter(
@@ -1951,6 +2187,15 @@ const RULES: Record<string, NextStepRule<object>> = {
           label: "Agree fewer, owned actions at the next retro",
           detail: `The last ${plural(recent.length, "retro")} got ${done} of ${plural(agreed, "action")} done.`,
           href: "/retro",
+        });
+      }
+      const back = recurringThemes(all.filter((b) => !isExampleId(b.id))).find((t) => t.cameBack);
+      if (back?.cameBack) {
+        steps.push({
+          id: "retro-actions-came-back",
+          label: `Find the root cause of “${clip(back.name)}”`,
+          detail: `It came up again after “${clip(back.cameBack.actionText)}” was marked done.`,
+          href: "/root-cause",
         });
       }
       return steps;
@@ -2109,6 +2354,41 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // Tools plan, phase 1: a named root cause wants a countermeasure, and an
+  // agreed one goes to Retro Actions, where someone owns it.
+  "root-cause": lazyRule(() => import("@/lib/root-cause/model"), {
+    select: (ws) => ({ analyses: ws.rootCauseAnalyses, boards: ws.retroBoards }),
+    steps: ({ analyses, boards }, { liveOnBoards, readAnalyses, sentLink }) => {
+      const steps: NextStep[] = [];
+      // A synced row can hold anything: read each one as the page does.
+      const newest = real(readAnalyses(analyses)).sort((a, b) =>
+        (b.updatedAt ?? "").localeCompare(a.updatedAt ?? "")
+      );
+      const open = (id: string) => `/root-cause?analysis=${encodeURIComponent(id)}`;
+      const named = newest.filter((a) => a.rootCause?.trim() && !a.countermeasure?.trim());
+      if (named.length > 0) {
+        steps.push({
+          id: "root-cause-countermeasure",
+          label: `Agree a countermeasure for “${clip(named[0].title)}”`,
+          detail: `${plural(named.length, "analysis", "analyses")} ${named.length === 1 ? "has" : "have"} a root cause and nothing agreed yet to change it.`,
+          href: open(named[0].id),
+        });
+      }
+      // A countermeasure whose action was deleted in Retro Actions is unsent again.
+      const isLive = liveOnBoards(boards);
+      const unsent = newest.filter((a) => a.countermeasure?.trim() && !sentLink(a, isLive));
+      if (unsent.length > 0) {
+        steps.push({
+          id: "root-cause-send",
+          label: `Send the countermeasure for “${clip(unsent[0].title)}” to Retro Actions`,
+          detail: "There someone owns it until it's done; left in the analysis, it rarely is.",
+          href: open(unsent[0].id),
+        });
+      }
+      return steps;
+    },
+  }),
+
   icebreaker: rule({
     select: (ws) => ({ sprints: ws.sprints, cadences: ws.ceremonyCadences }),
     steps: ({ sprints, cadences }) => {
@@ -2126,6 +2406,42 @@ const RULES: Record<string, NextStepRule<object>> = {
           href: sprintHref(CEREMONY_HREF[next.kind], sprint.id),
         },
       ];
+    },
+  }),
+
+  // Tools plan, phase 1. Card Decks keeps its decks in its own store; from
+  // the workspace it sees the next ceremony to open with a card, and the big
+  // backlog stories the story-splitting deck helps with.
+  "card-decks": rule({
+    select: (ws) => ({ stories: ws.stories, sprints: ws.sprints, cadences: ws.ceremonyCadences }),
+    steps: ({ stories, sprints, cadences }) => {
+      const steps: NextStep[] = [];
+      const sprint = activeSprint(sprints);
+      if (sprint) {
+        const now = new Date();
+        const cadence = normalizeCadence(selectCadenceDoc({ ceremonyCadences: cadences }));
+        const [next] = nextCeremonies(sprint, cadence, now, 1);
+        if (next && next.at.getTime() - now.getTime() <= TIMER_LEAD_MS) {
+          steps.push({
+            id: "card-decks-ceremony",
+            label: `Go on to the ${CEREMONY_LABEL[next.kind]}`,
+            detail: `It starts ${whenLabel(next.at, now)}. Open it with a card, then run it there.`,
+            href: sprintHref(CEREMONY_HREF[next.kind], sprint.id),
+          });
+        }
+      }
+      const big = real(stories).filter(
+        (s) => inBacklog(s) && typeof s.points === "number" && s.points >= 13
+      ).length;
+      if (big > 0) {
+        steps.push({
+          id: "card-decks-split",
+          label: "Split the big stories in Refinement",
+          detail: `${plural(big, "story", "stories")} on the backlog ${be(big)} 13 points or more. Take the story-splitting cards along.`,
+          href: "/refinement",
+        });
+      }
+      return steps;
     },
   }),
 
@@ -2959,6 +3275,14 @@ const RULES: Record<string, NextStepRule<object>> = {
     },
   }),
 
+  // The coach's own notes: a theme in three notes or more over the last two
+  // weeks points to the tool that helps with it, else to the retro
+  // (lib/notebook/next-step). Example notes and kept summaries don't count.
+  "sm-notebook": lazyRule(() => import("@/lib/notebook/next-step"), {
+    select: (ws) => ({ notes: ws.notebookEntries }),
+    steps: ({ notes }, m) => m.notebookNextSteps(notes, todayIso()),
+  }),
+
   "one-on-one": rule({
     select: (ws) => ({ members: ws.teamMembers, mood: ws.moodEntries, pulses: ws.moodPulses }),
     steps: ({ members, mood, pulses }) => {
@@ -3286,6 +3610,50 @@ const RULES: Record<string, NextStepRule<object>> = {
         });
       }
       return steps;
+    },
+  }),
+
+  // Meeting Audit (shelved): rate, decide, take the changes to the retro (until a retro is
+  // held after the verdicts), again each quarter.
+  "meeting-audit": lazyRule(() => import("@/lib/meeting-audit/model"), {
+    select: (ws) => ({ audits: ws.meetingAudits, retros: ws.retroBoards }),
+    steps: ({ audits, retros }, m) => m.meetingAuditSteps(audits, new Date(), retros),
+  }),
+
+  // Team Mixer keeps who is mixing in its own store; from the workspace it
+  // sees the roster it mixes from, and the roles and skills it balances by.
+  "team-mixer": rule({
+    select: (ws) => ({ members: ws.teamMembers }),
+    steps: ({ members }) => {
+      const team = real(members);
+      if (team.length === 0) {
+        return [
+          {
+            id: "team-mixer-team",
+            label: "Add your team to the Team page",
+            detail:
+              "Then Team Mixer can put everyone in the mix at once, with their roles and skills.",
+            href: "/team",
+          },
+        ];
+      }
+      // Balancing needs two groups of two at least.
+      if (team.length < 4) return [];
+      const bare = team.filter((m) => !m.role?.trim() && !(m.skills ?? []).some((s) => s.trim()));
+      if (bare.length === 0) return [];
+      return [
+        {
+          id: "team-mixer-roles",
+          label: "Add roles or skills on the Team page",
+          detail:
+            bare.length === team.length
+              ? "Nobody on the team has a role or skills yet, so Team Mixer can't balance groups by them."
+              : `${plural(bare.length, "person", "people")} on the team ${
+                  bare.length === 1 ? "has" : "have"
+                } no role or skills yet, so balanced groups place them at random.`,
+          href: "/team",
+        },
+      ];
     },
   }),
 
@@ -3908,6 +4276,18 @@ const RULES: Record<string, NextStepRule<object>> = {
 
 export function getNextStepRule(toolId: string): NextStepRule<object> | undefined {
   return RULES[toolId];
+}
+
+/** A tool's rule with its model loaded (a `lazyRule`'s), ready for `steps`. */
+export async function loadNextStepRule(toolId: string): Promise<NextStepRule<object> | undefined> {
+  const r = RULES[toolId];
+  if (r?.load && !r.ready?.()) await r.load();
+  return r;
+}
+
+/** Every rule with its model loaded: for code (tests) that reads several at once. */
+export async function loadAllNextStepRules(): Promise<void> {
+  await Promise.all(Object.keys(RULES).map(loadNextStepRule));
 }
 
 /** Tool ids that declare next steps (the UX contract test checks upgraded tools are here). */

@@ -1,0 +1,504 @@
+{
+  "release": "Amr_Refined_Expansion_124.zip",
+  "schema": "amr-expansion-release-v1",
+  "created_at_utc": "2026-11-13T20:37:59.395858+00:00",
+  "status": "complete_refined_accepted_release",
+  "sheets": {
+    "X001": {
+      "file": "X001-bookmark-return.png",
+      "sha256": "5add056176ed0001000e7c06bb9fe5d2b460d4a1e081d59cb032fddb1a671afb"
+    },
+    "X002": {
+      "file": "X002-panel-detective.png",
+      "sha256": "2d01efea3a4ad57f5aab6d69f521a476d1307a555e01a9c9506b2f203aabb344"
+    },
+    "X003": {
+      "file": "X003-panel-order-puzzle.png",
+      "sha256": "b4a093ce210e64ce24cfd13f52a4df0af75b8797680c57a2f4f70796033dc59a"
+    },
+    "X004": {
+      "file": "X004-flashcard-recall.png",
+      "sha256": "e5096ee676511b408396b9671563a336f946b4941bc9eb9180cf71609717e045"
+    },
+    "X005": {
+      "file": "X005-cast-silhouette-match.png",
+      "sha256": "3eeceba160027796ad3716211b4341d35d8e132ada0dcf2abd3d4b26f74e9d3d"
+    },
+    "X006": {
+      "file": "X006-pass-the-copy.png",
+      "sha256": "243cc1e88abe71e619fede04a9ec2249e59a47e058bbf5f8274f1e50a6fb91e5"
+    },
+    "X007": {
+      "file": "X007-glossary-tabs.png",
+      "sha256": "62de2a3c0f05839c4df76fb6545a59b5c769601a3a33aeb0acbd02dd23e84b4c"
+    },
+    "X008": {
+      "file": "X008-foldout-story.png",
+      "sha256": "2ac28a4038d4ddec5bbb0169e000ff88df847e990e8b771f7ec2ea56c1683938"
+    },
+    "X009": {
+      "file": "X009-reading-stand.png",
+      "sha256": "702a17a30ef3d900a40e6398e822af2be088054eda221061223d0e6ba5c24032"
+    },
+    "X010": {
+      "file": "X010-keep-the-book-dry.png",
+      "sha256": "180523fe0a14bbe021d4b0933d3fa06fc10ff67fb4cf5a262692702b38b84327"
+    },
+    "X011": {
+      "file": "X011-fold-the-zine.png",
+      "sha256": "bdc52820ebeed47b74157626d272f8fa31e7fedc6166aa7927031ebed7055252"
+    },
+    "X012": {
+      "file": "X012-book-travel-pouch.png",
+      "sha256": "c118f61bc675cf1f1de3fb52606b02638ce0f856699fc2f93d7d48a0ef8d317d"
+    },
+    "X013": {
+      "file": "X013-protect-the-copy.png",
+      "sha256": "e5d678cc3f173bf651c2166c4c031199968a1f88711a8b45c4564c1f284e2e62"
+    },
+    "X014": {
+      "file": "X014-lesson-summary-strip.png",
+      "sha256": "bc4edca77244ab1e6af70c078535d0c41d41ab894b491cbfbcdd71f0aaa17248"
+    },
+    "X015": {
+      "file": "X015-learning-beads.png",
+      "sha256": "6a1328dccbf159f49d4d7775968719d531f64156d5ad054bc84a340f2b716037"
+    },
+    "X016": {
+      "file": "X016-reader-guestbook.png",
+      "sha256": "1585faa7500cfc0c9049551f38656ed253148d2de14de51d34379144773ef3e2"
+    },
+    "X017": {
+      "file": "X017-reader-feedback-postbox.png",
+      "sha256": "e4728639360ce0b0127f1061ef303717600b04f527b8a7925f1d999b1f16dcff"
+    },
+    "X018": {
+      "file": "X018-predict-before-reveal.png",
+      "sha256": "f75a48da175fbf24f763d6c3d06caa5ce78e72613062ab6ba6dc1f3881803678"
+    },
+    "X019": {
+      "file": "X019-chapter-carousel.png",
+      "sha256": "bda485663fb87e0e28382586fc8daf7e950938ace3e43c399b3fb8595132726f"
+    },
+    "X020": {
+      "file": "X020-circulating-library-log.png",
+      "sha256": "aa87b3ad3eab381587ad9b6cadc14172db3827ef034f94f194564b2b318d4471"
+    },
+    "X021": {
+      "file": "X021-squad-reading-kit.png",
+      "sha256": "d08e42faccc0a83e5f18d483c0e0e00f987f8931437172270e351bd7a5366dc1"
+    },
+    "X022": {
+      "file": "X022-comic-right-way-up.png",
+      "sha256": "8009947485b9c78e7d68b65295db8edaa536cfcc57a215295ac8bb30b51b912a"
+    },
+    "X023": {
+      "file": "X023-mend-the-page-corner.png",
+      "sha256": "c973f49e67e5e17e1a8a74eefc399436e57b41b6a2902c795aed0519e03a9ad7"
+    },
+    "X024": {
+      "file": "X024-clip-reading-lamp.png",
+      "sha256": "6784fa16b8d3394c5d6d85e41fb28819bbfbccdf7137d605f2661368f85dbe30"
+    },
+    "X025": {
+      "file": "X025-radar-trial-peg.png",
+      "sha256": "254f29bc28e1d723de02bd497a9fb8c1be58e8428878060b2ed26c6cbe2740be"
+    },
+    "X026": {
+      "file": "X026-rfc-comment-fold.png",
+      "sha256": "60f4606eca55b1ec670d77525091afe25267755346d6efe48157dc376a844a9a"
+    },
+    "X027": {
+      "file": "X027-space-five-spoke-pulse.png",
+      "sha256": "792368a8b84c2a51a9183feea1b1e606ebfb9ac1bac3d65b6c51214ade55c9bc"
+    },
+    "X028": {
+      "file": "X028-devex-friction-marble.png",
+      "sha256": "611991eb112b587028738512e2768a6c989d327a8756e400286beefbd8640066"
+    },
+    "X029": {
+      "file": "X029-slo-measured-reserve.png",
+      "sha256": "c2b4774a4325248057f6f1a7169055e6249cc1e68f48efd94d350ec52e898bff"
+    },
+    "X030": {
+      "file": "X030-platform-weak-support.png",
+      "sha256": "295669bfd142b37fb22b296f38426f55500975f157bf8aa4315bdce9749b0001"
+    },
+    "X031": {
+      "file": "X031-incident-timeline-reel.png",
+      "sha256": "4a94ebdcbd3b8606f864cbb8751fa8e614ae522a09b250afdf866530398d39ed"
+    },
+    "X032": {
+      "file": "X032-postmortem-contributing-discs.png",
+      "sha256": "863bfef25947abc356ab8ba80a931e17e975431e3cf92d5ad86ebdbe50d0dc76"
+    },
+    "X033": {
+      "file": "X033-oncall-handoff-drum.png",
+      "sha256": "8ed70b86899a80e207d8a0bc7385e276aa835d2f2e9d0711cc3a71c868c575fb"
+    },
+    "X034": {
+      "file": "X034-runbook-three-step-dry-run.png",
+      "sha256": "c06de09b2563e0d95334939be5c74fe0325b5a8b61678810d47b0a0693508006"
+    },
+    "X035": {
+      "file": "X035-stride-boundary-probe.png",
+      "sha256": "1a81402882e63a18db8680b34ee4a614312a92c933fe5423991265cb4328e8aa"
+    },
+    "X036": {
+      "file": "X036-vulnerability-retest-gauge.png",
+      "sha256": "43146d3463f4710b0c24a8d63d57f3fe83c124a07c483d813cf10f237e4166e8"
+    },
+    "X037": {
+      "file": "X037-control-evidence-eyelets.png",
+      "sha256": "1f6c6d045455c16989aa407c8b92a704644076765ab7620a0f30535397d7dfdf"
+    },
+    "X038": {
+      "file": "X038-a11y-keyboard-focus.png",
+      "sha256": "c21ae8de18262d87d7520ed2bf2ea053ea0c74574d41ddec3b512d5533c2b633"
+    },
+    "X039": {
+      "file": "X039-wardley-value-ladder.png",
+      "sha256": "20995083c81f9710eeab585a73ff1429153939b9ec5a1eb2e2a113d976282060"
+    },
+    "X040": {
+      "file": "X040-eval-comb-drift.png",
+      "sha256": "c96e38d1452b7c40abaaa4c0d42ec294a001829151a460b28062d90185b93a68"
+    },
+    "X041": {
+      "file": "X041-prompt-version-sleeve.png",
+      "sha256": "358c60b3e8bfdd314ed5dd662dfd10b6d686cd2ca54e6c0c66cf6a2f04804db7"
+    },
+    "X042": {
+      "file": "X042-ai-spec-safety-tether.png",
+      "sha256": "91073322dca5b1849ea104e029c3fa4c2fd91e87222811a0d239fcf1959626cc"
+    },
+    "X043": {
+      "file": "X043-hallucination-claim-footing.png",
+      "sha256": "11d1bfaf899dd7fc67d8b410cb49f26333342bbd1cf43d12fe2a6bd2687c9d3b"
+    },
+    "X044": {
+      "file": "X044-token-budget-jar.png",
+      "sha256": "ec7a28c2c38fb12b439532a1eec14360afd5b0873ca4939d46f44801b1dc8001"
+    },
+    "X045": {
+      "file": "X045-model-comparison-fit-gauge.png",
+      "sha256": "c666137d0b5116af1dc6e38c1c7506a2a2d61d4c9dafc99e7ea652fc04565f82"
+    },
+    "X046": {
+      "file": "X046-ai-safety-open-latch.png",
+      "sha256": "0b89ab1613eb5fdcd756773a787a71b70783bfd9f8229bf7ae3f55b900d217c3"
+    },
+    "X047": {
+      "file": "X047-model-migration-canary-dock.png",
+      "sha256": "547771174d7576d998c3890ac6719e7175942940c9ee839b6250968012ac1da8"
+    },
+    "X048": {
+      "file": "X048-agent-human-checkpoint.png",
+      "sha256": "0b9fef930ffc5302b69705363d9259911c20fe01cc525e1e108b2c31000f0a1a"
+    },
+    "X049": {
+      "file": "X049-red-team-repeat-the-probe.png",
+      "sha256": "3ae0d76894d06686e1c52ec625057b6fad6cf1931bdd30be79ac7f060b78b665"
+    },
+    "X050": {
+      "file": "X050-hitl-review-brake.png",
+      "sha256": "775096056576d191b89e1147d601dbf6e85314a5d2dd0f16e96d427aa7b83017"
+    },
+    "X051": {
+      "file": "X051-rlhf-blind-preference-fold.png",
+      "sha256": "253d6996e3d69366bd3a8f52dde806ed45c53aede86f23a90cb0db147463f091"
+    },
+    "X052": {
+      "file": "X052-vector-embedding-fit.png",
+      "sha256": "f3f5e6c04477465e11dd3564bb930be62fd638e8f5a3a192b6c5b48c40ca726e"
+    },
+    "X053": {
+      "file": "X053-model-card-honest-wrapper.png",
+      "sha256": "2675ba6f49c77e371be39176c7b1a7734a6fafddb866a7eb7866a24b30155070"
+    },
+    "X054": {
+      "file": "X054-ooda-new-signal-loop.png",
+      "sha256": "303c9cd386ca8c501935d961b945453494b0896cda0770b224809c2f884eb62c"
+    },
+    "X055": {
+      "file": "X055-stacey-cross-slide.png",
+      "sha256": "e4158be752a8ee93408cba628b7377c1c15ae68943bc4761e687c33eafcb37de"
+    },
+    "X056": {
+      "file": "X056-polarity-two-ended-bellows.png",
+      "sha256": "e27d402496164b2b6a8199c29304ef16e349d065430f2c3429e70b186d4d9997"
+    },
+    "X057": {
+      "file": "X057-data-lineage-trace.png",
+      "sha256": "be74d95acfe7ebcd99add6a7ee2d14d459e5c7d040adf40d10b15496d47a15b9"
+    },
+    "X058": {
+      "file": "X058-duplicate-record-backs.png",
+      "sha256": "08c13c2724246db1bf93ddcd07a4d41510b0df9d19486a821e43f6ee72e56529"
+    },
+    "X059": {
+      "file": "X059-complete-record-insert.png",
+      "sha256": "a83725ee379816490da43c3fdab8752499f0c158d13ce40b26c1f7564a0ac5b4"
+    },
+    "X060": {
+      "file": "X060-reconcile-the-exception.png",
+      "sha256": "6515f7af79f9caa0aa36cdcf780b4e45ce86d964f639366ed253a04ab5a64aac"
+    },
+    "X061": {
+      "file": "X061-privacy-sliding-mask.png",
+      "sha256": "efd04a45caae2b42bae43cdd6a6bd2f1a652bfad4ec1b35f43815f93f955b675"
+    },
+    "X062": {
+      "file": "X062-one-key-one-drawer.png",
+      "sha256": "1f5ba622606b988891b455012537452604bb1d44bc0a374ed3256fa63d52845c"
+    },
+    "X063": {
+      "file": "X063-archive-and-retrieve.png",
+      "sha256": "e5c6375073c92edff5b718a42bf8525baedfbc6caf472b45bd2c9d918b1fba85"
+    },
+    "X064": {
+      "file": "X064-representative-sample.png",
+      "sha256": "b45c1637c4354fc4fa5a90c4cab05deb0447e196a4e7c1deec036562d5fbcd11"
+    },
+    "X065": {
+      "file": "X065-fair-turn-talking-piece.png",
+      "sha256": "71baca6538c491c94a2df49d1db3b358ea895d16863631944ebf4490a4bb2af9"
+    },
+    "X066": {
+      "file": "X066-quiet-ideas-before-reveal.png",
+      "sha256": "ffe3ea4e92edf534a2028783a126d7c3a35cf381cf9773aa7098ba73f99cec91"
+    },
+    "X067": {
+      "file": "X067-private-ballot-box.png",
+      "sha256": "dad5608bb2cffa01f4986714f409c59ff667769165511739367c1c3f7f6f535c"
+    },
+    "X068": {
+      "file": "X068-steady-the-presenter-stand.png",
+      "sha256": "466dfcf54eb6f9963c61d8d36e5c0aeea1af87a6cbb053d28a4421fe95209804"
+    },
+    "X069": {
+      "file": "X069-respect-the-focus-boundary.png",
+      "sha256": "80413bcea10ddb114c0515fd00a1dd38cad2bde877b28a6858413b40c5e2684f"
+    },
+    "X070": {
+      "file": "X070-open-the-working-space.png",
+      "sha256": "9566967557bcf6011a685345dc67d9ed51f6717380e883835d930bf1ddced19d"
+    },
+    "X071": {
+      "file": "X071-ask-for-one-piece-of-help.png",
+      "sha256": "086fc4a5b52baa5a72a3542636547546b13682a152307dd7a77ae12615ada6e6"
+    },
+    "X072": {
+      "file": "X072-keep-the-delegated-space.png",
+      "sha256": "916fc92d66831812324bf81a9b843fee51b4ea0542a153ab2ddf65474414ee80"
+    },
+    "X073": {
+      "file": "X073-review-the-improvement.png",
+      "sha256": "7e86f794796ac3c4778c26fa0ecd945b54396615e945941ee29747517dcaa5cc"
+    },
+    "X074": {
+      "file": "X074-prepare-the-receiving-handle.png",
+      "sha256": "2c0b56ff413253fd910b4a30a43c5a3f4949ee616b0bad13f8ab8b19493464fa"
+    },
+    "X075": {
+      "file": "X075-inspect-one-prototype-feature.png",
+      "sha256": "a24bf9b3e4d78af1bf966c73697582e7086c046a1956c0e05530584086561254"
+    },
+    "X076": {
+      "file": "X076-let-evidence-change-the-choice.png",
+      "sha256": "c635f50c5c2b822ef92eabfda59acd4328ac6964ce9628d45b617baaf6fff629"
+    },
+    "X077": {
+      "file": "X077-try-the-customer-side.png",
+      "sha256": "faf465ed59eeeefac4947d3b8e99fc8496e7e56e5a49183744eaad92fed92999"
+    },
+    "X078": {
+      "file": "X078-a-scope-swap-is-visible.png",
+      "sha256": "98b6c3d836996a166d964b6aaa9aac845a672a7a6441f0396b0a452f70088943"
+    },
+    "X079": {
+      "file": "X079-check-the-whole-gear-train.png",
+      "sha256": "5c222651389c427d53c8cc37a7408acbb29fff8cb72976f42cd5add6a9f9a9e9"
+    },
+    "X080": {
+      "file": "X080-try-the-reversible-patch.png",
+      "sha256": "e1404d73c3d23854b3f5bc9a3057b6c28e33f2fc500839c0025d862c3bd9bdc6"
+    },
+    "X081": {
+      "file": "X081-cast-captain-blocker-ox.png",
+      "sha256": "61e9be14861720df0b373db62e219fc1a9eb870ad2e17403cb349fdc3f90f459"
+    },
+    "X082": {
+      "file": "X082-cast-perfectionist-owl.png",
+      "sha256": "9a4f45605f88729615153971c8cd1178640567a3170c4cc15e9174062997176c"
+    },
+    "X083": {
+      "file": "X083-cast-rubber-duck-analyst.png",
+      "sha256": "516bd3b6cef8a4c8457c77392b07dd28ff3d258c162c7843040247851ab978c8"
+    },
+    "X084": {
+      "file": "X084-cast-data-ghost.png",
+      "sha256": "ee30a365598c5048cd366703d2999a640ca776f385bdb86afa51c2471b1f60c4"
+    },
+    "X085": {
+      "file": "X085-cast-dependable-beaver.png",
+      "sha256": "f39da2b35909c4b2331d2af5da65ab8b3bf2759ad91d49a5352e9e952e102d38"
+    },
+    "X086": {
+      "file": "X086-cast-capacity-camel.png",
+      "sha256": "2a332f83b98277890534ae1c35cf70a99e7f26559e4012bf87fbc9dd67e789d3"
+    },
+    "X087": {
+      "file": "X087-cast-scope-creep-cat.png",
+      "sha256": "ffafb5811372a492d6ff59d3196e5d2a0c7bcb1fce7d57b25f0d5fb9ee4ffc6b"
+    },
+    "X088": {
+      "file": "X088-cast-requirement-chameleon.png",
+      "sha256": "9557d33b2893210dd0fea8b1cddf04f40a509bfe509fe7bede198723179ef226"
+    },
+    "X089": {
+      "file": "X089-cast-value-falcon.png",
+      "sha256": "9672a1d3273a2de652fba0898dbc10bdc4d9d40695d11a282ae2dbe4c0a3b445"
+    },
+    "X090": {
+      "file": "X090-cast-firefighter-fox.png",
+      "sha256": "2bd6a03625e02fc3018bddce24644db1da84c435c233b84d265d4194875ce8ec"
+    },
+    "X091": {
+      "file": "X091-cast-feature-factory-hamster.png",
+      "sha256": "75c372afa1a9859402a54253748c162585b588d2a3175095b618e49936f35bd3"
+    },
+    "X092": {
+      "file": "X092-cast-silo-hedgehog.png",
+      "sha256": "041374f9fd0468a3492647c45fd1a23264b082c72d6015ddec391c0a38a5617b"
+    },
+    "X093": {
+      "file": "X093-cast-hippo.png",
+      "sha256": "b14cd1de7a53e103b7d15c41382d9f92712466566e032855905afe85f04271b0"
+    },
+    "X094": {
+      "file": "X094-cast-meeting-monkey.png",
+      "sha256": "f74d1edf1379a502141acd0482d1abd455d63e3c9f2e0c03b2de7efcf868368a"
+    },
+    "X095": {
+      "file": "X095-cast-experiment-mouse.png",
+      "sha256": "adec7d6e761e0049d47e7390d82971078c4c697102f3f6618d06567f9a2f1dd6"
+    },
+    "X096": {
+      "file": "X096-cast-customer-voice-parrot.png",
+      "sha256": "1907ccead00be7605e687f4e3ab751aef546cce15063a7efe2c701616fb3dc90"
+    },
+    "X097": {
+      "file": "X097-cast-vanity-metrics-peacock.png",
+      "sha256": "406e1057f274e81fb8ba3f6948e364d9d193b4e3c96b50c2f749e92d0455dc5c"
+    },
+    "X098": {
+      "file": "X098-cast-dependency-spider.png",
+      "sha256": "279d4fee7ff8a77fb1769c32362b440396b2bee0b193c534308b2d287b10d354"
+    },
+    "X099": {
+      "file": "X099-cast-technical-debt-termite.png",
+      "sha256": "cf93d52dff7589ec3854df3a2efa7ecb54b36ba756b384a9b446bed94f16185c"
+    },
+    "X100": {
+      "file": "X100-cast-retrospective-turtle.png",
+      "sha256": "64836a1cea2ae4b7af7317af1bef1cfb3c9ff6e684fda63ce336c01b381d59bf"
+    },
+    "X101": {
+      "file": "X101-cast-blame-game-wolf.png",
+      "sha256": "fd43a2db99a49e5529ac08a773b552b12aff2f1734a68886ff8a66381f155fa6"
+    },
+    "X102": {
+      "file": "X102-cast-assurance-badger.png",
+      "sha256": "54c2ed8b9613775aa75156d3526e95f1b67ec8ea947da489f2b8de53e1462d36"
+    },
+    "X103": {
+      "file": "X103-cast-automation-raccoon.png",
+      "sha256": "de73ec49643f998c4d8a986073a617c2ca855e33c1aa5f0a1fd1554558b6a82f"
+    },
+    "X104": {
+      "file": "X104-cast-zombie-backlog.png",
+      "sha256": "cf3bdcc40a5741c0ec423d8164d99ee364f40aad1ef75febc4d04b4cd4ab3206"
+    },
+    "X105": {
+      "file": "X105-still-metronome.png",
+      "sha256": "1c2e5739ed7dab375ade8c06588dd36cff2cb5708ca45705532dd1537e48787e"
+    },
+    "X106": {
+      "file": "X106-tab-focus-path.png",
+      "sha256": "f9b77841a912595f5401552ebbc7b7a5b5f442715fa76013e41a6dad5f174d3c"
+    },
+    "X107": {
+      "file": "X107-close-and-return-focus.png",
+      "sha256": "34399545bb7625e70569d7ab765efebeab68d825f5a24fd98c458f513eeb7202"
+    },
+    "X108": {
+      "file": "X108-choose-a-corner.png",
+      "sha256": "3a386c00e925a57fd4f3677dd867ecca03936ebe85d2a052e8264ffc41376d90"
+    },
+    "X109": {
+      "file": "X109-felt-damped-fork.png",
+      "sha256": "4e7467a3e733d591f660a1db240898e9d4044f0a30503117bfcdc42a5d042a2b"
+    },
+    "X110": {
+      "file": "X110-local-preference-drawer.png",
+      "sha256": "ee6d93f66bf73760086df225f82701a6c450297a6325588c8440701697554ea9"
+    },
+    "X111": {
+      "file": "X111-present-clear-stage.png",
+      "sha256": "a735a5a50d3778d20212e5afa6ca138959b9a3144afd2e3e10945258c668fef1"
+    },
+    "X112": {
+      "file": "X112-search-shape-stencil.png",
+      "sha256": "fa03a317d734b7de4f0d9d9ce8b91232bd394ec4be9cf2d3ab6594525fe0a7df"
+    },
+    "X113": {
+      "file": "X113-lanyard-free.png",
+      "sha256": "28d2ffb3dc47514a9fc0e98f9210c880636c924e88f97b613f3fa78257fed800"
+    },
+    "X114": {
+      "file": "X114-coil-without-knots.png",
+      "sha256": "bc6d6d5d4ae9b1d1f5ca5f94081d9b1cb09b86d7e5d2b3d0eaf7ecd6307ed732"
+    },
+    "X115": {
+      "file": "X115-paper-plane-return.png",
+      "sha256": "82b9140e217b61df84b52b7367885c28654549ecd48bcc2a132d37e1bb8606ea"
+    },
+    "X116": {
+      "file": "X116-yo-yo-return.png",
+      "sha256": "1eb5761982426b84645702120d564a3e5827524b77f3bd4297c7617b34c73d46"
+    },
+    "X117": {
+      "file": "X117-spinning-top-catch.png",
+      "sha256": "4aa507826d6ab8c9e012f0c5c7800634311718590a842f7da34629b478a1fc64"
+    },
+    "X118": {
+      "file": "X118-pencil-channel.png",
+      "sha256": "38d41627fe341b04ef7f967fdb4feacc91d50a50876438ab67066ca3fa3966a2"
+    },
+    "X119": {
+      "file": "X119-tape-recoil.png",
+      "sha256": "cb9e418300099e4cd0430bcf929c57382271fd6c208460aee6cd6891fb8960fa"
+    },
+    "X120": {
+      "file": "X120-balanced-wood-arch.png",
+      "sha256": "90d7843b41aa8c32f597b83e962d9f415021730c0223ce3782124189ffb8c8c6"
+    },
+    "X121": {
+      "file": "X121-wind-up-pause.png",
+      "sha256": "b3a38d1ea2519ad8d718b7eb94c5c915d5caa03b162a902dcea977914e8cb8f1"
+    },
+    "X122": {
+      "file": "X122-static-paper-lift.png",
+      "sha256": "3ee5bdb2e50b084ee7dc4ee7d270516cb8d79b878c6569c56ceb1c416ad748a7"
+    },
+    "X123": {
+      "file": "X123-tablecloth-inertia.png",
+      "sha256": "d11a14525fda20b169980fb4608a94c423a635a1af34f4206cc0a72bd3295bbb"
+    },
+    "X124": {
+      "file": "X124-suction-release-tab.png",
+      "sha256": "06c083bb265537725933129e1e30e7a300e201a5d5ada50a66bbb87074dc4d80"
+    }
+  }
+}

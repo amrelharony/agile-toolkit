@@ -94,6 +94,8 @@ export function planBacklogSave(
     }
     const built = buildBacklogStory({
       title: st.title,
+      // What the host typed under the title goes with it, as the story's notes.
+      description: st.description,
       points,
       sourceRef: { tool: POKER_SOURCE_TOOL, id: st.id },
     });

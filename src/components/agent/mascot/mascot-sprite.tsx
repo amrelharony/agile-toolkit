@@ -35,6 +35,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { cn } from "@/lib/utils";
+import { themed } from "@/lib/utils/theme-color";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
@@ -61,6 +62,7 @@ import {
   FIGURE_BOTTOM,
   FIGURE_TOP,
   SHEET,
+  actClip,
   chooseShot,
   lookIndex,
   reactionSeconds,
@@ -68,6 +70,7 @@ import {
   type Shot,
   type SpritePose,
 } from "./engine/sprite-poses";
+import { clipMs } from "./engine/clips";
 import { createTalker } from "./engine/talk";
 import { sceneFx, type SceneFx } from "./engine/scene-fx";
 import { FX_FADE_MS, MascotFx } from "./mascot-fx";
@@ -133,6 +136,16 @@ function animClass(shot: Shot, take: number): string | undefined {
   return undefined;
 }
 
+/**
+ * His aura's filter: a hard 2px offset in `color`, with no blur, like the
+ * neon 2px offset shadows. A brand hex is mapped onto its theme token, so the
+ * aura follows the theme; a token (the Konami sweep's) or any other colour
+ * passes through. Exported for tests.
+ */
+export function auraFilter(color: string): string {
+  return `drop-shadow(2px 2px 0 ${themed(color)})`;
+}
+
 function whenIdle(fn: () => void): void {
   const w = window as Window & {
     requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
@@ -180,6 +193,11 @@ export default function MascotSprite({
     let raf = 0;
     let reaction: MascotReaction | null = null;
     let reactionTimer: ReturnType<typeof setTimeout> | undefined;
+    // A reaction's clip waiting for its pack: once it shows, it gets its whole length.
+    let reactionClipShown = false;
+    let reactionWaited = false;
+    // When each held scene first showed, so a reaction over it doesn't replay its way in.
+    const holdStarts = new Map<string, number>();
     let micro: SpritePose | null = null;
     let look: number | null = null;
     let lastMoveAt = 0;
@@ -347,6 +365,7 @@ export default function MascotSprite({
     const refresh = () => {
       if (disposed) return;
       const s = useMascotStore.getState();
+      const stroll = reaction === "stroll" ? strollClip() : undefined;
       const next = chooseShot({
         drag: s.drag,
         holds: s.holds,
@@ -357,15 +376,34 @@ export default function MascotSprite({
         reducedMotion,
         speed,
         ready: loader.isReady,
-        stroll: reaction === "stroll" ? strollClip() : undefined,
+        stroll,
       });
       if (next.needs) loader.ensure(next.needs);
+      const holding = s.holds as readonly string[];
+      Array.from(holdStarts.keys()).forEach((h) => {
+        if (!holding.includes(h)) holdStarts.delete(h);
+      });
+      if (reaction && !reactionClipShown) {
+        const c = stroll ?? actClip(reaction); // the clip chooseShot plays for it
+        if (c && next.anim === "clip" && next.clip === c) {
+          reactionClipShown = true;
+          // Its pack came late: play it all from here, not what's left of its time.
+          if (reactionWaited) armReaction(clipMs(c));
+        } else if (c && next.needs?.length) {
+          reactionWaited = true;
+        }
+      }
       if (next.key === shown.key) return;
       const wasTalk = shown.clip?.driven === "talk";
       shown = next;
       clipStart = performance.now();
+      if (next.hold && next.anim === "clip") {
+        const since = holdStarts.get(next.hold);
+        if (since === undefined) holdStarts.set(next.hold, clipStart);
+        else clipStart = since;
+      }
       if (next.clip?.driven === "talk" && !wasTalk) talker.reset();
-      paintClip(clipStart);
+      paintClip(performance.now()); // a held scene picks up where its clock is
       setPlaying((p) => ({ shot: next, take: p.take + 1 }));
     };
 
@@ -375,20 +413,25 @@ export default function MascotSprite({
       reaction = null;
     };
 
+    /** End the playing reaction `ms` from now. */
+    const armReaction = (ms: number) => {
+      clearTimeout(reactionTimer);
+      reactionTimer = setTimeout(() => {
+        reaction = null;
+        pump();
+        refresh();
+      }, ms);
+    };
+
     const startReaction = (r: MascotReaction) => {
       reaction = r;
+      reactionClipShown = false;
+      reactionWaited = false;
       if (r !== "wiggle" && !reducedMotion) {
         procedural.triggerSquashStretch(r === "land" ? "land" : "react");
       }
       playMascotSound(r); // reaction sound (no-op if not in the palette / muted)
-      reactionTimer = setTimeout(
-        () => {
-          reaction = null;
-          pump();
-          refresh();
-        },
-        reactionSeconds(r, speed) * 1000
-      );
+      armReaction(reactionSeconds(r, speed) * 1000);
     };
 
     /** Take the next queued reaction and micro-expression off the store. */
@@ -706,12 +749,16 @@ export default function MascotSprite({
         data-amr-lean
         style={{ transformOrigin: `50% ${((FIGURE_BOTTOM / SHEET.cellH) * 100).toFixed(1)}%` }}
       >
+        {/* His aura is a hard 2px offset in its colour, never a glow (DNA-SPEC
+            §1); a brand hex follows the theme through themed(). The module CSS
+            turns it off in high contrast through data-amr-aura. */}
         <div
           ref={swingRef}
           className={styles.swing}
+          data-amr-aura={auraColor ? "" : undefined}
           style={{
             transformOrigin: `50% ${((FIGURE_TOP / SHEET.cellH) * 100).toFixed(1)}%`,
-            ...(auraColor ? { filter: `drop-shadow(0 0 10px ${auraColor})` } : {}),
+            ...(auraColor ? { filter: auraFilter(auraColor) } : {}),
           }}
         >
           <div ref={bodyRef} className={styles.body}>

@@ -105,7 +105,7 @@ function displayedAt(el: Element, bp: (typeof BREAKPOINTS)[number]): boolean {
  * The bar's controls that take width at `bp`, outside the breadcrumb (which
  * is flex-1 min-w-0 and gives its width away), as short names.
  */
-function rigidControlsAt(container: HTMLElement, bp: "md" | "lg"): string[] {
+function rigidControlsAt(container: HTMLElement, bp: "" | "md" | "lg"): string[] {
   const header = container.querySelector("header");
   if (!header) throw new Error("no header");
   return Array.from(header.querySelectorAll("button, a, [role='status']"))
@@ -328,6 +328,69 @@ describe("the controls taking width between md and xl", () => {
     expect(displayedAt(el, "md")).toBe(true);
     expect(displayedAt(el, "lg")).toBe(true);
     expect(displayedAt(el, "xl")).toBe(false);
+  });
+});
+
+/*
+ * The narrowest phone the site supports, 320 px, where Amr's chat opens as a
+ * full-height sheet under this bar: the bar stays in view and in reach above
+ * it (the controls that open a surface close the sheet first), so it must
+ * still fit. Below xs only icon buttons stay inline, each a 44 px touch target.
+ * A tripwire like the one above: a new phone control has to fit beside these,
+ * or go into the account menu.
+ */
+describe("the bar on a 320 px phone", () => {
+  const PHONE_WIDTH = 320;
+  const TOUCH_PX = 44;
+  const PHONE_CONTROLS = [
+    "Open navigation",
+    "Open search",
+    "Kudos beacon",
+    "Open help",
+    "Theme",
+    "Visitor menu",
+  ];
+
+  /** The children of `el` that are displayed below xs. */
+  const shownChildren = (el: Element) => Array.from(el.children).filter((c) => displayedAt(c, ""));
+
+  it("keeps only the known touch controls inline", () => {
+    const { container } = render(<Header onOpenSearch={() => {}} onOpenSidebar={() => {}} />);
+    expect(rigidControlsAt(container, "")).toEqual(PHONE_CONTROLS);
+  });
+
+  it("fits them, their gaps and the side gutters, with room left for the page title", () => {
+    const { container } = render(<Header onOpenSearch={() => {}} onOpenSidebar={() => {}} />);
+    const header = container.querySelector("header")!;
+    const cluster = container.querySelector("[data-header-actions]")!;
+    // Below xs: 12 px gutters (more only under a wider notch), gap-1 between
+    // the bar's items and gap-0.5 inside the right cluster.
+    expect(classesOf(header)).toEqual(
+      expect.arrayContaining([
+        "gap-1",
+        "pl-[max(0.75rem,env(safe-area-inset-left))]",
+        "pr-[max(0.75rem,env(safe-area-inset-right))]",
+      ])
+    );
+    expect(classesOf(cluster)).toContain("gap-0.5");
+    // The bar's own controls are 44 px on touch (the beacon's and the account
+    // menu's min-touch-coarse is pinned with their own components).
+    for (const name of ["Open navigation", "Open search", "Open help", /^Switch to /]) {
+      const cls = classesOf(screen.getByRole("button", { name }));
+      expect(
+        cls.includes("min-touch") || cls.includes("pointer-coarse:min-w-11"),
+        String(name)
+      ).toBe(true);
+    }
+
+    const gaps = (shownChildren(header).length - 1) * 4 + (shownChildren(cluster).length - 1) * 2;
+    const used = PHONE_CONTROLS.length * TOUCH_PX + gaps + 2 * 12;
+    expect(used).toBeLessThanOrEqual(PHONE_WIDTH);
+    // The title (flex-1 min-w-0, truncating) gets what is left.
+    const title = header.querySelector("nav[aria-label='breadcrumb']")?.parentElement;
+    expect(classesOf(title ?? null)).toEqual(
+      expect.arrayContaining(["flex-1", "min-w-0", "overflow-hidden"])
+    );
   });
 });
 

@@ -11,6 +11,7 @@ import { toast } from "@/lib/utils/toast";
 import { useFlash } from "@/hooks/use-flash";
 import type { ToolPromptConfig } from "@/lib/ai-prompts/types";
 import { useActiveLlm } from "@/lib/llm/use-active-llm";
+import { useIsOwner } from "@/lib/auth/use-is-owner";
 
 /**
  * Lazy-load the run panel so the (heavier) LLM machinery only lands in the
@@ -40,12 +41,16 @@ function PromptCard({
   const copied = isFlashing();
   const [showRun, setShowRun] = useState(false);
   const { isReady } = useActiveLlm();
+  // The signed-in owner can run without a personal key: the run panel then
+  // uses the owner's own gateway (see ai-run-panel.tsx).
+  const isOwner = useIsOwner();
+  const canRun = isReady || isOwner;
 
   // If the user disables their AI between opening the drawer and clicking
   // Run, fold the panel away so they aren't staring at a dead control.
   useEffect(() => {
-    if (!isReady) setShowRun(false);
-  }, [isReady]);
+    if (!canRun) setShowRun(false);
+  }, [canRun]);
 
   const handleCopy = async () => {
     const ok = await copyToClipboard(prompt);
@@ -71,7 +76,7 @@ function PromptCard({
           <p className="text-xs text-sub mt-0.5">{description}</p>
         </div>
         <div className="flex gap-1.5 shrink-0">
-          {isReady && (
+          {canRun && (
             <Button
               size="sm"
               variant="outline"
@@ -102,7 +107,7 @@ function PromptCard({
       <pre className="whitespace-pre-wrap text-xs text-text/80 bg-surface rounded-md border border-border p-3 max-h-60 overflow-y-auto font-mono leading-relaxed">
         {prompt}
       </pre>
-      {isReady && showRun && (
+      {canRun && showRun && (
         // AiRunPanel is dynamic-imported, so it lands in the bundle only
         // when the user actually expands it for the first time.
         <div id={runPanelId}>
@@ -120,6 +125,7 @@ interface AiPromptDrawerContentProps {
 export default function AiPromptDrawerContent({ config }: AiPromptDrawerContentProps) {
   const hasPrompts = config.prompts.length > 0;
   const { isReady, providerName, model, openSettings } = useActiveLlm();
+  const isOwner = useIsOwner();
   return (
     <SheetContent
       side="right"
@@ -143,6 +149,12 @@ export default function AiPromptDrawerContent({ config }: AiPromptDrawerContentP
               <Sparkles className="w-3 h-3" />
               AI: {providerName}
               {model && <span className="text-sub normal-case">· {model}</span>}
+            </span>
+          ) : isOwner ? (
+            <span className="inline-flex items-center gap-1.5 text-xs font-mono uppercase tracking-wider px-2 py-0.5 rounded-md border border-accent/40 bg-accent/10 text-accent">
+              <Sparkles className="w-3 h-3" />
+              AI: Amr&apos;s AI
+              <span className="text-sub normal-case">· your gateway</span>
             </span>
           ) : (
             <button

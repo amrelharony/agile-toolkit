@@ -1,7 +1,7 @@
 """
 Build Amr's lazy sprite packs from the generated art sheets.
 
-    python -I scripts/build-mascot-packs.py <sheets folder> [--preview <folder>] [--keep-missing]
+    python -I scripts/build-mascot-packs.py <sheets folder> [--preview <folder>] [--keep-missing] [--as-drawn]
 
 The sheets folder holds S01-faces.png … S10-stroll.png: 1536 x 1024, eight
 384 x 512 slots each, slot 1 the standard stance (docs/mascot/AMR-ART-BRIEF.md).
@@ -31,6 +31,24 @@ measures them; scripts/audit-mascot-heads.py checks the result):
   sharpness  the 1x cells are sharpened, sheet by sheet, until the stance carries
              the fine detail the live idle does
 
+--as-drawn builds the sheets exactly as drawn: registered (one scale per sheet from
+slot 1, each slot on its anchor and the floor) and packed, with the S01 faces lined up
+on face.default's body and the talk pack's heads swapped on, but none of the
+corrections below. It is for the refined release of 13 November 2026
+(docs/mascot/refined-original-release.json), where every Amr was redrawn whole from
+the approved standing master: his head, skin and clothes already match the live
+sprite (heads 0.98-1.05, skin dE 1-2, clothes dE 2-3), and it is crisper than the live
+idle, so the corrections would only move it off the approved drawing.
+
+The companion scenes (docs/mascot/companion-scenes.json) are built by
+scripts/build-mascot-scenes.py as baked scenes, without any of the corrections
+above; this script keeps their packs exactly as they ship.
+
+A sheet with a corrected slot (docs/mascot/refined-patches.json) must be in the folder
+with the correction in: scripts/patch-refined-slots.py puts it there, and this script
+stops if it isn't. A correction drawn with a smaller head than the rest of its sheet
+names a head_scale there, which --as-drawn applies to that frame alone.
+
 Needs Pillow and numpy. The source PNGs never ship; only the packs do.
 """
 
@@ -51,6 +69,9 @@ import mascot_heads as heads  # noqa: E402  (next to this script; -I leaves it o
 ROOT = Path(__file__).resolve().parent.parent
 PUBLIC = ROOT / "public" / "mascot"
 CONTEXT_SPEC = ROOT / "docs" / "mascot" / "context-sheets.json"
+COMPANION_SPEC = ROOT / "docs" / "mascot" / "companion-scenes.json"
+EXPANSION_SPEC = ROOT / "docs" / "mascot" / "expansion-sheets.json"
+PATCHES = ROOT / "docs" / "mascot" / "refined-patches.json"
 MANIFEST = ROOT / "src" / "components" / "agent" / "mascot" / "mascot-packs.ts"
 
 SLOT_W, SLOT_H = 384, 512
@@ -122,6 +143,42 @@ def context_sheets() -> dict:
         ids = [None] + [(slot["id"], slot.get("kind", "feet")) for slot in s["slots"]]
         out[f"{s['sheet']}-{s['pack']}"] = (s["pack"], "feet", ids, s["group"])
     return out
+
+
+def check_patches(src: Path) -> None:
+    """A sheet with a corrected slot (docs/mascot/refined-patches.json) must be in the
+    folder patched, or the build would quietly bring back the frame it replaced."""
+    if not PATCHES.exists():
+        return
+    for p in json.loads(PATCHES.read_text(encoding="utf-8"))["patches"]:
+        path = src / p["file"]
+        if not path.exists():
+            continue
+        rgba = np.ascontiguousarray(np.array(Image.open(path).convert("RGBA")))
+        if hashlib.sha256(rgba.tobytes()).hexdigest() != p["pixels_sha256"]:
+            raise SystemExit(f"{p['file']}: slot {p['slot']} ({p['frame']}) isn't the corrected one;"
+                             " run scripts/patch-refined-slots.py on the folder first")
+
+
+def patch_heads(frames, stances) -> list[str]:
+    """A corrected slot drawn with a smaller head than the rest of its sheet gets its head
+    scaled by the record's head_scale, around its hair, like size_head (as drawn only)."""
+    if not PATCHES.exists():
+        return []
+    notes = []
+    for p in json.loads(PATCHES.read_text(encoding="utf-8"))["patches"]:
+        s, fid = p.get("head_scale"), p["frame"]
+        if not s or fid not in frames:
+            continue
+        pack = SHEETS[Path(p["file"]).stem][0]
+        _, _, h, w = head_box(stances[pack][2])
+        hair = hair_blob(frames[fid][2])
+        if hair is None:
+            raise SystemExit(f"{fid}: no hair found to scale its head around")
+        cx, hair_top = hair
+        frames[fid] = shrunk(frames[fid][2], cx, hair_top + h / 2, max(h, w) / 2, s)
+        notes.append(f"{fid}: head scaled x{s} (refined-patches.json)")
+    return notes
 
 
 def add_context_sheets(src: Path) -> list[str]:
@@ -232,6 +289,27 @@ def keep_missing(found: list[str]) -> dict:
             raise SystemExit(f"{stem}: the manifest lists {len(fids)} frames for {pack}, not {entry['frames']}")
         kept[pack] = (entry, fids)
     return kept
+
+
+def baked_scenes() -> dict:
+    """The companion and expansion scene packs as they ship: {pack: (its manifest entry,
+    its frame ids)}. scripts/build-mascot-scenes.py and build-mascot-expansion.py build
+    them; here they are only kept, files and all, so no correction below ever reads a
+    colleague or a prop beside him as his skin or clothes."""
+    names = []
+    for spec in (COMPANION_SPEC, EXPANSION_SPEC):
+        if spec.exists():
+            names += [s["pack"] for s in json.loads(spec.read_text(encoding="utf-8"))["sheets"]]
+    shipped, baked = shipped_packs(), {}
+    for pack in names:
+        if pack not in shipped:
+            continue  # not built yet
+        entry, fids = shipped[pack]
+        for key in ("src", "src2x"):
+            if not (PUBLIC / Path(entry[key]).name).exists():
+                raise SystemExit(f"scene pack {pack}: its shipped pack {entry[key]} is gone")
+        baked[pack] = (entry, fids)
+    return baked
 
 
 def add_kept(kept: dict) -> None:
@@ -401,17 +479,22 @@ def align_faces(frames) -> list[str]:
     return notes
 
 
-def build_talk(frames) -> None:
+def build_talk(frames, reach: int = 8) -> list[str]:
     ref = np.array(frames["face.default"][2]).astype(int)
     neck = neck_row(ref[..., 3])
     rows = slice(max(neck - 130, 0), neck)
+    notes = []
     for g, gid in enumerate(GESTURES, start=1):
         body2 = frames[gid][2]
-        dx, dy = head_offset(np.array(body2).astype(int), ref, rows)
+        dx, dy = head_offset(np.array(body2).astype(int), ref, rows, reach=reach)
+        if max(abs(dx), abs(dy)) >= reach:
+            notes.append(f"talk.{g}: the S01 head sits at the edge of the search ({dx:+d}, {dy:+d} px at 2x): check it")
+        notes.append(f"talk.{g}: S01 head placed at {dx:+d}, {dy:+d} px at 2x")
         for mouth, fid in MOUTHS.items():
             out2 = swap_head(body2, frames[fid][2], dx, dy, neck)
             out1 = out2.convert("RGBa").resize((CELL_W, PACK_H), Image.LANCZOS).convert("RGBA")
             frames[f"talk.{g}-{mouth}"] = {1: out1, 2: out2}
+    return notes
 
 
 # Head size. Each sheet is scaled so his stance is as tall as the live one, but the
@@ -602,6 +685,9 @@ def size_head(frames, fid, sheet, stances, scales, ref, target: float = 1.0) -> 
 # head shows: as a ring round it, or a notch at the jaw. So the body's head goes a
 # little under the live size first, and the new head always covers it.
 GESTURE_HEAD = 0.96
+# As drawn (the refined release), every frame is a whole new drawing at one scale, so a
+# gesture's head can sit further from S01's than in the edited sheets: search wider.
+AS_DRAWN_TALK_REACH = 24
 
 
 def size_gestures(frames, stances, scales, ref) -> list[str]:
@@ -910,7 +996,8 @@ def write_packs(frames, kept: dict | None = None) -> dict:
     kept = kept or {}
     keep = {Path(e[k]).name for e, _ in kept.values() for k in ("src", "src2x")}
     for old in PUBLIC.glob("amr-*.webp"):
-        if old.name not in keep:
+        # The Scenes tab's thumbnail atlas belongs to build-mascot-expansion.py.
+        if old.name not in keep and not old.name.startswith("amr-thumbs."):
             old.unlink()
     manifest = {}
     for pack, fids in PACKS.items():
@@ -979,12 +1066,23 @@ def pack_sheet(cells: list[Image.Image], k: int) -> Image.Image:
     return out
 
 
+def folder_arg(args: list[str], valued: tuple[str, ...] = ()) -> Path:
+    """The folder given on the command line: the first argument that is neither a flag
+    nor a flag's value. No folder, or -h / --help, prints the usage."""
+    if "-h" in args or "--help" in args:
+        raise SystemExit(__doc__)
+    skip = {i + 1 for i, a in enumerate(args) if a in valued}
+    for i, a in enumerate(args):
+        if i not in skip and not a.startswith("-"):
+            return Path(a)
+    raise SystemExit(__doc__)
+
+
 def main() -> None:
     args = sys.argv[1:]
-    if not args:
-        raise SystemExit(__doc__)
-    src = Path(args[0])
+    src = folder_arg(args, ("--preview",))
     preview = Path(args[args.index("--preview") + 1]) if "--preview" in args else None
+    check_patches(src)
     found = add_context_sheets(src)
     total = len(context_sheets())
     print(f"context sheets: {len(found)} of {total}" + (f" ({', '.join(found)})" if found else ""))
@@ -993,13 +1091,19 @@ def main() -> None:
         print(f"kept as shipped ({len(kept)}): {', '.join(kept)}")
     frames, stances, notes = load_frames(src)
     notes += align_faces(frames)
+    if "--as-drawn" in args:
+        print("as drawn: no head sizing, no skin, clothes or hair matching, no side thickening, no sharpening")
+        notes += patch_heads(frames, stances)
+        notes += build_talk(frames, reach=AS_DRAWN_TALK_REACH)
+        finish(frames, stances, notes, kept, {}, preview)
+        return
     notes += thicken_sides(frames)
     scales = head_scales(stances)
     print("each sheet's head scale, from its stance:", ", ".join(f"{p} {s:.3f}" for p, s in scales.items()))
     ref = live_ref()
     shrink_faces(frames, scales, ref)
     notes += size_gestures(frames, stances, scales, ref)
-    build_talk(frames)
+    notes += build_talk(frames)
     notes += shrink_heads(frames, stances, scales, ref)
     skin_notes, deltas = match_skin(frames, ref)
     notes += skin_notes
@@ -1028,10 +1132,20 @@ def main() -> None:
     notes += sharp_notes
     for pack, st in stances.items():
         stances[pack] = {2: st[2], 1: heads.sharpen(small(st[2]), amounts[pack], SHARP_RADIUS)}
+    finish(frames, stances, notes, kept, regraded, preview)
+
+
+def finish(frames, stances, notes, kept, regraded, preview) -> None:
+    """Write the packs, the manifest and the previews."""
     for n in notes:
         print("note:", n)
     add_kept(kept)
-    manifest = write_packs(frames, {p: v for p, v in kept.items() if p not in regraded})
+    baked = baked_scenes()
+    if baked:
+        print(f"companion scenes kept as built ({len(baked)}): {', '.join(baked)}")
+    for pack, (_entry, fids) in baked.items():  # after every other pack, as they ship
+        PACKS[pack] = fids
+    manifest = write_packs(frames, {**{p: v for p, v in kept.items() if p not in regraded}, **baked})
     write_manifest(manifest)
     for pack, e in manifest.items():
         print(f"{pack:8} {e['frames']:2} frames  {e['bytes'] // 1024:4} KB  2x {e['bytes2x'] // 1024:4} KB")

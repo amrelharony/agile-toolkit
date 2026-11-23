@@ -5,6 +5,8 @@ import dynamic from "next/dynamic";
 import { AlertTriangle, HardDrive } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useOwnerState } from "@/lib/auth/use-is-owner";
+import { LAST_BACKUP_AGE_WIDEST, lastBackupAge, lastBackupText } from "@/lib/data/backup-meta";
+import { useLastBackupAt } from "@/lib/data/use-last-backup";
 import { useStorageHealth } from "@/lib/stores/storage-health";
 
 // The dialog (backup, restore, storage estimate) loads on first open; the
@@ -25,12 +27,58 @@ const CHIP_BOX =
   "inline-flex min-h-8 items-center gap-1.5 rounded-full border px-3 text-xs pointer-coarse:min-h-11";
 
 /**
- * "Saved in this browser" next to a tool's title, for visitors.
+ * When the last backup was, under the chip's label: "Last backup: 3 days
+ * ago", or "No backup yet". Below the `lg` width it reads "Backup: 3 days
+ * ago", which is no wider than the label above it: on a phone the chip
+ * keeps the width it had and the toolbar its rows, and on a tablet the
+ * toolbar takes no more room from the title beside it.
+ */
+function BackupLine({ age }: { age: string | null }) {
+  if (age === null) return <>No backup yet</>;
+  return (
+    <>
+      <span className="max-lg:hidden">Last backup: </span>
+      <span className="lg:hidden">Backup: </span>
+      {age}
+    </>
+  );
+}
+
+/** A copy of a line that only holds its width: invisible, no height, in the line's own cell. */
+const WIDTH_HOLDER = "invisible col-start-1 h-0 overflow-hidden whitespace-nowrap";
+
+/**
+ * The chip's two lines: its label, and the last backup's age. Each shares
+ * its cell with an invisible copy of the widest text that line can hold, so
+ * the chip is one width whatever it says. The placeholder renders the same
+ * thing before any of it can be read, and nothing moves when the real chip
+ * takes its place or a backup is downloaded.
+ */
+function ChipText({ label, age }: { label: string; age: string | null }) {
+  return (
+    <span className="grid justify-items-start text-left leading-tight">
+      <span className="col-start-1 row-start-1 whitespace-nowrap">{label}</span>
+      <span className="col-start-1 row-start-2 whitespace-nowrap" data-saved-chip-backup="">
+        <BackupLine age={age} />
+      </span>
+      <span aria-hidden="true" className={cn(WIDTH_HOLDER, "row-start-1")}>
+        {SAVED_LABEL}
+      </span>
+      <span aria-hidden="true" className={cn(WIDTH_HOLDER, "row-start-2")}>
+        <BackupLine age={LAST_BACKUP_AGE_WIDEST} />
+      </span>
+    </span>
+  );
+}
+
+/**
+ * "Saved in this browser" next to a tool's title, for visitors, with when
+ * the last backup was under it.
  *
  * Says where the work lives — the question every visitor has and nothing on
- * the page used to answer — and opens the backup dialog. Turns into a
- * warning when the browser has stopped saving. The owner's data syncs to
- * their account, so they don't get it.
+ * the page used to answer — and how old the only other copy is, and opens
+ * the backup dialog. Turns into a warning when the browser has stopped
+ * saving. The owner's data syncs to their account, so they don't get it.
  *
  * Until auth settles nobody knows which of the two the reader is, so it
  * holds the chip's place with an invisible copy, in the server HTML too.
@@ -45,6 +93,8 @@ const CHIP_BOX =
 export function SavedChip({ className }: { className?: string }) {
   const { settled, visitor } = useOwnerState();
   const writeFailed = useStorageHealth((s) => s.writeFailed);
+  // Follows a download made anywhere on the page, or in another tab.
+  const lastBackup = useLastBackupAt();
   const [open, setOpen] = useState(false);
   const [opened, setOpened] = useState(false);
   if (!settled) {
@@ -55,8 +105,8 @@ export function SavedChip({ className }: { className?: string }) {
         data-saved-chip-placeholder=""
         className={cn(CHIP_BOX, "invisible", className)}
       >
-        <HardDrive className="h-3.5 w-3.5" aria-hidden="true" />
-        <span>{SAVED_LABEL}</span>
+        <HardDrive className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+        <ChipText label={SAVED_LABEL} age={LAST_BACKUP_AGE_WIDEST} />
       </span>
     );
   }
@@ -72,7 +122,7 @@ export function SavedChip({ className }: { className?: string }) {
           setOpen(true);
         }}
         aria-haspopup="dialog"
-        aria-label={`${label} — back up or restore your data`}
+        aria-label={`${label}. ${lastBackupText(lastBackup)}. Back up or restore your data`}
         className={cn(
           CHIP_BOX,
           "transition-colors",
@@ -84,11 +134,11 @@ export function SavedChip({ className }: { className?: string }) {
         )}
       >
         {writeFailed ? (
-          <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         ) : (
-          <HardDrive className="h-3.5 w-3.5" aria-hidden="true" />
+          <HardDrive className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         )}
-        <span>{label}</span>
+        <ChipText label={label} age={lastBackupAge(lastBackup)} />
       </button>
       {opened && <YourDataDialog open={open} onOpenChange={setOpen} />}
     </>

@@ -23,6 +23,11 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
 
 import FlashcardsPage, { metadata, revalidate } from "@/app/(tools)/comics/flashcards/page";
 import { BOOK_EPISODES } from "@/lib/comics/book-episodes";
+import { POSTER_ART } from "@/lib/comics/poster-panels.generated";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { useMascotStore } from "@/lib/agent/mascot/store";
+
+const STORAGE = "https://ref.supabase.co/storage/v1/object/public/comic-panels/";
 
 const WEEKLY: StudyCard = {
   ep: 27,
@@ -35,11 +40,13 @@ const deck = () => screen.getByRole("region", { name: "Flashcards" });
 
 beforeEach(() => {
   h.weekly = [WEEKLY];
+  vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://ref.supabase.co");
 });
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("the flashcards", () => {
@@ -50,6 +57,43 @@ describe("the flashcards", () => {
     expect(within(deck()).queryByText(BOOK_EPISODES[0].lesson)).toBeNull();
   });
 
+  it("show the story's first panel, the poster's for the book, on both sides", async () => {
+    render(await FlashcardsPage());
+    const picture = () => within(deck()).getByRole("presentation");
+    const first = `${STORAGE}${POSTER_ART[1].panels[0].small}`;
+    expect(picture().getAttribute("src")).toBe(first);
+    expect(picture().getAttribute("alt")).toBe("");
+    expect(picture().getAttribute("loading")).toBe("eager");
+    fireEvent.click(within(deck()).getByRole("button", { name: "Show the lesson" }));
+    expect(picture().getAttribute("src")).toBe(first);
+    fireEvent.click(within(deck()).getByRole("button", { name: /^Next/ }));
+    expect(picture().getAttribute("src")).toBe(`${STORAGE}${POSTER_ART[2].panels[0].small}`);
+  });
+
+  it("give a weekly story its own cover, and a card with none shows words alone", async () => {
+    h.weekly = [
+      { ...WEEKLY, cover: { pathSmall: "w/27-768.webp", width: 1536, height: 1024 } },
+      { ...WEEKLY, ep: 28, title: "No Art Yet", cover: null },
+    ];
+    render(await FlashcardsPage());
+    for (let i = 0; i < 26; i++) {
+      fireEvent.click(within(deck()).getByRole("button", { name: /^Next/ }));
+    }
+    expect(within(deck()).getByRole("presentation").getAttribute("src")).toBe(
+      `${STORAGE}w/27-768.webp`
+    );
+    fireEvent.click(within(deck()).getByRole("button", { name: /^Next/ }));
+    expect(within(deck()).getByRole("heading", { name: "No Art Yet" })).toBeTruthy();
+    expect(within(deck()).queryByRole("presentation")).toBeNull();
+  });
+
+  it("show the book's cards as words alone where the art can't load", async () => {
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    render(await FlashcardsPage());
+    expect(within(deck()).getByRole("heading", { name: BOOK_EPISODES[0].title })).toBeTruthy();
+    expect(within(deck()).queryByRole("presentation")).toBeNull();
+  });
+
   it("turn over to the lesson and the question, and back", async () => {
     render(await FlashcardsPage());
     fireEvent.click(within(deck()).getByRole("button", { name: "Show the lesson" }));
@@ -57,6 +101,50 @@ describe("the flashcards", () => {
     expect(within(deck()).getByText(BOOK_EPISODES[0].question)).toBeTruthy();
     fireEvent.click(within(deck()).getByRole("button", { name: "Back to the title" }));
     expect(within(deck()).queryByText(BOOK_EPISODES[0].lesson)).toBeNull();
+  });
+
+  it("have Amr think before he flips his own card, the first time a lesson shows on a visit", async () => {
+    useMascotStore.setState({ ready: true, reactionQueue: [] });
+    const { unmount } = render(await FlashcardsPage());
+    const turn = () =>
+      fireEvent.click(
+        within(deck()).getByRole("button", { name: /Show the lesson|Back to the title/ })
+      );
+    turn();
+    expect(useMascotStore.getState().reactionQueue).toEqual([`scene:${EVENT_SCENES.flashcard}`]);
+    // Back to the title is nothing to mark, and a second lesson this visit plays nothing.
+    turn();
+    turn();
+    fireEvent.click(within(deck()).getByRole("button", { name: /^Next/ }));
+    turn();
+    expect(useMascotStore.getState().reactionQueue).toHaveLength(1);
+    // The next visit to the page starts afresh.
+    unmount();
+    useMascotStore.setState({ reactionQueue: [] });
+    render(await FlashcardsPage());
+    turn();
+    expect(useMascotStore.getState().reactionQueue).toEqual([`scene:${EVENT_SCENES.flashcard}`]);
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
+  });
+
+  it("leave Amr alone while he isn't on screen", async () => {
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
+    render(await FlashcardsPage());
+    fireEvent.click(within(deck()).getByRole("button", { name: "Show the lesson" }));
+    expect(useMascotStore.getState().reactionQueue).toEqual([]);
+  });
+
+  it("never play for turning back to the title, even while the visit's lesson is still to come", async () => {
+    // Turned to the lesson before he's on screen: nothing plays, and the once stays unspent.
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
+    render(await FlashcardsPage());
+    fireEvent.click(within(deck()).getByRole("button", { name: "Show the lesson" }));
+    useMascotStore.setState({ ready: true });
+    fireEvent.click(within(deck()).getByRole("button", { name: "Back to the title" }));
+    expect(useMascotStore.getState().reactionQueue).toEqual([]);
+    fireEvent.click(within(deck()).getByRole("button", { name: "Show the lesson" }));
+    expect(useMascotStore.getState().reactionQueue).toEqual([`scene:${EVENT_SCENES.flashcard}`]);
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
   });
 
   it("move card by card, each starting on its title, with the weekly stories after the book", async () => {

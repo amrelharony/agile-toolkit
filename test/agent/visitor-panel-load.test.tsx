@@ -13,21 +13,41 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/lib/agent/visitor-runtime", () => ({
   sendVisitorMessage: h.sendVisitorMessage,
   abortInFlight: vi.fn(),
+  retryVisitorTurn: vi.fn(async () => true),
+  visitorGoOn: vi.fn(async () => true),
+  canRetryLastTurn: vi.fn(() => true),
 }));
 vi.mock("@/components/a11y/live-announcer", () => ({
   useAnnounce: () => h.announce,
 }));
 
-import { VISITOR_AI_CONSENT_KEY } from "@/components/agent/mascot/visitor-ai-consent";
+import {
+  VISITOR_AI_CONSENT_KEY,
+  VISITOR_AI_CONSENT_VERSION,
+} from "@/components/agent/mascot/visitor-ai-consent";
 import {
   VISITOR_CHAT_ERROR_NOTE,
   VISITOR_CHAT_LOAD_NOTE,
   VisitorPanel,
 } from "@/components/agent/mascot/visitor-panel";
+import { PANEL_SUBTITLE, PanelChrome } from "@/components/agent/mascot/panel-chrome";
+import { PANEL_LOADING } from "@/components/agent/mascot/panel-parts";
+import { PanelHeader } from "@/components/agent/mascot/panel-header";
 import { ErrorBoundary } from "@/components/layout/error-boundary";
 import { useAgentStore } from "@/lib/agent/store";
 
 type ChatModule = typeof import("@/components/agent/mascot/visitor-agent-panel");
+
+/**
+ * A note over the guide: a narration caption, here with the danger line, in a
+ * box that takes focus. The text sits inside the caption; this finds the box.
+ */
+async function findNote(text: string): Promise<HTMLElement> {
+  const words = await screen.findByText(text);
+  const caption = words.closest('[data-voice="narration"]');
+  expect(caption).toHaveAttribute("data-tone", "error");
+  return words.closest<HTMLElement>('[tabindex="-1"]')!;
+}
 
 // React throws the caught error again while it renders, and jsdom prints it.
 // This one is expected, so it is kept out of the test output.
@@ -37,7 +57,7 @@ describe("VisitorPanel: the chat's code can't load", () => {
   beforeEach(() => {
     h.announce.mockClear();
     h.sendVisitorMessage.mockClear();
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, "v1");
+    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     useAgentStore.getState().reset();
     useAgentStore.setState({ chatProfile: "owner", visitorQuota: null });
     // React and the error boundary both log the error they caught.
@@ -73,7 +93,8 @@ describe("VisitorPanel: the chat's code can't load", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Ask Amr about “retro”" }));
 
-    const note = await screen.findByText(VISITOR_CHAT_LOAD_NOTE);
+    const note = await findNote(VISITOR_CHAT_LOAD_NOTE);
+    expect(note).not.toBe(screen.getByTestId("mascot-visitor-guide"));
     expect(loadChat).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
     expect(screen.queryByText("Something went wrong")).toBeNull();
@@ -84,6 +105,9 @@ describe("VisitorPanel: the chat's code can't load", () => {
     await waitFor(() => expect(note).toHaveFocus());
     expect(h.announce).not.toHaveBeenCalled();
     expect(note).not.toHaveAttribute("role");
+    // A failure drops the question: the note says what happened, and the
+    // search starts empty, so asking again is a fresh start.
+    expect(screen.getByLabelText("What do you need to do?")).toHaveValue("");
 
     // A second try: the note goes, the import runs again and the chat opens.
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
@@ -141,7 +165,7 @@ describe("VisitorPanel: the chat's code can't load", () => {
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
 
     // Not the connection's fault, so the note doesn't blame it.
-    const note = await screen.findByText(VISITOR_CHAT_ERROR_NOTE);
+    const note = await findNote(VISITOR_CHAT_ERROR_NOTE);
     await waitFor(() => expect(note).toHaveFocus());
     expect(screen.queryByText(VISITOR_CHAT_LOAD_NOTE)).toBeNull();
     expect(screen.getByTestId("mascot-visitor-guide")).toBeInTheDocument();
@@ -153,5 +177,66 @@ describe("VisitorPanel: the chat's code can't load", () => {
     expect(await screen.findByText(VISITOR_CHAT_ERROR_NOTE)).toBeInTheDocument();
     expect(loadChat).toHaveBeenCalledTimes(1);
     expect(screen.queryByText("Something went wrong")).toBeNull();
+  });
+
+  it("draws a pen scribbling in the chat's place while its code loads, never a blank panel", async () => {
+    let finish: () => void = () => {};
+    const loadChat = vi.fn<() => Promise<ChatModule>>().mockImplementationOnce(
+      () =>
+        new Promise<ChatModule>((resolve, reject) => {
+          finish = () =>
+            import("@/components/agent/mascot/visitor-agent-panel").then(resolve, reject);
+        })
+    );
+    render(<VisitorPanel loadChat={loadChat} />);
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await waitFor(() => expect(loadChat).toHaveBeenCalledTimes(1));
+
+    // PanelLoading, as the owner's chat has: the scribble, and its words for screen readers.
+    const loading = screen.getByText(PANEL_LOADING);
+    expect(loading).toHaveClass("sr-only");
+    const place = loading.parentElement!;
+    expect(place).toHaveAttribute("data-panel-loading");
+    expect(place).toHaveAttribute("aria-busy", "true");
+    expect(place).toHaveClass("min-h-0", "flex-1");
+    expect(place.querySelector(".ink-scribble")).toHaveAttribute("aria-hidden", "true");
+    expect(screen.queryByLabelText("Message")).toBeNull();
+
+    await act(async () => {
+      finish();
+    });
+    expect(await screen.findByLabelText("Message")).toBeInTheDocument();
+    expect(screen.queryByText(PANEL_LOADING)).toBeNull();
+  });
+
+  it("names the step in the panel header: the chat while it loads, the tool finder after it fails", async () => {
+    let failLoad: (err: Error) => void = () => {};
+    const loadChat = vi.fn<() => Promise<ChatModule>>().mockImplementationOnce(
+      () =>
+        new Promise<ChatModule>((_resolve, reject) => {
+          failLoad = reject;
+        })
+    );
+    render(
+      <PanelChrome>
+        <PanelHeader subtitle={PANEL_SUBTITLE.guide} onClose={() => {}} />
+        <VisitorPanel loadChat={loadChat} />
+      </PanelChrome>
+    );
+    const subtitle = document.querySelector<HTMLElement>("[data-panel-slot='subtitle']")!;
+    expect(subtitle).toHaveTextContent(/^Find the right tool$/);
+
+    fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+    await waitFor(() => expect(loadChat).toHaveBeenCalledTimes(1));
+    expect(subtitle).toHaveTextContent(/^Chat · not saved$/);
+
+    await act(async () => {
+      failLoad(new Error("Loading chunk 123 failed."));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await findNote(VISITOR_CHAT_LOAD_NOTE);
+    expect(subtitle).toHaveTextContent(/^Find the right tool$/);
+    // One line under the plate: the step's own, never the shell's beside it.
+    expect(subtitle.parentElement).toHaveTextContent(/^Find the right tool$/);
   });
 });

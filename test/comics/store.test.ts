@@ -196,10 +196,18 @@ describe("public reads", () => {
     expect((await getReleasedStory(28))?.panels).toHaveLength(1);
   });
 
-  it("makes flashcards of released weekly stories only, oldest first", async () => {
+  it("makes flashcards of released weekly stories only, oldest first, each with its cover", async () => {
+    const cover = { pathSmall: "s/1-768.webp", width: 1536, height: 1024 };
     expect(await listStudyCards()).toEqual([
-      { ep: 27, title: "Story 27", lesson: "Lesson 27", question: "Question 27" },
-      { ep: 28, title: "Story 28", lesson: "Lesson 28", question: "Question 28" },
+      { ep: 27, title: "Story 27", lesson: "Lesson 27", question: "Question 27", cover },
+      { ep: 28, title: "Story 28", lesson: "Lesson 28", question: "Question 28", cover },
+    ]);
+  });
+
+  it("makes a flashcard without a cover for a story whose first panel has no art", async () => {
+    h.client = fakeClient([{ ...row(27, "weekly", PAST), panels: [{ alt: "No art" }] }]);
+    expect(await listStudyCards()).toEqual([
+      { ep: 27, title: "Story 27", lesson: "Lesson 27", question: "Question 27", cover: null },
     ]);
   });
 

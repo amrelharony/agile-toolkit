@@ -1,0 +1,157 @@
+/**
+ * The words people are shown about their data live in lib/site/disclosures.ts,
+ * so the privacy page can quote them. Each place that shows one must show
+ * that very text: these render the places and compare. (The "Your data"
+ * dialog's own test, test/data/your-data-dialog.test.tsx, pins its sentences
+ * word for word.)
+ */
+import { act, cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("@/components/shared/on-search-params", () => ({
+  OnSearchParams: () => null,
+  dropSearchParams: () => {},
+}));
+
+import { LlmSettingsDialog } from "@/components/ai/llm-settings-dialog";
+import {
+  VISITOR_AI_CONSENT_TEXT as CARD_TEXT,
+  VISITOR_AI_DAILY_MESSAGES as CARD_DAILY,
+  VisitorAiConsent,
+} from "@/components/agent/mascot/visitor-ai-consent";
+import { VoiceNotice } from "@/components/agent/mascot/voice-notice";
+import {
+  VISITOR_ROOM_CONSENT_TEXT as ROOM_DIALOG_TEXT,
+  VOTE_ROOM_CONSENT_TEXT as VOTE_DIALOG_TEXT,
+} from "@/components/collab/visitor-room-consent";
+import { AiConsentCompact } from "@/components/ai/ai-consent-compact";
+import { CountDisclosure } from "@/components/visits/visit-recorder";
+import * as disclosures from "@/lib/site/disclosures";
+import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
+
+afterEach(() => {
+  cleanup();
+});
+
+describe("the disclosure wording", () => {
+  it("is what the live-room and vote-round consent dialogs export and show", () => {
+    expect(ROOM_DIALOG_TEXT).toBe(disclosures.VISITOR_ROOM_CONSENT_TEXT);
+    expect(VOTE_DIALOG_TEXT).toBe(disclosures.VOTE_ROOM_CONSENT_TEXT);
+  });
+
+  it("is the card before Amr's AI, with what is sent first and what is kept second", () => {
+    expect(CARD_TEXT).toBe(disclosures.VISITOR_AI_CONSENT_TEXT);
+    expect(CARD_DAILY).toBe(disclosures.VISITOR_AI_DAILY_MESSAGES);
+    expect(CARD_TEXT[0]).toBe(disclosures.VISITOR_AI_SENT);
+    expect(CARD_TEXT[1]).toBe(disclosures.VISITOR_AI_KEPT);
+    const { rerender } = render(
+      <VisitorAiConsent question="" onAgree={() => {}} onDecline={() => {}} />
+    );
+    const points = () => screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(points()).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);
+    expect(points()[4]).toContain(
+      `${disclosures.VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons`
+    );
+    // The panel's search is the tool finder, the name the panel itself uses.
+    expect(points()[4]).toContain("The tools and the tool finder always work without AI.");
+    expect(disclosures.VISITOR_AI_CONSENT_TEXT.join(" ")).not.toMatch(/offline/i);
+    // A question is shown in its own caption, never as one of the points.
+    rerender(<VisitorAiConsent question="retro" onAgree={() => {}} onDecline={() => {}} />);
+    expect(points()).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);
+  });
+
+  it("is the compact card before a tool's first Ask Amr, the same points in the same order", () => {
+    render(<AiConsentCompact onAgree={() => {}} onDecline={() => {}} />);
+    const points = screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(points).toEqual([...disclosures.VISITOR_AI_CONSENT_TEXT]);
+  });
+
+  it("says, in v2 of the card, that the Ask Amr buttons send tool content and count as AI uses", () => {
+    expect(disclosures.VISITOR_AI_SENT).toContain("press Ask Amr in a tool");
+    expect(disclosures.VISITOR_AI_KEPT).toContain("a count of today's AI uses");
+    expect(disclosures.VISITOR_AI_CONSENT_TEXT[2]).toBe(
+      "Amr never changes your work without you accepting it."
+    );
+    expect(disclosures.YOUR_DATA_AI).toContain("A tool sends nothing until you press Ask Amr.");
+    // Both room notices say the host may send answers, without names, for a summary.
+    for (const text of [
+      disclosures.VISITOR_ROOM_CONSENT_TEXT,
+      disclosures.VOTE_ROOM_CONSENT_TEXT,
+    ]) {
+      expect(text).toContain(
+        "The host may send the room's answers, without names, to an AI service for a summary."
+      );
+    }
+    // Every room notice says a reaction can be traced to its sender, just
+    // before the closing line.
+    for (const text of [
+      disclosures.VISITOR_ROOM_CONSENT_TEXT,
+      disclosures.VOTE_ROOM_CONSENT_TEXT,
+      disclosures.WALL_ROOM_CONSENT_TEXT,
+    ]) {
+      expect(text).toContain(
+        "Emoji reactions carry your room id, so others in the room could tell who sent one. " +
+          "Share the link only with your team."
+      );
+    }
+  });
+
+  it("is the voice notice before a visitor's first dictation, which the group reads as its description", () => {
+    render(<VoiceNotice onChoose={() => {}} />);
+    const group = screen.getByRole("group", { name: "Use your voice?" });
+    expect(group).toHaveAccessibleDescription(disclosures.VOICE_INPUT_DISCLOSURE);
+    expect(group.textContent).toContain(disclosures.VOICE_INPUT_DISCLOSURE);
+    // What may leave, and to whom; and what this site never gets.
+    expect(disclosures.VOICE_INPUT_DISCLOSURE).toContain(
+      "may send the sound of your voice to the company that makes it"
+    );
+    expect(disclosures.VOICE_INPUT_DISCLOSURE).toContain("This site never gets the sound");
+    // The narrator's words, never Amr's own.
+    expect(disclosures.VOICE_INPUT_DISCLOSURE).not.toMatch(/\b(I|me|my)\b/);
+  });
+
+  it("is the count note under the comics and kudos pages, and under a weekly story", () => {
+    const { container, rerender } = render(<CountDisclosure />);
+    expect(container.textContent).toBe(disclosures.COUNT_DISCLOSURE);
+    rerender(<CountDisclosure story />);
+    expect(container.textContent).toBe(disclosures.STORY_COUNT_DISCLOSURE);
+    expect(disclosures.COUNT_DISCLOSURE).toContain("no cookies and no IP address");
+    expect(disclosures.STORY_COUNT_DISCLOSURE).toContain(
+      "no cookies, no account and no IP address"
+    );
+  });
+
+  it("opens the note under AI settings", () => {
+    act(() => {
+      useLlmUiStore.setState({ settingsOpen: true });
+    });
+    render(<LlmSettingsDialog />);
+    const note = screen.getByText((_, el) =>
+      Boolean(el?.tagName === "P" && el.textContent?.startsWith(disclosures.OWN_KEY_DISCLOSURE))
+    );
+    expect(note.textContent).toBe(
+      `${disclosures.OWN_KEY_DISCLOSURE} Any browser extension or XSS in this app could read your key. Use session mode for the strongest default.`
+    );
+    act(() => {
+      useLlmUiStore.setState({ settingsOpen: false });
+    });
+  });
+
+  it("is plain: whole sentences, and no dash standing in for a comma", () => {
+    const texts = Object.entries(disclosures).flatMap(([name, value]) =>
+      typeof value === "string"
+        ? [[name, value] as const]
+        : Array.isArray(value)
+          ? value.map((line: string, i: number) => [`${name}[${i}]`, line] as const)
+          : []
+    );
+    expect(texts.length).toBeGreaterThanOrEqual(15);
+    for (const [name, text] of texts) {
+      expect(text, name).not.toMatch(/[—–]/);
+      expect(text, name).toMatch(/^[A-Z]/);
+      // The one text that stops short of its full stop is the dialog's opening
+      // claim, which the dialog finishes in two ways.
+      if (name !== "YOUR_DATA_SAVED_HERE") expect(text, name).toMatch(/\.$/);
+    }
+  });
+});

@@ -213,6 +213,13 @@ describe("Velocity rows are the shared sprints", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Close sprint" }));
     expect(sprint("s3")).toMatchObject({ pointsCompleted: 29, status: "completed" });
     expect(undo.last?.label).toBe("Closed Sprint 3 with 29 points done");
+    // The dialog ends on its finished step; Done shuts it.
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Sprint 3 is closed" })).getByRole("button", {
+        name: "Done",
+      })
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     // A sprint still running keeps its status until the user closes it.
     commit(screen.getByRole("spinbutton", { name: "Completed points for Sprint 4" }), "12");
@@ -225,6 +232,11 @@ describe("Velocity rows are the shared sprints", () => {
       within(screen.getByRole("dialog")).getByRole("button", { name: "Close sprint" })
     );
     expect(sprint("s4")?.status).toBe("completed");
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Sprint 4 is closed" })).getByRole("button", {
+        name: "Done",
+      })
+    );
 
     // Clearing completed points keeps the status and asks nothing.
     commit(screen.getByRole("spinbutton", { name: "Completed points for Sprint 1" }), "");

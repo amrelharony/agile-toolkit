@@ -2,8 +2,9 @@
  * What Amr notices on the page (docs/mascot/AMR-ART-BRIEF.md, Appendix A): a fast
  * scroll blows him about, reaching the end of the page he points back up, he
  * watches the visitor type (desktop), copying text gets a thumbs-up, a sent form
- * a fist pump, going offline and back a sad face and a cheer, coming back after
- * a while a wave, and the pointer leaving the window a game of peekaboo.
+ * a fist pump (unless it answers for itself, OWN_OUTCOME), going offline and back
+ * a sad face and a cheer, coming back after a while a wave, and the pointer
+ * leaving the window a game of peekaboo.
  *
  * None of these were asked for, so each goes through the director's restraint.
  * The detectors are pure and exported for tests; installPageSenses wires them up.
@@ -76,6 +77,14 @@ function isField(t: EventTarget | null): t is HTMLElement {
 
 const inPanel = (t: EventTarget | null) =>
   !!(t as HTMLElement | null)?.closest?.("[data-agent-sheet-root]");
+
+/**
+ * A form whose outcome Amr answers himself, once the server has said (the
+ * guestbook's note taken in): its submit gets no fist pump before that.
+ */
+export const OWN_OUTCOME = "[data-mascot-outcome]";
+const answersItself = (t: EventTarget | null) =>
+  !!(t as HTMLElement | null)?.closest?.(OWN_OUTCOME);
 
 export function installPageSenses(hooks: PageHooks): () => void {
   const now = hooks.now ?? (() => Date.now());
@@ -162,7 +171,7 @@ export function installPageSenses(hooks: PageHooks): () => void {
     if (hooks.allow("thumbsUp", 30_000)) hooks.act("thumbsUp");
   };
   const onSubmit = (e: Event) => {
-    if (inPanel(e.target)) return;
+    if (inPanel(e.target) || answersItself(e.target)) return;
     if (hooks.allow("yes", 15_000)) hooks.act("yes");
   };
   const onOffline = () => {

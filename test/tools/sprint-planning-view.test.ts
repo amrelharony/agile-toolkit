@@ -111,6 +111,18 @@ describe("stories", () => {
     });
   });
 
+  it("keeps the backlog item's description as the story's notes", () => {
+    const s = storyFromBacklogItem(
+      item("Refund flow", { description: "  Within 30 days.\r\nNo partial refunds.  " }),
+      "story_1"
+    );
+    expect(s.notes).toBe("Within 30 days.\nNo partial refunds.");
+    expect(
+      storyFromBacklogItem(item("Long", { description: "d".repeat(3000) }), "s").notes
+    ).toHaveLength(2000);
+    expect("notes" in storyFromBacklogItem(item("Blank", { description: "  " }), "s")).toBe(false);
+  });
+
   it("describes the plan in one line", () => {
     expect(planLine([])).toBe("0 stories · 0 points");
     expect(planLine([stories[1]])).toBe("1 story · 5 points");

@@ -18,7 +18,10 @@ import { HELP_OFFER, STRETCH_OFFER, WELCOME_BACK, streakLine } from "@/lib/agent
 import { did, feel, getMind, recentlyDid, takeArrival } from "@/lib/agent/mascot/mind";
 import { say } from "@/lib/agent/mascot/say";
 import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
+import { noteTrouble } from "@/lib/agent/mascot/companion";
 import type { PackId } from "../mascot-packs";
+import { COMPANION_SCENES, sceneReaction } from "./scenes";
+import { clipPacks, shippedScene } from "./sprite-poses";
 import { createDirector } from "./director";
 import { createIdleLadder, firstMorningVisit, type IdleLadder } from "./idle";
 import { installContextSenses } from "./interactions/context";
@@ -62,6 +65,34 @@ export function helloFor(arrival: ReturnType<typeof takeArrival>): MascotReactio
   return arrival.streak === 3 || arrival.streak === 7 ? "cheer" : "wave";
 }
 
+/**
+ * The chat has him busy: the panel is open, a turn runs, or his words stream.
+ * A turn counts with the panel shut too: it outlives the panel, and `talking`
+ * covers only the moments his words stream (not a tool run, the gap between
+ * rounds, or a card waiting for the user's OK). Exported for tests.
+ */
+export function chatBusy(): boolean {
+  const chat = useAgentStore.getState();
+  return chat.open || chat.streaming || useMascotStore.getState().talking;
+}
+
+/**
+ * Whether he may take a stroll along the bottom of the screen now: on a
+ * desktop with a mouse, parked at the bottom, motion allowed, and never while
+ * his panel is open, so he doesn't wander off from the panel beside him. The
+ * idle ladder pauses while it is open too (chatBusy); the rule sits here as
+ * well, with the stroll itself, for whatever asks. Exported for tests.
+ */
+export function canStroll(opts: { reducedMotion: boolean; parkedTop: () => boolean }): boolean {
+  return (
+    !opts.reducedMotion &&
+    !useAgentStore.getState().open &&
+    !isPhoneViewport() &&
+    window.matchMedia?.("(pointer: fine)").matches === true &&
+    !opts.parkedTop()
+  );
+}
+
 export function installSenses(opts: SensesOptions): () => void {
   const mascot = () => useMascotStore.getState();
   const mind = getMind();
@@ -82,7 +113,10 @@ export function installSenses(opts: SensesOptions): () => void {
     mascot().setHold(h, on);
 
   const disposePage = installPageSenses({
-    act: (r) => mascot().queueReaction(r),
+    act: (r) => {
+      if (r === "downcast") noteTrouble(); // the connection dropped
+      mascot().queueReaction(r);
+    },
     hold,
     allow: director.allow,
     isPhone,
@@ -127,7 +161,13 @@ export function installSenses(opts: SensesOptions): () => void {
 
   const busy = () => {
     const m = mascot();
-    return useAgentStore.getState().open || m.talking || m.drag !== null;
+    return (
+      chatBusy() ||
+      m.drag !== null ||
+      // Waiting on the visitor's decision, or settled because they chose Quiet:
+      // nothing unprompted (a pastime, a yawn) takes that moment over.
+      m.holds.some((h) => h.startsWith("scene:"))
+    );
   };
 
   // How the visit is going: stuck, reading, or at it for a long while.
@@ -142,6 +182,13 @@ export function installSenses(opts: SensesOptions): () => void {
         text: HELP_OFFER,
         onTap: () => useAgentStore.getState().openSheet(),
       }),
+    stuckScene: () => {
+      const c = shippedScene(COMPANION_SCENES.stuck);
+      if (!c) return null;
+      opts.want(clipPacks(c));
+      return sceneReaction(COMPANION_SCENES.stuck);
+    },
+    trouble: () => noteTrouble(),
     suggestStretch: () => {
       opts.want(["rest"]);
       say("stretch", { id: "stretch", text: STRETCH_OFFER });
@@ -178,11 +225,7 @@ export function installSenses(opts: SensesOptions): () => void {
       return playing;
     },
     pace: () => mind.brain.pace(),
-    canStroll: () =>
-      !opts.reducedMotion &&
-      !isPhone() &&
-      window.matchMedia?.("(pointer: fine)").matches === true &&
-      !parkedTop(),
+    canStroll: () => canStroll({ reducedMotion: opts.reducedMotion, parkedTop }),
     want: opts.want,
   });
   const idle = ladder;

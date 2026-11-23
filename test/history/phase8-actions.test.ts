@@ -52,6 +52,7 @@ describe("the Phase 8 history actions", () => {
     expect(OKR_ACTIONS.CHECK_IN_RECORDED).toBe("check_in_recorded");
     expect(NPS_CSAT_ACTIONS.RESPONSES_IMPORTED).toBe("responses_imported");
     expect(HYPOTHESIS_ACTIONS.RESULT_RECORDED).toBe("result_recorded");
+    expect(HYPOTHESIS_ACTIONS.RESULT_CLEARED).toBe("result_cleared");
     expect(INTERVIEW_ACTIONS.QUOTE_SENT).toBe("quote_sent");
     expect(OPPORTUNITY_TREE_ACTIONS.TARGET_CHANGED).toBe("target_changed");
     expect(OPPORTUNITY_TREE_ACTIONS.EXPERIMENT_SENT).toBe("experiment_sent");
@@ -77,6 +78,7 @@ describe("the Phase 8 history actions", () => {
       ["okrs", OKR_ACTIONS.CHECK_IN_RECORDED],
       ["nps-csat", NPS_CSAT_ACTIONS.RESPONSES_IMPORTED],
       ["hypothesis-tracker", HYPOTHESIS_ACTIONS.RESULT_RECORDED],
+      ["hypothesis-tracker", HYPOTHESIS_ACTIONS.RESULT_CLEARED],
       ["risk-register", RISK_ACTIONS.RISK_ESCALATED],
       ["tech-debt", TECH_DEBT_ACTIONS.ITEM_SENT_TO_BACKLOG],
       ["test-pyramid", TEST_PYRAMID_ACTIONS.SNAPSHOT_TAKEN],

@@ -53,10 +53,12 @@ import {
   settleRetros,
   type SprintNameOf,
 } from "./follow-through";
+import { actionsToCsv } from "./csv";
 import { actionsToMarkdown } from "./markdown";
 import { EVERYONE, NO_OWNER, matchesOwner, ownerOptions } from "./owners";
 import { QuickAddForm } from "./quick-add";
 import { retroActionsVerdict } from "./verdict";
+import { archivedRetroCount, recurringThemes } from "@/lib/retro/recurring-themes";
 
 export const TOOL_ID = "retro-actions";
 
@@ -65,6 +67,13 @@ export const TOOL_ID = "retro-actions";
 const FollowThroughChart = dynamic(() => import("./charts").then((m) => m.FollowThroughChart), {
   ssr: false,
 });
+
+// The recurring themes load with their panel, not the page: its Ask Amr
+// brings the AI kit and the task's schemas, which the page needs no sooner.
+const RecurringThemesPanel = dynamic(
+  () => import("./recurring-themes-panel").then((m) => m.RecurringThemesPanel),
+  { ssr: false }
+);
 
 const NO_BOARDS: RetroBoard[] = [];
 const NO_SPRINTS: Sprint[] = [];
@@ -141,7 +150,7 @@ const doneAtOn = (day: string): string => new Date(`${day}T12:00:00`).toISOStrin
 /**
  * Retro Actions: every action item the team agreed, across the current
  * retro and the archives, with owner, due date and done — done also when
- * the impediment or Kanban card it was sent to is finished. Actions can be
+ * the impediment, Kanban card or story it was sent to is finished. Actions can be
  * added here without opening the board (and deleted, with Undo), open ones
  * carried onto the current retro or sent to another tool, and each past
  * retro shows how much of what it agreed got done once the next one starts.
@@ -149,9 +158,11 @@ const doneAtOn = (day: string): string => new Date(`${day}T12:00:00`).toISOStrin
 export function RetroActionsTracker() {
   const hydrated = useWorkspaceHydrated();
   const stored = useWorkspaceStore((s) => s.retroBoards) ?? NO_BOARDS;
-  // Read so a resolved impediment or a finished Kanban card re-renders the list.
+  // Read so a resolved impediment, a finished Kanban card or a done story
+  // re-renders the list.
   const impediments = useWorkspaceStore((s) => s.impediments);
   const kanbanBoards = useWorkspaceStore((s) => s.kanbanBoards);
+  const stories = useWorkspaceStore((s) => s.stories);
   const sprints = useWorkspaceStore((s) => s.sprints) ?? NO_SPRINTS;
   const roster = useTeamRoster();
   const { log } = useHistoryLogger(TOOL_ID);
@@ -205,7 +216,7 @@ export function RetroActionsTracker() {
           ? (example?.doneTargets.has(link.targetId) ?? false)
           : (getHandoffRoute(link.route).isDone?.(link.targetId) ?? false),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- targets live in these slices
-    [example, impediments, kanbanBoards]
+    [example, impediments, kanbanBoards, stories]
   );
   const actions = useMemo(
     () => collectRetroActions(boards, { today, targetDone }),
@@ -255,10 +266,20 @@ export function RetroActionsTracker() {
     if (last && last.boardId === a.boardId) last.actions.push(a);
     else groups.push({ boardId: a.boardId, label: a.retroLabel, actions: [a] });
   }
+  // Recurring themes across the past retros, named by sprint where there is one.
+  const pastCount = archivedRetroCount(boards);
+  const labelById = new Map(followThrough.map((r) => [r.boardId, r.retroLabel]));
+  const retroName = (boardId: string): string =>
+    sprintName(boards.find((b) => b.id === boardId)?.sprintId) ??
+    labelById.get(boardId) ??
+    "a past retro";
+  const themes = useMemo(() => recurringThemes(boards), [boards]);
   const markdown = actionsToMarkdown(actions, summary, {
     followThrough: settled,
     sprintName,
     verdict,
+    themes,
+    retroName,
   });
 
   /* ── Where a quick-added action goes ──────────────────────────────── */
@@ -511,7 +532,12 @@ export function RetroActionsTracker() {
                 </select>
               </div>
             </div>
-            <ExportButton filename="retro-actions" markdown={markdown} clipboardText={markdown} />
+            <ExportButton
+              filename="retro-actions"
+              markdown={markdown}
+              clipboardText={markdown}
+              csvData={actionsToCsv(actions)}
+            />
           </div>
 
           {groups.length === 0 ? (
@@ -595,6 +621,15 @@ export function RetroActionsTracker() {
             — the next retro opens with these actions to check.
           </p>
         </>
+      )}
+
+      {pastCount > 0 && (
+        <RecurringThemesPanel
+          boards={boards}
+          themes={themes}
+          retroName={retroName}
+          preview={preview}
+        />
       )}
     </div>
   );

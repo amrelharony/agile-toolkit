@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_RETRO_VOTES,
+  RETRO_VOTE_OPTIONS,
   blankRetroBoard,
   hasOwnCards,
+  isRetroVotes,
   newestArchivedRetro,
+  nextRetroSprint,
   retroFor,
   retroSprintFor,
+  retroVotes,
 } from "@/lib/retro/board";
 import {
   actionCard,
@@ -67,6 +72,17 @@ describe("which sprint a retro belongs to", () => {
     expect(retroSprintFor("2026-10-09", [{ ...S1, status: "cancelled" }])).toBeUndefined();
   });
 
+  it("starts the next board on a sprint whose retro isn't archived yet", () => {
+    expect(nextRetroSprint([], SPRINTS, "2026-10-13")?.id).toBe("s1");
+    // S1's retro is under Past retros: two days into S2, the next board is S2's.
+    const held = board("retro:a", [card("c")], {
+      archivedAt: "2026-10-12T15:00:00Z",
+      sprintId: "s1",
+    });
+    expect(nextRetroSprint([held], SPRINTS, "2026-10-13")?.id).toBe("s2");
+    expect(nextRetroSprint([held], [S1], "2026-10-13")).toBeUndefined();
+  });
+
   it("uses the board's sprint when it names one, the dates otherwise", () => {
     const tagged = board("retro:current", [card("c")], { sprintId: "s1" });
     expect(retroFor([tagged], S1, SPRINTS, "2026-10-20").current).toBe(tagged);
@@ -98,6 +114,31 @@ describe("which sprint a retro belongs to", () => {
       sprintId: "s2",
     });
     expect("sprintId" in blankRetroBoard(retroFormats[0])).toBe(false);
+  });
+});
+
+describe("votes each", () => {
+  it("offers 3, 5 or 8, and reads 3 from a board that doesn't say", () => {
+    expect(RETRO_VOTE_OPTIONS).toEqual([3, 5, 8]);
+    expect(DEFAULT_RETRO_VOTES).toBe(3);
+    expect(retroVotes(blankRetroBoard(retroFormats[0]))).toBe(3);
+    expect(retroVotes(null)).toBe(3);
+    expect(retroVotes({ votesPerPerson: 5 })).toBe(5);
+    expect(retroVotes({ votesPerPerson: 8 })).toBe(8);
+    // A synced or hand-edited value outside the choices reads as the default.
+    for (const v of [4, 0, -3, 99, 5.5, "5", null]) {
+      expect(isRetroVotes(v)).toBe(false);
+      expect(retroVotes({ votesPerPerson: v })).toBe(3);
+    }
+  });
+
+  it("starts a board with the votes asked for, and leaves the field off otherwise", () => {
+    expect(blankRetroBoard(retroFormats[0], { votesPerPerson: 8 }).votesPerPerson).toBe(8);
+    expect("votesPerPerson" in blankRetroBoard(retroFormats[0])).toBe(false);
+    expect(
+      "votesPerPerson" in
+        blankRetroBoard(retroFormats[0], { votesPerPerson: 4 as unknown as 3 | 5 | 8 })
+    ).toBe(false);
   });
 });
 

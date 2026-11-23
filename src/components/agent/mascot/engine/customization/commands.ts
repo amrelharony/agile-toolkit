@@ -1,43 +1,31 @@
 /**
- * Mascot chat commands + Konami easter egg.
+ * The Konami easter egg, for Amr's every-page chunk (mascot-assistant
+ * installs the listener).
  *
- * The vanilla mascot exposed `mascot-aura` / `mascot-game` terminal commands + a "dance" chat command + the Konami code. The toolkit has
- * no terminal, so the slash commands are intercepted in the agent chat input
- * before the message reaches the agent; the Konami listener is global.
+ * The vanilla mascot exposed `mascot-aura` / `mascot-game` terminal commands,
+ * a "dance" chat command and the Konami code. The toolkit has no terminal:
+ * the chat commands are read from the chat's message box before a message
+ * reaches the AI, in chat-commands.ts, which only the chat imports; the Konami
+ * listener is global.
  */
 
 import { useMascotStore } from "@/lib/agent/mascot/store";
 
-const RAINBOW = ["#ff0000", "#ff8800", "#ffff00", "#00ff00", "#0088ff", "#8800ff"];
-
 /**
- * Parse + execute a mascot chat command. Returns true if the text was a mascot
- * command (and should NOT be forwarded to the agent).
- *
- * Supported: `/mascot-aura <#rrggbb|none>`, `/dance`.
+ * The Konami sweep's colours, red to violet, as theme tokens rather than pure
+ * neon hexes, so each step reads on the comic's paper, at night and in high
+ * contrast. A colour typed with /mascot-aura stays a hex; the sprite maps a
+ * brand hex onto its token through themed() when it paints the aura.
+ * Exported for tests.
  */
-export function handleMascotCommand(text: string): boolean {
-  const raw = text.trim();
-  const t = raw.toLowerCase();
-  const store = useMascotStore.getState();
-
-  if (t === "/dance" || t === "dance") {
-    store.queueReaction("wave");
-    setTimeout(() => store.queueReaction("excited"), 800);
-    setTimeout(() => store.queueReaction("spin"), 1800);
-    return true;
-  }
-
-  const aura = raw.match(/^\/mascot-aura\s+(#?[0-9a-fA-F]{6}|none|off)$/i);
-  if (aura) {
-    const v = aura[1].toLowerCase();
-    if (v === "none" || v === "off") store.setAuraColor(null);
-    else store.setAuraColor(v.startsWith("#") ? v : `#${v}`);
-    return true;
-  }
-
-  return false;
-}
+export const RAINBOW = [
+  "var(--danger)",
+  "var(--neon-amber)",
+  "var(--warning)",
+  "var(--success)",
+  "var(--info)",
+  "var(--accent3)",
+] as const;
 
 const KONAMI = [
   "ArrowUp",

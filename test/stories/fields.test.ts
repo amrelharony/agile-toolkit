@@ -1,0 +1,561 @@
+/**
+ * A story's notes, acceptance criteria, link and ticket key: the caps, the
+ * cleaning every write runs, the details form's validation, and the two
+ * write paths that must both hold them to it (the workspace store and the
+ * agents' `workspace.story.*`, browser and MCP).
+ */
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// The MCP path talks to the server store: an in-memory row per kind + id.
+const rows = vi.hoisted(() => new Map<string, unknown>());
+vi.mock("@/lib/actions/server-store", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
+  return {
+    ...actual,
+    serverGetEntity: vi.fn(async (_u: string, kind: string, id: string) => {
+      return rows.get(`${kind}/${id}`) ?? null;
+    }),
+    serverUpsertEntity: vi.fn(async (_u: string, kind: string, entity: { id: string }) => {
+      rows.set(`${kind}/${entity.id}`, entity);
+    }),
+    serverListEntities: vi.fn(async (_u: string, kind: string) =>
+      Array.from(rows.entries())
+        .filter(([k]) => k.startsWith(`${kind}/`))
+        .map(([, v]) => v)
+    ),
+  };
+});
+
+import { registry } from "@/lib/actions/registry";
+import "@/lib/actions/workspace/index";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Story } from "@/lib/stores/workspace-types";
+import { planToMarkdown } from "@/app/(tools)/sprint-planning/markdown";
+import {
+  CRITERIA_SECTION_MAX,
+  toMarkdown as refinementMarkdown,
+} from "@/app/(tools)/refinement/markdown";
+import { refinementSession } from "@/app/(tools)/refinement/session";
+import { SNAPSHOT_MAX_CHARS, encodeSnapshot } from "@/lib/share/snapshot";
+import {
+  CRITERIA_MD_MAX,
+  GWT_PART_MAX,
+  STORY_CRITERIA_MAX,
+  STORY_GWT_MAX,
+  STORY_LINK_MAX,
+  STORY_NOTES_MAX,
+  STORY_TICKET_KEY_MAX,
+  cleanStoryFields,
+  criteriaMarkdownLines,
+  hasStoryDetails,
+  storyDetailsDraft,
+  storyLink,
+  storyNotes,
+  storyPokerDescription,
+  validateStoryDetails,
+  withStoryDetails,
+} from "@/lib/stories/fields";
+
+const story = (over: Partial<Story> = {}): Story => ({
+  id: "st1",
+  title: "Pay with a saved card",
+  status: "backlog",
+  ...over,
+});
+
+function ctx() {
+  return { userId: "u", source: "agent" as const, squadProfileIds: [] as string[] };
+}
+const saved = () => useWorkspaceStore.getState().stories.find((s) => s.id === "st1");
+
+describe("a story link", () => {
+  it("keeps only an http or https address with a host", () => {
+    expect(storyLink("https://tracker.example.com/browse/PAY-12")).toBe(
+      "https://tracker.example.com/browse/PAY-12"
+    );
+    expect(storyLink("  http://localhost:8080/issue/7  ")).toBe("http://localhost:8080/issue/7");
+    for (const bad of [
+      "",
+      "tracker.example.com/PAY-12",
+      "javascript:alert(1)",
+      "data:text/html,<b>x</b>",
+      "ftp://files.example.com/x",
+      "mailto:po@example.com",
+      "https://",
+      "https://tracker.example.com/a b",
+      "https://tracker.example.com/\njavascript:alert(1)",
+      `https://tracker.example.com/${"x".repeat(STORY_LINK_MAX)}`,
+      42,
+      null,
+    ]) {
+      expect(storyLink(bad), String(bad)).toBeUndefined();
+    }
+  });
+});
+
+describe("cleaning the four fields", () => {
+  it("trims, caps and drops what is empty or not a web link", () => {
+    const out = cleanStoryFields(
+      story({
+        notes: `  ${"n".repeat(STORY_NOTES_MAX + 50)}  `,
+        acceptanceCriteria: "Given a saved card\r\nWhen I pay\r\nThen it is charged\n\n",
+        link: "javascript:alert(1)",
+        ticketKey: `  PAY-12\t${"k".repeat(STORY_TICKET_KEY_MAX)} `,
+      })
+    );
+    expect(out.notes).toHaveLength(STORY_NOTES_MAX);
+    expect(out.acceptanceCriteria).toBe("Given a saved card\nWhen I pay\nThen it is charged");
+    expect("link" in out).toBe(false);
+    expect(out.ticketKey).toHaveLength(STORY_TICKET_KEY_MAX);
+    expect(out.ticketKey?.startsWith("PAY-12 k")).toBe(true);
+    expect(cleanStoryFields(story({ acceptanceCriteria: "x".repeat(5000) }))).toMatchObject({
+      acceptanceCriteria: "x".repeat(STORY_CRITERIA_MAX),
+    });
+  });
+
+  it("leaves no key behind for a blank field", () => {
+    const out = cleanStoryFields(story({ notes: "   ", ticketKey: "", link: undefined }));
+    expect(out).toEqual(story());
+    expect(Object.keys(out).sort()).toEqual(["id", "status", "title"]);
+  });
+
+  it("hands back the same object when there is nothing to clean", () => {
+    const plain = story();
+    expect(cleanStoryFields(plain)).toBe(plain);
+    const full = story({
+      notes: "Card on file only",
+      acceptanceCriteria: "- charged once",
+      link: "https://tracker.example.com/PAY-12",
+      ticketKey: "PAY-12",
+    });
+    expect(cleanStoryFields(full)).toBe(full);
+  });
+
+  it("caps without cutting a character in half", () => {
+    // "😀" is two UTF-16 units; each of these puts one across the cap.
+    const out = cleanStoryFields(
+      story({
+        notes: `${"n".repeat(STORY_NOTES_MAX - 1)}😀`,
+        ticketKey: `${"k".repeat(STORY_TICKET_KEY_MAX - 1)}😀`,
+      })
+    );
+    expect(out.notes).toBe("n".repeat(STORY_NOTES_MAX - 1));
+    expect(out.ticketKey).toBe("k".repeat(STORY_TICKET_KEY_MAX - 1));
+    expect(JSON.stringify(out)).not.toMatch(/\\ud8/i);
+  });
+
+  it("keeps a description that arrived with a story as notes, capped", () => {
+    expect(storyNotes("  Refunds within 30 days\r\nNo partial refunds  ")).toBe(
+      "Refunds within 30 days\nNo partial refunds"
+    );
+    expect(storyNotes("d".repeat(3000))).toHaveLength(STORY_NOTES_MAX);
+    expect(storyNotes("   ")).toBeUndefined();
+    expect(storyNotes(undefined)).toBeUndefined();
+  });
+});
+
+describe("the details form", () => {
+  const draft = (over: Partial<ReturnType<typeof storyDetailsDraft>> = {}) => ({
+    ...storyDetailsDraft({}),
+    ...over,
+  });
+
+  it("starts from the story's own values, blank where it has none", () => {
+    expect(storyDetailsDraft(story({ notes: "Card on file only", ticketKey: "PAY-12" }))).toEqual({
+      notes: "Card on file only",
+      acceptanceCriteria: "",
+      link: "",
+      ticketKey: "PAY-12",
+    });
+  });
+
+  it("saves only the fields that hold something", () => {
+    const result = validateStoryDetails(
+      draft({ notes: "  Card on file only ", link: " https://tracker.example.com/PAY-12 " })
+    );
+    expect(result).toEqual({
+      ok: true,
+      values: { notes: "Card on file only", link: "https://tracker.example.com/PAY-12" },
+    });
+    expect(validateStoryDetails(draft())).toEqual({ ok: true, values: {} });
+  });
+
+  it("says what is wrong with a link instead of dropping it", () => {
+    const result = validateStoryDetails(draft({ link: "tracker.example.com/PAY-12" }));
+    expect(result).toEqual({
+      ok: false,
+      errors: { link: "Enter a web address that starts with http:// or https://." },
+    });
+    expect(validateStoryDetails(draft({ link: "javascript:alert(1)" })).ok).toBe(false);
+  });
+
+  it("names each field that is too long", () => {
+    const result = validateStoryDetails(
+      draft({
+        notes: "n".repeat(STORY_NOTES_MAX + 1),
+        acceptanceCriteria: "c".repeat(STORY_CRITERIA_MAX + 1),
+        link: `https://tracker.example.com/${"x".repeat(STORY_LINK_MAX)}`,
+        ticketKey: "k".repeat(STORY_TICKET_KEY_MAX + 1),
+      })
+    );
+    expect(result).toEqual({
+      ok: false,
+      errors: {
+        notes: "Keep the notes to 2,000 characters or fewer.",
+        acceptanceCriteria: "Keep the acceptance criteria to 2,000 characters or fewer.",
+        link: "Keep the link to 500 characters or fewer.",
+        ticketKey: "Keep the ticket key to 50 characters or fewer.",
+      },
+    });
+  });
+
+  it("sets what was typed and removes what was cleared", () => {
+    const before = story({ notes: "Old", ticketKey: "PAY-12", points: 5 });
+    const after = withStoryDetails(before, { acceptanceCriteria: "- charged once" });
+    expect(after).toEqual(story({ acceptanceCriteria: "- charged once", points: 5 }));
+    expect("notes" in after).toBe(false);
+    expect(hasStoryDetails(after)).toBe(true);
+    expect(hasStoryDetails(story({ notes: "  " }))).toBe(false);
+  });
+});
+
+describe("what Planning Poker shows", () => {
+  it("folds the notes and the acceptance criteria into one description", () => {
+    expect(
+      storyPokerDescription(
+        story({
+          notes: "Card on file only",
+          acceptanceCriteria: "- charged once\n- receipt sent",
+          link: "https://tracker.example.com/PAY-12",
+          ticketKey: "PAY-12",
+        })
+      )
+    ).toBe("Card on file only\n\nAcceptance criteria:\n- charged once\n- receipt sent");
+    expect(storyPokerDescription(story({ notes: "Card on file only" }))).toBe("Card on file only");
+    expect(storyPokerDescription(story({ acceptanceCriteria: "- charged once" }))).toBe(
+      "Acceptance criteria:\n- charged once"
+    );
+    expect(storyPokerDescription(story())).toBeUndefined();
+  });
+
+  it("stays inside the session's 5,000 characters", () => {
+    const text = storyPokerDescription(
+      story({ notes: "n".repeat(STORY_NOTES_MAX), acceptanceCriteria: "c".repeat(5000) })
+    );
+    expect(text?.length).toBeLessThanOrEqual(5000);
+  });
+});
+
+describe("the workspace store", () => {
+  beforeEach(() => useWorkspaceStore.setState({ stories: [] }));
+
+  it("cleans the four fields on every write, whoever wrote them", () => {
+    useWorkspaceStore.getState().upsertStory(
+      story({
+        notes: `  ${"n".repeat(2500)}`,
+        link: "javascript:alert(1)",
+        ticketKey: " PAY-12 ",
+        acceptanceCriteria: "",
+      })
+    );
+    const s = saved()!;
+    expect(s.notes).toHaveLength(STORY_NOTES_MAX);
+    expect(s.ticketKey).toBe("PAY-12");
+    expect("link" in s).toBe(false);
+    expect("acceptanceCriteria" in s).toBe(false);
+  });
+
+  it("cleans a bulk write too", () => {
+    useWorkspaceStore.getState().bulkUpsertStories([story({ link: "ftp://x.example.com" })]);
+    expect(saved() && "link" in saved()!).toBe(false);
+  });
+});
+
+describe("workspace.story actions", () => {
+  beforeEach(() => {
+    rows.clear();
+    useWorkspaceStore.setState({ stories: [story({ status: "todo" })] });
+  });
+
+  const update = (patch: Record<string, unknown>) =>
+    registry.get("workspace.story.update")!.handler({ id: "st1", patch }, ctx());
+
+  it("an agent can write the four fields, and an update keeps them", async () => {
+    await update({
+      notes: "Card on file only",
+      acceptanceCriteria: "- charged once",
+      link: "https://tracker.example.com/PAY-12",
+      ticketKey: "PAY-12",
+    });
+    await update({ points: 5 });
+    expect(saved()).toMatchObject({
+      points: 5,
+      notes: "Card on file only",
+      acceptanceCriteria: "- charged once",
+      link: "https://tracker.example.com/PAY-12",
+      ticketKey: "PAY-12",
+    });
+  });
+
+  it("rejects a value that is too long or a link that isn't http or https", async () => {
+    await expect(update({ notes: "n".repeat(STORY_NOTES_MAX + 1) })).rejects.toThrow();
+    await expect(
+      update({ acceptanceCriteria: "c".repeat(STORY_CRITERIA_MAX + 1) })
+    ).rejects.toThrow();
+    await expect(update({ ticketKey: "k".repeat(STORY_TICKET_KEY_MAX + 1) })).rejects.toThrow();
+    await expect(update({ link: "javascript:alert(1)" })).rejects.toThrow(/http or https/);
+    await expect(update({ link: "tracker.example.com/PAY-12" })).rejects.toThrow();
+    expect(saved()).toEqual(expect.not.objectContaining({ notes: expect.anything() }));
+  });
+
+  it('clears a field sent as ""', async () => {
+    await update({ notes: "Card on file only", link: "https://tracker.example.com/PAY-12" });
+    await update({ notes: "", link: "" });
+    expect("notes" in saved()!).toBe(false);
+    expect("link" in saved()!).toBe(false);
+  });
+
+  it("holds a create to the same rules", async () => {
+    // The transport checks a create against its schema before the handler runs.
+    const action = registry.get("workspace.story.create")!;
+    const accepts = (entity: Record<string, unknown>) =>
+      action.paramsSchema.safeParse({ entity }).success;
+    expect(accepts({ title: "Refunds", status: "backlog", link: "data:text/html,x" })).toBe(false);
+    expect(accepts({ title: "Refunds", status: "backlog", notes: "n".repeat(2001) })).toBe(false);
+    expect(
+      accepts({ title: "Refunds", status: "backlog", link: "https://tracker.example.com/PAY-13" })
+    ).toBe(true);
+    // And whatever reaches the handler is cleaned before it is saved.
+    await action.handler(
+      { entity: { title: "Refunds", status: "backlog", ticketKey: " PAY-13 ", link: "ftp://x" } },
+      ctx()
+    );
+    const made = useWorkspaceStore.getState().stories.find((s) => s.title === "Refunds");
+    expect(made?.ticketKey).toBe("PAY-13");
+    expect(made && "link" in made).toBe(false);
+  });
+
+  it("validates and cleans on the MCP path too", async () => {
+    rows.set("workspace:story/st1", story({ status: "todo" }));
+    const mcp = registry.get("workspace.story.update")!.mcpHandler!;
+    await expect(mcp({ id: "st1", patch: { link: "javascript:alert(1)" } }, ctx())).rejects.toThrow(
+      /http or https/
+    );
+    await mcp({ id: "st1", patch: { notes: "  Card on file only  ", ticketKey: "" } }, ctx());
+    const row = rows.get("workspace:story/st1") as Story;
+    expect(row.notes).toBe("Card on file only");
+    expect("ticketKey" in row).toBe(false);
+  });
+});
+
+describe("share links", () => {
+  // A share link carries a tool's Markdown, and is capped at 32 KB: the
+  // four fields (up to 4,550 characters a story) stay out of it, except
+  // Refinement's acceptance criteria, which go in kept short, and only as
+  // many stories' as there is room for (the owner's call, 2026-11-16;
+  // Backlog Health's Markdown has its top stories' criteria the same way).
+  const detailed = story({
+    status: "todo",
+    sprintId: "s2",
+    points: 5,
+    notes: "NOTES-MARKER card on file only",
+    acceptanceCriteria: "CRITERIA-MARKER charged once",
+    link: "https://tracker.example.com/LINK-MARKER",
+    ticketKey: "KEY-MARKER",
+  });
+  const markers = ["NOTES-MARKER", "CRITERIA-MARKER", "LINK-MARKER", "KEY-MARKER"];
+
+  it("Sprint Planning's Markdown leaves them out", () => {
+    const md = planToMarkdown({
+      sprint: {
+        id: "s2",
+        name: "Sprint 2",
+        startDate: "2026-10-15",
+        endDate: "2026-10-25",
+        pointsPlanned: 0,
+        status: "planned",
+      },
+      stories: [detailed],
+      capacityHours: null,
+      targetPoints: null,
+      averageVelocity: null,
+    });
+    expect(md).toContain("| Pay with a saved card | 5 |");
+    for (const marker of markers) expect(md).not.toContain(marker);
+  });
+
+  it("Refinement's Markdown carries the acceptance criteria and leaves the rest out", () => {
+    const md = refinementMarkdown(
+      refinementSession([{ ...detailed, sprintId: undefined, status: "backlog" }]),
+      [{ id: "c1", label: "Acceptance criteria defined" }],
+      []
+    );
+    expect(md).toContain("| Pay with a saved card | 5 |");
+    expect(md).toContain("CRITERIA-MARKER charged once");
+    for (const marker of markers.filter((m) => m !== "CRITERIA-MARKER")) {
+      expect(md).not.toContain(marker);
+    }
+  });
+
+  it("Refinement's Markdown keeps long criteria short", () => {
+    const md = refinementMarkdown(
+      refinementSession([
+        story({
+          acceptanceCriteria: `${"a".repeat(1990)} END`,
+          gwt: [{ id: "g1", given: `${"b".repeat(995)} END`, when: "I pay", then: "it works" }],
+        }),
+      ]),
+      [],
+      []
+    );
+    const lines = md.split("\n");
+    const free = lines.find((l) => l.startsWith("aaa"))!;
+    expect(free).toHaveLength(600);
+    expect(free.endsWith("…")).toBe(true);
+    const given = lines.find((l) => l.startsWith("Given "))!;
+    expect(given).toHaveLength(300);
+    expect(md).not.toContain("END");
+  });
+
+  /** Words of random letters: text that compresses about as badly as writing can. */
+  function randomText(seed: number) {
+    let a = seed;
+    const next = () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+    return (chars: number) => {
+      let out = "";
+      while (out.length < chars) {
+        const n = 2 + Math.floor(next() * 8);
+        for (let i = 0; i < n; i++) out += String.fromCharCode(97 + Math.floor(next() * 26));
+        out += " ";
+      }
+      return out.slice(0, chars).trim();
+    };
+  }
+  const shareable = (markdown: string) =>
+    encodeSnapshot({ tool: "refinement", schema: 1, data: { markdown } });
+
+  it("Refinement's share link still works when many stories have long criteria", async () => {
+    const text = randomText(1);
+    const stories = Array.from({ length: 40 }, (_, i) =>
+      story({
+        id: `st${i}`,
+        title: `Story ${i} ${text(30)}`,
+        acceptanceCriteria: Array.from({ length: 20 }, () => `- ${text(95)}`).join("\n"),
+        gwt: Array.from({ length: 3 }, (_, j) => ({
+          id: `g${j}`,
+          given: text(400),
+          when: text(400),
+          then: text(400),
+        })),
+      })
+    );
+    const md = refinementMarkdown(refinementSession(stories), [], []);
+    // Every story is still in the table.
+    for (const s of stories) expect(md).toContain(`| ${s.title} | Unsized |`);
+    // The criteria go in, in order, as far as there is room.
+    const section = md.slice(md.indexOf("## Acceptance criteria"));
+    expect(section.length).toBeLessThan(CRITERIA_SECTION_MAX + 200);
+    const shown = section.match(/^### .*$/gm) ?? [];
+    expect(shown.length).toBeGreaterThan(1);
+    expect(shown.length).toBeLessThan(40);
+    expect(shown).toEqual(stories.slice(0, shown.length).map((s) => `### ${s.title}`));
+    expect(md).toContain(
+      `_Acceptance criteria for ${40 - shown.length} more stories are in the CSV export._\n`
+    );
+    const payload = await shareable(md);
+    expect(payload.length).toBeLessThanOrEqual(SNAPSHOT_MAX_CHARS);
+  });
+
+  it("Refinement's Markdown keeps the first story's criteria, at their longest, in a share link", async () => {
+    const text = randomText(2);
+    const longest = story({
+      id: "big",
+      title: text(200),
+      priorityScore: 99,
+      acceptanceCriteria: Array.from({ length: 25 }, () => `- ${text(78)}`).join("\n"),
+      gwt: Array.from({ length: STORY_GWT_MAX }, (_, j) => ({
+        id: `g${j}`,
+        given: text(GWT_PART_MAX),
+        when: text(GWT_PART_MAX),
+        then: text(GWT_PART_MAX),
+      })),
+    });
+    const others = Array.from({ length: 299 }, (_, i) =>
+      story({ id: `st${i}`, title: `Story ${i} ${text(40)}` })
+    );
+    const md = refinementMarkdown(refinementSession([longest, ...others]), [], []);
+    expect(md).toContain(`### ${longest.title}\n\n- `);
+    expect((md.match(/^Then /gm) ?? []).length).toBe(STORY_GWT_MAX);
+    expect(md).not.toContain("more stor");
+    const payload = await shareable(md);
+    expect(payload.length).toBeLessThanOrEqual(SNAPSHOT_MAX_CHARS);
+  });
+
+  it("Refinement's Markdown counts the one story left out", () => {
+    const text = randomText(3);
+    const long = (id: string) =>
+      story({
+        id,
+        acceptanceCriteria: text(2000),
+        gwt: [{ id: "g", given: text(900), when: "a", then: "b" }],
+      });
+    const many = Array.from({ length: 13 }, (_, i) => long(`st${i}`));
+    const md = refinementMarkdown(refinementSession(many), [], []);
+    const shown = (md.match(/^### /gm) ?? []).length;
+    expect(shown).toBe(12);
+    expect(md).toContain("_Acceptance criteria for 1 more story are in the CSV export._");
+  });
+});
+
+describe("free-text criteria in a Markdown export", () => {
+  it("keeps the text's own lines, so a list stays a list", () => {
+    expect(
+      criteriaMarkdownLines(
+        "- A statement for any of the last 24 months\r\n\r\n- The figures match  \n  - in the app too\n- It opens on a phone"
+      )
+    ).toEqual([
+      "- A statement for any of the last 24 months",
+      "- The figures match",
+      "  - in the app too",
+      "- It opens on a phone",
+    ]);
+    expect(criteriaMarkdownLines("Charged once.")).toEqual(["Charged once."]);
+    expect(criteriaMarkdownLines(undefined)).toEqual([]);
+    expect(criteriaMarkdownLines("  \n \n")).toEqual([]);
+  });
+
+  it(`keeps ${CRITERIA_MD_MAX} characters in all, with "…" where it was cut`, () => {
+    const lines = criteriaMarkdownLines(
+      Array.from({ length: 20 }, (_, i) => `- Criterion ${i} ${"x".repeat(40)}`).join("\n")
+    );
+    expect(lines.length).toBeLessThan(20);
+    expect(lines.join("").length).toBeLessThanOrEqual(CRITERIA_MD_MAX);
+    expect(lines.at(-1)!.endsWith("…")).toBe(true);
+    expect(lines.slice(0, -1).every((l) => !l.endsWith("…"))).toBe(true);
+    // Full at the end of a line, with more to come: that line shows the cut.
+    expect(criteriaMarkdownLines("abcd\nefgh\nijkl", 8)).toEqual(["abcd", "efg…"]);
+    expect(criteriaMarkdownLines("abcd\nefgh", 8)).toEqual(["abcd", "efgh"]);
+    expect(criteriaMarkdownLines("abcdefghij", 8)).toEqual(["abcdefg…"]);
+  });
+
+  it("never cuts through an emoji", () => {
+    // "ab" then a two-unit emoji: a cut at 3 would keep half of it.
+    expect(criteriaMarkdownLines("ab😀cd", 4)).toEqual(["ab…"]);
+  });
+
+  it("escapes a line that would open a code fence, so a cut can't leave one open", () => {
+    expect(criteriaMarkdownLines("Works with\n```js\npay()\n   ~~~\n````")).toEqual([
+      "Works with",
+      "\\```js",
+      "pay()",
+      "   \\~~~",
+      "\\````",
+    ]);
+  });
+});

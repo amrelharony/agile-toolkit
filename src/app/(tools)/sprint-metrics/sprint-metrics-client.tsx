@@ -20,7 +20,8 @@ import { NewSprintDialog } from "@/components/sprints/new-sprint-dialog";
 import { CloseSprintDialog } from "@/components/sprints/close-sprint-dialog";
 import { LoadingSprints } from "@/components/sprints/start";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";
+import type { RetroBoard, Sprint, SprintSeries, Story } from "@/lib/stores/workspace-types";
+import { targetDoneIn } from "@/lib/retro/actions";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { SPRINT_METRICS_ACTIONS } from "@/lib/history/event-actions";
@@ -51,7 +52,9 @@ import {
   carryOverText,
   churnChartText,
   churnPoints,
+  followThroughText,
   normalizeWindow,
+  retroFollowThrough,
   sayDoChartText,
   sayDoPoints,
   scopeText,
@@ -67,6 +70,7 @@ const ChurnChart = dynamic(() => import("./charts").then((m) => m.ChurnChart), {
 const TOOL_ID = "sprint-metrics";
 const NO_SERIES: SprintSeries[] = [];
 const NO_STORIES: Story[] = [];
+const NO_BOARDS: RetroBoard[] = [];
 const NO_IDS: string[] = [];
 
 /** Migrated sprints the user said look right (this browser only), capped. */
@@ -127,8 +131,9 @@ const columnsFor = (preview: boolean): DataTableColumn<SprintTrendRow>[] => [
  * Sprint Metrics: how the team's sprints went over time. Say/do, carry-over
  * and scope churn across the last finished sprints, read from the sprints
  * and their stories' moves (with the typed numbers as a labelled
- * fallback). The current sprint lives in the cockpit; this page links to it
- * and to the sprint tools, and keeps the data checks.
+ * fallback), and beside say/do the retros' follow-through. The current
+ * sprint lives in the cockpit; this page links to it and to the sprint
+ * tools, and keeps the data checks.
  */
 export function SprintMetricsClient() {
   const hydrated = useWorkspaceHydrated();
@@ -136,6 +141,10 @@ export function SprintMetricsClient() {
   const { sprints, select } = useSelectedSprint();
   const allSeries = useWorkspaceStore((s) => s.sprintSeries) ?? NO_SERIES;
   const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
+  // The retros, and what their actions were sent to, for the follow-through.
+  const retroBoards = useWorkspaceStore((s) => s.retroBoards) ?? NO_BOARDS;
+  const impediments = useWorkspaceStore((s) => s.impediments);
+  const kanbanBoards = useWorkspaceStore((s) => s.kanbanBoards);
   const [cadence] = useCeremonyCadence();
   const { log } = useHistoryLogger(TOOL_ID);
   const announce = useAnnounce();
@@ -166,6 +175,18 @@ export function SprintMetricsClient() {
     [viewSprints, viewStories, viewSeries, windowChoice, preview]
   );
   const verdict = trendVerdict(summary);
+  // Not in the example: its sprints have no retros of their own.
+  const followThrough = useMemo(
+    () =>
+      preview
+        ? undefined
+        : retroFollowThrough(
+            retroBoards,
+            windowSize(windowChoice),
+            targetDoneIn({ impediments, kanbanBoards, stories })
+          ),
+    [preview, retroBoards, windowChoice, impediments, kanbanBoards, stories]
+  );
   const tests = useMemo(() => trendTests(summary), [summary]);
   const n = summary.rows.length;
   const charts = enoughData(n, "average");
@@ -227,7 +248,10 @@ export function SprintMetricsClient() {
     announce(label);
   };
 
-  const markdown = useMemo(() => toMarkdown(summary, { verdict }), [summary, verdict]);
+  const markdown = useMemo(
+    () => toMarkdown(summary, { verdict, followThrough }),
+    [summary, verdict, followThrough]
+  );
   const jsonData = useMemo(
     () => ({
       window: summary.window,
@@ -236,8 +260,9 @@ export function SprintMetricsClient() {
       sayDo: summary.sayDo,
       carryOver: summary.carryOver,
       churn: summary.churn,
+      ...(followThrough ? { retroFollowThrough: followThrough } : {}),
     }),
-    [summary]
+    [summary, followThrough]
   );
   const sayDoText = useMemo(() => sayDoChartText(summary), [summary]);
   const churnText = useMemo(() => churnChartText(summary), [summary]);
@@ -421,7 +446,11 @@ export function SprintMetricsClient() {
           </p>
           <DataTable columns={columns} rows={summary.rows} rowKey={(r) => r.sprint.id} />
           {charts && (
-            <dl className="mt-4 grid gap-3 border-t border-border pt-3 text-sm sm:grid-cols-3">
+            <dl
+              className={`mt-4 grid gap-3 border-t border-border pt-3 text-sm ${
+                followThrough ? "sm:grid-cols-2 lg:grid-cols-4" : "sm:grid-cols-3"
+              }`}
+            >
               <div>
                 <dt className="text-xs text-sub">Say/do</dt>
                 <dd className="text-text">
@@ -430,6 +459,22 @@ export function SprintMetricsClient() {
                   missed, {summary.sayDo.over} over
                 </dd>
               </div>
+              {followThrough && (
+                <div data-field="retro-follow-through">
+                  <dt className="text-xs text-sub">Retro follow-through</dt>
+                  <dd className="text-text">
+                    {followThroughText(followThrough)}
+                    {followThrough.retros > 0 && (
+                      <>
+                        {" · "}
+                        <Link href="/retro-actions" className="text-accent hover:underline">
+                          Retro Actions
+                        </Link>
+                      </>
+                    )}
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt className="text-xs text-sub">Carry-over</dt>
                 <dd className="text-text">

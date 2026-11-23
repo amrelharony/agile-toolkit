@@ -14,6 +14,7 @@ import {
 } from "@/components/agent/mascot/visitor-ai-consent";
 import { MEMORY_KEY } from "@/lib/agent/mascot/memory";
 import { MOTION_ASKED_KEY } from "@/lib/agent/mascot/store";
+import { VOICE_CONSENT_KEY, VOICE_CONSENT_VERSION } from "@/lib/agent/mascot/voice-consent";
 import { LIVE_ROOM_KEY_PREFIX } from "@/lib/realtime/live-visitor-room";
 import { LEGACY_APP_KEYS } from "@/lib/utils/clear-local-data";
 
@@ -106,6 +107,29 @@ describe("toolkit backup", () => {
       if (!parsed.ok) throw new Error(parsed.error);
       restoreBackup(parsed.backup, localStorage);
       expect(localStorage.getItem(VISITOR_AI_CONSENT_KEY)).toBe(VISITOR_AI_CONSENT_VERSION);
+    });
+  });
+
+  describe("a visitor's yes to dictation: each browser is asked for itself", () => {
+    it("excludes the same key the voice notice's yes writes, from an export and a restore", () => {
+      // backup.ts names the key as a literal. If the consent's key changes, this fails.
+      expect(VOICE_CONSENT_KEY).toBe("agile-toolkit:amr-voice-consent");
+      expect(isBackupKey(VOICE_CONSENT_KEY)).toBe(false);
+      localStorage.setItem(VOICE_CONSENT_KEY, VOICE_CONSENT_VERSION);
+      localStorage.setItem("agile-toolkit:retro", "{}");
+      expect(Object.keys(collectBackup(localStorage).keys)).toEqual(["agile-toolkit:retro"]);
+      localStorage.clear();
+      const parsed = parseBackup(
+        JSON.stringify({
+          format: "agile-toolkit-backup",
+          version: 1,
+          createdAt: "",
+          keys: { [VOICE_CONSENT_KEY]: VOICE_CONSENT_VERSION },
+        })
+      );
+      if (!parsed.ok) throw new Error(parsed.error);
+      restoreBackup(parsed.backup, localStorage);
+      expect(localStorage.getItem(VOICE_CONSENT_KEY)).toBeNull();
     });
   });
 

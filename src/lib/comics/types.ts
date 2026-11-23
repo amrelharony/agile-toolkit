@@ -47,6 +47,8 @@ export interface StudyCard {
   title: string;
   lesson: string;
   question: string;
+  /** Its first panel, on the card's front; none when the art can't load. */
+  cover?: StoryCover | null;
 }
 
 /** One gallery card: enough to find a story, not enough to read it. */

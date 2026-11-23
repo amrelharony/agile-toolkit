@@ -85,6 +85,17 @@ export function exportToMarkdown(markdown: string, filename: string) {
   trackExport("markdown");
 }
 
+/**
+ * Save an iCalendar file (lib/sprints/ics) as `<filename>.ics`, for the
+ * visitor to open in their calendar app. The text arrives with its CRLF line
+ * endings and is saved as it is. Not counted as an export: the gamification
+ * engine knows the four document formats only.
+ */
+export function exportToICS(ics: string, filename: string) {
+  const blob = new Blob([ics], { type: "text/calendar;charset=utf-8" });
+  saveAs(blob, `${sanitizeFilename(filename)}.ics`);
+}
+
 export function exportToJSON(data: unknown, filename: string) {
   const json = JSON.stringify(data, null, 2);
   const blob = new Blob([json], { type: "application/json;charset=utf-8" });
@@ -153,33 +164,6 @@ export async function exportToPNG(
   trackExport("png");
 }
 
-export async function copyToClipboard(text: string): Promise<boolean> {
-  // Primary path: async Clipboard API. Requires secure context + activation;
-  // legacy browsers + HTTP contexts fail here.
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // fall through to the textarea trick
-    }
-  }
-  // Fallback path: hidden textarea + execCommand. Deprecated but still the
-  // only thing that works on Safari iOS over HTTP and in some embedded webviews.
-  if (typeof document === "undefined") return false;
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "fixed";
-    ta.style.top = "-9999px";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
-}
+// Lives in its own module so a Copy button needn't load html-to-image and
+// file-saver; kept here too for the pages that already import it from export.
+export { copyToClipboard } from "./clipboard";

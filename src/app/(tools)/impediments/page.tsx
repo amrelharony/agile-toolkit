@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { ImpedimentsClient } from "./impediments-client";
 
-export const metadata: Metadata = {
-  title: "Impediment Tracker",
-  description:
-    "Log, escalate and resolve impediments with owners, due dates, age badges and time-to-resolve metrics.",
-};
+export const metadata: Metadata = toolMetadata("impediments");
 
 export default function ImpedimentsPage() {
   return <ImpedimentsClient />;

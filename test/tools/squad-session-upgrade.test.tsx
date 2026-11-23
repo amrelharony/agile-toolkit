@@ -52,6 +52,8 @@ import { useDockTimer, type DockedTimer } from "@/lib/timer/dock-timer";
 import { runSeconds } from "@/lib/timer/step-timer";
 import { getNextStepRule } from "@/lib/tools/next-steps";
 import type { Workspace } from "@/lib/stores/workspace-types";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { useMascotStore } from "@/lib/agent/mascot/store";
 
 function open(ep: number | null) {
   return render(
@@ -170,6 +172,24 @@ describe("the page", () => {
     expect(screen.getByText("Step 1 of 3")).toBeInTheDocument();
   });
 
+  it("has Amr open his conversation kit once the clock is running, once a visit", () => {
+    useMascotStore.setState({ ready: true, reactionQueue: [] });
+    const kit = `scene:${EVENT_SCENES.squadKit}`;
+    const view = open(3);
+    fireEvent.click(screen.getByRole("button", { name: /Start the session/ }));
+    expect(useMascotStore.getState().reactionQueue).toEqual([kit]);
+    // Stopped and started again on the same visit: the kit is already open.
+    act(() => stopSession());
+    fireEvent.click(screen.getByRole("button", { name: /Start the session/ }));
+    expect(useMascotStore.getState().reactionQueue).toEqual([kit]);
+    view.unmount();
+    act(() => stopSession());
+    open(3);
+    fireEvent.click(screen.getByRole("button", { name: /Start the session/ }));
+    expect(useMascotStore.getState().reactionQueue).toEqual([kit, kit]);
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
+  });
+
   it("the pill's plain address finds the episode that's running", async () => {
     startSession(5, "Episode");
     open(null);
@@ -229,12 +249,16 @@ describe("when another page's timer has the dock", () => {
     screen.queryAllByText(text).filter((el) => !el.closest(".sr-only"));
 
   it("says so on the page when Start can't take the clock", () => {
+    useMascotStore.setState({ ready: true, reactionQueue: [] });
     useDockTimer.setState({ timer: other });
     open(3);
     fireEvent.click(screen.getByRole("button", { name: /Start the session/ }));
     const message = "The Standup timer is running. Stop it before starting this one.";
     expect(visible(message)).toHaveLength(1);
     expect(useSquadRun.getState().run).toBeNull();
+    // No session started, so Amr's kit stays shut.
+    expect(useMascotStore.getState().reactionQueue).toEqual([]);
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
     // Once that timer is gone, so is the message, and Start works.
     act(() => useDockTimer.setState({ timer: null }));
     expect(visible(message)).toHaveLength(0);

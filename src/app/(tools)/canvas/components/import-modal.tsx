@@ -9,7 +9,7 @@ import {
   importFromStories,
   importFromOkrs,
 } from "@/lib/whiteboard/cross-tool-import";
-import { parseJiraCsv, issuesToCards } from "@/lib/whiteboard/jira-import";
+import { parseJiraCsv, issuesToCards, jiraSkippedText } from "@/lib/whiteboard/jira-import";
 import { parseDiagramCsv, diagramToObjects } from "@/lib/whiteboard/smart-diagrams";
 import { parseCsv, rowsToTable } from "@/lib/whiteboard/csv-to-table";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -118,24 +118,30 @@ export function ImportModal({ boardId, onClose }: Props) {
     [boardId, stories, risks, okrs, boardObjects]
   );
 
-  // Jira CSV paste import (Phase 30). The user pastes the export from
-  // Jira's Issues navigator → CSV. We parse it client-side (no API key
-  // required) and convert each issue into a Card laid out on a Kanban
-  // frame. Each card carries sourceRef = { tool: "jira", entityId: key }
-  // so future sync can push back updates when the Jira API client lands.
+  // Jira CSV paste import (Phase 30). The user pastes a Jira Cloud CSV
+  // export. It is read in the browser by the one Jira reader
+  // (lib/jira/csv-export.ts, which Sprint Planning's import reads too) and
+  // each issue becomes a Card laid out on a Kanban frame. Each card carries
+  // sourceRef = { tool: "jira", entityId: key }, so pasting the export again
+  // updates those cards instead of adding copies.
   const [jiraCsv, setJiraCsv] = useState("");
   const [jiraPreview, setJiraPreview] = useState<number | null>(null);
+  // The rows the paste leaves out, and why, said under the box.
+  const [jiraSkipped, setJiraSkipped] = useState<string | null>(null);
   const onJiraCsvChange = (text: string) => {
     setJiraCsv(text);
     if (text.trim().length === 0) {
       setJiraPreview(null);
+      setJiraSkipped(null);
       return;
     }
     try {
-      const { issues } = parseJiraCsv(text);
-      setJiraPreview(issues.length);
+      const result = parseJiraCsv(text);
+      setJiraPreview(result.issues.length);
+      setJiraSkipped(jiraSkippedText(result));
     } catch {
       setJiraPreview(0);
+      setJiraSkipped(null);
     }
   };
   // Smart Diagrams CSV paste import (Phase 33). Recognises two shapes:
@@ -350,17 +356,24 @@ export function ImportModal({ boardId, onClose }: Props) {
             </span>
           </div>
           <div id={`${uid}-jira-hint`} className="text-xs text-sub mb-2">
-            Paste the output of Jira&apos;s Issues navigator → Export CSV. Each issue becomes a card
-            on a kanban frame (To Do / In Progress / Done).
+            Paste a Jira Cloud CSV export, header row first. Each issue becomes a card on a kanban
+            frame (To Do / In Progress / Done). Files from other trackers may work, untested.
           </div>
           <textarea
             id={`${uid}-jira`}
-            aria-describedby={`${uid}-jira-hint`}
+            aria-describedby={
+              jiraSkipped ? `${uid}-jira-hint ${uid}-jira-skipped` : `${uid}-jira-hint`
+            }
             value={jiraCsv}
             onChange={(e) => onJiraCsvChange(e.target.value)}
             placeholder="Issue key,Summary,Status,Assignee,Story Points,..."
             className="w-full h-24 bg-surface-deep border border-border rounded p-2 text-xs font-mono text-text resize-none focus:outline-none focus:border-accent"
           />
+          {jiraSkipped && (
+            <p id={`${uid}-jira-skipped`} className="mt-1 break-words text-xs text-warning">
+              {jiraSkipped}
+            </p>
+          )}
           <button
             type="button"
             onClick={applyJira}

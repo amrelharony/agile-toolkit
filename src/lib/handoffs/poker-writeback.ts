@@ -134,8 +134,8 @@ export interface WriteBackResult {
 /**
  * The host accepted `value` for a session story. When that story came from
  * this browser's queue: write the estimate to the source card, log it (under
- * the queue item's id, with its sourceRef) and take it off the queue.
- * Anything else is ignored.
+ * the queue item's id, with its sourceRef and the session story's id) and
+ * take it off the queue. Anything else is ignored.
  */
 export function writeBackPokerEstimate({
   sessionStoryId,
@@ -165,6 +165,8 @@ export function writeBackPokerEstimate({
     ...(votes && votes.length > 0 ? { votes: votes.slice(0, 100) } : {}),
     decidedAt: new Date().toISOString(),
     sourceRef: item.sourceRef,
+    // The queue entry goes now: this keeps which session story it was.
+    sessionStoryId,
   };
   updatePokerLog((doc) => ({
     ...doc,

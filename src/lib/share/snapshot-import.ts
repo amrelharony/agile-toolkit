@@ -32,6 +32,9 @@ import {
   retroArchivesToPrune,
 } from "@/app/(tools)/retro/archive";
 import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
+import { RETRO_COLUMN_PALETTE } from "@/lib/constants/retro-formats";
+import { isRetroVotes } from "@/lib/retro/board";
+import { themed } from "@/lib/utils/theme-color";
 import { latestCheckInDay, withCheckIn } from "@/lib/okrs/progress";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -55,6 +58,21 @@ const obj = (v: unknown): Record<string, unknown> | null =>
 
 // ── Retro ────────────────────────────────────────────────────────────────
 
+/**
+ * A column's colour from a link: one of the app's brand colours (what the
+ * built-in formats and a custom format's palette use, which `themed()` maps
+ * onto each theme), else the palette's colour for its place. So a crafted
+ * link's colour never reaches a style.
+ */
+function linkColumnColor(raw: unknown, index: number): string {
+  if (typeof raw === "string" && raw.length <= 64 && themed(raw) !== raw) return raw;
+  return RETRO_COLUMN_PALETTE[index % RETRO_COLUMN_PALETTE.length];
+}
+
+/**
+ * A shared retro: any format, a custom one included (up to 12 columns),
+ * with its cards and the votes each person had. It lands as a past retro.
+ */
 export function readRetro(state: unknown): RetroBoard | null {
   const s = obj(state);
   const format = obj(s?.format);
@@ -85,10 +103,10 @@ export function readRetro(state: unknown): RetroBoard | null {
       id: isStr(format.id, 64) ? format.id : "shared",
       name: format.name,
       description: isStr(format.description, 500) ? format.description : "",
-      columns: columns.map((c) => ({
+      columns: columns.map((c, i) => ({
         key: c!.key as string,
         label: c!.label as string,
-        color: isStr(c!.color, 64) ? (c!.color as string) : "accent",
+        color: linkColumnColor(c!.color, i),
         icon: isStr(c!.icon, 16) ? (c!.icon as string) : "",
       })),
     },
@@ -98,6 +116,7 @@ export function readRetro(state: unknown): RetroBoard | null {
     timerSeconds: 300,
     timerRunning: false,
     discussingIndex: 0,
+    ...(isRetroVotes(s.votesPerPerson) ? { votesPerPerson: s.votesPerPerson } : {}),
   };
 }
 

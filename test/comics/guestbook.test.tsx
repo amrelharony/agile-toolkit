@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { NextRequest } from "next/server";
 
 const h = vi.hoisted(() => ({
@@ -114,6 +114,10 @@ import { DELETE, PATCH } from "@/app/api/comics/guestbook-notes/[id]/route";
 import GuestbookPage, { metadata } from "@/app/(tools)/comics/guestbook/page";
 import { COMMUNITY_URL, GUESTBOOK_LIMITS, validateGuestbookDraft } from "@/lib/comics/guestbook";
 import { listApprovedNotes } from "@/lib/comics/guestbook-store";
+import { GuestbookForm } from "@/app/(tools)/comics/guestbook/guestbook-form";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { OWN_OUTCOME } from "@/components/agent/mascot/engine/interactions/page";
+import { useMascotStore } from "@/lib/agent/mascot/store";
 
 const HOST = "agile.test";
 const ID = "0f8fad5b-d9cb-469f-a165-70867728950e";
@@ -314,6 +318,21 @@ describe("the guestbook page", () => {
     expect(screen.queryByRole("link", { name: /WhatsApp/ })).toBeNull();
   });
 
+  it("says under the form what is kept and for how long, and links the privacy page", async () => {
+    const { container } = render(await GuestbookPage());
+    const note = container.querySelector<HTMLElement>("[data-privacy-note]")!;
+    expect(note.textContent).toBe(
+      "We keep your name and note until you ask us to remove them. We don't keep your IP address. More in What leaves your browser."
+    );
+    expect(within(note).getByRole("link", { name: "What leaves your browser" })).toHaveAttribute(
+      "href",
+      "/privacy"
+    );
+    const form = container.querySelector("form")!;
+    expect(form.contains(note)).toBe(false);
+    expect(form.compareDocumentPosition(note) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("says so when there are none", async () => {
     render(await GuestbookPage());
     expect(screen.getByText("No notes yet.")).toBeTruthy();
@@ -322,5 +341,54 @@ describe("the guestbook page", () => {
   it("stays out of search", () => {
     expect(metadata.robots).toEqual({ index: false, follow: true });
     expect(metadata.alternates?.canonical).toBe("/comics/guestbook");
+  });
+});
+
+describe("the guestbook form and Amr", () => {
+  const queue = () => useMascotStore.getState().reactionQueue;
+  const sign = async (status: number) => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () => new Response(JSON.stringify(status === 200 ? { ok: true } : {}), { status })
+      )
+    );
+    render(<GuestbookForm />);
+    fireEvent.change(screen.getByLabelText(/Your name/), { target: { value: "Sara" } });
+    fireEvent.change(screen.getByLabelText(/Your note/), {
+      target: { value: "The approvals story is my office." },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Sign the guestbook" }));
+    });
+  };
+  beforeEach(() => useMascotStore.setState({ ready: true, reactionQueue: [] }));
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    useMascotStore.setState({ ready: false, reactionQueue: [] });
+  });
+
+  it("has him write his note and cap the pen once the server takes the note in", async () => {
+    await sign(200);
+    expect(screen.getByRole("status")).toHaveTextContent(/once Amr has read it/);
+    expect(queue()).toEqual([`scene:${EVENT_SCENES.guestbook}`]);
+  });
+
+  it.each([500, 429, 503])("plays nothing when the note wasn't taken (%i)", async (status) => {
+    await sign(status);
+    expect(screen.getByRole("alert")).toBeTruthy();
+    expect(queue()).toEqual([]);
+  });
+
+  it("plays nothing for a note that doesn't pass, and opts out of the fist pump on submit", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = render(<GuestbookForm />);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Sign the guestbook" }));
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(queue()).toEqual([]);
+    expect(container.querySelector("form")!.closest(OWN_OUTCOME)).not.toBeNull();
   });
 });

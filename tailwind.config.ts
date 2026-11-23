@@ -392,12 +392,28 @@ const config: Config = {
       transitionTimingFunction: {
         spring: "cubic-bezier(0.16, 1, 0.3, 1)",
         elastic: "cubic-bezier(0.175, 0.885, 0.32, 1.275)",
+        // The shared motion tokens (globals.css MOTION FOUNDATIONS,
+        // lib/motion/tokens.ts). Read as variables so presenting mode and the
+        // linear() check reach every `ease-*` user.
+        calm: "var(--ease-calm)",
+        glide: "var(--ease-glide)",
+        settle: "var(--ease-settle)",
+        pop: "var(--ease-pop)",
       },
       transitionDuration: {
         fast: "200ms",
         default: "300ms",
         medium: "400ms",
         slow: "550ms",
+        press: "var(--dur-press)",
+        settle: "var(--dur-settle)",
+        data: "var(--dur-data)",
+        "surface-in": "var(--dur-surface-in)",
+        "surface-out": "var(--dur-surface-out)",
+        "sheet-in": "var(--dur-sheet-in)",
+        "sheet-out": "var(--dur-sheet-out)",
+        page: "var(--dur-page)",
+        travel: "var(--dur-travel)",
       },
       zIndex: {
         behind: "-1",

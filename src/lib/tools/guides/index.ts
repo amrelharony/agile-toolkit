@@ -35,20 +35,13 @@ const SECTION_CHUNK: Record<string, keyof typeof CHUNKS> = {
 };
 
 /**
- * Whether `toolId` has a guide, known without loading any guide text, so
- * the panel can render its header immediately. Every tool in a section
+ * The "How this works" guide for a tool, if it has one. Every tool in a section
  * has one except the Library's reading and the VIP tools (see
- * test/constants/guides.test.ts).
- */
-export function hasGuide(toolId: string): boolean {
-  const section = getSectionForTool(toolId);
-  return Boolean(section && SECTION_CHUNK[section.id]);
-}
-
-/**
- * The "How this works" guide for a tool, if it has one. Guides are loaded on
- * demand so their text never adds to a page's JavaScript up front. The 16
- * most-used tools live in ./core; the rest in their section's chunk.
+ * test/constants/guides.test.ts). Guides are loaded on demand so their text
+ * never adds to a page's JavaScript up front: a tool's page gets its own guide
+ * from its route layout, on the server (components/tool-frame/tool-guide.tsx),
+ * and Amr loads one in the browser when he explains a tool. The 16 most-used
+ * tools live in ./core; the rest in their section's chunk.
  */
 export async function getGuide(toolId: string): Promise<ToolGuide | undefined> {
   const { CORE_GUIDES } = await import("./core");

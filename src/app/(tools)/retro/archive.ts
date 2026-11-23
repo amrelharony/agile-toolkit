@@ -10,8 +10,19 @@ import type { HandoffLink, RetroBoard, RetroCard } from "@/lib/stores/workspace-
  * retro can open by checking last time's actions.
  */
 
-/** Keep this many past retros; older ones are dropped when a new one is archived. */
-export const RETRO_ARCHIVE_LIMIT = 20;
+/**
+ * Keep this many past retros; older ones are dropped when a new one is
+ * archived. 52 is two years of two-week sprints (it was 20, about nine
+ * months, and the 21st retro pushed the oldest out with its actions).
+ *
+ * They all live in the one workspace entry in the browser's storage, under
+ * a quota of about 5 MB. test/retro/retro-archive-size.test.ts measures it:
+ * a typical archived board is about 16 KB stored, so 52 take about 16% of
+ * the quota counted the strictest way, 10 points more than 20 did, and fit
+ * beside two years of sprint data with half the quota to spare. Raise it
+ * only with that test.
+ */
+export const RETRO_ARCHIVE_LIMIT = 52;
 
 export function archivedRetroCopy(board: RetroBoard, now = new Date()): RetroBoard {
   const at = now.toISOString();

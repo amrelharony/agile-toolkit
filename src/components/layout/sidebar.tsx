@@ -7,11 +7,14 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { navPathname } from "@/lib/comics/entry";
 import { usePersisted } from "@/lib/utils/use-persisted";
+import { APP_RAIL_EVENT, APP_RAIL_VAR } from "@/lib/layout/amr-sheet";
 import { getToolById, getToolByPath, type ToolDefinition } from "@/lib/constants/tools";
 import { isVipHidden } from "@/lib/tools/catalog";
 import { useToolVisibility } from "@/lib/tools/use-visible-tools";
 import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { SECTIONS, getSectionForTool } from "@/lib/constants/sections";
+import { PRIVACY_PATH, PRIVACY_TITLE, SITE_OWNER } from "@/lib/site/owner";
+import { TOUCH_LINK } from "@/components/ui/touch-target";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -267,6 +270,26 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
     else aside.removeAttribute("inert");
   }, [isDesktop, mobileOpen]);
 
+  // From md Amr stands clear of the rail on his left: its right edge goes on
+  // <html> as it pins, widens on hover or meets a notch (lib/layout/amr-sheet).
+  useEffect(() => {
+    const aside = asideRef.current;
+    if (!isDesktop || !aside || typeof ResizeObserver !== "function") return;
+    const root = document.documentElement.style;
+    const ro = new ResizeObserver(() => {
+      const { right, width } = aside.getBoundingClientRect();
+      // Not drawn (presentation mode hides it): no rail.
+      if (width) root.setProperty(APP_RAIL_VAR, `${right}px`);
+      else root.removeProperty(APP_RAIL_VAR);
+      document.dispatchEvent(new Event(APP_RAIL_EVENT));
+    });
+    ro.observe(aside, { box: "border-box" });
+    return () => {
+      ro.disconnect();
+      root.removeProperty(APP_RAIL_VAR);
+    };
+  }, [isDesktop]);
+
   useEffect(() => {
     if (!mobileOpen) return;
     if (typeof document === "undefined") return;
@@ -351,9 +374,12 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
         // overlay. Leaving the area collapses back to the rail. We don't
         // change `collapsed` itself so the user's pinned preference is
         // preserved. Touch users get no hover effect — they can pin via
-        // the chevron at the bottom, or use the mobile drawer flow.
+        // the chevron at the bottom, or use the mobile drawer flow. Not
+        // with a button held either: a mouse carrying something past the
+        // rail (Amr in a drag, a text selection) leaves it still, so Amr is
+        // never carried under it and lands clear of it.
         onPointerEnter={(e) => {
-          if (e.pointerType === "mouse" && collapsed) setHoverExpanded(true);
+          if (e.pointerType === "mouse" && !e.buttons && collapsed) setHoverExpanded(true);
         }}
         onPointerLeave={() => setHoverExpanded(false)}
         className={cn(
@@ -710,13 +736,26 @@ export function Sidebar({ mobileOpen = false, onClose }: SidebarProps) {
             <p className="text-xs text-sub text-center">
               Built by{" "}
               <a
-                href="https://amrelharony.com"
+                href={SITE_OWNER.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-accent hover:underline"
               >
-                Amr El Harony
+                {SITE_OWNER.name}
               </a>
+            </p>
+            {/* What leaves a visitor's browser, and how to get in touch. It stands
+                alone on its line, so it gets the 44px touch height. */}
+            <p className="text-xs text-center">
+              <Link
+                href={PRIVACY_PATH}
+                onClick={handleNavClick}
+                data-no-sound="true"
+                aria-current={pathname === PRIVACY_PATH ? "page" : undefined}
+                className={cn("text-accent hover:underline", TOUCH_LINK)}
+              >
+                {PRIVACY_TITLE}
+              </Link>
             </p>
           </div>
         )}

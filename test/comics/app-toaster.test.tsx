@@ -125,7 +125,14 @@ describe("toasterLayout", () => {
     const top = (COMICS_OFFSET as { top: string }).top;
     expect(top).toContain("var(--header-h");
     expect(top).toContain("var(--amr-band-top");
-    expect(top).toContain("safe-area-inset-top");
+  });
+
+  it("/comics: counts the notch once, inside --header-h", () => {
+    // The header's height is its row plus the top safe area, so adding the
+    // inset again put the stack a notch too low on notched phones.
+    const css = readFileSync(join(process.cwd(), "src/app/globals.css"), "utf8");
+    expect(css).toMatch(/--header-h:\s*calc\(3\.5rem \+ env\(safe-area-inset-top, 0px\)\)/);
+    expect((COMICS_OFFSET as { top: string }).top).not.toContain("safe-area-inset-top");
   });
 });
 

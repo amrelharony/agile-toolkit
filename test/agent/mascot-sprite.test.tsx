@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render } from "@testing-library/react";
-import MascotSprite from "@/components/agent/mascot/mascot-sprite";
+import MascotSprite, { auraFilter } from "@/components/agent/mascot/mascot-sprite";
+import styles from "@/components/agent/mascot/mascot-assistant.module.css";
 import { FX_FADE_MS } from "@/components/agent/mascot/mascot-fx";
 import {
   chooseShot,
@@ -315,14 +316,48 @@ describe("<MascotSprite />", () => {
     ).toMatch(/^(9|10|11)deg$/);
   });
 
-  it("shows the aura only when one is set", () => {
+  it("shows the aura only when one is set, as a hard 2px offset marked data-amr-aura", () => {
     const images = stubImage();
     const { container } = render(<MascotSprite />);
     act(() => images[0].onload?.());
     const body = container.querySelector<HTMLElement>("[data-amr-lean] > div")!;
     expect(body.style.filter).toBe("");
+    expect(body).not.toHaveAttribute("data-amr-aura");
     act(() => useMascotStore.getState().setAuraColor("#ff8800"));
-    expect(body.style.filter).toContain("#ff8800");
+    expect(body.style.filter).toBe("drop-shadow(2px 2px 0 #ff8800)");
+    // High contrast's off switch (mascot-assistant.module.css) finds it by this.
+    expect(body).toHaveAttribute("data-amr-aura");
+    expect(body.className).toContain(styles.swing);
+    act(() => useMascotStore.getState().setAuraColor(null));
+    expect(body.style.filter).toBe("");
+    expect(body).not.toHaveAttribute("data-amr-aura");
+  });
+
+  it("paints a brand hex aura in its theme token, and a token as it is", () => {
+    const images = stubImage();
+    const { container } = render(<MascotSprite />);
+    act(() => images[0].onload?.());
+    const body = container.querySelector<HTMLElement>("[data-amr-lean] > div")!;
+    act(() => useMascotStore.getState().setAuraColor("#22c55e"));
+    expect(body.style.filter).toBe("drop-shadow(2px 2px 0 var(--success))");
+    act(() => useMascotStore.getState().setAuraColor("var(--accent3)"));
+    expect(body.style.filter).toBe("drop-shadow(2px 2px 0 var(--accent3))");
+  });
+});
+
+describe("auraFilter", () => {
+  it("is a hard offset with no blur, never a glow", () => {
+    for (const c of ["#ff8800", "#00ff88", "var(--danger)"]) {
+      const f = auraFilter(c);
+      expect(f).toMatch(/^drop-shadow\(2px 2px 0 \S/);
+      expect(f).not.toMatch(/blur|0 0 \d+px/);
+    }
+  });
+
+  it("maps the brand hexes onto their theme tokens", () => {
+    expect(auraFilter("#00FF88")).toBe("drop-shadow(2px 2px 0 var(--neon-green))");
+    expect(auraFilter("#ef4444")).toBe("drop-shadow(2px 2px 0 var(--danger))");
+    expect(auraFilter("#123456")).toBe("drop-shadow(2px 2px 0 #123456)");
   });
 });
 
@@ -450,6 +485,58 @@ describe("<MascotSprite /> with the packs", () => {
     act(() => useMascotStore.getState().setDrag(0));
     expect(shotOf(container)).toBe("clip:lifted");
     expect(clipLayer(container).style.backgroundImage).toMatch(/amr-lifted\./);
+  });
+
+  it("plays a scene whose pack came in late all the way through, not what's left of its time", () => {
+    const { container, images } = mountLoaded();
+    act(() => useMascotStore.getState().playNow("scene:rabbit"));
+    expect(shotOf(container)).not.toBe("clip:scene:rabbit"); // its pack is still coming
+    act(() => vi.advanceTimersByTime(2000)); // of a 3.1 s story
+    act(() => images.find((i) => /amr-rabbit\./.test(i.src))?.onload?.());
+    expect(shotOf(container)).toBe("clip:scene:rabbit");
+    act(() => vi.advanceTimersByTime(3000));
+    expect(shotOf(container)).toBe("clip:scene:rabbit");
+    act(() => vi.advanceTimersByTime(200));
+    expect(shotOf(container)).toMatch(/^idle/);
+  });
+
+  it("holds a decision for as long as it lasts, a reaction over it not replaying its way in", () => {
+    const { container, images } = mountLoaded();
+    act(() => useMascotStore.getState().setHold("scene:decide", true));
+    act(() => images.find((i) => /amr-decide\./.test(i.src))?.onload?.());
+    expect(shotOf(container)).toBe("hold:scene:decide");
+    // No timer ends a wait for the visitor, and no default is chosen.
+    act(() => vi.advanceTimersByTime(10 * 60_000));
+    expect(shotOf(container)).toBe("hold:scene:decide");
+    // A tap shows over it; then he's waiting again, not offering the options anew.
+    act(() => useMascotStore.getState().playNow("poke"));
+    expect(shotOf(container)).toBe("clip:poke");
+    act(() => vi.advanceTimersByTime(1200));
+    expect(shotOf(container)).toBe("hold:scene:decide");
+    const cell = Math.round(
+      (-parseFloat(clipLayer(container).style.backgroundPosition) /
+        parseFloat(clipLayer(container).style.backgroundSize)) *
+        8
+    );
+    expect([5, 6]).toContain(cell); // decide.wait-a or decide.wait-b, not decide.present
+    act(() => useMascotStore.getState().setHold("scene:decide", false));
+    expect(shotOf(container)).toMatch(/^idle/);
+  });
+
+  it("plays a held scene asked for as a story from its start, not from the hold's clock", () => {
+    const { container, images } = mountLoaded();
+    act(() => useMascotStore.getState().setHold("scene:quiet", true));
+    act(() => images.find((i) => /amr-quiet\./.test(i.src))?.onload?.());
+    act(() => vi.advanceTimersByTime(20_000)); // long settled
+    expect(shotOf(container)).toBe("hold:scene:quiet");
+    act(() => useMascotStore.getState().playNow("scene:quiet")); // /play bell
+    expect(shotOf(container)).toBe("clip:scene:quiet");
+    const cell = Math.round(
+      (-parseFloat(clipLayer(container).style.backgroundPosition) /
+        parseFloat(clipLayer(container).style.backgroundSize)) *
+        8
+    );
+    expect(Math.abs(cell)).toBe(0); // quiet.bell, the story's first frame
   });
 
   it("lets a held pose go and shows the Zzz while he dozes", () => {

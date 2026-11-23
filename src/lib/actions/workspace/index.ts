@@ -29,12 +29,20 @@ import {
   DOD_DOC_ID,
   HANDOFF_ROUTE_IDS,
   HEALTH_DASHBOARD_ID,
+  INTERRUPT_KINDS,
   KR_CHECK_IN_CAP,
+  MEETING_CADENCES,
+  MEETING_VERDICTS,
   MOOD_TRACKER_ID,
   NPS_TAG_LIMIT,
   NPS_TAG_MAX_LENGTH,
+  PARKING_LOT_STATUSES,
+  PRODUCT_GOAL_STATUSES,
   RACI_ID,
   REACH_PERIODS,
+  ROOT_CAUSE_METHODS,
+  TOOL_LIST_MAX,
+  TOOL_TEXT_MAX,
   WEIGHTED_CRITERION_KIND,
   WEIGHTED_MATRIX_KIND,
   WEIGHTED_OPTION_KIND,
@@ -79,12 +87,22 @@ import { readLegacyBlob } from "../user-state-blob";
 import { RESPONDENT_MAX, VERBATIM_MAX, normalizeTags, tagsProblem } from "@/lib/nps/score";
 import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import { targetClashes } from "@/lib/opportunity-tree/model";
+import { isDay } from "@/lib/notebook/model";
+import { CATEGORY_MAX, CAUSE_COUNT_MAX } from "@/lib/root-cause/model";
 import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
   STORY_STATUS_HISTORY_CAP,
   stampStoryWrite,
 } from "@/lib/sprints/story-status";
+import {
+  STORY_CRITERIA_MAX,
+  STORY_LINK_MAX,
+  STORY_NOTES_MAX,
+  STORY_TICKET_KEY_MAX,
+  cleanStoryFields,
+  storyLink,
+} from "@/lib/stories/fields";
 import type {
   Sprint,
   SprintSeries,
@@ -194,6 +212,13 @@ import type {
   KanbanBoard,
   DependencyMap,
   ValueStreamStage,
+  // Phase 42 — the tools plan's phase 1
+  InterruptItem,
+  MeetingAudit,
+  NotebookEntry,
+  ParkingLotItem,
+  ProductGoal,
+  RootCauseAnalysis,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -209,6 +234,15 @@ const SprintSchema = z.object({
   pointsPlanned: z.number(),
   pointsCompleted: z.number().optional(),
   status: z.enum(["planned", "active", "completed", "cancelled"]),
+  interruptBuffer: z
+    .object({
+      pct: z.number().min(0).max(100).optional(),
+      points: z.number().min(0).optional(),
+    })
+    .optional()
+    .describe(
+      "Capacity kept free for unplanned work (Interrupt Buffer): pct is a share of the sprint's planned points (0–100), points a number of points (wins when both are set); either or both."
+    ),
 }) as unknown as z.ZodType<Sprint>;
 
 // Mirrors `SprintDay` / `SprintSeries` field for field: `update` writes the
@@ -336,7 +370,9 @@ const StoryStatusSchema = z.enum(STORY_STATUSES as [Story["status"], ...Story["s
 // The flow stamps are listed so an update keeps them (z.object drops keys it
 // doesn't know). A status change through create/update stamps them itself
 // (`stampStoryWrite`, as the app's setStoryStatus does); send them only to
-// backfill.
+// backfill. Notes, acceptance criteria, the link and the ticket key are
+// capped as the app caps them (lib/stories/fields.ts): a longer value, or a
+// link that isn't http or https, is rejected rather than cut.
 const StorySchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -402,6 +438,51 @@ const StorySchema = z.object({
     .describe(
       "The decided backlog order it was pulled in with (its backlog item's rank, 1 = first). Absent: not ordered."
     ),
+  notes: z
+    .string()
+    .max(STORY_NOTES_MAX)
+    .optional()
+    .describe('Free notes on the story (at most 2,000 characters). "" clears them.'),
+  acceptanceCriteria: z
+    .string()
+    .max(STORY_CRITERIA_MAX)
+    .optional()
+    .describe(
+      'How the team will know it is done right (at most 2,000 characters). "" clears them.'
+    ),
+  gwt: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        given: z.string().max(TOOL_TEXT_MAX.text),
+        when: z.string().max(TOOL_TEXT_MAX.text),
+        then: z.string().max(TOOL_TEXT_MAX.text),
+      })
+    )
+    .max(TOOL_LIST_MAX.gwt)
+    .optional()
+    .describe(
+      "Structured acceptance criteria, in order: {id, given, when, then} (at most 20, each part at most 1,000 characters). They sit beside acceptanceCriteria, which they don't change."
+    ),
+  refinedAt: z
+    .string()
+    .optional()
+    .describe("When the story's text, points or criteria last changed (ISO). Stamped on write."),
+  link: z
+    .string()
+    .max(STORY_LINK_MAX)
+    .refine((v) => v.trim() === "" || storyLink(v) !== undefined, {
+      message: "link must be an http or https address",
+    })
+    .optional()
+    .describe(
+      'Its issue in the tracker the team uses: an http or https address (at most 500 characters). "" clears it.'
+    ),
+  ticketKey: z
+    .string()
+    .max(STORY_TICKET_KEY_MAX)
+    .optional()
+    .describe('Its key in the tracker, such as "PAY-12" (at most 50 characters). "" clears it.'),
 }) as unknown as z.ZodType<Story>;
 
 const ImpedimentSchema = z.object({
@@ -795,7 +876,8 @@ defineCrudActions<Story>({
   upsert: (s) => ws().upsertStory(s),
   remove: (id) => ws().removeStory(id),
   generateId: () => `story_${nanoid(8)}`,
-  prepare: (next, current) => stampStoryWrite(next, current),
+  // The four text fields are trimmed, and one sent as "" is removed.
+  prepare: (next, current) => stampStoryWrite(cleanStoryFields(next), current),
 });
 
 defineCrudActions<Impediment>({
@@ -2344,6 +2426,7 @@ const PokerEstimationLogSchema = z.object({
       votes: z.array(z.string()).optional(),
       decidedAt: z.string(),
       sourceRef: HandoffRefSchema.optional(),
+      sessionStoryId: z.string().optional(),
     })
   ),
   queue: z
@@ -3116,6 +3199,8 @@ const RetroBoardSchema = z.object({
   archivedAt: z.string().optional(),
   previousRetroId: z.string().optional(),
   votesBy: z.record(z.string(), z.number()).optional(),
+  // "Votes each": absent means 3 (lib/retro/board retroVotes).
+  votesPerPerson: z.union([z.literal(3), z.literal(5), z.literal(8)]).optional(),
   sprintId: z.string().optional(),
 }) as unknown as z.ZodType<RetroBoard>;
 
@@ -3985,6 +4070,337 @@ defineCrudActions<ValueStreamStage>({
   upsert: (x) => ws().upsertValueStreamStage(x),
   remove: (id) => ws().removeValueStreamStage(id),
   generateId: () => `vsstage_${nanoid(8)}`,
+});
+
+/* ────────────────────────────────────────────────────────────────────
+ * Phase 42 — the tools plan's phase 1: Parking Lot, Root Cause, Product
+ * Goal, Interrupt Buffer, the Scrum Master Notebook and Meeting Audit.
+ *
+ * New collections with no older rows, so each schema holds the caps the
+ * pages use too (TOOL_TEXT_MAX, TOOL_LIST_MAX): a record a page saved always
+ * validates, and an agent can't write one the page couldn't show. Every
+ * field is listed, since update writes what the schema parsed. createdAt and
+ * updatedAt are stamped on create and update (a value sent is ignored), so an
+ * agent needn't send them. The times an agent may write (an interrupt's
+ * loggedAt and resolvedAt, a goal's closedAt) must be ISO timestamps, so the
+ * pages' gauges and sorting never meet "last Tuesday". Each toolId's suffix
+ * camelCases to its registered kind (PARKING_LOT_ITEM_KIND, …), so no
+ * serverKind override.
+ * ────────────────────────────────────────────────────────────────── */
+
+/** Text that can't be blank, capped at `max`. */
+const Filled = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .refine((v) => v.trim() !== "", { message: "can't be blank" });
+
+const StampedAt = z
+  .string()
+  .optional()
+  .describe("ISO timestamp, stamped by every create and update (a value given is ignored).");
+
+/** A time an agent may write: an ISO timestamp such as "2026-11-12T09:30:00Z", any UTC offset. */
+const IsoTime = z.iso.datetime({ offset: true });
+
+/** The shape of every id in the tool registry (lib/constants/tools.ts): "sm-notebook". */
+const TOOL_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/**
+ * The record with createdAt kept (now on create, or when the stored record
+ * has none) and updatedAt now: what these CRUDs save. A createdAt or
+ * updatedAt the caller sent is never kept.
+ */
+function stampedTimes<T extends { createdAt?: string; updatedAt?: string }>(
+  next: T,
+  current: T | undefined
+): T {
+  const now = new Date().toISOString();
+  return { ...next, createdAt: current?.createdAt ?? now, updatedAt: now };
+}
+
+const ParkingLotItemSchema = z.object({
+  id: z.string(),
+  text: Filled(TOOL_TEXT_MAX.text).describe("The point, as raised."),
+  meeting: z
+    .string()
+    .max(TOOL_TEXT_MAX.short)
+    .optional()
+    .describe('The meeting it came up in, such as "Daily Scrum".'),
+  raisedBy: z.string().max(TOOL_TEXT_MAX.short).optional().describe("Who raised it."),
+  status: z
+    .enum(PARKING_LOT_STATUSES)
+    .describe('"open" until it is discussed, sent to another tool or dropped.'),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .optional()
+    .describe("Where it was sent: the backlog, the Impediment Tracker or Retro Actions."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<ParkingLotItem>;
+
+defineCrudActions<ParkingLotItem>({
+  toolId: "workspace.parking_lot_item",
+  entityName: "parking lot item",
+  schema: ParkingLotItemSchema,
+  selectAll: () => ws().parkingLotItems ?? [],
+  upsert: (x) => ws().upsertParkingLotItem(x),
+  remove: (id) => ws().removeParkingLotItem(id),
+  generateId: () => `parking_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+const RootCauseAnalysisSchema = z.object({
+  id: z.string(),
+  title: Filled(TOOL_TEXT_MAX.short),
+  problem: z
+    .string()
+    .max(TOOL_TEXT_MAX.text)
+    .describe("The problem as a fact: what happened, where and how often."),
+  method: z.enum(ROOT_CAUSE_METHODS),
+  whys: z
+    .array(z.object({ id: z.string().min(1), text: z.string().max(TOOL_TEXT_MAX.text) }))
+    .max(TOOL_LIST_MAX.whys)
+    .describe("The 5 Whys chain in order; the first answers why the problem happened."),
+  causes: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        // The page's caps (lib/root-cause/model): it rewrites anything longer.
+        category: z.string().max(CATEGORY_MAX),
+        text: z.string().max(TOOL_TEXT_MAX.text),
+        count: z
+          .number()
+          .int()
+          .min(0)
+          .max(CAUSE_COUNT_MAX)
+          .describe("How often it happened (the Pareto order)."),
+      })
+    )
+    .max(TOOL_LIST_MAX.causes)
+    .describe("Fishbone causes, each under a category such as people, process or tools."),
+  rootCause: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  countermeasure: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  retroBoardId: z.string().optional().describe("The retro board it came from or was raised at."),
+  postMortemId: z.string().optional().describe("The post-mortem it came from."),
+  sourceRef: HandoffRefSchema.optional(),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .optional()
+    .describe("Where the countermeasure was sent (Retro Actions)."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<RootCauseAnalysis>;
+
+defineCrudActions<RootCauseAnalysis>({
+  toolId: "workspace.root_cause_analysis",
+  entityName: "root-cause analysis (5 Whys or fishbone)",
+  schema: RootCauseAnalysisSchema,
+  selectAll: () => ws().rootCauseAnalyses ?? [],
+  upsert: (x) => ws().upsertRootCauseAnalysis(x),
+  remove: (id) => ws().removeRootCauseAnalysis(id),
+  generateId: () => `rca_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+const ProductGoalSchema = z.object({
+  id: z.string(),
+  statement: Filled(TOOL_TEXT_MAX.text).describe("The goal: one sentence about the outcome."),
+  why: z.string().max(TOOL_TEXT_MAX.text).optional().describe("Why it matters."),
+  measures: z
+    .array(z.string().max(TOOL_TEXT_MAX.short))
+    .max(TOOL_LIST_MAX.measures)
+    .describe("How progress is measured, one short line each."),
+  targetDate: IsoDay.optional(),
+  status: z
+    .enum(PRODUCT_GOAL_STATUSES)
+    .describe(
+      'At most one goal is "active": close the active one (achieved or abandoned) before making another active.'
+    ),
+  closedAt: IsoTime.optional().describe(
+    "ISO time it was marked achieved or abandoned; stamped when the status closes it, cleared when it is active."
+  ),
+  note: z
+    .string()
+    .max(TOOL_TEXT_MAX.text)
+    .optional()
+    .describe("A note on the outcome, such as why it was abandoned."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<ProductGoal>;
+
+/**
+ * Times stamped, and `closedAt` with the status: set when a write leaves the
+ * goal achieved or abandoned without one, cleared when it is active.
+ */
+function prepareProductGoal(next: ProductGoal, current: ProductGoal | undefined): ProductGoal {
+  const out = stampedTimes(next, current);
+  if (out.status === "active") {
+    const { closedAt: _closed, ...open } = out;
+    void _closed;
+    return open;
+  }
+  return out.closedAt ? out : { ...out, closedAt: out.updatedAt };
+}
+
+/** A goal made active while another is active is refused: at most one active goal. */
+async function beforeProductGoalWrite(
+  next: ProductGoal,
+  _current: ProductGoal | undefined,
+  env: CrudEnv<ProductGoal>
+): Promise<void> {
+  if (next.status !== "active") return;
+  const other = (await env.all()).find((g) => g.id !== next.id && g.status === "active");
+  if (other) {
+    throw new Error(
+      `Another Product Goal is active (“${other.statement}”, ${other.id}). Mark it achieved or abandoned first: one goal is active at a time. Nothing was saved.`
+    );
+  }
+}
+
+defineCrudActions<ProductGoal>({
+  toolId: "workspace.product_goal",
+  entityName: "Product Goal (at most one active)",
+  schema: ProductGoalSchema,
+  selectAll: () => ws().productGoals ?? [],
+  upsert: (x) => ws().upsertProductGoal(x),
+  remove: (id) => ws().removeProductGoal(id),
+  generateId: () => `goal_${nanoid(8)}`,
+  prepare: prepareProductGoal,
+  beforeWrite: beforeProductGoalWrite,
+});
+
+const InterruptItemSchema = z.object({
+  id: z.string(),
+  sprintId: z.string().optional().describe("The sprint it landed in."),
+  title: Filled(TOOL_TEXT_MAX.text),
+  kind: z.enum(INTERRUPT_KINDS),
+  size: z.number().min(0).optional().describe("Its size in points, when known."),
+  emergency: z.boolean().describe("It couldn't wait: the team stopped other work for it."),
+  loggedAt: IsoTime.optional().describe(
+    'ISO time it landed, such as "2026-11-12T09:30:00Z"; can be backdated. Stamped now on create when not given.'
+  ),
+  resolvedAt: z
+    .union([IsoTime, z.literal("")])
+    .optional()
+    .describe('ISO time it was resolved; absent while open. "" reopens a resolved one.'),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .optional()
+    .describe("Where it was sent (the backlog, the Impediment Tracker)."),
+}) as unknown as z.ZodType<InterruptItem>;
+
+/**
+ * loggedAt: a value sent (backdating) wins; otherwise the stored one, or now
+ * on create. resolvedAt "" is how an agent reopens it (JSON has no
+ * undefined), so the key goes: an open interrupt never holds one.
+ */
+function prepareInterruptItem(
+  next: InterruptItem,
+  current: InterruptItem | undefined
+): InterruptItem {
+  const { resolvedAt, ...rest } = next;
+  const out: InterruptItem = {
+    ...rest,
+    loggedAt: next.loggedAt ?? current?.loggedAt ?? new Date().toISOString(),
+  };
+  return resolvedAt ? { ...out, resolvedAt } : out;
+}
+
+defineCrudActions<InterruptItem>({
+  toolId: "workspace.interrupt_item",
+  entityName: "interrupt (unplanned work in a sprint)",
+  schema: InterruptItemSchema,
+  selectAll: () => ws().interruptItems ?? [],
+  upsert: (x) => ws().upsertInterruptItem(x),
+  remove: (id) => ws().removeInterruptItem(id),
+  generateId: () => `interrupt_${nanoid(8)}`,
+  prepare: prepareInterruptItem,
+});
+
+const NotebookEntrySchema = z.object({
+  id: z.string(),
+  date: IsoDay.describe("The day the note is about."),
+  title: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  body: Filled(TOOL_TEXT_MAX.long),
+  tags: z.array(z.string().max(TOOL_TEXT_MAX.short)).max(TOOL_LIST_MAX.tags),
+  event: z
+    .string()
+    .max(TOOL_TEXT_MAX.short)
+    .optional()
+    .describe('The Scrum event it came from, such as "daily-scrum" or "retro".'),
+  // A tool id only (lowercase words joined by hyphens): the page links to
+  // `/<id>`, so nothing written here may turn that into a link off the site
+  // ("//evil.example") or into another path.
+  linkedTool: z
+    .string()
+    .max(TOOL_TEXT_MAX.short)
+    .regex(TOOL_ID_PATTERN, "a tool id, such as impediments")
+    .optional()
+    .describe('The tool it is about, by tool id, such as "impediments".'),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .optional()
+    .describe("Where it was sent (an impediment, a retro action)."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<NotebookEntry>;
+
+defineCrudActions<NotebookEntry>({
+  toolId: "workspace.notebook_entry",
+  entityName: "Scrum Master Notebook entry",
+  schema: NotebookEntrySchema,
+  selectAll: () => ws().notebookEntries ?? [],
+  upsert: (x) => ws().upsertNotebookEntry(x),
+  remove: (id) => ws().removeNotebookEntry(id),
+  generateId: () => `note_${nanoid(8)}`,
+  // The schema checks only the day's shape: a day the calendar doesn't have
+  // ("2026-02-30") is refused when a write sets or changes it. A stored one
+  // the write leaves alone stays (the page shows it to fix).
+  prepare: (next, current) =>
+    stampedTimes(
+      unlessRefused(
+        next,
+        next.date !== current?.date && !isDay(next.date)
+          ? [`date ${next.date} is not a day on the calendar (YYYY-MM-DD).`]
+          : []
+      ),
+      current
+    ),
+});
+
+const MeetingAuditSchema = z.object({
+  id: z.string(),
+  meeting: Filled(TOOL_TEXT_MAX.short).describe("The meeting's name."),
+  cadence: z.enum(MEETING_CADENCES),
+  minutes: z
+    .number()
+    .positive()
+    .max(24 * 60)
+    .describe("Length of one occurrence, in minutes."),
+  attendees: z.number().int().min(1).max(1000).describe("How many people attend."),
+  purpose: z.string().max(TOOL_TEXT_MAX.text).describe("What it is for."),
+  ratings: z
+    .record(z.string().max(TOOL_TEXT_MAX.short), z.number())
+    .refine((r) => Object.keys(r).length <= TOOL_LIST_MAX.ratings, {
+      message: `at most ${TOOL_LIST_MAX.ratings} ratings`,
+    })
+    .describe("The team's ratings by the tool's question id."),
+  verdict: z.enum(MEETING_VERDICTS).optional(),
+  notes: z.string().max(TOOL_TEXT_MAX.long).optional(),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<MeetingAudit>;
+
+defineCrudActions<MeetingAudit>({
+  toolId: "workspace.meeting_audit",
+  entityName: "meeting audit (one recurring meeting)",
+  schema: MeetingAuditSchema,
+  selectAll: () => ws().meetingAudits ?? [],
+  upsert: (x) => ws().upsertMeetingAudit(x),
+  remove: (id) => ws().removeMeetingAudit(id),
+  generateId: () => `meeting_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
 });
 
 /* ────────────────────────────────────────────────────────────────────

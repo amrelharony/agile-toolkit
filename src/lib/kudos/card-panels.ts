@@ -3,7 +3,8 @@
  * front. The 28 square WebP files (360 px and 720 px) live in the public
  * `comic-panels` bucket under `kudos-cards/`, never in git; the hash in each
  * name changes when the art does, so the files can be cached for good. They
- * are for kudos cards only: the comics pages never show a book episode's art.
+ * are for kudos cards only: the comics pages show the posters' own panels
+ * (lib/comics/poster-panels).
  * Pure, and free of client modules: the MCP server may read it too.
  */
 

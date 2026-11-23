@@ -10,8 +10,9 @@ import { fakeRealtime } from "../realtime/fake-realtime";
 import { QUESTIONNAIRE, fakeVoteCrypto } from "../realtime/vote-room-fixtures";
 
 /*
- * The pulse guides tell a facilitator to press Enter counts instead, and say
- * that where live rounds aren't available the count boxes show on their own.
+ * The pulse guides tell a facilitator to press Enter counts (the One screen
+ * way), and say that where live rounds aren't available the count boxes
+ * show on their own.
  * These render the kit's panel both ways, so the guides' wording follows
  * what the panel really shows.
  */
@@ -30,7 +31,7 @@ import {
 } from "@/components/collab/vote-room/vote-round-panel";
 
 const ON_THEIR_OWN =
-  /[Pp]ress Enter counts instead \(where live rounds aren't available, the count boxes show on their own\)/;
+  /[Pp]ress Enter counts \(where live rounds aren't available, the count boxes show on their own\)/;
 
 function guide(list: readonly ToolGuide[], id: string): string {
   const g = list.find((x) => x.toolId === id);
@@ -83,10 +84,10 @@ describe("the pulse guides' count entry, as the panel shows it", () => {
     expect(text).not.toMatch(/the only option when live rounds are off/);
   });
 
-  it("live rounds available: Enter counts instead is a button next to Run a live round", async () => {
+  it("live rounds available: Enter counts is a button beside Run a live round", async () => {
     renderPanel();
     expect(await screen.findByRole("button", { name: "Run a live round" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Enter counts instead" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Enter counts" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Show totals" })).toBeNull();
   });
 
@@ -100,7 +101,7 @@ describe("the pulse guides' count entry, as the panel shows it", () => {
       arrange();
       renderPanel(props);
       expect(await screen.findByRole("button", { name: "Show totals" })).toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Enter counts instead" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "Enter counts" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Run a live round" })).toBeNull();
     }
   );
@@ -121,6 +122,6 @@ describe("the pulse guides' count entry, as the panel shows it", () => {
     ));
     expect(await screen.findByText(/Guests can't host live rounds/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show totals" })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Enter counts instead" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Enter counts" })).toBeNull();
   });
 });

@@ -7,27 +7,44 @@ import { useShallow } from "zustand/react/shallow";
 import { SectionCard } from "@/components/shared/section-card";
 import { ExportButton } from "@/components/shared/export-button";
 import { CadenceForm } from "@/components/sprints/cadence-form";
+import { AddToCalendar } from "@/components/sprints/add-to-calendar";
 import { getToolById } from "@/lib/constants/tools";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
+import { collectRetroActions } from "@/lib/retro/actions";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Sprint, Story } from "@/lib/stores/workspace-types";
+import type {
+  HandoffLink,
+  ProductGoal,
+  RetroBoard,
+  Sprint,
+  Story,
+} from "@/lib/stores/workspace-types";
 import { useTeamRoster } from "@/lib/team/use-team-roster";
 import { useCeremonyCadence } from "@/lib/sprints/use-ceremony-cadence";
-import { todayIso } from "@/lib/sprints/series";
+import { sprintsNewestFirst, todayIso } from "@/lib/sprints/series";
 import { cn } from "@/lib/utils";
 import { useDefinitionOfDone } from "@/lib/dod/use-definition-of-done";
 import { WA_ID, normalizeAgreement } from "@/lib/working-agreement/model";
 import { useRefinementStore } from "@/app/(tools)/refinement/store";
 import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
 import { charterCards, charterMarkdown, type CharterDocs } from "./charter-view";
+import { ProductGoalLine, useActiveProductGoal } from "@/components/product-goal/product-goal-line";
 
 /** Empty lists, so a workspace without stories or sprints doesn't make the docs anew each render. */
 const NO_STORIES: Story[] = [];
 const NO_SPRINTS: Sprint[] = [];
+const NO_BOARDS: RetroBoard[] = [];
+const NO_GOALS: ProductGoal[] = [];
+
+/** An action handed to an impediment or a Kanban card is done when that is (as the cockpit counts it). */
+const handoffTargetDone = (link: HandoffLink): boolean =>
+  getHandoffRoute(link.route).isDone?.(link.targetId) ?? false;
 
 /**
  * The team charter: the agreements the team works by, each a card with
  * what's there and the way to the tool that edits it, plus the ceremony
- * times and the whole charter as Markdown.
+ * times (with the current sprint's ceremonies as a calendar file) and the
+ * whole charter as Markdown.
  */
 export function TeamCharter() {
   const members = useTeamRoster();
@@ -57,19 +74,42 @@ export function TeamCharter() {
   // reports on the latest completed sprint.
   const stories = useWorkspaceStore((s) => s.stories ?? NO_STORIES);
   const sprints = useWorkspaceStore((s) => s.sprints ?? NO_SPRINTS);
+  // The Product Goal the team works towards, read only (Product Goal edits it).
+  const productGoals = useWorkspaceStore((s) => s.productGoals ?? NO_GOALS);
+  const productGoal = useActiveProductGoal();
   // The guide's store waits to be asked (its page merges a shared link first).
   useEffect(() => {
     void useEstimationGuideStore.persist.rehydrate();
   }, []);
   const [cadence, updateCadence] = useCeremonyCadence();
   const [today] = useState(() => todayIso());
+  const [now] = useState(() => new Date());
 
   const docs = useMemo<CharterDocs>(
-    () => ({ members, cadence, agreement, dod, dor, estimation, stories, sprints }),
-    [members, cadence, agreement, dod, dor, estimation, stories, sprints]
+    () => ({ members, cadence, agreement, dod, dor, estimation, stories, sprints, productGoals }),
+    [members, cadence, agreement, dod, dor, estimation, stories, sprints, productGoals]
   );
   const cards = useMemo(() => charterCards(docs), [docs]);
   const markdown = useMemo(() => charterMarkdown(docs, today), [docs, today]);
+
+  // "Add to calendar" is for the sprint whose ceremonies come next: the active
+  // one, else a planned one (without dates yet, the card says to set them),
+  // else the newest other one. A cancelled sprint only when every sprint is,
+  // and the card then says so.
+  const sprint = useMemo(() => {
+    const newest = sprintsNewestFirst(sprints);
+    return (
+      newest.find((s) => s.status === "active") ??
+      newest.find((s) => s.status === "planned") ??
+      newest.find((s) => s.status !== "cancelled") ??
+      newest[0]
+    );
+  }, [sprints]);
+  const retroBoards = useWorkspaceStore((s) => s.retroBoards ?? NO_BOARDS);
+  const actions = useMemo(
+    () => collectRetroActions(retroBoards, { today, targetDone: handoffTargetDone }),
+    [retroBoards, today]
+  );
 
   return (
     <div className="space-y-4">
@@ -84,6 +124,7 @@ export function TeamCharter() {
           The agreements the team works by, each kept in its own tool. Export copies the whole
           charter as one document.
         </p>
+        <ProductGoalLine goal={productGoal} className="mb-3" />
         <ul className="grid gap-3 sm:grid-cols-2" aria-label="Charter documents">
           {cards.map((card) => {
             const tool = getToolById(card.toolId);
@@ -150,6 +191,15 @@ export function TeamCharter() {
           uses them for &ldquo;next ceremony&rdquo;.
         </p>
         <CadenceForm cadence={cadence} onChange={updateCadence} />
+        <div className="mt-4 border-t border-border pt-4">
+          <AddToCalendar
+            sprint={sprint}
+            cadence={cadence}
+            actions={actions}
+            now={now}
+            place="team"
+          />
+        </div>
       </SectionCard>
     </div>
   );

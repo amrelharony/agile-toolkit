@@ -160,7 +160,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the committed estimate log (the live realtime session is not persisted). Returns {exists, totalEstimates, byScale: {scaleType -> count}, estimates: {id, storyTitle, finalEstimate, scaleType, votes?, decidedAt, sourceRef?}[], queue: {id, title, description?, sourceRef: {tool, id, doc?}, queuedAt, sessionStoryId?}[] (stories sent from other tools, waiting to be estimated)}.",
+    "Summarise the committed estimate log (the live realtime session is not persisted). Returns {exists, totalEstimates, byScale: {scaleType -> count}, estimates: {id, storyTitle, finalEstimate, scaleType, votes?, decidedAt, sourceRef?, sessionStoryId?}[], queue: {id, title, description?, sourceRef: {tool, id, doc?}, queuedAt, sessionStoryId?}[] (stories sent from other tools, waiting to be estimated)}.",
   paramsSchema: z.object({}),
   handler: async () => summarize(browserDoc()),
   mcpHandler: async (_params, ctx) => {

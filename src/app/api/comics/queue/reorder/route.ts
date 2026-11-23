@@ -1,10 +1,12 @@
 /**
  * POST /api/comics/queue/reorder: { order: [ep, ep, ...] }, a new order for the
- * unreleased weekly stories it names. Each number keeps its date and takes the
- * next story in the order. A story that has ever been out can't be one of them.
+ * unreleased weekly stories it names, up to the whole queue. Each number keeps
+ * its date and takes the next story in the order. A story that has ever been out
+ * can't be one of them.
  *
- * The swap itself is one transaction in comic_reorder_queue (migration 0031),
- * which repeats the released check under a row lock.
+ * The swap itself is one transaction in comic_reorder_queue (migration 0038),
+ * which repeats the released check under a row lock and moves the whole story:
+ * all its content, and its guess and "Seen this at work?" taps.
  *
  * Errors: 400 invalid_order, 409 not_in_queue | incomplete_story | needs_review
  * (with `ep`), 401/403 not the owner, 503.

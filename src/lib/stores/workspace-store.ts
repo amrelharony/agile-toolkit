@@ -1,7 +1,12 @@
 "use client";
 
 import { create } from "zustand";
-import { stampStoryMembership, withStorySprint } from "@/lib/sprints/story-status";
+import {
+  stampRefinedWrite,
+  stampStoryMembership,
+  withStorySprint,
+} from "@/lib/sprints/story-status";
+import { cleanStoryFields } from "@/lib/stories/fields";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { reportStorageWriteFailure } from "./storage-health";
 import type {
@@ -125,6 +130,13 @@ import type {
   KanbanBoard,
   DependencyMap,
   ValueStreamStage,
+  // Phase 42 — the tools plan's phase 1
+  ParkingLotItem,
+  RootCauseAnalysis,
+  ProductGoal,
+  InterruptItem,
+  NotebookEntry,
+  MeetingAudit,
 } from "./workspace-types";
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
@@ -142,6 +154,8 @@ interface WorkspaceActions {
   removeCeremonyCadence: (id: string) => void;
   upsertStory: (s: Story) => void;
   removeStory: (id: string) => void;
+  /** `removeStory` for several stories in one write (the Undo of a paste or an import). */
+  removeStories: (ids: readonly string[]) => void;
   upsertImpediment: (i: Impediment) => void;
   removeImpediment: (id: string) => void;
   upsertRisk: (r: Risk) => void;
@@ -362,10 +376,25 @@ interface WorkspaceActions {
   removeDependencyMap: (id: string) => void;
   upsertValueStreamStage: (x: ValueStreamStage) => void;
   removeValueStreamStage: (id: string) => void;
+  // Phase 42 — the tools plan's phase 1
+  upsertParkingLotItem: (x: ParkingLotItem) => void;
+  removeParkingLotItem: (id: string) => void;
+  upsertRootCauseAnalysis: (x: RootCauseAnalysis) => void;
+  removeRootCauseAnalysis: (id: string) => void;
+  upsertProductGoal: (x: ProductGoal) => void;
+  removeProductGoal: (id: string) => void;
+  upsertInterruptItem: (x: InterruptItem) => void;
+  removeInterruptItem: (id: string) => void;
+  upsertNotebookEntry: (x: NotebookEntry) => void;
+  removeNotebookEntry: (id: string) => void;
+  upsertMeetingAudit: (x: MeetingAudit) => void;
+  removeMeetingAudit: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
-  /** Batch upsert. Use this for bulk imports — single-item upserts are O(n)
-   *  each (find + copy), so calling N times is O(n²). */
+  /** Batch upsert, stamped and cleaned as `upsertStory` does each one. Use
+   *  this for bulk adds (a paste, an import): single-item upserts are O(n)
+   *  each (find + copy), so calling N times is O(n²), and every call
+   *  persists the whole workspace again. */
   bulkUpsertStories: (items: Story[]) => void;
   exportJSON: () => string;
   importJSON: (json: string) => void;
@@ -449,6 +478,53 @@ function cascadeSourceRefRemoval(
   return whiteboardObjects.map((o) =>
     isLink(o) ? { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now } : o
   );
+}
+
+/**
+ * The workspace without stories `ids`, for `removeStory` and `removeStories`.
+ *
+ * Phase 26 cascade: any canvas object pinned to a removed Story via
+ * sourceRef now points at nothing. Strip the sourceRef so the object
+ * becomes a standalone snapshot; without this, future sync attempts
+ * against the dead id would silently fail and the link badge
+ * ("↳ backlog") would be misleading.
+ *
+ * Two tool labels are in the wild: cards added via the canvas wizard use
+ * `tool: "backlog"`, while `importFromStories` in cross-tool-import.ts
+ * emits `tool: "story"`. Match both, and include ALL object kinds
+ * (sticky/card) — `importFromStories` produces stickies, not just cards.
+ */
+function withoutStories(
+  s: Pick<Workspace, "stories" | "whiteboardObjects">,
+  ids: ReadonlySet<string>
+): Pick<Workspace, "stories"> | Pick<Workspace, "stories" | "whiteboardObjects"> {
+  const stories = s.stories.filter((x) => !ids.has(x.id));
+  const isStoryLink = (o: WhiteboardObject) =>
+    (o.sourceRef?.tool === "backlog" || o.sourceRef?.tool === "story") &&
+    ids.has(o.sourceRef.entityId);
+  // R5: WhiteboardVoting can pin to a story via `storyId` (Phase 27);
+  // clear that too so the voting widget doesn't keep a dead link
+  // that would cause confusing UI ("anchored to a story that no
+  // longer exists").
+  const isVotingLink = (o: WhiteboardObject) =>
+    o.type === "voting" && o.storyId !== undefined && ids.has(o.storyId);
+  // Pre-check so the common case (zero refs) doesn't allocate
+  // a fresh whiteboardObjects array via .map().
+  const affected = (s.whiteboardObjects ?? []).some((o) => isStoryLink(o) || isVotingLink(o));
+  if (!affected) return { stories };
+  const now = new Date().toISOString();
+  return {
+    stories,
+    whiteboardObjects: (s.whiteboardObjects ?? []).map((o) => {
+      if (isStoryLink(o)) {
+        return { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now };
+      }
+      if (isVotingLink(o)) {
+        return { ...o, storyId: undefined, version: o.version + 1, updatedAt: now };
+      }
+      return o;
+    }),
+  };
 }
 
 export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
@@ -551,60 +627,29 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           }
           return next;
         }),
-      // Every local write of a story records when it was created and any
-      // change of its sprint (lib/sprints/story-status.ts); synced rows from
-      // other devices arrive through setEntities and keep their own stamps.
+      // Every local write of a story records when it was created, any
+      // change of its sprint and when what it says was refined (refinedAt;
+      // lib/sprints/story-status.ts); synced rows from other devices arrive
+      // through setEntities and keep their own stamps. Its notes, acceptance
+      // criteria, link and ticket key are cleaned and capped here too
+      // (lib/stories/fields.ts), whichever page wrote them.
       upsertStory: (s) =>
-        set((_st) => ({
-          stories: replaceById(
-            _st.stories,
-            stampStoryMembership(
-              s,
-              _st.stories.find((x) => x.id === s.id)
-            )
-          ),
-        })),
-      removeStory: (id) =>
-        set((s) => {
-          // Phase 26 cascade: any canvas object pinned to this Story via
-          // sourceRef now points at nothing. Strip the sourceRef so the
-          // object becomes a standalone snapshot; without this, future
-          // sync attempts against the dead id would silently fail and
-          // the link badge ("↳ backlog") would be misleading.
-          //
-          // Two tool labels are in the wild: cards added via the canvas
-          // wizard use `tool: "backlog"`, while `importFromStories` in
-          // cross-tool-import.ts emits `tool: "story"`. Match both, and
-          // include ALL object kinds (sticky/card) — `importFromStories`
-          // produces stickies, not just cards.
-          //
-          // Pre-check so the common case (zero refs) doesn't allocate
-          // a fresh whiteboardObjects array via .map().
-          const isStoryLink = (o: WhiteboardObject) =>
-            (o.sourceRef?.tool === "backlog" || o.sourceRef?.tool === "story") &&
-            o.sourceRef.entityId === id;
-          // R5: WhiteboardVoting can pin to a story via `storyId` (Phase 27);
-          // clear that too so the voting widget doesn't keep a dead link
-          // that would cause confusing UI ("anchored to a story that no
-          // longer exists").
-          const isVotingLink = (o: WhiteboardObject) => o.type === "voting" && o.storyId === id;
-          const affected = (s.whiteboardObjects ?? []).some(
-            (o) => isStoryLink(o) || isVotingLink(o)
-          );
-          if (!affected) return { stories: s.stories.filter((x) => x.id !== id) };
-          const now = new Date().toISOString();
+        set((_st) => {
+          const prev = _st.stories.find((x) => x.id === s.id);
           return {
-            stories: s.stories.filter((x) => x.id !== id),
-            whiteboardObjects: (s.whiteboardObjects ?? []).map((o) => {
-              if (isStoryLink(o)) {
-                return { ...o, sourceRef: undefined, version: o.version + 1, updatedAt: now };
-              }
-              if (isVotingLink(o)) {
-                return { ...o, storyId: undefined, version: o.version + 1, updatedAt: now };
-              }
-              return o;
-            }),
+            stories: replaceById(
+              _st.stories,
+              stampRefinedWrite(stampStoryMembership(cleanStoryFields(s), prev), prev)
+            ),
           };
+        }),
+      // With the Canvas links to the story cleared (`withoutStories`).
+      removeStory: (id) => set((s) => withoutStories(s, new Set([id]))),
+      // One write for the lot: each write persists the whole workspace.
+      removeStories: (ids) =>
+        set((s) => {
+          const gone = new Set(ids);
+          return s.stories.some((x) => gone.has(x.id)) ? withoutStories(s, gone) : s;
         }),
       upsertImpediment: (i) => set((_st) => ({ impediments: replaceById(_st.impediments, i) })),
       removeImpediment: (id) =>
@@ -773,7 +818,26 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         // BUG-W46: functional updater — non-functional read-then-set
         // races concurrent sync-engine writes and silently drops the
         // loser.
-        set((_st) => ({ stories: batchUpsertById(_st.stories, items) })),
+        set((_st) => {
+          if (items.length === 0) return _st;
+          // Stamped as `upsertStory` stamps each one (created, joined its
+          // sprint, refined), with one time for the batch.
+          const stored = new Map(_st.stories.map((x) => [x.id, x]));
+          const at = new Date().toISOString();
+          return {
+            stories: batchUpsertById(
+              _st.stories,
+              items.map((s) => {
+                const prev = stored.get(s.id);
+                return stampRefinedWrite(
+                  stampStoryMembership(cleanStoryFields(s), prev, at),
+                  prev,
+                  at
+                );
+              })
+            ),
+          };
+        }),
       // Phase 19 — AI/LLM PM
       upsertLLMEval: (x) => set((_st) => ({ llmEvals: replaceById(_st.llmEvals ?? [], x) })),
       // R11-fix: canvas sourceRef cascade. Audit A6 H6 flagged 16
@@ -1523,6 +1587,31 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ valueStreamStages: replaceById(_st.valueStreamStages ?? [], x) })),
       removeValueStreamStage: (id) =>
         set((s) => ({ valueStreamStages: (s.valueStreamStages ?? []).filter((y) => y.id !== id) })),
+      // Phase 42 — the tools plan's phase 1
+      upsertParkingLotItem: (x) =>
+        set((_st) => ({ parkingLotItems: replaceById(_st.parkingLotItems ?? [], x) })),
+      removeParkingLotItem: (id) =>
+        set((s) => ({ parkingLotItems: (s.parkingLotItems ?? []).filter((y) => y.id !== id) })),
+      upsertRootCauseAnalysis: (x) =>
+        set((_st) => ({ rootCauseAnalyses: replaceById(_st.rootCauseAnalyses ?? [], x) })),
+      removeRootCauseAnalysis: (id) =>
+        set((s) => ({ rootCauseAnalyses: (s.rootCauseAnalyses ?? []).filter((y) => y.id !== id) })),
+      upsertProductGoal: (x) =>
+        set((_st) => ({ productGoals: replaceById(_st.productGoals ?? [], x) })),
+      removeProductGoal: (id) =>
+        set((s) => ({ productGoals: (s.productGoals ?? []).filter((y) => y.id !== id) })),
+      upsertInterruptItem: (x) =>
+        set((_st) => ({ interruptItems: replaceById(_st.interruptItems ?? [], x) })),
+      removeInterruptItem: (id) =>
+        set((s) => ({ interruptItems: (s.interruptItems ?? []).filter((y) => y.id !== id) })),
+      upsertNotebookEntry: (x) =>
+        set((_st) => ({ notebookEntries: replaceById(_st.notebookEntries ?? [], x) })),
+      removeNotebookEntry: (id) =>
+        set((s) => ({ notebookEntries: (s.notebookEntries ?? []).filter((y) => y.id !== id) })),
+      upsertMeetingAudit: (x) =>
+        set((_st) => ({ meetingAudits: replaceById(_st.meetingAudits ?? [], x) })),
+      removeMeetingAudit: (id) =>
+        set((s) => ({ meetingAudits: (s.meetingAudits ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1631,6 +1720,13 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           kanbanBoards: s.kanbanBoards,
           dependencyMaps: s.dependencyMaps,
           valueStreamStages: s.valueStreamStages,
+          // Phase 42 — the tools plan's phase 1
+          parkingLotItems: s.parkingLotItems,
+          rootCauseAnalyses: s.rootCauseAnalyses,
+          productGoals: s.productGoals,
+          interruptItems: s.interruptItems,
+          notebookEntries: s.notebookEntries,
+          meetingAudits: s.meetingAudits,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1773,6 +1869,13 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           kanbanBoards: arr("kanbanBoards"),
           dependencyMaps: arr("dependencyMaps"),
           valueStreamStages: arr("valueStreamStages"),
+          // Phase 42 — the tools plan's phase 1
+          parkingLotItems: arr("parkingLotItems"),
+          rootCauseAnalyses: arr("rootCauseAnalyses"),
+          productGoals: arr("productGoals"),
+          interruptItems: arr("interruptItems"),
+          notebookEntries: arr("notebookEntries"),
+          meetingAudits: arr("meetingAudits"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -2128,6 +2231,17 @@ if (typeof window !== "undefined") {
     registerCollection("kanbanBoard", "kanbanBoards");
     registerCollection("dependencyMap", "dependencyMaps");
     registerCollection("valueStreamStage", "valueStreamStages");
+    // Phase 42 — the tools plan's phase 1. Each kind is what kindFromToolId
+    // derives from its workspace.* CRUD (workspace.parking_lot_item →
+    // parkingLotItem, …), and server-side code names them by the
+    // workspace-types constants (PARKING_LOT_ITEM_KIND, …); a test keeps the
+    // three in step.
+    registerCollection("parkingLotItem", "parkingLotItems");
+    registerCollection("rootCauseAnalysis", "rootCauseAnalyses");
+    registerCollection("productGoal", "productGoals");
+    registerCollection("interruptItem", "interruptItems");
+    registerCollection("notebookEntry", "notebookEntries");
+    registerCollection("meetingAudit", "meetingAudits");
     // Kudos wall — was localStorage-only + ephemeral realtime broadcast; now
     // also a per-entity synced collection so the agent (tool.kudos.*) can read
     // + post and the wall cloud-persists cross-device. The realtime broadcast
@@ -2300,6 +2414,12 @@ export function getWorkspaceSnapshot(): Workspace {
     kanbanBoards: state.kanbanBoards,
     dependencyMaps: state.dependencyMaps,
     valueStreamStages: state.valueStreamStages,
+    parkingLotItems: state.parkingLotItems,
+    rootCauseAnalyses: state.rootCauseAnalyses,
+    productGoals: state.productGoals,
+    interruptItems: state.interruptItems,
+    notebookEntries: state.notebookEntries,
+    meetingAudits: state.meetingAudits,
   };
 }
 

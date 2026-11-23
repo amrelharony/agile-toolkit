@@ -23,15 +23,15 @@
  * fetch is stubbed; the real executeToolUse runs a few probe actions.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { z } from "zod";
 
 const h = vi.hoisted(() => ({
   persist: {
     fetchChatUsage: vi.fn(async () => null),
-    listConversations: vi.fn(async () => []),
+    listConversations: vi.fn(async () => ({ ok: true, data: [] })),
     createConversation: vi.fn(async () => null),
-    loadMessages: vi.fn(async () => []),
+    loadMessages: vi.fn(async () => ({ ok: true, data: [] })),
     appendMessages: vi.fn(async () => {}),
     recordChatUsage: vi.fn(async () => {}),
     deleteConversation: vi.fn(async () => {}),
@@ -58,6 +58,8 @@ import { resetRegistryKbIndex } from "@/lib/agent/mascot/kb";
 import {
   abortInFlight,
   cutToolResult,
+  goOn,
+  retryLastTurn,
   sendUserMessage,
   trimVisitorHistory,
 } from "@/lib/agent/client";
@@ -74,9 +76,11 @@ import {
   VISITOR_FALLBACK_CODES,
   VISITOR_HEADERS,
   VISITOR_LIMITS,
+  VISITOR_TIME_LIMIT_FINISH,
   type VisitorErrorCode,
   type VisitorRequestBody,
 } from "@/lib/visitor-ai/contract";
+import { timeLimitTail } from "@/lib/visitor-ai/time-limit";
 import type { ChatMessage } from "@/lib/agent/types";
 
 registry.register({
@@ -259,7 +263,7 @@ describe("the visitor's requests", () => {
     const s = useAgentStore.getState();
     expect(s.chatProfile).toBe("visitor");
     expect(s.streaming).toBe(false);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     const reply = s.messages.at(-1);
     expect(reply?.role).toBe("assistant");
     expect(reply?.content).toEqual([
@@ -340,7 +344,7 @@ describe("the visitor's allowance and refusals", () => {
   });
 
   it.each(Array.from(VISITOR_FALLBACK_CODES))(
-    "falls back to the offline guide on %s",
+    "falls back to the tool finder on %s",
     async (code) => {
       queue.push(
         refusal(code === "disabled" || code === "meter_unavailable" ? 503 : 429, code, {
@@ -353,6 +357,8 @@ describe("the visitor's allowance and refusals", () => {
       const s = useAgentStore.getState();
       expect(s.visitorFallback).toBe(code);
       expect(s.error).toBeTruthy();
+      // Said by the read-only footer (or the guide's note): the chat's announcer stays quiet.
+      expect(s.notice).toMatchObject({ tone: "error", kind: code, quiet: true });
       expect(s.streaming).toBe(false);
       expect(s.messages.map((m) => m.role)).toEqual(["user"]);
       expect(calls).toHaveLength(1);
@@ -383,14 +389,49 @@ describe("the visitor's allowance and refusals", () => {
     const s = useAgentStore.getState();
     expect(s.visitorFallback).toBeNull();
     expect(s.error).toBeTruthy();
+    expect(s.notice).toMatchObject({ tone: "error", kind: code });
+    // Nothing else says it: the chat's announcer does.
+    expect(s.notice?.quiet).toBeUndefined();
     expect(s.streaming).toBe(false);
   });
 
   it("shows an error for a refusal without a code", async () => {
-    queue.push(new Response("gateway down", { status: 502 }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      queue.push(new Response("gateway down", { status: 502 }));
+      await askVisitor("What is WSJF?");
+      expect(useAgentStore.getState().visitorFallback).toBeNull();
+      expect(useAgentStore.getState().error).toMatch(/error/i);
+      expect(warn).toHaveBeenCalledWith("[visitor-ai] the request was refused (502)");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("names no status code in a refusal's words: that goes to the console", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      queue.push(new Response("not here", { status: 404 }));
+      await askVisitor("What is WSJF?");
+      const s = useAgentStore.getState();
+      expect(s.notice).toEqual({
+        tone: "error",
+        kind: "request_failed",
+        text: "Amr couldn't answer that. Try again in a moment.",
+      });
+      expect(s.notice?.text).not.toMatch(/d{3}/);
+      expect(warn).toHaveBeenCalledWith("[visitor-ai] the request was refused (404)");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("calls a turn that grew too long a note, not an error, when the route says so", async () => {
+    queue.push(refusal(413, "round_limit"));
     await askVisitor("What is WSJF?");
-    expect(useAgentStore.getState().visitorFallback).toBeNull();
-    expect(useAgentStore.getState().error).toMatch(/error/i);
+    const s = useAgentStore.getState();
+    expect(s.notice).toMatchObject({ tone: "note", kind: "round_limit" });
+    expect(s.error).toBeNull();
   });
 });
 
@@ -402,7 +443,10 @@ describe("a round with no usable reply", () => {
     await askVisitor("What is WSJF?");
     const s = useAgentStore.getState();
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
-    expect(s.error).toMatch(/ran out of room/);
+    expect(s.notice?.text).toMatch(/ran out of room/);
+    // A note, not an error: the store's error stays clear, so Amr doesn't frown.
+    expect(s.notice).toMatchObject({ tone: "note", kind: "no_answer" });
+    expect(s.error).toBeNull();
     expect(s.streaming).toBe(false);
   });
 
@@ -427,7 +471,7 @@ describe("a round with no usable reply", () => {
     expect(h.added).toEqual([]);
     expect(calls).toHaveLength(1);
     expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user"]);
-    expect(useAgentStore.getState().error).toMatch(/ran out of room/);
+    expect(useAgentStore.getState().notice?.text).toMatch(/ran out of room/);
   });
 
   it("keeps a reply cut off by length, and says it was cut", async () => {
@@ -435,19 +479,760 @@ describe("a round with no usable reply", () => {
     await askVisitor("How do I run a retro?");
     const s = useAgentStore.getState();
     expect(s.messages.at(-1)?.content).toEqual([{ type: "text", text: "Start with what" }]);
-    expect(s.error).toMatch(/cut short/);
+    expect(s.notice?.text).toMatch(/cut short/);
+    expect(s.notice).toMatchObject({ tone: "note", kind: "cut_off" });
+    expect(s.error).toBeNull();
   });
 
   it("says nothing extra after a complete reply", async () => {
     queue.push(textTurn("All good."));
     await askVisitor("How do I run a retro?");
-    expect(useAgentStore.getState().error).toBeNull();
+    expect(useAgentStore.getState().notice).toBeNull();
+  });
+});
+
+describe("an answer that stops before its end", () => {
+  /** The chat's one console line: the real error behind a visitor's plain-words note. */
+  let warn: MockInstance<typeof console.warn>;
+  beforeEach(() => {
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  const lastText = () => {
+    const last = useAgentStore.getState().messages.at(-1);
+    return last?.role === "assistant"
+      ? last.content.map((c) => (c.type === "text" ? c.text : "")).join("")
+      : null;
+  };
+
+  /**
+   * A response whose body delivers `events` one read at a time and then fails,
+   * as a dropped connection or the route's 30 s without a chunk does. A string
+   * ("[DONE]") goes out as it is.
+   */
+  function brokenStream(error: Error, ...events: unknown[]): Response {
+    const enc = new TextEncoder();
+    const pending = [...events];
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(c) {
+          const e = pending.shift();
+          if (e === undefined) c.error(error);
+          else c.enqueue(enc.encode(`data: ${typeof e === "string" ? e : JSON.stringify(e)}\n\n`));
+        },
+      },
+      { highWaterMark: 0 }
+    );
+    return new Response(body, {
+      status: 200,
+      headers: { "content-type": "text/event-stream", ...QUOTA_HEADERS },
+    });
+  }
+
+  it("keeps the reply and says the time ran out when the route ends it at its time limit", async () => {
+    queue.push(
+      sse([delta({ content: "Start with what" }), delta({}, VISITOR_TIME_LIMIT_FINISH), "[DONE]"])
+    );
+    await askVisitor("How do I run a retro?");
+    const s = useAgentStore.getState();
+    expect(lastText()).toBe("Start with what");
+    expect(s.notice?.text).toMatch(/ran out of time, so his answer stops here/);
+    expect(s.streaming).toBe(false);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("says the time ran out when it did before any reply", async () => {
+    queue.push(
+      sse([
+        delta({ reasoning_content: "hmm ".repeat(50) }),
+        delta({}, VISITOR_TIME_LIMIT_FINISH),
+        "[DONE]",
+      ])
+    );
+    await askVisitor("What is WSJF?");
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(s.notice?.text).toMatch(/ran out of time before he could answer/);
+  });
+
+  it("reads the route's last bytes as they are sent, even after an event cut in half", async () => {
+    const sent =
+      `data: ${JSON.stringify(delta({ content: "Start with what" }))}\n\n` +
+      'data: {"choices":[{"delta":{"content":" went w' +
+      new TextDecoder().decode(timeLimitTail());
+    queue.push(
+      new Response(sent, {
+        status: 200,
+        headers: { "content-type": "text/event-stream", ...QUOTA_HEADERS },
+      })
+    );
+    await askVisitor("How do I run a retro?");
+    // The half event is dropped whole, never shown as broken text.
+    expect(lastText()).toBe("Start with what");
+    expect(useAgentStore.getState().notice?.text).toMatch(
+      /ran out of time, so his answer stops here/
+    );
+  });
+
+  // The limit can land when the gateway's last event is whole but its closing
+  // blank line isn't out yet: the route's own blank line closes it.
+  it.each([
+    ["no line end after it yet", ""],
+    ["one line end after it", "\n"],
+    ["a lone carriage return after it", "\r"],
+  ])("keeps the gateway's last whole event, sent with %s", async (_name, ending) => {
+    const sent =
+      `data: ${JSON.stringify(delta({ content: "Start with what" }))}\n\n` +
+      `data: ${JSON.stringify(delta({ content: " went well." }))}${ending}` +
+      new TextDecoder().decode(timeLimitTail());
+    queue.push(
+      new Response(sent, {
+        status: 200,
+        headers: { "content-type": "text/event-stream", ...QUOTA_HEADERS },
+      })
+    );
+    await askVisitor("How do I run a retro?");
+    expect(lastText()).toBe("Start with what went well.");
+    expect(useAgentStore.getState().notice?.text).toMatch(
+      /ran out of time, so his answer stops here/
+    );
+  });
+
+  it("drops a tool call the time limit cut off, and never runs it", async () => {
+    queue.push(
+      sse([
+        delta({
+          tool_calls: [
+            {
+              index: 0,
+              id: "c1",
+              type: "function",
+              function: { name: "tool_zorblax_add_card", arguments: '{"text":"fla' },
+            },
+          ],
+        }),
+        delta({}, VISITOR_TIME_LIMIT_FINISH),
+        "[DONE]",
+      ])
+    );
+    await askVisitor("add a zorblax card saying flaky CI");
+    const s = useAgentStore.getState();
+    expect(h.added).toEqual([]);
+    expect(s.pendingToolUse).toBeNull();
+    expect(calls).toHaveLength(1);
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(s.notice?.text).toMatch(/ran out of time before he could answer/);
+  });
+
+  it("takes a reply as complete when the time limit lands after the model's own finish", async () => {
+    queue.push(
+      sse([
+        delta({ content: "All good." }),
+        delta({}, "stop"),
+        delta({}, VISITOR_TIME_LIMIT_FINISH),
+        "[DONE]",
+      ])
+    );
+    await askVisitor("How do I run a retro?");
+    expect(lastText()).toBe("All good.");
+    expect(useAgentStore.getState().notice).toBeNull();
+  });
+
+  it("still says a reply was cut by length when the time limit lands after that", async () => {
+    queue.push(
+      sse([
+        delta({ content: "Start with what" }),
+        delta({}, "length"),
+        delta({}, VISITOR_TIME_LIMIT_FINISH),
+        "[DONE]",
+      ])
+    );
+    await askVisitor("How do I run a retro?");
+    expect(useAgentStore.getState().notice?.text).toMatch(/cut short/);
+  });
+
+  it("still runs a finished round's tools when the time limit lands after its finish", async () => {
+    queue.push(
+      sse([
+        delta({
+          tool_calls: [
+            {
+              index: 0,
+              id: "c1",
+              type: "function",
+              function: { name: "tool_zorblax_read_state", arguments: "{}" },
+            },
+          ],
+        }),
+        delta({}, "tool_calls"),
+        delta({}, VISITOR_TIME_LIMIT_FINISH),
+        "[DONE]",
+      ]),
+      textTurn("Your board is empty.")
+    );
+    await askVisitor("read my zorblax board");
+    expect(calls).toHaveLength(2);
+    expect(posts()[1].messages.at(-1)).toMatchObject({ role: "tool", tool_call_id: "c1" });
+    expect(lastText()).toBe("Your board is empty.");
+    expect(useAgentStore.getState().notice).toBeNull();
+  });
+
+  it("says a reply may be cut off when the stream ends with neither a finish nor [DONE]", async () => {
+    // What the platform's own stop looks like: the stream just closes.
+    queue.push(sse([delta({ content: "Start with what" })]));
+    await askVisitor("How do I run a retro?");
+    expect(lastText()).toBe("Start with what");
+    expect(useAgentStore.getState().notice?.text).toMatch(/may have been cut off/);
+  });
+
+  it("drops the tool call of a stream that just ends, and never runs it", async () => {
+    queue.push(
+      sse([
+        delta({ content: "Adding it." }),
+        delta({
+          tool_calls: [
+            {
+              index: 0,
+              id: "c1",
+              type: "function",
+              function: { name: "tool_zorblax_read_state", arguments: "{}" },
+            },
+          ],
+        }),
+      ])
+    );
+    await askVisitor("read my zorblax board");
+    expect(calls).toHaveLength(1);
+    expect(useAgentStore.getState().messages.at(-1)?.content).toEqual([
+      { type: "text", text: "Adding it." },
+    ]);
+    expect(useAgentStore.getState().notice?.text).toMatch(/may have been cut off/);
+  });
+
+  it.each([
+    ["[DONE] but no finish reason", [delta({ content: "All good." }), "[DONE]"]],
+    ["a finish reason but no [DONE]", [delta({ content: "All good." }), delta({}, "stop")]],
+  ])("takes a reply as complete with %s", async (_what, events) => {
+    queue.push(sse(events));
+    await askVisitor("How do I run a retro?");
+    expect(lastText()).toBe("All good.");
+    expect(useAgentStore.getState().notice).toBeNull();
+  });
+
+  it("drops an event cut in half by a stream that just ends, and says the reply may be cut off", async () => {
+    const sent =
+      `data: ${JSON.stringify(delta({ content: "Start with what" }))}\n\n` +
+      'data: {"choices":[{"delta":{"content":" went w';
+    queue.push(
+      new Response(sent, {
+        status: 200,
+        headers: { "content-type": "text/event-stream", ...QUOTA_HEADERS },
+      })
+    );
+    await askVisitor("How do I run a retro?");
+    expect(lastText()).toBe("Start with what");
+    expect(useAgentStore.getState().notice?.text).toMatch(/may have been cut off/);
+  });
+
+  // The model's side can stop a reply early with a reason of its own
+  // (OpenAI's content_filter, GLM's sensitive and network_error).
+  it.each(["content_filter", "sensitive", "network_error"])(
+    "says a reply may be cut off when the model's side stopped it early (%s)",
+    async (reason) => {
+      queue.push(sse([delta({ content: "Start with what" }), delta({}, reason), "[DONE]"]));
+      await askVisitor("How do I run a retro?");
+      expect(lastText()).toBe("Start with what");
+      expect(useAgentStore.getState().notice?.text).toMatch(/may have been cut off/);
+    }
+  );
+
+  it("says he didn't manage an answer when the model's side stopped before any reply", async () => {
+    queue.push(sse([delta({ reasoning_content: "hmm" }), delta({}, "sensitive"), "[DONE]"]));
+    await askVisitor("How do I run a retro?");
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(s.notice?.text).toMatch(/didn't manage an answer/);
+  });
+
+  // A broken stream is also what the route's 30 s without a chunk looks like
+  // from the browser (or, if the platform closes it cleanly, the stream that
+  // just ends, above): the browser never sees the route's own error.
+  it.each([
+    ["the browser's own network error", new TypeError("network error")],
+    ["any other failure", new Error("ERR_HTTP2_PROTOCOL_ERROR")],
+  ])(
+    "keeps what arrived and says so in plain words when the stream breaks half way: %s",
+    async (_what, failure) => {
+      queue.push(brokenStream(failure, delta({ content: "Start with what" })));
+      await askVisitor("How do I run a retro?");
+      const s = useAgentStore.getState();
+      expect(lastText()).toBe("Start with what");
+      // It may be the visitor's connection or the server's side: blame neither.
+      expect(s.error).toBe(
+        "Amr couldn't finish answering. Try again, and check your connection if it keeps happening."
+      );
+      expect(s.streaming).toBe(false);
+      // The error's own words go to the console only.
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith("[visitor-ai] the answer stopped:", failure.message);
+    }
+  );
+
+  it("says so in plain words when the request never gets through", async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    await askVisitor("How do I run a retro?");
+    const s = useAgentStore.getState();
+    expect(s.error).toMatch(/couldn't finish answering/);
+    expect(s.error).not.toMatch(/Failed to fetch/);
+    expect(s.visitorFallback).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(warn).toHaveBeenCalledWith("[visitor-ai] the answer stopped:", "Failed to fetch");
+  });
+
+  it("never runs a whole tool call the time limit ended before its finish, and keeps the text", async () => {
+    queue.push(
+      sse([
+        delta({ content: "Adding it." }),
+        delta({
+          tool_calls: [
+            {
+              index: 0,
+              id: "c1",
+              type: "function",
+              function: { name: "tool_zorblax_add_card", arguments: '{"text":"flaky CI"}' },
+            },
+          ],
+        }),
+        delta({}, VISITOR_TIME_LIMIT_FINISH),
+        "[DONE]",
+      ])
+    );
+    await askVisitor("add a zorblax card saying flaky CI");
+    const s = useAgentStore.getState();
+    expect(h.added).toEqual([]);
+    expect(s.pendingToolUse).toBeNull();
+    expect(calls).toHaveLength(1);
+    expect(s.messages.at(-1)?.content).toEqual([{ type: "text", text: "Adding it." }]);
+    expect(s.notice?.text).toMatch(/ran out of time, so his answer stops here/);
+  });
+
+  it("takes the visitor's next message after the time ran out in the round that follows a tool", async () => {
+    queue.push(
+      toolTurn("c1", "tool_zorblax_read_state"),
+      sse([delta({ reasoning_content: "hmm" }), delta({}, VISITOR_TIME_LIMIT_FINISH), "[DONE]"]),
+      textTurn("Your board is empty.")
+    );
+    await askVisitor("read my zorblax board");
+    expect(useAgentStore.getState().notice?.text).toMatch(/ran out of time before he could answer/);
+
+    await askVisitor("go on");
+    // A new message after a finished tool round: the route's own parser takes
+    // it (afterEach checks that too) and counts it as a new turn.
+    const next = posts()[2];
+    expect(next.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool", "user"]);
+    const parsed = parseVisitorBody(next);
+    expect(parsed.ok && parsed.body.newTurn).toBe(true);
+    expect(lastText()).toBe("Your board is empty.");
+    expect(useAgentStore.getState().notice).toBeNull();
+  });
+
+  it("says nothing about a cut when the visitor pressed Stop", async () => {
+    const enc = new TextEncoder();
+    const line = (e: unknown) => enc.encode(`data: ${JSON.stringify(e)}\n\n`);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    let reads = 0;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        async pull(c) {
+          reads += 1;
+          if (reads === 1) {
+            c.enqueue(line(delta({ content: "Start with" })));
+          } else if (reads === 2) {
+            // Already on its way when Stop was pressed.
+            await gate;
+            c.enqueue(line(delta({ content: " what" })));
+          } else {
+            // ...and then it stays open: only Stop ends it.
+            await new Promise(() => {});
+          }
+        },
+      },
+      { highWaterMark: 0 }
+    );
+    queue.push(
+      new Response(body, {
+        status: 200,
+        headers: { "content-type": "text/event-stream", ...QUOTA_HEADERS },
+      })
+    );
+    const turn = askVisitor("How do I run a retro?");
+    await vi.waitFor(() => expect(lastText()).toBe("Start with"));
+    abortInFlight();
+    release();
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(lastText()).toBe("Start with what");
+    expect(s.notice).toBeNull();
+    expect(s.streaming).toBe(false);
+  });
+
+  /** What a real fetch, or a read of its body, rejects with when its signal aborts. */
+  const abortError = () => Object.assign(new Error("aborted"), { name: "AbortError" });
+
+  it("says nothing when Stop lands before the route has answered", async () => {
+    vi.mocked(fetch).mockImplementationOnce(
+      (_url, init) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () => reject(abortError()));
+        })
+    );
+    const turn = askVisitor("How do I run a retro?");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    abortInFlight();
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(s.notice).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  // A browser can end a request on its own account (the page is going away)
+  // under the same name. That isn't a failure to report either.
+  it("says nothing when the request is aborted without a Stop of the visitor's", async () => {
+    vi.mocked(fetch).mockImplementationOnce(() => Promise.reject(abortError()));
+    await askVisitor("How do I run a retro?");
+
+    const s = useAgentStore.getState();
+    expect(s.notice).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the abort's own error", abortError()],
+    // The connection going down with the request can reach the read first,
+    // under the browser's network-error name.
+    ["a network error", new TypeError("network error")],
+  ])(
+    "keeps the reply so far and says nothing when Stop breaks the read in progress with %s",
+    async (_what, failure) => {
+      const enc = new TextEncoder();
+      let fail!: (e: Error) => void;
+      const body = new ReadableStream<Uint8Array>({
+        start(c) {
+          c.enqueue(enc.encode(`data: ${JSON.stringify(delta({ content: "Start with" }))}\n\n`));
+          // ...and the next read waits until Stop fails it, as a browser does.
+          fail = (e) => c.error(e);
+        },
+      });
+      queue.push(
+        new Response(body, {
+          status: 200,
+          headers: { "content-type": "text/event-stream", ...QUOTA_HEADERS },
+        })
+      );
+      const turn = askVisitor("How do I run a retro?");
+      await vi.waitFor(() => expect(lastText()).toBe("Start with"));
+      abortInFlight();
+      fail(failure);
+      await turn;
+
+      const s = useAgentStore.getState();
+      expect(lastText()).toBe("Start with");
+      expect(s.notice).toBeNull();
+      expect(s.streaming).toBe(false);
+      expect(warn).not.toHaveBeenCalled();
+    }
+  );
+
+  /** The stream of a body the test feeds and ends by hand. */
+  function manualBody() {
+    let ctl!: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({
+      start(c) {
+        ctl = c;
+      },
+    });
+    const enc = new TextEncoder();
+    return {
+      stream,
+      send: (text: string) => ctl.enqueue(enc.encode(text)),
+      close: () => ctl.close(),
+      fail: (e: Error) => ctl.error(e),
+    };
+  }
+
+  // Stop can land while the route's refusal is still on its way: its status is
+  // here, its reason isn't. The visitor knows why there's no answer.
+  it.each([
+    ["its body breaks with the abort", (b: ReturnType<typeof manualBody>) => b.fail(abortError())],
+    [
+      "its reason still arrives",
+      (b: ReturnType<typeof manualBody>) => {
+        b.send(JSON.stringify({ error: "visitor_limit" }));
+        b.close();
+      },
+    ],
+  ])("says nothing when Stop lands while a refusal is arriving and %s", async (_what, finish) => {
+    const body = manualBody();
+    queue.push(
+      new Response(body.stream, {
+        status: 429,
+        headers: { "content-type": "application/json", ...QUOTA_HEADERS },
+      })
+    );
+    const turn = askVisitor("How do I run a retro?");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    abortInFlight();
+    finish(body);
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(s.notice).toBeNull();
+    expect(s.visitorFallback).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  const readCall = (id: string) =>
+    delta({
+      tool_calls: [
+        {
+          index: 0,
+          id,
+          type: "function",
+          function: { name: "tool_zorblax_read_state", arguments: "{}" },
+        },
+      ],
+    });
+
+  // The connection can go down right after the answer's last byte. The browser
+  // then reports the body as failed, though nothing of the answer is missing.
+  it("takes a reply as complete when the connection breaks after [DONE]", async () => {
+    queue.push(
+      brokenStream(
+        new TypeError("network error"),
+        delta({ content: "All good." }),
+        delta({}, "stop"),
+        "[DONE]"
+      )
+    );
+    await askVisitor("How do I run a retro?");
+    const s = useAgentStore.getState();
+    expect(lastText()).toBe("All good.");
+    expect(s.notice).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("still runs a finished round's tools when the connection breaks after [DONE]", async () => {
+    queue.push(
+      brokenStream(
+        new TypeError("network error"),
+        readCall("c1"),
+        delta({}, "tool_calls"),
+        "[DONE]"
+      ),
+      textTurn("Your board is empty.")
+    );
+    await askVisitor("read my zorblax board");
+    expect(calls).toHaveLength(2);
+    expect(posts()[1].messages.at(-1)).toMatchObject({ role: "tool", tool_call_id: "c1" });
+    expect(lastText()).toBe("Your board is empty.");
+    expect(useAgentStore.getState().notice).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  // Only [DONE] says nothing more was coming: after a finish reason alone, a
+  // break may still have taken something with it.
+  it("still says the answer didn't finish when the connection breaks before [DONE]", async () => {
+    queue.push(
+      brokenStream(
+        new TypeError("network error"),
+        delta({ content: "All good." }),
+        delta({}, "stop")
+      )
+    );
+    await askVisitor("How do I run a retro?");
+    expect(lastText()).toBe("All good.");
+    expect(useAgentStore.getState().error).toMatch(/couldn't finish answering/);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs no tool when Stop breaks the read after a finished round's [DONE]", async () => {
+    let ran = 0;
+    h.onRead = () => {
+      ran += 1;
+    };
+    const body = manualBody();
+    queue.push(
+      new Response(body.stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream", ...QUOTA_HEADERS },
+      })
+    );
+    const turn = askVisitor("read my zorblax board");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    // The whole round in one piece, and the stream stays open after it.
+    body.send(
+      [readCall("c1"), delta({}, "tool_calls"), "[DONE]"]
+        .map((e) => `data: ${typeof e === "string" ? e : JSON.stringify(e)}\n\n`)
+        .join("")
+    );
+    await vi.waitFor(() =>
+      expect(
+        useAgentStore
+          .getState()
+          .messages.at(-1)
+          ?.content.some((c) => c.type === "tool_use")
+      ).toBe(true)
+    );
+    abortInFlight();
+    body.fail(abortError());
+    await turn;
+
+    const s = useAgentStore.getState();
+    // The call goes with the stopped round: not run, and not left in the chat.
+    expect(ran).toBe(0);
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(calls).toHaveLength(1);
+    expect(s.notice).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  /** Events as the text of one network chunk ("[DONE]" passes through). */
+  const sseText = (...events: unknown[]) =>
+    events.map((e) => `data: ${typeof e === "string" ? e : JSON.stringify(e)}\n\n`).join("");
+
+  // The read already waiting gets the rest of the stream, so it returns rather
+  // than fails: the round ends cleanly, and still runs nothing.
+  it("runs no tool when Stop lands after a round's finish while its stream is still open", async () => {
+    let ran = 0;
+    h.onRead = () => {
+      ran += 1;
+    };
+    const body = manualBody();
+    queue.push(
+      new Response(body.stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream", ...QUOTA_HEADERS },
+      })
+    );
+    const turn = askVisitor("read my zorblax board");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    body.send(sseText(readCall("c1"), delta({}, "tool_calls")));
+    await vi.waitFor(() =>
+      expect(
+        useAgentStore
+          .getState()
+          .messages.at(-1)
+          ?.content.some((c) => c.type === "tool_use")
+      ).toBe(true)
+    );
+    abortInFlight();
+    body.send(sseText("[DONE]"));
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(ran).toBe(0);
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(calls).toHaveLength(1);
+    expect(s.notice).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("a reset alone mid-answer (the visitor turned out to be the owner) stops it, and the emptied chat stays empty", async () => {
+    const body = manualBody();
+    queue.push(
+      new Response(body.stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream", ...QUOTA_HEADERS },
+      })
+    );
+    const turn = askVisitor("How do I run a retro?");
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledTimes(1));
+    body.send(sseText(delta({ content: "Start with" })));
+    await vi.waitFor(() => expect(lastText()).toBe("Start with"));
+    useAgentStore.getState().reset();
+    body.send(sseText(delta({ content: " what went well." }), delta({}, "stop"), "[DONE]"));
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.messages).toEqual([]);
+    expect(s.notice).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(s.abortHook).toBeNull();
+    expect(calls).toHaveLength(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  // A gateway that fails half way can say so inside the stream and still close
+  // it properly: an event with an error and no choices, then [DONE].
+  it.each([
+    ["an object", { error: { message: "upstream connection lost", code: "1234" } }],
+    ["a string", { error: "upstream connection lost" }],
+  ])(
+    "says a reply may be cut off when the stream carries an error event (%s)",
+    async (_what, event) => {
+      queue.push(sse([delta({ content: "Start with what" }), event, "[DONE]"]));
+      await askVisitor("How do I run a retro?");
+      expect(lastText()).toBe("Start with what");
+      expect(useAgentStore.getState().notice?.text).toMatch(/may have been cut off/);
+      // Nothing was thrown, so there is no error of the browser's to log.
+      expect(warn).not.toHaveBeenCalled();
+    }
+  );
+
+  it("says he didn't manage an answer when the stream's error event comes before any reply", async () => {
+    queue.push(
+      sse([
+        delta({ reasoning_content: "hmm" }),
+        { error: { message: "upstream connection lost" } },
+        "[DONE]",
+      ])
+    );
+    await askVisitor("How do I run a retro?");
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(s.notice?.text).toMatch(/didn't manage an answer/);
+  });
+
+  it("takes a reply as complete when an error event comes after the model's own finish", async () => {
+    queue.push(
+      sse([
+        delta({ content: "All good." }),
+        delta({}, "stop"),
+        { error: { message: "upstream connection lost" } },
+        "[DONE]",
+      ])
+    );
+    await askVisitor("How do I run a retro?");
+    expect(lastText()).toBe("All good.");
+    expect(useAgentStore.getState().notice).toBeNull();
+  });
+
+  it("reads an event with `error: null` as no error at all", async () => {
+    queue.push(sse([{ ...delta({ content: "All good." }), error: null }, "[DONE]"]));
+    await askVisitor("How do I run a retro?");
+    expect(lastText()).toBe("All good.");
+    expect(useAgentStore.getState().notice).toBeNull();
   });
 });
 
 describe("the visitor's tool calls", () => {
   it("asks before every change, even one that never asks and with autoApprove on", async () => {
-    useAgentStore.setState({ autoApprove: true });
+    // Already the visitor's chat: a profile change would turn autoApprove off.
+    useAgentStore.setState({ chatProfile: "visitor", autoApprove: true });
     queue.push(
       toolTurn("c1", "tool_zorblax_add_card", { text: "flaky CI" }),
       textTurn("Added it.")
@@ -455,6 +1240,7 @@ describe("the visitor's tool calls", () => {
     const turn = askVisitor("add a zorblax card saying flaky CI");
 
     await vi.waitFor(() => expect(useAgentStore.getState().pendingToolUse).not.toBeNull());
+    expect(useAgentStore.getState().autoApprove).toBe(true);
     expect(h.added).toEqual([]);
     expect(calls).toHaveLength(1);
     useAgentStore.getState().pendingToolUse?.resolve(true);
@@ -495,7 +1281,7 @@ describe("the visitor's tool calls", () => {
     // Nothing ran, and nothing of the call is left: no result, no empty bubble.
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
     expect(s.pendingToolUse).toBeNull();
-    expect(s.error).toMatch(/can't do here/);
+    expect(s.notice?.text).toMatch(/can't do here/);
   });
 
   it("never offers a refused action later through the history", async () => {
@@ -545,7 +1331,7 @@ describe("the visitor's tool calls", () => {
     expect(h.added).toEqual([]);
     expect(calls).toHaveLength(1);
     expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user"]);
-    expect(useAgentStore.getState().error).toBeTruthy();
+    expect(useAgentStore.getState().notice?.text).toBeTruthy();
 
     // The visitor's next message goes out cleanly.
     queue.push(textTurn("Shorter, then?"));
@@ -683,7 +1469,7 @@ describe("the visitor's tool calls", () => {
     }
     await askVisitor("check my flimflam board for breakage");
     expect(calls.length).toBeLessThan(VISITOR_LIMITS.maxToolRounds);
-    expect(useAgentStore.getState().error).toMatch(/kept failing/);
+    expect(useAgentStore.getState().notice?.text).toMatch(/kept failing/);
   });
 
   it("stops before sending a turn grown past the route's limits", async () => {
@@ -698,7 +1484,7 @@ describe("the visitor's tool calls", () => {
     queue.push(eight(0), eight(1), textTurn("never sent"));
     await askVisitor("read my zorblax board");
     expect(calls).toHaveLength(2);
-    expect(useAgentStore.getState().error).toMatch(/too many steps/);
+    expect(useAgentStore.getState().notice?.text).toMatch(/too many steps/);
   });
 
   it("falls back to the guide on a limit in the middle of a tool round", async () => {
@@ -741,7 +1527,9 @@ describe("the visitor's tool calls", () => {
     queue.push(toolTurn("c1", "tool_zorblax_add_card", { text: "flaky CI" }));
     const turn = askVisitor("add a zorblax card saying flaky CI");
     await confirmation();
-    // What the panel's Clear chat does.
+    // Stop, then Clear chat: the panel's Clear chat is the store's reset
+    // (mascot/visitor-clear-chat, through undoable()), which stops a turn
+    // itself; the next case clears with no Stop first.
     abortInFlight();
     useAgentStore.getState().reset();
     await turn;
@@ -749,11 +1537,11 @@ describe("the visitor's tool calls", () => {
     const s = useAgentStore.getState();
     expect(h.added).toEqual([]);
     expect(s.messages).toEqual([]);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.pendingToolUse).toBeNull();
   });
 
-  it("a reset alone (the visitor turned out to be the owner) leaves no stray result either", async () => {
+  it("a reset alone (Clear chat, or the visitor turned out to be the owner) leaves no stray result either", async () => {
     queue.push(toolTurn("c1", "tool_zorblax_add_card", { text: "flaky CI" }));
     const turn = askVisitor("add a zorblax card saying flaky CI");
     await confirmation();
@@ -796,8 +1584,16 @@ describe("the visitor's tool calls", () => {
     const last = useAgentStore.getState().messages.at(-1);
     expect(last?.role).toBe("assistant");
     expect(JSON.stringify(last?.content)).toContain(
-      `I used all ${VISITOR_LIMITS.maxToolRounds} tool rounds`
+      `Amr used all ${VISITOR_LIMITS.maxToolRounds} tool rounds`
     );
+    expect(JSON.stringify(last?.content)).toContain("Send a follow-up and he'll carry on.");
+    // Narration, not Amr's words: the chat draws it as a caption.
+    expect(last?.content[0]).toMatchObject({ type: "text", note: true });
+    // Said once, in the stand-in: no notice repeats it under the reply, and
+    // nothing is an error, so Amr doesn't frown.
+    const { notice, error } = useAgentStore.getState();
+    expect(notice).toBeNull();
+    expect(error).toBeNull();
   });
 });
 
@@ -840,7 +1636,7 @@ describe("in a visitor live room", () => {
     expect(Object.keys(body).sort()).toEqual(["context", "messages"]);
     const s = useAgentStore.getState();
     expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
 
     // The same words bring the tools back once the room has closed.
     leave();
@@ -863,7 +1659,7 @@ describe("in a visitor live room", () => {
       expect(calls).toHaveLength(1);
       const s = useAgentStore.getState();
       expect(s.pendingToolUse).toBeNull();
-      expect(s.error).toBe(LIVE_ROOM_NOTE);
+      expect(s.notice?.text).toBe(LIVE_ROOM_NOTE);
     } finally {
       window.localStorage.removeItem(key);
     }
@@ -885,7 +1681,7 @@ describe("in a visitor live room", () => {
     expect(s.messages.map((m) => m.role)).toEqual(["user"]);
     expect(s.pendingToolUse).toBeNull();
     expect(s.streaming).toBe(false);
-    expect(s.error).toBe(LIVE_ROOM_NOTE);
+    expect(s.notice?.text).toBe(LIVE_ROOM_NOTE);
   });
 
   it("never runs a call offered before the room opened when the reply arrives after", async () => {
@@ -915,7 +1711,7 @@ describe("in a visitor live room", () => {
     expect(calls).toHaveLength(1);
     const s = useAgentStore.getState();
     expect(s.pendingToolUse).toBeNull();
-    expect(s.error).toBe(LIVE_ROOM_NOTE);
+    expect(s.notice?.text).toBe(LIVE_ROOM_NOTE);
     // The reply's text stays; its calls are gone, so none waits for a result.
     expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
     expect(s.messages.at(-1)?.content).toEqual([{ type: "text", text: "Let me look." }]);
@@ -949,7 +1745,7 @@ describe("in a visitor live room", () => {
     // The second call never asked.
     expect(s.pendingToolUse).toBeNull();
     expect(s.streaming).toBe(false);
-    expect(s.error).toBe(LIVE_ROOM_NOTE);
+    expect(s.notice?.text).toBe(LIVE_ROOM_NOTE);
     // Each call has its result, so the chat can carry on from here.
     expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
     expect(s.messages.at(-1)?.content).toEqual([
@@ -999,7 +1795,7 @@ describe("in a visitor live room", () => {
     const s = useAgentStore.getState();
     expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
     expect(s.streaming).toBe(false);
-    expect(s.error).toBe(LIVE_ROOM_NOTE);
+    expect(s.notice?.text).toBe(LIVE_ROOM_NOTE);
   });
 
   it("sends a body the route takes when earlier turns used tools", async () => {
@@ -1036,7 +1832,7 @@ describe("in a visitor live room", () => {
       { role: "user", content: "What is a retro?" },
     ]);
     let s = useAgentStore.getState();
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
     expect(s.messages.at(-1)?.content).toEqual([
       { type: "text", text: "A retro looks back at the sprint." },
     ]);
@@ -1048,7 +1844,7 @@ describe("in a visitor live room", () => {
     expect(posts()[5].tools).toBeUndefined();
     expect(posts()[5].messages.every((m) => m.role !== "tool" && !("tool_calls" in m))).toBe(true);
     s = useAgentStore.getState();
-    expect(s.error).toBeNull();
+    expect(s.notice).toBeNull();
 
     // The chat kept its calls and results: they go back once the room has closed.
     leave();
@@ -1209,5 +2005,51 @@ describe("the owner's path", () => {
     const body = JSON.parse(String(calls[1].init?.body)) as { messages: Array<{ role: string }> };
     expect(body.messages[0].role).toBe("system");
     expect(useAgentStore.getState().chatProfile).toBe("owner");
+  });
+});
+
+describe("a visitor's Try again and Go on", () => {
+  const visitorOpts = { userId: "visitor", profile: "visitor" as const, toolId: null };
+
+  it("asks the same question again as a new message of theirs, once, and saves nothing", async () => {
+    queue.push(refusal(502, "upstream_error"), textTurn("Start with what went well."));
+    await askVisitor("How do I run a retro?");
+    expect(useAgentStore.getState().notice?.kind).toBe("upstream_error");
+
+    expect(await retryLastTurn(visitorOpts)).toBe(true);
+    const second = posts()[1];
+    expect(second.messages).toEqual([{ role: "user", content: "How do I run a retro?" }]);
+    // The route counts it as a new message (it uses one of their allowance).
+    const parsed = parseVisitorBody(second);
+    expect(parsed.ok && parsed.body.newTurn).toBe(true);
+    expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    for (const [name, fn] of Object.entries(h.persist)) expect(fn, name).not.toHaveBeenCalled();
+    expect(h.getAuthBrowserClient).not.toHaveBeenCalled();
+  });
+
+  it("is refused once the turn made a change", async () => {
+    queue.push(toolTurn("c1", "tool_zorblax_add_card", { text: "flaky CI" }), textTurn("Added."));
+    const turn = askVisitor("add a zorblax card saying flaky CI");
+    (await confirmation()).resolve(true);
+    await turn;
+    expect(h.added).toEqual(["flaky CI"]);
+    expect(await retryLastTurn(visitorOpts)).toBe(false);
+    expect(calls).toHaveLength(2);
+  });
+
+  it("goes on with a real message of theirs that the route takes", async () => {
+    queue.push(
+      sse([delta({ content: "Start with what" }), delta({}, "length"), "[DONE]"]),
+      textTurn(" went well.")
+    );
+    await askVisitor("How do I run a retro?");
+    expect(useAgentStore.getState().notice?.kind).toBe("cut_off");
+
+    expect(await goOn(visitorOpts)).toBe(true);
+    const next = posts()[1];
+    expect(next.messages.map((m) => m.role)).toEqual(["user", "assistant", "user"]);
+    expect(next.messages.at(-1)).toEqual({ role: "user", content: "Go on" });
+    // afterEach checks the route's own parser takes the body, too.
+    expect(useAgentStore.getState().notice).toBeNull();
   });
 });

@@ -62,8 +62,8 @@ const KIT = [
   .join("\n");
 
 describe("the pulse guides run the vote round as the kit does", () => {
-  const LIVE = ["Run a live round", "Copy link", "Reveal results", "Save round"];
-  const TALLY = ["Enter counts instead", "Show totals", "Save round"];
+  const LIVE = ["Run a live round", "Copy link", "Show QR code", "Reveal results", "Save round"];
+  const TALLY = ["Enter counts", "Show totals", "Save round"];
 
   it.each(Array.from(new Set([...LIVE, ...TALLY])))("the kit labels a button %j", (label) => {
     expect(KIT).toContain(label);
@@ -75,9 +75,10 @@ describe("the pulse guides run the vote round as the kit does", () => {
     ["mood-tracker", mood],
   ] as const)("%s names the live round's steps and the count entry", (_id, g) => {
     const text = allText(g);
-    for (const label of [...LIVE, "Enter counts instead"]) expect(text).toContain(label);
-    // There is no QR code: the room is shared with its link.
-    expect(text).not.toMatch(/\bQR\b/);
+    // The link is shared by Copy link or by the room chip's QR code.
+    for (const label of [...LIVE, "Enter counts"]) expect(text).toContain(label);
+    // The button lost its "instead" when it moved under One screen.
+    expect(text).not.toContain("Enter counts instead");
   });
 });
 

@@ -165,6 +165,8 @@ describe("joining with the flag on", () => {
     renderPage("planning-poker", CODE);
     const dialog = screen.getByRole("dialog", { name: "Join the live Planning Poker room" });
     expect(dialog).toHaveTextContent(/passes through our realtime provider \(Supabase\)/);
+    // The Retro room's line about authors is the Retro room's only.
+    expect(dialog).not.toHaveTextContent(/carry no author/);
     // The dialog puts focus in the name field.
     expect(within(dialog).getByLabelText(/your name/i)).toHaveFocus();
     expect(h.client.channel).not.toHaveBeenCalled();
@@ -188,7 +190,11 @@ describe("joining with the flag on", () => {
 
   it("mounts the retro room for /join/retro", async () => {
     renderPage("retro", CODE);
-    expect(screen.getByRole("dialog", { name: "Join the live Retro room" })).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "Join the live Retro room" });
+    // Said in plain words before joining: no author on a card, nothing stored.
+    expect(dialog).toHaveTextContent(
+      "Cards carry no author, and nothing is stored: who wrote a card or voted for it is never shown or saved."
+    );
     expect(screen.queryByTestId("visitor-retro-room")).toBeNull();
     consent("Sam");
     expect(await screen.findByTestId("visitor-retro-room", {}, LAZY)).toHaveTextContent(

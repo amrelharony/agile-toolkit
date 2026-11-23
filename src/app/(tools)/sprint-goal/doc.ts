@@ -121,6 +121,22 @@ export function cleanGoal(goal: string | undefined): string {
   return (goal ?? "").replace(/\s+/g, " ").trim();
 }
 
+/**
+ * The goal of `sprint` that still waits for an answer to "Did we meet the
+ * sprint goal?": its goal statement, when it has one and no answer is
+ * recorded. Null otherwise, and while the example is loaded into the goal
+ * (the page keeps the question off the example too). The Close sprint
+ * dialog asks it, and the cockpit reminds of it, from this one reading.
+ */
+export function unansweredGoal(
+  docs: readonly SprintGoal[] | undefined,
+  sprint: Sprint
+): string | null {
+  const { doc } = viewGoal(docs ?? [], sprint);
+  const goal = cleanGoal(doc.goal);
+  return goal && !doc.outcome && !isExampleGoal(doc) ? goal : null;
+}
+
 export interface GoalConflict {
   /** `Sprint.goal`, as Sprint Planning and the cockpit show it. */
   onSprint: string;

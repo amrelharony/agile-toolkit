@@ -12,8 +12,8 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "Under Run a round, type a Round name (left blank, it's Round N), set Taken on and, if you like, the Sprint.",
-      "Press Run a live round, give your name, tick the consent, then share the link with Copy link. Everyone answers the seven statements on their own phone; you see only how many have answered.",
-      "Press Reveal results once 5 have answered, then Save round. With paper answers, press Enter counts instead (where live rounds aren't available, the count boxes show on their own), type how many chose each answer, then Show totals and Save round.",
+      "Press Run a live round, give your name, tick the consent, then share the link with Copy link or Show QR code. Everyone answers the seven statements on their own phone; you see only how many have answered.",
+      "Press Reveal results once 5 have answered, then Save round. With paper answers, press Enter counts (where live rounds aren't available, the count boxes show on their own), type how many chose each answer, then Show totals and Save round.",
       "Under Results, read the Team score, the Lowest statement and the Change since the round before. Q1, Q3 and Q5 are reverse-scored, so a higher score always means more safety.",
       "When a statement falls by more than 0.5, Send to… → Retro topic (no names) raises it. Compare rounds puts any two rounds side by side with From and To.",
       "Discuss the lowest or falling statement as a team, without asking who answered what, and agree one small change to try.",
@@ -47,7 +47,7 @@ export const GUIDES: ToolGuide[] = [
     steps: [
       "Under How the team checks in, pick By name or Anonymous. Anonymous records only team pulses: how many picked each face on a day, never who.",
       "By name: under Check-ins by name, each person (or you, for them) picks a face; a note typed first is saved with it. To fill in a missed day, change Check-ins for or click the day in the heatmap.",
-      "For a pulse, in either mode: under Anonymous pulse, set Pulse for and press Run a live round, give your name, tick the consent, then share the link with Copy link. Everyone picks a face on their phone; press Reveal results once 3 have answered, then Save round. Or press Enter counts instead (where live rounds aren't available, the count boxes show on their own), type how many picked each face, then Show totals and Save round.",
+      "For a pulse, in either mode: under Anonymous pulse, set Pulse for and press Run a live round, give your name, tick the consent, then share the link with Copy link or Show QR code. Everyone picks a face on their phone; press Reveal results once 3 have answered, then Save round. Or press Enter counts (where live rounds aren't available, the count boxes show on their own), type how many picked each face, then Show totals and Save round.",
       "Read the 14-day average (from 3 check-ins, pulse answers included) and the Trend (from 6 days with check-ins). Daily team average charts it; its Advanced analysis adds shifts and the weekly trend.",
       "When the team averages 2.5 or less on 3 check-in days in a row, each with 3 or more check-ins, the Low mood callout offers Send to… → Retro topic (no names).",
     ],
@@ -496,5 +496,77 @@ export const GUIDES: ToolGuide[] = [
       "If the tracker warns that the change is past a group's barrier, step back or work on that element with them.",
       "ADKAR describes individuals. Score a group by how many people in it are there, and follow up with the rest.",
     ],
+  },
+  // ── Phase 42: the meeting widgets and the research top 10 (Team & people) ──
+  {
+    toolId: "team-mixer",
+    summary:
+      "Team Mixer splits people into random groups or pairs, balanced by role or skill, keeping apart (or together) the people you say, with a new mix each round so nobody always works with the same people.",
+    whenToUse: [
+      "Breakout groups in a workshop or a retro.",
+      "Pair rotations and coffee chats across a team, or across teams.",
+      "World Café, where hosts stay at their tables and everyone else moves each round.",
+    ],
+    steps: [
+      "Add who's mixing: the team from the Team page (each person brings their role and skills), typed names, or a pasted list.",
+      "Choose groups by size or by number, pairs (a group of 3 or one person sitting out when the number is odd), or World Café tables and rounds with a host for each table.",
+      "Balance by role or by skill if you like, and add keep-apart or keep-together rules, such as a manager and their report.",
+      "Mix. Under the groups, Team Mixer says plainly which rule it couldn't keep, who meets again and who sits out.",
+      "Mix the next round: it avoids people who have already been together. Pairs with an even number (or one sitting out) and no rules meet everyone before anyone pairs twice. Start over forgets the rounds so far.",
+      "After a mix, move someone who arrives late or leaves early (the report is worked out again), and name the groups from built-in themes, or ask Amr for names on a theme where AI is on.",
+      "Open a live room and show the round: everyone sees it on their phone and finds their group by typing their name. Amr can mix the groups or the next round when you ask him.",
+    ],
+    tips: [
+      "Keep the rules few: each one makes the mix less random.",
+      "Balanced groups feel fairer than random ones, and new pairs share what they know faster.",
+      "A live room gets only what you show, when you press Show.",
+    ],
+    timebox: "Seconds.",
+  },
+  {
+    toolId: "sm-notebook",
+    summary:
+      "The Scrum Master Notebook is your own place for notes on the team: what you saw, what you tried and what to follow up, dated and tagged by event. Each week it shows the counts, the patterns and tools to try.",
+    whenToUse: [
+      "After a Daily Scrum or a retro, to write down what you noticed while it's fresh.",
+      "Before a 1:1 or a coaching conversation, to look back at what came up.",
+      "At the end of the week, to see patterns you miss day to day.",
+    ],
+    steps: [
+      "Write a note: the day, a title if you like, and what happened. A template (observation, coaching moment, experiment, 1:1 note or impediment pattern) gives you the questions to answer.",
+      "Tag it, and pick the event it came from, such as the Daily Scrum or the retro, and the tool it's about. Ask Amr for tags suggests tags from the note's words; you add the ones you want.",
+      "Search, or filter by tag or event, to find notes again. Notes read as a timeline, week by week.",
+      "Send a note on as an impediment or a retro action when it needs one; it links back to the note.",
+      "In Week, read one week's notes together, with how many carry each tag and came from each event. Ask Amr about this week writes a summary, points out patterns and suggests tools. You edit it, tick the patterns to keep and keep it as a note, or dismiss it.",
+    ],
+    tips: [
+      "Write what you saw, not what you think of people: notes can be read later.",
+      "Your notes stay in this browser and in your backups; signed in, they sync to your own account. They never go to a live room.",
+    ],
+    timebox: "Two minutes per note; ten minutes at the end of the week.",
+  },
+  {
+    toolId: "meeting-audit",
+    summary:
+      "Meeting Audit looks at your recurring meetings one by one: how long, how often and how many people, what each costs in person-hours a week, how the team rates it, and a verdict to keep, change or drop it. The verdicts make a ritual reset plan.",
+    whenToUse: [
+      "When calendars are full and the team has no time left to work.",
+      "Once a quarter, as a ritual reset.",
+      "When a new team, or a change in the team, brings meetings nobody questions.",
+    ],
+    steps: [
+      "Add each recurring meeting: its name, how often it happens, how many minutes it takes, how many people attend and what it's for.",
+      "The audit works out the person-hours a week each one takes: people × minutes × how often it meets.",
+      "Rate each meeting with the team from 1 to 5: is its purpose clear, are the right people there, does it end with an outcome, is it the right length, does it give energy?",
+      "Give each meeting a verdict, keep, change or drop, and write what to change.",
+      "“Suggest changes” (Ask Amr, when his AI is on) proposes concrete changes, such as a shorter timebox, fewer people or a written update. Add the ones the team wants to the plan; Undo takes one back.",
+      "The ritual reset plan lists what stays, what changes and what goes, and the time the drops free. Export it as Markdown to agree it at the next retro.",
+      "Next quarter, start a new round: the ratings and verdicts clear, the meetings stay.",
+    ],
+    tips: [
+      "Try a change for a few weeks before judging it.",
+      "The Scrum events each have a purpose: change how you run one before you drop it.",
+    ],
+    timebox: "Thirty to sixty minutes, once a quarter.",
   },
 ];

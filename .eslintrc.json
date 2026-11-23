@@ -1,6 +1,6 @@
 {
   "root": true,
-  "ignorePatterns": ["public/**"],
+  "ignorePatterns": ["public/**", "!src/app/.well-known"],
   "extends": ["next/core-web-vitals", "next/typescript"],
   "rules": {
     "no-console": [

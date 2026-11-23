@@ -281,6 +281,7 @@ registry.register({
   name: "remove_node",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Remove this node and everything under it",
   description:
     "Remove a node and everything under it, as the page's delete does. Final for an agent (the page offers Undo): confirm with the user first, naming how many nodes go. A JTBD job linked to a removed opportunity then reads 'Opportunity removed'; a hypothesis sent from a removed experiment stays in the tracker. Params: nodeId. Returns {removed: true, ids, count} or {removed: false, reason: 'not_found'} or {removed: false, confirmed: false}.",
   paramsSchema: z.object({ nodeId: z.string() }),

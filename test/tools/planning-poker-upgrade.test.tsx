@@ -428,6 +428,15 @@ describe("saving session stories to the backlog (logic)", () => {
     expect(new Set(plan.create.map((s) => s.id)).size).toBe(4);
   });
 
+  it("keeps what the host typed under a story's title as the backlog story's notes", () => {
+    const plan = planBacklogSave(
+      [{ ...typed[0], description: "  Email and password only.  " }, typed[1]],
+      []
+    );
+    expect(plan.create[0].notes).toBe("Email and password only.");
+    expect("notes" in plan.create[1]).toBe(false);
+  });
+
   it("skips queue stories, example stories and blank titles", () => {
     const plan = planBacklogSave(
       [...typed, sessionStory("example-poker-story-1", "Example"), sessionStory("e", "  ")],
@@ -515,8 +524,12 @@ describe("saving session stories to the backlog (UI)", () => {
       ["Login page", 5],
       ["Search", 3],
     ]);
+    const search = () => pokerStories().find((s) => s.title === "Search");
+    expect(search()?.refinedAt).toEqual(expect.any(String));
     act(() => h.undo!.revert());
-    expect(pokerStories().find((s) => s.title === "Search")?.points).toBeUndefined();
+    expect(search()?.points).toBeUndefined();
+    // Its points were its only refinement, so the Undo takes the stamp back too.
+    expect(search()).not.toHaveProperty("refinedAt");
     expect(pokerStories()).toHaveLength(2);
   });
 

@@ -4,108 +4,132 @@
  * The consent card a visitor sees before their first message to Amr's AI
  * (visitor AI). Nothing is sent until they agree; their choice is remembered
  * in this browser only, under a versioned key, so a change to what the card
- * says can ask again.
+ * says can ask again. The same agreement covers the tools' Ask Amr buttons
+ * (components/ai/ai-consent-compact.tsx asks for it on a tool page).
  *
- * Light on purpose: it ships with the page, beside the offline guide, so it
- * imports nothing of the agent runtime.
+ * A column: the title, the visitor's question (in their own caption) and the
+ * points scroll, and the buttons sit in a footer that never does, so "Agree"
+ * and "Not now" stay in view in the shortest phone panel. The privacy page's
+ * link closes the panel on its way (`onNavigate`, else the panel context's),
+ * and on the phone's sheet it replaces Back's history marker while that is
+ * the newest entry.
+ *
+ * Light on purpose: it ships with the page, beside the tool finder, so it
+ * imports nothing of the agent runtime (the comic parts are runtime-free).
  */
 
 import { useEffect, useRef } from "react";
 import { ShieldCheck } from "lucide-react";
+import { YouCaption } from "@/components/agent/comic/comic-parts";
+import { FormPrivacyNote } from "@/components/data/form-privacy-note";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { VISITOR_AI_CONSENT_TEXT, VISITOR_AI_DAILY_MESSAGES } from "@/lib/site/disclosures";
+import { storeVisitorAiConsent } from "@/lib/visitor-ai/consent";
+import { awaitDecision } from "@/lib/agent/mascot/companion";
+import { DOCK_FOOTER, useAmrPanel } from "./panel-context";
 
-/** Where the visitor's agreement is kept (localStorage), and its version. */
-export const VISITOR_AI_CONSENT_KEY = "agile-toolkit:amr-ai-consent";
-export const VISITOR_AI_CONSENT_VERSION = "v1";
+// The key, its version and the storage helpers live in lib/visitor-ai/consent.ts,
+// which the tools' compact card uses too; re-exported here for the panel and
+// the tests.
+export {
+  VISITOR_AI_CONSENT_KEY,
+  VISITOR_AI_CONSENT_VERSION,
+  hasVisitorAiConsent,
+  storeVisitorAiConsent,
+} from "@/lib/visitor-ai/consent";
 
-/** The daily allowance the card names (the server's config row is what counts). */
-export const VISITOR_AI_DAILY_MESSAGES = 100;
-
-/** What the visitor agrees to, one point per line. */
-export const VISITOR_AI_CONSENT_TEXT: readonly string[] = [
-  "When you chat with Amr's AI, your messages, the tool you're on, and anything Amr reads from your tools to answer are sent through this site and Amr's own AI server to Z.AI, the AI provider, to write a reply.",
-  "The site keeps none of it. It keeps only a count of today's messages, under a code made from your IP address that changes every day and is deleted the next day.",
-  "Amr asks before he changes anything in your tools.",
-  "Don't share personal or confidential information.",
-  `You get ${VISITOR_AI_DAILY_MESSAGES} messages a day (fewer during busy hours). The offline guide is always free.`,
-];
-
-/** Whether this browser already agreed to the current version of the card. */
-export function hasVisitorAiConsent(): boolean {
-  try {
-    return window.localStorage.getItem(VISITOR_AI_CONSENT_KEY) === VISITOR_AI_CONSENT_VERSION;
-  } catch {
-    return false;
-  }
-}
-
-/** Remember the agreement (best effort: a blocked storage just asks again next time). */
-export function storeVisitorAiConsent(): void {
-  try {
-    window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
-  } catch {
-    /* storage unavailable: the card shows again next time */
-  }
-}
+// What the visitor agrees to, one point per line, and the daily allowance the
+// card names. The wording is lib/site/disclosures.ts's, which the privacy page
+// quotes too; re-exported here for the panel and the tests.
+export { VISITOR_AI_CONSENT_TEXT, VISITOR_AI_DAILY_MESSAGES };
 
 export function VisitorAiConsent({
   question,
   onAgree,
   onDecline,
+  onNavigate,
 }: {
   /** What the visitor wants to ask, shown back to them (may be empty). */
   question: string;
   onAgree: () => void;
   onDecline: () => void;
+  /** The privacy link was followed: the panel closes as the page changes. */
+  onNavigate?: () => void;
 }) {
-  // Focus moves to the card when it appears: the card, not "Agree and ask",
-  // so a screen reader reads what it says before the buttons.
-  const cardRef = useRef<HTMLElement>(null);
+  // The panel around the card: how it closes for a link, and whether the
+  // privacy page should take the place of the phone sheet's Back marker.
+  const panel = useAmrPanel();
+  // Focus moves to the card's scrolling text when it appears, not to "Agree
+  // and ask": a screen reader reads what it says before the buttons, and the
+  // arrow, Page and Space keys scroll the points (keys scroll the focused
+  // element or a scroller around it, never one inside it).
+  const cardRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     cardRef.current?.focus();
   }, []);
+  const asked = question.trim() !== "";
+  // Two answers, Agree and Not now: Amr holds out the two options and waits for
+  // the visitor's, for as long as the card is up (every way out unmounts it).
+  useEffect(() => {
+    awaitDecision("consent", true);
+    return () => awaitDecision("consent", false);
+  }, []);
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto px-4 py-3">
-      <section
+    <section aria-labelledby="amr-ai-consent-title" className="flex h-full min-h-0 flex-col">
+      <div
         ref={cardRef}
         tabIndex={-1}
-        aria-labelledby="amr-ai-consent-title"
-        className="rounded-lg border border-border bg-card px-3 py-3 focus:outline-none"
+        data-amr-scroll=""
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-2 pt-3 focus:outline-none"
       >
-        <p
-          id="amr-ai-consent-title"
-          className="flex items-center gap-2 text-sm font-semibold text-text"
-        >
-          <ShieldCheck className="h-4 w-4 text-accent" aria-hidden="true" />
-          Before you chat with Amr&apos;s AI
-        </p>
-        {question && (
-          <p className="mt-2 text-sm text-sub">
-            You asked: <span className="text-text">“{question}”</span>
-          </p>
-        )}
-        <ul className="mt-2 list-disc space-y-1.5 pl-5 text-sm text-text">
-          {VISITOR_AI_CONSENT_TEXT.map((line) => (
-            <li key={line}>{line}</li>
-          ))}
-        </ul>
-        <div className="mt-3 flex flex-wrap gap-2">
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              storeVisitorAiConsent();
-              onAgree();
-            }}
+        <div className="panel flex flex-col gap-3 px-3 py-3">
+          {/* A card title, so it is lettered (DNA-SPEC section 5). */}
+          <h3
+            id="amr-ai-consent-title"
+            className="flex items-center gap-2 font-display text-base font-semibold text-text"
           >
-            Agree and ask
-          </Button>
-          <Button type="button" size="sm" variant="outline" onClick={onDecline}>
-            Not now
-          </Button>
+            <ShieldCheck className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+            Before you chat with Amr&apos;s AI
+          </h3>
+          {/* The visitor's own words, in their caption: sent once they agree. */}
+          {asked && <YouCaption>{question}</YouCaption>}
+          <ul className="list-disc space-y-1.5 ps-5 text-sm text-text">
+            {VISITOR_AI_CONSENT_TEXT.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+          {/* The privacy page's link, in a sentence after the points (they
+              already say what is sent and kept). Following it closes the panel. */}
+          <FormPrivacyNote
+            onNavigate={onNavigate ?? panel.onNavigate}
+            replace={panel.replaceOnNavigate}
+          />
         </div>
-      </section>
-    </div>
+      </div>
+      {/* Never scrolls: both choices stay in view. Size "default" is 44 px on
+          touch and on narrow screens. Docked Amr (the phone's sheet) stands
+          beside them, in his gutter. */}
+      <div
+        className={cn(
+          "flex shrink-0 flex-wrap gap-2 border-t border-border px-4 py-3",
+          DOCK_FOOTER
+        )}
+      >
+        <Button
+          type="button"
+          onClick={() => {
+            storeVisitorAiConsent();
+            onAgree();
+          }}
+        >
+          {asked ? "Agree and ask" : "Agree and chat"}
+        </Button>
+        <Button type="button" variant="outline" onClick={onDecline}>
+          Not now
+        </Button>
+      </div>
+    </section>
   );
 }

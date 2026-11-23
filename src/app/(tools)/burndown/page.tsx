@@ -1,11 +1,8 @@
 import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { BurndownClient } from "./burndown-client";
 
-export const metadata: Metadata = {
-  title: "Burndown Generator",
-  description:
-    "Interactive sprint burndown chart with ideal line, actual progress, today marker, and scope change annotations.",
-};
+export const metadata: Metadata = toolMetadata("burndown");
 
 export default function BurndownPage() {
   return <BurndownClient />;

@@ -15,9 +15,14 @@
  *   3. add      — add an action outside the board (the page's quick add):
  *                 onto the current retro, else the newest archived one.
  *   4. update   — edit an action's text, owner or due date in place.
+ *   5. list_themes — what came up in three or more of the past retros
+ *                 (lib/retro/recurring-themes), and what came back after
+ *                 its action was marked done. Reads only.
  *
  * An action counts as done when it is marked on the card, or when the
- * impediment or Kanban card it was sent to is finished, as on the page.
+ * impediment, Kanban card or story it was sent to is finished, as on the
+ * page (a story it became in Sprint Planning closes it when that story is
+ * done; a deleted story leaves it open).
  */
 
 import { z } from "zod";
@@ -29,6 +34,7 @@ import type {
   Impediment,
   KanbanBoard,
   RetroBoard,
+  Story,
 } from "@/lib/stores/workspace-types";
 import {
   actionCard,
@@ -36,35 +42,21 @@ import {
   followThroughByRetro,
   quickAddBoard,
   summarizeRetroActions,
+  targetDoneIn,
   withActionDone,
   withActionPatch,
   withAddedAction,
   type RetroAction,
 } from "@/lib/retro/actions";
-import { isResolved } from "@/lib/impediments/model";
 import { todayIso } from "@/lib/sprints/series";
+import {
+  RECURRING_MIN_RETROS,
+  archivedCards,
+  archivedRetroCount,
+  recurringThemes,
+} from "@/lib/retro/recurring-themes";
 
 const KIND_RETRO = "workspace:retroBoard";
-
-/**
- * Whether an action's hand-off target is finished, as the page reads it: an
- * impediment resolved, a Kanban card in Done.
- */
-function targetDoneFrom(
-  impediments: readonly Impediment[],
-  boards: readonly KanbanBoard[]
-): (link: HandoffLink) => boolean {
-  return (link) => {
-    if (link.route === "impediment") {
-      const i = impediments.find((x) => x.id === link.targetId);
-      return Boolean(i && isResolved(i));
-    }
-    if (link.route === "kanban") {
-      return boards.some((b) => b.cards.some((c) => c.id === link.targetId && c.column === "done"));
-    }
-    return false;
-  };
-}
 
 const ws = () => useWorkspaceStore.getState();
 
@@ -117,7 +109,7 @@ registry.register({
   name: "list",
   category: "read",
   description:
-    "List the team's retro action items across every retro (current board first, then archives newest first). An action is done when marked on the card or when the impediment or Kanban card it was sent to is finished. Returns {open, overdue, done, followThrough: {boardId, retroLabel, archivedAt, sprintId?, agreed, done, carried, open, rate | null}[] (past retros, oldest first), actions: {id, boardId, retro, text, assignee, dueDate, done, doneAt, overdue, closedByTarget (done because its impediment or Kanban card finished), current (on the current retro), carriedFrom (the action it was carried over from) | null, sentTo}[]}. Filter with status: open | overdue | done | all (default all).",
+    "List the team's retro action items across every retro (current board first, then archives newest first). An action is done when marked on the card or when the impediment, Kanban card or story it was sent to is finished (sentTo route impediment, kanban or backlog-story; a deleted story leaves it open). Returns {open, overdue, done, followThrough: {boardId, retroLabel, archivedAt, sprintId?, agreed, done, carried, open, rate | null}[] (past retros, oldest first), actions: {id, boardId, retro, text, assignee, dueDate, done, doneAt, overdue, closedByTarget (done because its impediment, Kanban card or story finished), current (on the current retro), carriedFrom (the action it was carried over from) | null, sentTo}[]}. Filter with status: open | overdue | done | all (default all).",
   paramsSchema: z.object({
     status: z.enum(["open", "overdue", "done", "all"]).optional(),
   }),
@@ -126,16 +118,21 @@ registry.register({
     return listing(
       s.retroBoards ?? [],
       params.status,
-      targetDoneFrom(s.impediments ?? [], s.kanbanBoards ?? [])
+      targetDoneIn({
+        impediments: s.impediments,
+        kanbanBoards: s.kanbanBoards,
+        stories: s.stories,
+      })
     );
   },
   mcpHandler: async (params, ctx) => {
-    const [boards, impediments, kanban] = await Promise.all([
+    const [boards, impediments, kanbanBoards, stories] = await Promise.all([
       serverListEntities<RetroBoard>(ctx.userId, KIND_RETRO),
       serverListEntities<Impediment>(ctx.userId, "workspace:impediment"),
       serverListEntities<KanbanBoard>(ctx.userId, "workspace:kanbanBoard"),
+      serverListEntities<Story>(ctx.userId, "workspace:story"),
     ]);
-    return listing(boards, params.status, targetDoneFrom(impediments, kanban));
+    return listing(boards, params.status, targetDoneIn({ impediments, kanbanBoards, stories }));
   },
 });
 
@@ -265,4 +262,50 @@ registry.register({
     await serverUpsertEntity<RetroBoard>(ctx.userId, KIND_RETRO, next);
     return { updated: true, boardId: next.id };
   },
+});
+
+/** The themes as list_themes reports them: each with its retros, a few cards, and came-back. */
+function themesListing(boards: readonly RetroBoard[]) {
+  const pastRetros = archivedRetroCount(boards);
+  if (pastRetros < RECURRING_MIN_RETROS) {
+    return { pastRetros, enough: false, minRetros: RECURRING_MIN_RETROS, themes: [] };
+  }
+  const cards = new Map(archivedCards(boards).map((c) => [c.card.id, c]));
+  const archivedAt = new Map(boards.map((b) => [b.id, b.archivedAt ?? null]));
+  return {
+    pastRetros,
+    enough: true,
+    minRetros: RECURRING_MIN_RETROS,
+    themes: recurringThemes(boards).map((t) => ({
+      name: t.name,
+      retros: t.boardIds.map((id) => ({ boardId: id, archivedAt: archivedAt.get(id) ?? null })),
+      cardCount: t.cardIds.length,
+      cards: t.cardIds.slice(0, 12).flatMap((id) => {
+        const hit = cards.get(id);
+        return hit ? [{ id, boardId: hit.board.id, text: hit.card.text }] : [];
+      }),
+      cameBackAfterDone: t.cameBack
+        ? {
+            actionId: t.cameBack.actionId,
+            actionText: t.cameBack.actionText,
+            doneAt: t.cameBack.doneAt,
+            boardId: t.cameBack.boardId,
+          }
+        : null,
+    })),
+  };
+}
+
+// ──────── tool.retro_actions.list_themes ────────
+registry.register({
+  id: "tool.retro_actions.list_themes",
+  toolId: "tool.retro_actions",
+  name: "list_themes",
+  category: "read",
+  description:
+    "Recurring themes across the past (archived) retros, up to 52: words the cards of three or more retros share, most retros first, each card in one theme at most (carried-over copies left out). A theme 'came back after done' when one of its cards is an action marked done and the theme came up again in a retro archived after that. Returns {pastRetros, enough (false below 3 past retros), minRetros, themes: {name, retros: {boardId, archivedAt}[] (oldest first), cardCount, cards: {id, boardId, text}[] (up to 12), cameBackAfterDone: {actionId, actionText, doneAt, boardId} | null}[]}.",
+  paramsSchema: z.object({}),
+  handler: async () => themesListing(ws().retroBoards ?? []),
+  mcpHandler: async (_params, ctx) =>
+    themesListing(await serverListEntities<RetroBoard>(ctx.userId, KIND_RETRO)),
 });

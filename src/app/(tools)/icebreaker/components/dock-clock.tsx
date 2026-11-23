@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { Pause, Play, Square } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Button } from "@/components/ui/button";
+import { DockOvertime } from "@/components/timer/dock-overtime";
 import { useVisibilityTick } from "@/lib/hooks/use-visibility-tick";
 import {
   formatClock,
@@ -16,8 +17,9 @@ import { cn } from "@/lib/utils";
 /**
  * The docked timer's clock on the page that owns it (the shell hides its
  * pill there). Pause and resume act on the dock, so the pill on the next
- * page shows the same time; "time's up" is announced by the shell's
- * DockedTimer, which runs on this page too.
+ * page shows the same time; "time's up" is announced and rung by the
+ * shell's DockedTimer, which runs on this page too, and the overtime counts
+ * up here.
  */
 export function DockClock({
   timer,
@@ -57,6 +59,12 @@ export function DockClock({
         )}
       >
         {done ? "Time's up" : formatClock(remaining)}
+        {done && (
+          <DockOvertime
+            timer={timer}
+            className={cn("ml-2 font-semibold", size === "lg" ? "text-base" : "text-sm")}
+          />
+        )}
       </span>
       <span className="flex flex-wrap items-center gap-2">
         {!done && (

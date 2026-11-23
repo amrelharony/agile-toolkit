@@ -13,6 +13,7 @@
     "start": "next start",
     "lint": "next lint",
     "check:ui": "node scripts/check-ui-classes.mjs",
+    "check:built-css": "node scripts/check-built-css.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "pretest": "node scripts/generate-action-registry.mjs",

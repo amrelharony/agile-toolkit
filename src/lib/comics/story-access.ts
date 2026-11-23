@@ -2,9 +2,12 @@
  * Whether a weekly story can take a reader's count yet: the guess and "Seen
  * this at work?" taps (/api/comics/taps) and the engagement counts
  * (/api/comics/stats) share it. A story counts once it's out, or, with `early`,
- * while it's in the reader's VIP window for a device with the book's key. The
- * engagement counts leave `early` off: a story's number can still change in a
- * queue reorder until it's out, and its counts would stay with the old number.
+ * while it's in the reader's VIP window for a device with the book's key. A
+ * story's number can still change in a queue reorder until it's out; its taps
+ * move with it (comic_reorder_queue, migration 0038), so counting them early is
+ * safe. The engagement counts leave `early` off all the same: they're the
+ * owner's measure of how a story did once it was out. A reorder moves those
+ * too, should any be there.
  * Server only.
  */
 

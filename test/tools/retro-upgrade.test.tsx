@@ -663,12 +663,67 @@ describe("the Markdown export", () => {
     });
     const lines = md.split("\n");
     expect(lines[0]).toBe("# Retro — Sprint 14 — 18 Oct 2026 (Start / Stop / Continue)");
-    expect(lines[2]).toBe("## Facts");
+    // The summary leads; the facts follow it.
+    expect(lines[2]).toBe("## Summary");
+    expect(lines.indexOf("## Facts")).toBeGreaterThan(lines.indexOf("## Summary"));
+    expect(lines.indexOf("## Facts")).toBeLessThan(lines.indexOf("## Start"));
     expect(md).toContain(
       "- **Say/do:** 26 of 34 committed points done: say/do 76%, close to the commitment."
     );
     expect(md).toContain("## Common words\n\n- flaky (2 cards): Flaky tests; Flaky deploys\n");
     expect(lines.indexOf("## Common words")).toBeGreaterThan(lines.indexOf("## Action items"));
+  });
+
+  it("opens with a summary: the most-voted cards, the common words, the actions and their owners", () => {
+    const board = [
+      card("v1", "stop", { text: "Flaky\ntests", votes: 5 }),
+      card("v2", "start", {
+        text: "Pair on reviews",
+        votes: 3,
+        isActionItem: true,
+        assignee: "Sam",
+      }),
+      card("v3", "continue", { text: "Demo on Fridays", votes: 3 }),
+      card("v4", "stop", { text: "Late merges", votes: 1 }),
+      // Grouped under another card: it counts with its group, not on its own.
+      card("v5", "stop", { text: "Flaky deploys", votes: 9, groupedWith: "v1" }),
+      card("v6", "start", { text: "Write the runbook", isActionItem: true }),
+      card("v7", "start", { text: "No votes at all" }),
+    ];
+    const md = toMarkdown({ format: startStop, cards: board }, NOW, {
+      themes: [
+        { keyword: "flaky", cardIds: ["v1"], usedBy: ["v1"], votes: 14 },
+        { keyword: "merges", cardIds: ["v4", "v1"], usedBy: ["v4", "v1"], votes: 15 },
+      ],
+    });
+    const lines = md.split("\n");
+    const at = lines.indexOf("## Summary");
+    expect(at).toBe(2);
+    expect(lines.slice(at + 2, at + 5)).toEqual([
+      // Three at most, each on one line with its column; ties keep board order.
+      "- **Most votes:** Flaky tests (5 votes, Stop); Pair on reviews (3 votes, Start); Demo on Fridays (3 votes, Continue)",
+      "- **Common words:** flaky (1 card), merges (2 cards)",
+      "- **Actions:** Pair on reviews (Sam); Write the runbook (no owner yet)",
+    ]);
+    // The full record still follows.
+    expect(lines.indexOf("## Start")).toBeGreaterThan(at);
+    expect(md).toContain("## Action items\n\n- Pair on reviews — Owner: Sam\n");
+  });
+
+  it("leaves out summary lines with nothing to say, but always says where the actions stand", () => {
+    const md = toMarkdown(
+      { format: startStop, cards: [card("a", "start", { text: "Just written" })] },
+      NOW
+    );
+    expect(md).toContain("## Summary\n\n- **Actions:** none agreed yet\n\n## Start");
+    expect(md).not.toContain("Most votes");
+    expect(md).not.toContain("**Common words:**");
+    // A column the format no longer has: the votes are still quoted.
+    const stray = toMarkdown(
+      { format: startStop, cards: [card("x", "gone", { text: "Stray", votes: 1 })] },
+      NOW
+    );
+    expect(stray).toContain("- **Most votes:** Stray (1 vote)\n");
   });
 
   it("stays as it was for the board alone (the visitor room's call)", () => {

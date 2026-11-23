@@ -29,7 +29,8 @@ import {
   ReadTracker,
 } from "@/app/(tools)/comics/components/story-actions";
 import { useMascotStore } from "@/lib/agent/mascot/store";
-import { hasRead, sentLinks } from "@/lib/comics/reading";
+import { EVENT_SCENES } from "@/components/agent/mascot/engine/scenes";
+import { READING_KEY, hasRead, reachedMilestone, sentLinks } from "@/lib/comics/reading";
 import { THEME_TOOLS, toolForThemes } from "@/lib/comics/try-tool";
 import { getToolById } from "@/lib/constants/tools";
 import { sourceHref, sourceLabel } from "@/lib/handoffs/registry";
@@ -179,7 +180,8 @@ describe("reading a story", () => {
     ]);
     // XP comes from the ledger, once per story.
     expect(h.outcomes).toEqual([{ id: "story-read", opts: { key: "story:30", meta: { ep: 30 } } }]);
-    expect(useMascotStore.getState().reactionQueue).toEqual(["excited"]);
+    // Amr takes an idea from it to try (Comic to Action), in place of the old jump.
+    expect(useMascotStore.getState().reactionQueue).toEqual(["scene:comic"]);
   });
 
   it("doesn't count an end that scrolled away before the wait was over", () => {
@@ -236,6 +238,54 @@ describe("reading a story", () => {
     act(() => show(true));
     act(() => vi.advanceTimersByTime(READ_DWELL_MS));
     expect(useMascotStore.getState().reactionQueue).toEqual([]);
+  });
+
+  describe("a milestone this read reaches", () => {
+    // A Wednesday, so the weeks (Sunday to Saturday, UTC) are plain to count.
+    const NOW = new Date("2026-11-18T12:00:00Z");
+    const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000).toISOString();
+    const seed = (read: Record<string, string>) =>
+      localStorage.setItem(READING_KEY, JSON.stringify({ read }));
+    const readNow = () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(NOW);
+      useMascotStore.setState({ ready: true, reactionQueue: [] });
+      render(<ReadTracker ep={30} />);
+      act(() => show(true));
+      act(() => vi.advanceTimersByTime(READ_DWELL_MS));
+      return useMascotStore.getState().reactionQueue;
+    };
+    const bead = `scene:${EVENT_SCENES.milestone}`;
+
+    it("slides one bead for the tenth story, in place of the idea", () => {
+      seed(Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9].map((ep) => [ep, daysAgo(0.1)])));
+      expect(readNow()).toEqual([bead]);
+      expect(h.dispatched[0].meta).toMatchObject({ total: 10 });
+    });
+
+    it("and for the first story of a fourth week running", () => {
+      seed({ 1: daysAgo(7), 2: daysAgo(14), 3: daysAgo(21) });
+      expect(readNow()).toEqual([bead]);
+      expect(h.dispatched[0].meta).toMatchObject({ total: 4, weekStreak: 4 });
+    });
+
+    it("but not for a second story that same week, nor the eleventh: the idea, as ever", () => {
+      seed({ 1: daysAgo(7), 2: daysAgo(14), 3: daysAgo(21), 4: daysAgo(1) });
+      expect(readNow()).toEqual(["scene:comic"]);
+      expect(h.dispatched[0].meta).toMatchObject({ weekStreak: 4 });
+      cleanup();
+      h.dispatched = [];
+      seed(Object.fromEntries([1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((ep) => [ep, daysAgo(0.1)])));
+      expect(readNow()).toEqual(["scene:comic"]);
+    });
+
+    it("counts only this read's own milestone", () => {
+      const first = { total: 10, weekStreak: 1 };
+      expect(reachedMilestone(first, 1)).toBe(true);
+      expect(reachedMilestone({ total: 4, weekStreak: 4 }, 0)).toBe(true);
+      expect(reachedMilestone({ total: 5, weekStreak: 4 }, 4)).toBe(false);
+      expect(reachedMilestone({ total: 11, weekStreak: 5 }, 0)).toBe(false);
+    });
   });
 });
 
