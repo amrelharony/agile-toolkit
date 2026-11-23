@@ -13,7 +13,7 @@
 import { useEffect, useId, useState, type ReactNode } from "react";
 import { Check, Plus, Trash2 } from "lucide-react";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
-import { BlurInput, BlurTextarea } from "@/components/shared/blur-fields";
+import { BlurTextarea } from "@/components/shared/blur-fields";
 import { DayInput } from "@/components/shared/day-input";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { PersonPicker } from "@/components/team/person-picker";
@@ -32,13 +32,14 @@ import {
 } from "@/lib/stores/workspace-types";
 import {
   IMPROVE_TOOL,
+  STEP_REFUSAL_TEXT,
   STEP_ROUTES,
   STEP_STATUS_LABEL,
   isDay,
   type StepDone,
 } from "@/lib/improve/model";
 import type { Validation } from "@/lib/utils/form";
-import { FieldLabel, PersonField, SELECT_CLASS, dayProblem } from "./fields";
+import { FieldLabel, PersonField, RequiredBlurInput, SELECT_CLASS, dayProblem } from "./fields";
 import { short, type ItemActions } from "./use-item-actions";
 
 /** Focus goes to the add form's first field. */
@@ -133,13 +134,13 @@ function StepRow({
           <FieldLabel htmlFor={`${rowId}-text`}>
             {label}: {kata ? "what we'll try" : "what we'll change"}
           </FieldLabel>
-          <BlurInput
+          <RequiredBlurInput
             id={`${rowId}-text`}
             value={step.text}
             maxLength={TOOL_TEXT_MAX.text}
-            onCommit={(text) => {
-              if (text.trim()) patch({ text });
-            }}
+            aria-describedby={error ? `${rowId}-error` : undefined}
+            onBlank={() => setError(STEP_REFUSAL_TEXT.blank)}
+            onCommit={(text) => patch({ text })}
           />
         </div>
         <div className="flex flex-wrap items-center gap-1 sm:mt-5">
@@ -269,7 +270,7 @@ function StepRow({
             </p>
           )}
           {error && (
-            <p role="alert" className="text-xs text-danger">
+            <p id={`${rowId}-error`} role="alert" className="text-xs text-danger">
               {error}
             </p>
           )}

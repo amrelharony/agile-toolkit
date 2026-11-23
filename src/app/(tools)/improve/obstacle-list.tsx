@@ -10,7 +10,6 @@
 import { useEffect, useId, useState } from "react";
 import { CheckCircle2, Plus, RotateCcw, Target, Trash2 } from "lucide-react";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
-import { BlurInput } from "@/components/shared/blur-fields";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -21,10 +20,10 @@ import {
   type Improvement,
   type ImprovementObstacle,
 } from "@/lib/stores/workspace-types";
-import { IMPROVE_TOOL, OBSTACLE_STATUS_LABEL } from "@/lib/improve/model";
+import { IMPROVE_TOOL, OBSTACLE_REFUSAL_TEXT, OBSTACLE_STATUS_LABEL } from "@/lib/improve/model";
 import type { Validation } from "@/lib/utils/form";
 import { cn } from "@/lib/utils";
-import { FieldLabel } from "./fields";
+import { FieldLabel, RequiredBlurInput } from "./fields";
 import { short, type ItemActions } from "./use-item-actions";
 
 /** A new obstacle's draft checked: what's in the way, within its cap. */
@@ -54,6 +53,7 @@ function ObstacleRow({
 }) {
   const working = obstacle.status === "working";
   const cleared = obstacle.status === "cleared";
+  const [error, setError] = useState<string | null>(null);
   return (
     <li
       className={cn(
@@ -65,15 +65,23 @@ function ObstacleRow({
         <FieldLabel htmlFor={`${rowId}-text`}>
           Obstacle · {OBSTACLE_STATUS_LABEL[obstacle.status]}
         </FieldLabel>
-        <BlurInput
+        <RequiredBlurInput
           id={`${rowId}-text`}
           value={obstacle.text}
           maxLength={TOOL_TEXT_MAX.text}
           className={cleared ? "text-sub line-through" : undefined}
+          aria-describedby={error ? `${rowId}-error` : undefined}
+          onBlank={() => setError(OBSTACLE_REFUSAL_TEXT.blank)}
           onCommit={(text) => {
-            if (text.trim()) actions.patchObstacle(obstacle, { text });
+            setError(null);
+            actions.patchObstacle(obstacle, { text });
           }}
         />
+        {error && (
+          <p id={`${rowId}-error`} role="alert" className="text-xs text-danger">
+            {error}
+          </p>
+        )}
       </div>
       <div className="flex flex-wrap items-center gap-1">
         {!cleared && (

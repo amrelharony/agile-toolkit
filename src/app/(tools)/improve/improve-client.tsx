@@ -24,7 +24,6 @@ import { Footprints, Plus, Trash2 } from "lucide-react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { useAnnounce } from "@/components/a11y/live-announcer";
-import { BlurInput } from "@/components/shared/blur-fields";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { OnSearchParams, dropSearchParams } from "@/components/shared/on-search-params";
@@ -40,6 +39,7 @@ import { Button } from "@/components/ui/button";
 import { IMPROVE_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import {
+  BLANK_TITLE,
   IMPROVEMENT_ID_PREFIX,
   IMPROVE_TOOL,
   METHOD_LABEL,
@@ -74,7 +74,7 @@ import { undoable } from "@/lib/utils/undoable";
 import { cn } from "@/lib/utils";
 import { A3View } from "./a3-view";
 import { buildExample } from "./example";
-import { PersonField } from "./fields";
+import { PersonField, RequiredBlurInput } from "./fields";
 import { KataView } from "./kata-view";
 import { improveToMarkdown } from "./markdown";
 import { NewItemForm, type NewItemValues } from "./new-item-form";
@@ -162,6 +162,7 @@ function ItemView({
 }) {
   const actions = useItemActions(item.id, log);
   const id = item.id;
+  const [titleError, setTitleError] = useState<string | null>(null);
   return (
     <div className="space-y-4">
       <div className="space-y-3 rounded-lg border border-border bg-card p-4">
@@ -170,13 +171,23 @@ function ItemView({
             <label htmlFor={`improve-title-${id}`} className="block text-xs font-medium text-sub">
               What you’re improving
             </label>
-            <BlurInput
+            <RequiredBlurInput
               id={`improve-title-${id}`}
               value={item.title}
               maxLength={TOOL_TEXT_MAX.short}
               className="font-semibold"
-              onCommit={actions.setTitle}
+              aria-describedby={titleError ? `improve-title-${id}-error` : undefined}
+              onBlank={() => setTitleError(BLANK_TITLE)}
+              onCommit={(text) => {
+                setTitleError(null);
+                actions.setTitle(text);
+              }}
             />
+            {titleError && (
+              <p id={`improve-title-${id}-error`} role="alert" className="text-xs text-danger">
+                {titleError}
+              </p>
+            )}
           </div>
           <Button
             type="button"

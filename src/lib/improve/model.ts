@@ -328,6 +328,9 @@ export function blankImprovement(input: NewImprovement, id: string, now: string)
   });
 }
 
+/** What the start form and the title box say when the title is left blank. */
+export const BLANK_TITLE = "Name what you'll improve in a few words.";
+
 export interface ImprovementDraft {
   title: string;
   method: ImprovementMethod | "";
@@ -341,7 +344,7 @@ export function validateImprovementDraft(
 ): Validation<{ title: string; method: ImprovementMethod }, ImprovementDraftField> {
   const errors: Partial<Record<ImprovementDraftField, string>> = {};
   const title = draft.title.replace(/\s+/g, " ").trim();
-  if (!title) errors.title = "Name what you'll improve in a few words.";
+  if (!title) errors.title = BLANK_TITLE;
   else if (title.length > TOOL_TEXT_MAX.short)
     errors.title = `Keep it to ${TOOL_TEXT_MAX.short} characters.`;
   if (!isMethod(draft.method)) errors.method = "Pick an A3 or an Improvement Kata.";

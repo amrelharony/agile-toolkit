@@ -34,6 +34,42 @@ export function FieldLabel({ htmlFor, children }: { htmlFor: string; children: R
   );
 }
 
+/**
+ * A one-line box that can't be left blank (a title, a step's or an
+ * obstacle's words), saved when it is left. Left blank, nothing is saved:
+ * the box shows the saved words again and `onBlank` says why in place.
+ */
+export function RequiredBlurInput({
+  onCommit,
+  onBlank,
+  ...props
+}: {
+  id: string;
+  value: string;
+  maxLength?: number;
+  className?: string;
+  "aria-describedby"?: string;
+  onCommit: (next: string) => void;
+  onBlank: () => void;
+}) {
+  // A new round puts the saved words back (the box keeps its own draft).
+  const [round, setRound] = useState(0);
+  return (
+    <BlurInput
+      key={round}
+      {...props}
+      onCommit={(next) => {
+        if (next.trim()) {
+          onCommit(next);
+          return;
+        }
+        setRound((r) => r + 1);
+        onBlank();
+      }}
+    />
+  );
+}
+
 /** Why a typed day can't be saved, or null (blank clears it). */
 export function dayProblem(day: string): string | null {
   if (day === "") return null;

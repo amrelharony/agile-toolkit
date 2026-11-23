@@ -519,6 +519,28 @@ describe("an A3", () => {
     expect(byId("improve_a3")!.steps.map((s) => s.id)).toEqual(["s0", added.id]);
   });
 
+  it("keeps the saved words when the title or a step is left blank, and says why", () => {
+    useWorkspaceStore.setState({
+      improvements: [a3({ steps: [step("s0", { text: "Automate checks" })] })],
+    });
+    renderPage();
+    commit(screen.getByLabelText("What you’re improving"), "  ");
+    expect(byId("improve_a3")!.title).toBe("Releases wait six days");
+    expect(screen.getByLabelText("What you’re improving")).toHaveValue("Releases wait six days");
+    expect(screen.getByRole("alert")).toHaveTextContent("Name what you'll improve in a few words.");
+    commit(screen.getByLabelText("Countermeasure 1: what we'll change"), "");
+    expect(byId("improve_a3")!.steps[0].text).toBe("Automate checks");
+    expect(screen.getByLabelText("Countermeasure 1: what we'll change")).toHaveValue(
+      "Automate checks"
+    );
+    expect(screen.getByText(STEP_REFUSAL_TEXT.blank)).toBeInTheDocument();
+    // Words again: saved, and the sentence goes.
+    commit(screen.getByLabelText("What you’re improving"), "Faster releases");
+    expect(byId("improve_a3")!.title).toBe("Faster releases");
+    expect(screen.queryByText("Name what you'll improve in a few words.")).not.toBeInTheDocument();
+    expect(logs.map((l) => l.payload?.field)).toEqual(["title"]);
+  });
+
   it("sends a countermeasure to Retro Actions once, with its owner and date", () => {
     useWorkspaceStore.setState({
       improvements: [
@@ -814,6 +836,17 @@ describe("a Kata", () => {
     expect(byId("improve_k")!.obstacles).toHaveLength(2);
     lastUndo().revert();
     expect(byId("improve_k")!.obstacles).toHaveLength(3);
+  });
+
+  it("keeps an obstacle's words when its box is left blank, and says why", () => {
+    useWorkspaceStore.setState({ improvements: [kata()] });
+    renderPage();
+    const box = () =>
+      screen.getAllByDisplayValue("Only one reviewer").find((el) => el.tagName === "INPUT")!;
+    commit(box(), " ");
+    expect(byId("improve_k")!.obstacles[0].text).toBe("Only one reviewer");
+    expect(box()).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Say what's in the way.");
   });
 
   it("sends an obstacle outside the team's control to Impediments", () => {
