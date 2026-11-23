@@ -17,10 +17,12 @@ import { agendaPrompt } from "./facilitator-timers.server";
 import { hillChartUpdateNotePrompt } from "./hill-chart.server";
 import { impactMapDraftPrompt } from "./impact-map.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
+import { kanbanPoliciesPrompt } from "./kanban.server";
 import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
 import { notesToActionsExtractPrompt } from "./notes-to-actions.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
 import { personaFromNotesPrompt } from "./persona-library.server";
+import { roamPrompt } from "./pi-planning.server";
 import { themeNamesPrompt } from "./picker.server";
 import { pokerSimilarPrompt } from "./planning-poker.server";
 import { productCanvasDraftPrompt, productCanvasGapsPrompt } from "./product-canvas.server";
@@ -56,10 +58,12 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   hillChartUpdateNotePrompt,
   impactMapDraftPrompt,
   interruptClassifyPrompt,
+  kanbanPoliciesPrompt,
   meetingAuditSuggestPrompt,
   notesToActionsExtractPrompt,
   parkingRoutePrompt,
   personaFromNotesPrompt,
+  roamPrompt,
   themeNamesPrompt,
   pokerSimilarPrompt,
   productCanvasDraftPrompt,

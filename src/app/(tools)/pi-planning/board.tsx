@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { DependencyStatus } from "@/lib/stores/workspace-types";
+import { roamLabel } from "@/lib/pi-planning/roam";
 import { cn } from "@/lib/utils";
 import { dayLabel } from "../dependency-map/format";
 import { DependencyStatusChip } from "../dependency-map/status-chip";
@@ -269,8 +270,18 @@ function ItemCard({
       className={cn("space-y-1 rounded-md border border-l-4 border-border bg-bg p-2", style.border)}
     >
       <p className="break-words text-sm text-text">{name}</p>
-      <p className="flex flex-wrap gap-x-2 text-xs">
+      <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
         <span className={style.text}>{style.label}</span>
+        {item.kind === "risk" && (
+          <span
+            className={cn(
+              "rounded-full border px-1.5",
+              item.roam ? "border-border text-text" : "border-dashed border-border text-sub"
+            )}
+          >
+            ROAM: {roamLabel(item)}
+          </span>
+        )}
         <span className="text-sub">
           {item.points === undefined ? "Not sized" : pts(item.points)}
         </span>

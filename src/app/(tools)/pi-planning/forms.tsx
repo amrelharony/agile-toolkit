@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ItemForm, useItemForm, type ItemFormState } from "@/components/shared/item-form";
 import { ScalePicker, type ScaleStep } from "@/components/shared/scale-picker";
+import { cutText } from "@/lib/utils/cut-text";
 import { parseNumber, type Validation } from "@/lib/utils/form";
 import { ChoiceField, SelectField, TeamField } from "../dependency-map/fields";
 import type { PiItemKind, PiObjective, PiTeam } from "./store";
@@ -74,9 +75,9 @@ export function validateTeam(
   return {
     ok: true,
     values: {
-      name: name.slice(0, NAME_MAX),
+      name: cutText(name, NAME_MAX),
       ...(velocity ? { velocity } : {}),
-      ...(description ? { description: description.slice(0, TEXT_MAX) } : {}),
+      ...(description ? { description: cutText(description, TEXT_MAX) } : {}),
     },
   };
 }
@@ -242,12 +243,12 @@ export function validateItem(d: ItemDraft, teamName: string): Validation<ItemVal
   return {
     ok: true,
     values: {
-      title: title.slice(0, TITLE_MAX),
+      title: cutText(title, TITLE_MAX),
       kind: d.kind as PiItemKind,
       ...(points !== undefined ? { points } : {}),
-      ...(dependency ? { dependsOn: dependsOn.slice(0, NAME_MAX) } : {}),
+      ...(dependency ? { dependsOn: cutText(dependsOn, NAME_MAX) } : {}),
       due: dependency ? d.due : "",
-      ...(description ? { description: description.slice(0, TEXT_MAX) } : {}),
+      ...(description ? { description: cutText(description, TEXT_MAX) } : {}),
     },
   };
 }
@@ -421,7 +422,7 @@ export function validateObjective(d: ObjectiveDraft): Validation<ObjectiveValues
     ok: true,
     values: {
       teamId: d.teamId,
-      title: title.slice(0, TITLE_MAX),
+      title: cutText(title, TITLE_MAX),
       ...(d.businessValue !== null ? { businessValue: d.businessValue } : {}),
       committed: d.commitment === "committed",
     },

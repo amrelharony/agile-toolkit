@@ -214,11 +214,14 @@ export const GUIDES: ToolGuide[] = [
       "For a dependency, pick the team it Waits on and, if it has a deadline, the date it's Due: it goes on the Dependency Map, and its status shows on the card. Use Move to put any item in another cell.",
       "Watch each cell's planned / velocity points. A cell over capacity turns red: cut scope or move work to a later iteration. Load vs capacity charts every team.",
       "Under PI objectives, add each team's objectives as Committed or Uncommitted, and score Business value once the business owners have.",
+      "Under Risks: ROAM, sort each risk as Resolved, Owned, Accepted or Mitigated, with an owner and a note, and log owned or mitigated ones in the Risk Register. Suggest ROAM asks Amr; Suggest from keywords needs no AI.",
+      "Under Confidence vote, ask the train or one team how sure they are, from 1 to 5, on phones or by a count, and talk through every vote under 3 before you commit.",
+      "At the end, score each objective's Actual value under Predictability, then Close this PI to keep its predictability in the history.",
     ],
     tips: [
       "Keep the last iteration free of features. In SAFe it's for innovation, planning and buffer.",
       "Chase each open dependency's owner and due date on the Dependency Map.",
-      "Sort each risk as Resolved, Owned, Accepted or Mitigated (ROAM), and log the open ones in the Risk Register.",
+      "80–100% predictability is a common aim, not a rule: set the band your train agrees on.",
     ],
     scales: [
       {

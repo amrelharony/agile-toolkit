@@ -79,9 +79,9 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   },
   {
     toolId: "pi-planning",
-    // Nothing logs a finished plan: he admires the full board between moves.
+    // Closing a PI is the finished plan; he admires the full board between moves.
     open: ["pi", "pi.done"],
-    actions: { item_assigned: ["pi.place"], team_added: ["pi.team"] },
+    actions: { item_assigned: ["pi.place"], team_added: ["pi.team"], pi_closed: ["pi.done"] },
   },
   { toolId: "epic-roadmap", open: ["roadmap"], actions: { epic_added: ["roadmap.add"] } },
   {
