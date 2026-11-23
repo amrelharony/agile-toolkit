@@ -382,6 +382,26 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: [],
     actions: { card_dealt: ["poker.reveal"], deck_shuffled: ["poker"] },
   },
+  // A rule or an example on the map is a sticky stuck up; a question makes him think,
+  // and a rule split off is a to-do taken. sent_to_story cheers ("example-mapping",
+  // "done") in the same tick, as does the last open question answered: no scene.
+  {
+    toolId: "example-mapping",
+    open: [],
+    actions: {
+      rule_added: ["sticky"],
+      example_added: ["sticky"],
+      question_added: ["sticky.think"],
+      split_by_rule: ["todo.take"],
+    },
+  },
+  // A live round saved turns the cards face up; stories sent to Poker are a to-do taken.
+  // Save sizes cheers ("relative-sizing", "done") in the same tick: no scene.
+  {
+    toolId: "relative-sizing",
+    open: [],
+    actions: { round_saved: ["poker.reveal"], sent_to_poker: ["todo.take"] },
+  },
 
   // ── The expansion's tool lab (X025–X056) ──
   // One sheet per tool on the More tools shelf. Opening the tool plays its sheet as the
