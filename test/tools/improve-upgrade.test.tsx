@@ -903,9 +903,20 @@ describe("a Kata", () => {
     expect(item.obstacles.map((o) => o.status)).toEqual(["open", "working"]);
     expect(item.nextCoachingAt).toBe(plusDays(2));
     expect(screen.getByRole("button", { name: "Coach me" })).toHaveFocus();
+    // A reading logged while the Undo is offered isn't lost by it.
+    act(() => {
+      const now = byId("improve_k")!;
+      ws().upsertImprovement({
+        ...now,
+        readings: [...now.readings, { id: "r_late", date: todayIso(), value: 14 }],
+      });
+    });
     lastUndo().revert();
     expect(byId("improve_k")!.steps).toHaveLength(1);
+    expect(byId("improve_k")!.steps[0]).toEqual(kata().steps[0]);
     expect(byId("improve_k")!.nextCoachingAt).toBeUndefined();
+    expect(byId("improve_k")!.readings.map((r) => r.id)).toEqual(["r1", "r_late"]);
+    expect(byId("improve_k")!.obstacles.map((o) => o.status)).toEqual(["working", "open"]);
   });
 
   it("saves nothing when the talk is left midway, and what was answered with Save and stop", () => {

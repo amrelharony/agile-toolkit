@@ -66,7 +66,12 @@ import {
   type ReadingInput,
   type StepInput,
 } from "@/lib/improve/model";
-import { withCoaching, type CoachAnswers, type CoachRefusal } from "@/lib/improve/coaching";
+import {
+  withCoaching,
+  withoutCoaching,
+  type CoachAnswers,
+  type CoachRefusal,
+} from "@/lib/improve/coaching";
 
 const ws = () => useWorkspaceStore.getState();
 const nowIso = () => new Date().toISOString();
@@ -454,6 +459,8 @@ export function useItemActions(itemId: string, log: Log) {
       refuseTooBig();
       return { reason: "too_big" };
     }
+    /** The Kata just before the talk was saved, and as the talk left it. */
+    let talk: { was: Improvement; made: Improvement } | null = null;
     undoable({
       label: "Coaching talk saved",
       kind: "success",
@@ -463,10 +470,14 @@ export function useItemActions(itemId: string, log: Log) {
           const r = withCoaching(c, answers, ids, now, { today, latestDay: latestDay() });
           if (!r.ok) return null;
           outcome = r.outcome;
+          talk = { was: c, made: r.outcome.item };
           return r.outcome.item;
         });
         const done = outcome as { reading: boolean; experiment: boolean; reached: boolean } | null;
-        if (!saved || !done) return;
+        if (!saved || !done) {
+          talk = null;
+          return;
+        }
         logIt(IMPROVE_ACTIONS.COACHING_DONE, {
           next: saved.nextCoachingAt ?? null,
           reading: done.reading,
@@ -482,7 +493,11 @@ export function useItemActions(itemId: string, log: Log) {
             : "Coaching talk saved."
         );
       },
-      revert: () => write((_c, now) => touched(before, {}, now)),
+      // Only what the talk changed goes back: later edits, sends and links stay.
+      revert: () => {
+        const t = talk;
+        if (t) write((c, now) => withoutCoaching(c, t.was, t.made, ids, now));
+      },
     });
     return null;
   };

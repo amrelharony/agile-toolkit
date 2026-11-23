@@ -51,7 +51,7 @@ import {
   withStepAt,
   type A3GapId,
 } from "@/lib/improve/model";
-import { COACH_STEPS, coachStepsFor, withCoaching } from "@/lib/improve/coaching";
+import { COACH_STEPS, coachStepsFor, withCoaching, withoutCoaching } from "@/lib/improve/coaching";
 import { IMPROVEMENT } from "../stores/phase43-fixtures";
 
 const NOW = "2026-11-20T10:00:00.000Z";
@@ -826,6 +826,72 @@ describe("the coaching talk", () => {
       ok: false,
       refusal: { step: "next-look", reason: "past_date" },
     });
+  });
+
+  it("Undo takes back only what the talk changed: later edits, sends and readings stay", () => {
+    const LATER = "2026-11-20T10:05:00.000Z";
+    const two: Improvement = {
+      ...kata,
+      steps: [
+        step({ id: "s0", text: "Pair on reviews", expect: "Faster", status: "done", doneAt: NOW }),
+        ...kata.steps,
+      ],
+    };
+    const r = withCoaching(
+      two,
+      {
+        result: "It fell to 15 h",
+        learned: "Who reviews matters",
+        reading: { date: TODAY, value: 15 },
+        obstacleId: "o2",
+        nextTry: { text: "Cap PRs at 300 lines", expect: "Reviews start sooner" },
+        nextLook: "2026-11-22",
+      },
+      ids,
+      NOW,
+      days
+    );
+    if (!r.ok) throw new Error("the talk was refused");
+    const after = r.outcome.item;
+    // While the Undo is offered: o2 sent to Impediments, s0 dropped, a reading logged.
+    const link = { route: "impediment" as const, targetId: "imp_1", at: LATER };
+    const later: Improvement = {
+      ...after,
+      steps: after.steps.map((s) => (s.id === "s0" ? { ...s, status: "dropped" as const } : s)),
+      obstacles: after.obstacles.map((o) => (o.id === "o2" ? { ...o, sentTo: [link] } : o)),
+      readings: [...after.readings, { id: "r10", date: TODAY, value: 14 }],
+    };
+    const undone = withoutCoaching(later, two, after, ids, LATER);
+    expect(undone.steps.map((s) => s.id)).toEqual(["s0", "s1"]);
+    expect(undone.steps[0].status).toBe("dropped");
+    expect(undone.steps[1]).toEqual(two.steps[1]);
+    expect(undone.readings).toEqual([{ id: "r10", date: TODAY, value: 14 }]);
+    expect(undone.obstacles).toEqual([
+      { id: "o1", text: "One reviewer", status: "working" },
+      { id: "o2", text: "Big pull requests", status: "open", sentTo: [link] },
+    ]);
+    expect(undone.nextCoachingAt).toBeUndefined();
+    expect(undone.updatedAt).toBe(LATER);
+  });
+
+  it("Undo puts a reached target back, and keeps one obstacle worked on", () => {
+    const LATER = "2026-11-20T10:05:00.000Z";
+    const r = withCoaching(kata, { aim: "reached", obstacleId: "o2" }, ids, NOW, days);
+    if (!r.ok) throw new Error("the talk was refused");
+    const after = r.outcome.item;
+    // Since the talk: a new obstacle picked to work on (so o2 is open again).
+    const added = withObstacle(after, "Nobody owns the queue", "o3", LATER);
+    if (!added.ok) throw new Error("the obstacle was refused");
+    const later = withObstaclePatch(added.item, "o3", { status: "working" }, LATER)!;
+    const undone = withoutCoaching(later, kata, after, ids, LATER);
+    expect(undone.pastTargets).toBeUndefined();
+    expect(undone.target).toEqual(kata.target);
+    expect(undone.current).toEqual(kata.current);
+    expect(undone.obstacles.map((o) => [o.id, o.status])).toEqual([
+      ["o1", "open"],
+      ["o2", "open"],
+      ["o3", "working"],
+    ]);
   });
 
   it("keeps a try running when it never said what it expected", () => {

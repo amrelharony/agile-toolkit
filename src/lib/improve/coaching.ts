@@ -245,3 +245,84 @@ export function withCoaching(
   item = touched(item, nextLook ? { nextCoachingAt: nextLook } : {}, now);
   return { ok: true, outcome: { item, reading, experiment, reached } };
 }
+
+/** Two stored values the same (rows are plain JSON). */
+const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+/** What a field was before the talk, unless it changed again after it. */
+const back = <T>(now: T, was: T, made: T): T => (same(now, made) ? was : now);
+
+/** A row's fields put back three ways (now, before the talk, after it), unset ones dropped. */
+function rowBack<R extends object>(now: R, was: R, made: R, keys: readonly (keyof R)[]): R {
+  const out = { ...now } as Record<string, unknown>;
+  for (const k of keys) {
+    const v = back(now[k], was[k], made[k]);
+    if (v === undefined) delete out[k as string];
+    else out[k as string] = v;
+  }
+  return out as R;
+}
+
+/**
+ * A coaching talk's Undo, on the Kata as it is now (`current`): the reading,
+ * obstacle and experiment the talk added go, by their ids; the last
+ * experiment's result, learning and status, the obstacles' statuses, where
+ * things stand, the target, the past targets and the next coaching day go
+ * back to how they were before the talk (`before`). Anything changed again
+ * since the talk (`after`) stays as it is now, and so does every field and
+ * link the talk didn't touch: a send, a step's status, a reading or a synced
+ * change made while the Undo was offered isn't lost.
+ */
+export function withoutCoaching(
+  current: Improvement,
+  before: Improvement,
+  after: Improvement,
+  ids: CoachIds,
+  now: string
+): Improvement {
+  const madeHere = <T extends { id: string }>(was: readonly T[], made: readonly T[], id: string) =>
+    made.some((x) => x.id === id) && !was.some((x) => x.id === id);
+  const dropReading = madeHere(before.readings, after.readings, ids.reading);
+  const dropStep = madeHere(before.steps, after.steps, ids.step);
+  const dropObstacle = madeHere(before.obstacles, after.obstacles, ids.obstacle);
+
+  const steps = current.steps
+    .filter((s) => !(dropStep && s.id === ids.step))
+    .map((s) => {
+      const was = before.steps.find((x) => x.id === s.id);
+      const made = after.steps.find((x) => x.id === s.id);
+      if (!was || !made) return s;
+      return rowBack(s, was, made, ["result", "learned", "status", "doneAt"] as const);
+    });
+
+  let obstacles = current.obstacles
+    .filter((o) => !(dropObstacle && o.id === ids.obstacle))
+    .map((o) => {
+      const was = before.obstacles.find((x) => x.id === o.id);
+      const made = after.obstacles.find((x) => x.id === o.id);
+      return was && made ? { ...o, status: back(o.status, was.status, made.status) } : o;
+    });
+  // One obstacle worked on at a time: one picked since the talk keeps it.
+  if (obstacles.filter((o) => o.status === "working").length > 1) {
+    const picked = new Set(
+      current.obstacles.filter((o) => o.status === "working").map((o) => o.id)
+    );
+    obstacles = obstacles.map((o) =>
+      o.status === "working" && !picked.has(o.id) ? { ...o, status: "open" as const } : o
+    );
+  }
+
+  return touched(
+    current,
+    {
+      readings: current.readings.filter((r) => !(dropReading && r.id === ids.reading)),
+      steps,
+      obstacles,
+      current: back(current.current, before.current, after.current),
+      target: back(current.target, before.target, after.target),
+      pastTargets: back(current.pastTargets, before.pastTargets, after.pastTargets),
+      nextCoachingAt: back(current.nextCoachingAt, before.nextCoachingAt, after.nextCoachingAt),
+    },
+    now
+  );
+}
