@@ -38,7 +38,10 @@ const Id = z.string().trim().min(1).max(NOTES_ID_MAX);
 
 const input = z.object({
   release: z.string().trim().min(1).max(200),
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  date: z
+    .string()
+    .max(10)
+    .regex(/^\d{4}-\d{2}-\d{2}$/),
   audience: z.enum(NOTES_AUDIENCES),
   rolledBack: z.boolean(),
   stories: z

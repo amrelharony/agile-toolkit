@@ -35,7 +35,10 @@ export {
   extractNotesFallback,
 } from "./notes-to-actions.lite";
 
-const Day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const Day = z
+  .string()
+  .max(10)
+  .regex(/^\d{4}-\d{2}-\d{2}$/);
 
 const input = z.object({
   notes: z.string().trim().min(1).max(EXTRACT_NOTES_MAX),

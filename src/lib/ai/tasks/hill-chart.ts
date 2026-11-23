@@ -35,7 +35,10 @@ const Position = z.number().int().min(0).max(100);
 
 const input = z.object({
   title: z.string().trim().min(1).max(UPDATE_TITLE_MAX),
-  today: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  today: z
+    .string()
+    .max(10)
+    .regex(/^\d{4}-\d{2}-\d{2}$/),
   scopes: z
     .array(
       z.object({
