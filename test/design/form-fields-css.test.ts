@@ -103,6 +103,7 @@ describe("native selects styled to match <Input>", () => {
   // They sit beside Inputs in the same forms: a plain md:h-9 left them 36px
   // on touch at md+ while the Input stayed 44px, 8px out of line.
   const FILES = [
+    "src/app/(tools)/ab-calculator/details-fields.tsx",
     "src/app/(tools)/dependency-map/fields.tsx",
     "src/app/(tools)/feature-flag-tracker/flag-fields.tsx",
     "src/app/(tools)/hypothesis-tracker/hypothesis-fields.tsx",
