@@ -154,10 +154,8 @@ export function EbmDashboardClient() {
   const exampleLoaded = ebmExampleLoaded(metrics, board);
   const reviews = reviewsNewestFirst(board);
   const verdict = ebmVerdict(byArea, board, today);
-  const anything =
-    EBM_VALUE_AREAS.some((a) => byArea[a].length > 0) ||
-    Boolean(board?.strategicGoal) ||
-    reviews.length > 0;
+  // A strategic goal alone still offers the example (it keeps the team's goal).
+  const anything = EBM_VALUE_AREAS.some((a) => byArea[a].length > 0) || reviews.length > 0;
 
   const record = (action: string, id: string, payload: Record<string, unknown> = {}) => {
     if (!isExampleId(id)) log(action, payload);
