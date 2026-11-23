@@ -20,8 +20,14 @@ import type { StandupEntry } from "@/lib/stores/workspace-types";
 /** Where a summary came from: the AI, or the page's own rules. */
 export type SummarySource = "ai" | "rules";
 
-/** What the button beside "Summarise with AI" sends (the approved privacy line, word for word). */
-export const SUMMARY_PRIVACY_LINE = "Sends today's updates, with names, to the AI service.";
+/**
+ * What the button beside "Summarise with AI" sends: everything digestInput
+ * puts in (today's updates with their hand-overs, the older blockers still
+ * open, who hasn't posted, and Team Time's places), said plainly. Decision
+ * D4's line said only today's updates; the owner approves this one.
+ */
+export const SUMMARY_PRIVACY_LINE =
+  "Sends today's updates, older open blockers and who hasn't posted, with names and places, to the AI service.";
 
 /**
  * "Summarise with AI" over today's digest: a headline, a short summary,
