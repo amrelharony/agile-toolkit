@@ -13,6 +13,7 @@ import { agendaTask } from "./facilitator-timers";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { meetingAuditSuggestTask } from "./meeting-audit";
 import { parkingRouteTask } from "./parking-lot";
+import { personaFromNotesTask } from "./persona-library";
 import { themeNamesTask } from "./picker";
 import { productGoalDraftTask } from "./product-goal";
 import { groupTopicsTask, surprisePlanTask } from "./retro";
@@ -36,6 +37,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   interruptClassifyTask,
   meetingAuditSuggestTask,
   parkingRouteTask,
+  personaFromNotesTask,
   themeNamesTask,
   productGoalDraftTask,
   surprisePlanTask,
