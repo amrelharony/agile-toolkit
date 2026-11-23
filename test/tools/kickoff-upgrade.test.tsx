@@ -671,6 +671,46 @@ describe("sending lines on", () => {
       }),
     ]);
     expect(byId("k3").sections.rules[0].sentTo?.[0].route).toBe("agreement-rule");
+    // Once sent, the rule is there because of the send: no reason shows.
+    expect(screen.queryByText("The Working Agreement already has this rule.")).toBeNull();
+  });
+
+  it("says why a rule the Working Agreement already has can't go", () => {
+    useWorkspaceStore.setState({
+      workingAgreements: [
+        {
+          id: WA_ID,
+          rules: [
+            {
+              id: "rule_1",
+              category: "other",
+              text: "we start  on time",
+              agreedBy: [],
+              consent: [],
+            },
+          ],
+          meta: { version: 1 },
+        },
+      ],
+    });
+    seed(
+      kickoff({
+        id: "k3",
+        format: "team-canvas",
+        sections: { rules: [item("r1", "We start on time.")] },
+      })
+    );
+    renderPage();
+    expect(screen.getByText("The Working Agreement already has this rule.")).toBeInTheDocument();
+    openSend(/^Send to… We start on time\./);
+    expect(screen.getByRole("menuitem", { name: "Working Agreement rule" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    // The rule leaves the agreement: the reason goes with it.
+    act(() => useWorkspaceStore.setState({ workingAgreements: [] }));
+    expect(screen.queryByText("The Working Agreement already has this rule.")).toBeNull();
   });
 
   it("sends the problem statement as an opportunity or a root-cause analysis", () => {
