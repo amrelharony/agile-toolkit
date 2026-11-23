@@ -8,6 +8,7 @@ import type { AiTaskDef } from "../task-types";
 import { suggestOptionsTask } from "./_example";
 import { clusterTask, mergeQuestionsTask, toBacklogTask } from "./audience-wall";
 import { backlogHealthReviewTask } from "./backlog-health";
+import { bugTriageSeverityTask } from "./bug-triage";
 import { cardForMoodTask, generateCardsTask } from "./card-decks";
 import { agendaTask } from "./facilitator-timers";
 import { interruptClassifyTask } from "./interrupt-buffer";
@@ -20,6 +21,7 @@ import { retroActionsThemesTask } from "./retro-actions";
 import { categoriesTask, countermeasureTask, nextWhyTask } from "./root-cause";
 import { notebookTagTask, notebookWeeklySummaryTask } from "./sm-notebook";
 import { sprintRiskNoteTask } from "./sprint";
+import { testSessionsChartersTask } from "./test-sessions";
 
 // `any` here only erases each task's own input/output types for the list; the
 // routes check every input and output against the task's schemas at run time.
@@ -30,6 +32,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   mergeQuestionsTask,
   toBacklogTask,
   backlogHealthReviewTask,
+  bugTriageSeverityTask,
   generateCardsTask,
   cardForMoodTask,
   agendaTask,
@@ -47,4 +50,5 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   notebookWeeklySummaryTask,
   notebookTagTask,
   sprintRiskNoteTask,
+  testSessionsChartersTask,
 ];
