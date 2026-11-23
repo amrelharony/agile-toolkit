@@ -55,7 +55,7 @@ import {
   type WorkflowDefinition,
   type WorkType,
 } from "@/lib/stores/workspace-types";
-import { describedBoard, sleText, stagePolicy } from "@/lib/kanban/workflow";
+import { describedBoard, sleText, stagePolicy } from "@/lib/kanban/workflow-view";
 import { WORK_TYPE_LABEL } from "@/lib/flow/work-types";
 import { withSpellNote, type SpellNote } from "@/lib/flow/block-stamps";
 import { cn } from "@/lib/utils";

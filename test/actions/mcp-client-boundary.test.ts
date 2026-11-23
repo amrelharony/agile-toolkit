@@ -104,6 +104,7 @@ describe("what the MCP handlers call", () => {
         "src/lib/improve/coaching.ts",
         "src/lib/improve/model.ts",
         "src/lib/kanban/statik.ts",
+        "src/lib/kanban/workflow-view.ts",
         "src/lib/kanban/workflow.ts",
         "src/lib/kickoff/formats.ts",
         "src/lib/kickoff/model.ts",

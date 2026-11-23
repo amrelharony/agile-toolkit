@@ -18,7 +18,7 @@ import {
   sleText,
   stagePolicy,
   wipColumns,
-} from "@/lib/kanban/workflow";
+} from "@/lib/kanban/workflow-view";
 import { WORK_TYPE_LABEL } from "@/lib/flow/work-types";
 import { cycleTimeDays, FLOW_COLUMNS, isLimited } from "./flow-view";
 import {

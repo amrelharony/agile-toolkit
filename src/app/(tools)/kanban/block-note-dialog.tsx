@@ -38,7 +38,7 @@ import {
 import { DEFAULT_BLOCKER_CLUSTERS } from "@/lib/impediments/clusters";
 import { isResolved } from "@/lib/impediments/model";
 import { openSpellIndex, withSpellNote, type SpellNote } from "@/lib/flow/block-stamps";
-import { blockNotedPayload } from "@/lib/kanban/workflow";
+import { blockNotedPayload } from "@/lib/kanban/workflow-view";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
 import type { HandoffLinkStore } from "@/lib/handoffs/send";
 import { KANBAN_FLOW_DOC } from "@/lib/handoffs/sources";

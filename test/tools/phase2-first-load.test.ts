@@ -100,4 +100,16 @@ describe("what a tool page's first load leaves out", () => {
       expect(reached, lazy).not.toContain(lazy);
     }
   });
+
+  it("Kanban's boards and export read the workflow's light helpers, not the Definition of Workflow engine", () => {
+    const reached = firstLoad("src/app/(tools)/kanban/kanban-client.tsx");
+    expect(reached).toContain("src/app/(tools)/kanban/markdown.ts");
+    expect(reached).toContain("src/lib/kanban/workflow-view.ts");
+    for (const lazy of [
+      "src/lib/kanban/workflow.ts",
+      "src/app/(tools)/kanban/workflow/workflow-section.tsx",
+    ]) {
+      expect(reached, lazy).not.toContain(lazy);
+    }
+  });
 });

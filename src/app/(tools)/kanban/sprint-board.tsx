@@ -31,7 +31,7 @@ import type {
   Story,
   WorkflowDefinition,
 } from "@/lib/stores/workspace-types";
-import { describedBoard, sleText, stagePolicy } from "@/lib/kanban/workflow";
+import { describedBoard, sleText, stagePolicy } from "@/lib/kanban/workflow-view";
 import { checkedOf, openCriteria } from "@/lib/dod/model";
 import { cn } from "@/lib/utils";
 import { emit as sonify } from "@/lib/sonification/emit";
