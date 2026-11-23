@@ -16,6 +16,7 @@ import { meetingAuditSuggestTask } from "./meeting-audit";
 import { parkingRouteTask } from "./parking-lot";
 import { themeNamesTask } from "./picker";
 import { productGoalDraftTask } from "./product-goal";
+import { sizingDiscussTask, sizingSplitTask } from "./relative-sizing";
 import { groupTopicsTask, surprisePlanTask } from "./retro";
 import { retroActionsThemesTask } from "./retro-actions";
 import { categoriesTask, countermeasureTask, nextWhyTask } from "./root-cause";
@@ -42,6 +43,8 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   parkingRouteTask,
   themeNamesTask,
   productGoalDraftTask,
+  sizingDiscussTask,
+  sizingSplitTask,
   surprisePlanTask,
   groupTopicsTask,
   retroActionsThemesTask,
