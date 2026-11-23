@@ -102,6 +102,7 @@ import {
 import { deliverableSource, impactHypothesisSource } from "@/lib/strategy-map/send";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { cn } from "@/lib/utils";
+import { EXPORT_SKIP } from "@/lib/utils/export-skip";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -193,7 +194,7 @@ export function ImpactMapClient() {
     requestAnimationFrame(() => detailsRef.current?.focus());
   };
   const askRef = useRef<HTMLDivElement>(null);
-  const exportRef = useRef<HTMLDivElement>(null);
+  const exportRef = useRef<HTMLElement>(null);
 
   const open = maps.find((m) => m.id === openId) ?? maps[0];
   const today = todayLocalISO();
@@ -612,6 +613,7 @@ export function ImpactMapClient() {
           <>
             {node.level === 1 && !persona && !example && (
               <Link
+                {...EXPORT_SKIP}
                 href={`/persona-library?fromMap=${encodeURIComponent(map.id)}&actor=${encodeURIComponent(node.id)}`}
                 className="min-touch-coarse mt-1 inline-flex items-center text-xs text-accent underline-offset-2 hover:underline"
               >
@@ -631,7 +633,10 @@ export function ImpactMapClient() {
               </Link>
             )}
             {ideas && (
-              <div className="mt-2 space-y-1.5 rounded-md border border-dashed border-border p-2">
+              <div
+                {...EXPORT_SKIP}
+                className="mt-2 space-y-1.5 rounded-md border border-dashed border-border p-2"
+              >
                 <p className="text-xs font-medium text-text">Ideas for deliverables (no AI)</p>
                 {ideas.length === 0 ? (
                   <p className="text-xs text-sub">This impact has all three already.</p>
@@ -743,7 +748,7 @@ export function ImpactMapClient() {
           if (id) setWanted(id);
         }}
       />
-      <div ref={exportRef} className="space-y-4">
+      <div className="space-y-4">
         {hasExampleItems(maps) && <ExampleNotice onClear={clearExample} />}
         <ActionRow>
           {open && (
@@ -827,7 +832,9 @@ export function ImpactMapClient() {
                 </nav>
               )}
 
-              <section aria-labelledby="map-heading" className="space-y-3">
+              {/* The PNG is the map: its title, Product Goal and parts. Its controls
+                  are marked EXPORT_SKIP, and so are the parts' own (NodeCard). */}
+              <section ref={exportRef} aria-labelledby="map-heading" className="space-y-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <h2 id="map-heading" className="break-words text-lg font-semibold text-text">
@@ -841,7 +848,7 @@ export function ImpactMapClient() {
                       {focus ? ` · working on “${nodeTitle(focus, FORMAT)}” first` : ""}
                     </p>
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div {...EXPORT_SKIP} className="flex items-center gap-1">
                     <IconButton
                       ref={detailsRef}
                       label={`Edit the map's name and date: ${open.title}`}
@@ -865,15 +872,17 @@ export function ImpactMapClient() {
                 </div>
 
                 {editingDetails && (
-                  <MapDetailsForm
-                    key={open.id}
-                    map={open}
-                    onSave={(t, d) => {
-                      saveDetails(open, t, d);
-                      closeDetails();
-                    }}
-                    onCancel={closeDetails}
-                  />
+                  <div {...EXPORT_SKIP}>
+                    <MapDetailsForm
+                      key={open.id}
+                      map={open}
+                      onSave={(t, d) => {
+                        saveDetails(open, t, d);
+                        closeDetails();
+                      }}
+                      onCancel={closeDetails}
+                    />
+                  </div>
                 )}
 
                 {linkedGoal && (
@@ -882,7 +891,10 @@ export function ImpactMapClient() {
                   </ProductGoalLine>
                 )}
 
-                <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+                <div
+                  {...EXPORT_SKIP}
+                  className="space-y-2 rounded-lg border border-border bg-card p-3"
+                >
                   <h3 className="text-sm font-semibold text-text">Draft with Amr</h3>
                   <label className="block space-y-1.5 text-sm text-text">
                     <span>Anything Amr should know</span>
@@ -957,18 +969,20 @@ export function ImpactMapClient() {
                   )}
                 </div>
 
-                <ChecksList checks={checks} />
+                <div {...EXPORT_SKIP} className="space-y-3">
+                  <ChecksList checks={checks} />
 
-                <ToggleGroup
-                  label="View"
-                  size="sm"
-                  options={[
-                    { value: "tree", label: "Tree" },
-                    { value: "paths", label: "Paths" },
-                  ]}
-                  value={view}
-                  onValueChange={setView}
-                />
+                  <ToggleGroup
+                    label="View"
+                    size="sm"
+                    options={[
+                      { value: "tree", label: "Tree" },
+                      { value: "paths", label: "Paths" },
+                    ]}
+                    value={view}
+                    onValueChange={setView}
+                  />
+                </div>
 
                 {view === "tree" ? (
                   <LevelTree

@@ -90,6 +90,7 @@ import {
 import { strategySource } from "@/lib/strategy-map/send";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { cn } from "@/lib/utils";
+import { EXPORT_SKIP } from "@/lib/utils/export-skip";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -146,7 +147,7 @@ export function StrategyTreeClient() {
   const [context, setContext] = useState("");
   const newTreeRef = useRef<HTMLButtonElement>(null);
   const askRef = useRef<HTMLDivElement>(null);
-  const exportRef = useRef<HTMLDivElement>(null);
+  const exportRef = useRef<HTMLElement>(null);
 
   const open = trees.find((t) => t.id === openId) ?? trees[0];
   const today = todayLocalISO();
@@ -567,7 +568,7 @@ export function StrategyTreeClient() {
           if (id) setWanted(id);
         }}
       />
-      <div ref={exportRef} className="space-y-4">
+      <div className="space-y-4">
         {hasExampleItems(trees) && <ExampleNotice onClear={clearExample} />}
         <ActionRow>
           {open && (
@@ -651,7 +652,9 @@ export function StrategyTreeClient() {
                 </ul>
               </nav>
 
-              <section aria-labelledby="tree-heading" className="space-y-3">
+              {/* The PNG is the tree: its title and parts. Its controls are marked
+                  EXPORT_SKIP, and so are the parts' own (NodeCard). */}
+              <section ref={exportRef} aria-labelledby="tree-heading" className="space-y-3">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <h2 id="tree-heading" className="break-words text-lg font-semibold text-text">
@@ -669,6 +672,7 @@ export function StrategyTreeClient() {
                     </p>
                   </div>
                   <IconButton
+                    {...EXPORT_SKIP}
                     label={`Delete the tree ${open.title}`}
                     icon={<Trash2 className="h-4 w-4" />}
                     className="text-sub hover:text-danger"
@@ -681,7 +685,10 @@ export function StrategyTreeClient() {
                   />
                 </div>
 
-                <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+                <div
+                  {...EXPORT_SKIP}
+                  className="space-y-2 rounded-lg border border-border bg-card p-3"
+                >
                   <h3 className="text-sm font-semibold text-text">Draft with Amr</h3>
                   <label className="block space-y-1.5 text-sm text-text">
                     <span>Anything Amr should know</span>
@@ -749,7 +756,9 @@ export function StrategyTreeClient() {
                   )}
                 </div>
 
-                <ChecksList checks={checks} />
+                <div {...EXPORT_SKIP}>
+                  <ChecksList checks={checks} />
+                </div>
 
                 <LevelTree
                   map={open}

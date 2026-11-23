@@ -46,10 +46,19 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ),
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+/** The element the page's PNG export would capture, as the last render passed it. */
+const pngTarget = vi.hoisted(() => ({ ref: null as { current: HTMLElement | null } | null }));
 vi.mock("@/components/shared/export-button", () => ({
-  ExportButton: ({ markdown }: { markdown?: string }) => (
-    <pre data-testid="export-markdown">{markdown}</pre>
-  ),
+  ExportButton: ({
+    markdown,
+    targetRef,
+  }: {
+    markdown?: string;
+    targetRef?: { current: HTMLElement | null };
+  }) => {
+    pngTarget.ref = targetRef ?? null;
+    return <pre data-testid="export-markdown">{markdown}</pre>;
+  },
 }));
 
 import { StrategyTreeClient } from "@/app/(tools)/strategy-tree/strategy-tree-client";
@@ -59,6 +68,7 @@ import { strategyMapProblems } from "@/lib/strategy-map/rules";
 import { TOO_BIG } from "@/lib/strategy-map/model";
 import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
 import { jsonBytes } from "@/lib/utils/json-bytes";
+import { keepInExport } from "@/lib/utils/export-skip";
 import { nearlyFull } from "../strategy-map/near-full";
 
 const AT = "2026-11-20T09:00:00.000Z";
@@ -728,6 +738,33 @@ describe("export and links", () => {
     seed([dibb()]);
     renderPage();
     expect((await screen.findByTestId("export-markdown")).textContent).toMatch(/^# DIBB — /);
+  });
+
+  it("takes the PNG of the tree, leaving the page's controls and the parts' own out", async () => {
+    seed([lvt()]);
+    renderPage();
+    await screen.findByRole("heading", { level: 2, name: "Good dinners without the planning" });
+    const target = pngTarget.ref?.current;
+    if (!target) throw new Error("the export has no target");
+    // The tree's title and its four parts are in the picture...
+    expect(within(target).getByRole("heading", { level: 2 })).toHaveTextContent(
+      "Good dinners without the planning"
+    );
+    const parts = Array.from(target.querySelectorAll("article"));
+    expect(parts).toHaveLength(4);
+    expect(parts.every((a) => !a.closest("[data-export-skip]"))).toBe(true);
+    // ...and the page's toolbar isn't.
+    expect(target.contains(screen.getByTestId("export-markdown"))).toBe(false);
+    expect(target.contains(screen.getByRole("button", { name: "New tree" }))).toBe(false);
+    // Every control left inside (Agree, Test, Put on the roadmap, Edit, Delete, Amr's draft)
+    // is marked to stay out of it.
+    const kept = Array.from(target.querySelectorAll("button, input, textarea, select")).filter(
+      (el) => keepInExport(el) && !el.closest("[data-export-skip]")
+    );
+    expect(kept.map((el) => el.getAttribute("aria-label") ?? el.textContent)).toEqual([]);
+    expect(
+      screen.getByRole("button", { name: "Put on the roadmap: Favourites on the home screen" })
+    ).toBeInTheDocument();
   });
 
   it("opens the tree a ?tree= link names, and drops the link once open", async () => {
