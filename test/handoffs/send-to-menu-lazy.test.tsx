@@ -8,9 +8,12 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { loadSendToMenuItems, SendToMenu } from "@/components/handoff/send-to-menu";
-import type { HandoffLink } from "@/lib/handoffs/types";
+import type { HandoffLink, HandoffSource } from "@/lib/handoffs/types";
 
-const item = { tool: "retro", id: "c1", title: "Fix the flaky deploy" };
+const item: HandoffSource = {
+  title: "Fix the flaky deploy",
+  sourceRef: { tool: "retro", id: "c1" },
+};
 
 const renderMenu = (sentTo: HandoffLink[] = []) =>
   render(
