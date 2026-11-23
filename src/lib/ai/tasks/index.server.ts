@@ -8,6 +8,7 @@ import type { AiTaskPrompt } from "../task-types";
 import { suggestOptionsPrompt } from "./_example.server";
 import { clusterPrompt, mergeQuestionsPrompt, toBacklogPrompt } from "./audience-wall.server";
 import { backlogHealthReviewPrompt } from "./backlog-health.server";
+import { bugTriageSeverityPrompt } from "./bug-triage.server";
 import { cardForMoodPrompt, generateCardsPrompt } from "./card-decks.server";
 import { mapExamplesPrompt, mapQuestionsPrompt, mapRulesPrompt } from "./example-mapping.server";
 import { agendaPrompt } from "./facilitator-timers.server";
@@ -23,6 +24,7 @@ import { retroActionsThemesPrompt } from "./retro-actions.server";
 import { categoriesPrompt, countermeasurePrompt, nextWhyPrompt } from "./root-cause.server";
 import { notebookTagPrompt, notebookWeeklySummaryPrompt } from "./sm-notebook.server";
 import { sprintRiskNotePrompt } from "./sprint.server";
+import { testSessionsChartersPrompt } from "./test-sessions.server";
 
 // See index.ts on `any`: each prompt's input is checked by its task's schema first.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -32,6 +34,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   mergeQuestionsPrompt,
   toBacklogPrompt,
   backlogHealthReviewPrompt,
+  bugTriageSeverityPrompt,
   generateCardsPrompt,
   cardForMoodPrompt,
   mapRulesPrompt,
@@ -55,4 +58,5 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   notebookWeeklySummaryPrompt,
   notebookTagPrompt,
   sprintRiskNotePrompt,
+  testSessionsChartersPrompt,
 ];
