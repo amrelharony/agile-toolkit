@@ -94,23 +94,29 @@ export function seismographDays(
 
 /** One moment the chart draws: a card the team wrote at this retro, with its group. */
 export interface Moment {
-  /** The top card of its group. */
+  /**
+   * The card that stands for its group: its top card, or, when the top card
+   * doesn't chart (an action, a card sent from another tool), the group's
+   * first card in board order that does.
+   */
   id: string;
   text: string;
   band: SeismographBand;
-  /** The top card's day, as stored (it may be past the board's last day). */
+  /** That card's day, as stored (it may be past the board's last day). */
   day?: number;
-  /** Its own votes and those of the cards grouped under it. */
+  /** Its own votes and those of the cards that chart with it. */
   votes: number;
-  /** The cards grouped under it, which chart with it. */
+  /** The other cards of its group that chart with it. */
   groupIds: string[];
   /** Where it sits on the board. */
   index: number;
 }
 
-/** A card that charts: not an action, not carried over, not from another tool. */
+/** A card that charts: not an action, not carried over, not from another tool, with words. */
 function isMomentCard(c: RetroCard): boolean {
-  return !c.isActionItem && !c.carriedFrom && !c.sourceRef && isBand(c.columnKey);
+  return (
+    !c.isActionItem && !c.carriedFrom && !c.sourceRef && isBand(c.columnKey) && !!c.text.trim()
+  );
 }
 
 /** The top card of `card`'s group, following `groupedWith` up (a loop stops it). */
@@ -132,29 +138,43 @@ function topOf(card: RetroCard, byId: ReadonlyMap<string, RetroCard>): RetroCard
  * (a hand-off's action, a kudos, a retro topic) are left out: on this board
  * a concern sent from Root Cause would land in Lows and chart as a low. A
  * grouped card charts with the top card of its group, its votes added in.
+ * When the top card doesn't chart (the team grouped its lows under a sent
+ * action), the group's first card that does stands for it, with the votes
+ * of the group's other cards that chart, so no team card drops off.
  */
 export function momentCards(cards: readonly RetroCard[]): Moment[] {
   const byId = new Map(cards.map((c) => [c.id, c]));
-  const groups = new Map<string, string[]>();
+  const groupOf = new Map(cards.map((c) => [c.id, topOf(c, byId).id]));
+  /** Each group's cards in board order, by its top card's id. */
+  const groups = new Map<string, RetroCard[]>();
   for (const c of cards) {
-    const top = topOf(c, byId);
-    if (top.id === c.id) continue;
-    groups.set(top.id, [...(groups.get(top.id) ?? []), c.id]);
+    const top = groupOf.get(c.id) as string;
+    groups.set(top, [...(groups.get(top) ?? []), c]);
+  }
+  /** The card that charts for each group, by its top card's id. */
+  const lead = new Map<string, string>();
+  for (const [top, members] of groups) {
+    const own = members.find((m) => m.id === top && isMomentCard(m));
+    const first = own ?? members.find(isMomentCard);
+    if (first) lead.set(top, first.id);
   }
   const out: Moment[] = [];
   cards.forEach((c, index) => {
-    if (topOf(c, byId).id !== c.id || !isMomentCard(c) || !c.text.trim()) return;
-    const groupIds = groups.get(c.id) ?? [];
+    const top = groupOf.get(c.id) as string;
+    if (lead.get(top) !== c.id) return;
+    // Under a top card that charts, every card of the group counts, as before.
+    const others = (groups.get(top) ?? []).filter(
+      (m) => m.id !== c.id && (top === c.id || isMomentCard(m))
+    );
     const votes =
-      Math.max(0, c.votes || 0) +
-      groupIds.reduce((s, id) => s + Math.max(0, byId.get(id)?.votes || 0), 0);
+      Math.max(0, c.votes || 0) + others.reduce((s, m) => s + Math.max(0, m.votes || 0), 0);
     out.push({
       id: c.id,
       text: c.text,
       band: c.columnKey as SeismographBand,
       ...(isCardDay(c.day) ? { day: c.day } : {}),
       votes,
-      groupIds,
+      groupIds: others.map((m) => m.id),
       index,
     });
   });

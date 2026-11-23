@@ -137,13 +137,39 @@ describe("momentCards", () => {
     });
   });
 
-  it("charts no group whose top card doesn't chart, and survives a grouping loop", () => {
-    const action = card({ isActionItem: true });
-    const under = card({ groupedWith: action.id });
+  it("lets a group's first card that charts stand for it under a top card that doesn't", () => {
+    const sent = card({ sourceRef: { tool: "root-cause", id: "rca_1" }, votes: 5, day: 1 });
+    const blank = card({ groupedWith: sent.id, text: "  ", votes: 9 });
+    const first = card({ groupedWith: sent.id, votes: 1, day: 4 });
+    const second = card({ groupedWith: first.id, votes: 2, day: 6 });
+    const action = card({ isActionItem: true, groupedWith: sent.id, votes: 3 });
+    const moments = momentCards([sent, blank, first, second, action]);
+    expect(moments).toHaveLength(1);
+    // Its own day, and only the votes of the group's cards that chart.
+    expect(moments[0]).toMatchObject({
+      id: first.id,
+      band: "lows",
+      day: 4,
+      votes: 3,
+      groupIds: [second.id],
+      index: 2,
+    });
+    // With no card in the group that charts, the group isn't drawn.
+    const action2 = card({ isActionItem: true });
+    expect(momentCards([action2, card({ groupedWith: action2.id, isActionItem: true })])).toEqual(
+      []
+    );
+  });
+
+  it("survives a grouping loop, charting each card of it", () => {
     const a = card({ id: "loop-a", groupedWith: "loop-b" });
     const b = card({ id: "loop-b", groupedWith: "loop-a" });
-    expect(momentCards([action, under])).toEqual([]);
     expect(() => momentCards([a, b])).not.toThrow();
+    expect(
+      momentCards([a, b])
+        .map((m) => m.id)
+        .sort()
+    ).toEqual(["loop-a", "loop-b"]);
   });
 
   it("drops a day that isn't a whole number in range", () => {

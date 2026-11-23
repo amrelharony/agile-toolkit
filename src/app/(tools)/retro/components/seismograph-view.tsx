@@ -9,7 +9,8 @@
  * It charts only what this screen shows (`shownCards`: a live room's hidden
  * cards stay hidden) and only the team's own moments: action items,
  * carried-over actions and cards sent from other tools are left out. A
- * grouped card charts with the top card of its group.
+ * grouped card charts with the top card of its group, or, under a top card
+ * that doesn't chart, with the group's first card that does.
  *
  * "Place the cards" gives each moment a day (cards with no day first),
  * labelled with the sprint's dates when the board has a sprint; each day
