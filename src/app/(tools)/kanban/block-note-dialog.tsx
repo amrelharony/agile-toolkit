@@ -65,6 +65,36 @@ export function openSpell(item: Pick<BlockableItem, "blockLog">): BlockSpell | n
   return i >= 0 ? log[i] : null;
 }
 
+/**
+ * `log` with a saved note taken back from the spell starting at `from`,
+ * and nothing else: `previous` is that spell as it was before the save
+ * (its cause, cluster, side and links come back, and an end stamped since
+ * stays), or null when the save started the spell, which then goes. The
+ * log as given when the spell isn't there any more.
+ */
+export function unnotedLog(
+  log: BlockSpell[] | undefined,
+  from: string,
+  previous: BlockSpell | null
+): BlockSpell[] | undefined {
+  const list = Array.isArray(log) ? log : [];
+  if (!previous) {
+    const out = list.filter((s) => !(s.from === from && s.earlier));
+    return out.length ? out : undefined;
+  }
+  const row = withSpellNote(
+    { id: "undo", blocked: true, blockLog: list },
+    {
+      cause: previous.cause ?? "",
+      cluster: previous.cluster ?? "",
+      side: previous.side ?? null,
+      sentTo: previous.sentTo ?? [],
+    },
+    { spellFrom: from }
+  );
+  return row ? row.blockLog : log;
+}
+
 /** "Add why", or "Why: <cause>" cut to fit a card. */
 export function whyLabel(spell: BlockSpell | null): string {
   const cause = spell?.cause?.trim();
@@ -106,7 +136,7 @@ export interface BlockWhyProps {
   fresh: () => BlockableItem | undefined;
   /** Write a note on the row's open spell (`withSpellNote`); false when nothing changed. */
   writeNote: (note: SpellNote) => boolean;
-  /** Put the row's blocked spells back as they were (an Undo). */
+  /** Write the row's blocked spells as given (an Undo of a note: `unnotedLog`). */
   restoreLog: (log: BlockSpell[] | undefined) => void;
   log: (action: string, payload: Record<string, unknown>) => void;
   /** Extra history payload (the Sprint board says `board: "sprint"`). */
@@ -230,13 +260,23 @@ function BlockNoteForm({
       onClose();
       return;
     }
+    // The spell the note goes on, as it was; null when saving starts one (a block from before tracking).
+    const target = openSpell(before);
     let wrote = false;
+    let noted: string | undefined;
     undoable({
       label: "Saved why it's blocked",
       apply: () => {
         wrote = writeNote(note);
+        noted = target?.from ?? openSpell(fresh() ?? item)?.from;
       },
-      revert: () => restoreLog(before.blockLog),
+      // Undo takes back the note only, on the log as it is then: a spell
+      // closed since (unblocked, or moved to Done) keeps its end.
+      revert: () => {
+        const now = fresh();
+        if (!wrote || noted === undefined || !now) return;
+        restoreLog(unnotedLog(now.blockLog, noted, target));
+      },
     });
     if (wrote) {
       log(KANBAN_ACTIONS.BLOCK_NOTED, {

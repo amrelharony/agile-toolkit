@@ -16,6 +16,7 @@ import {
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
 import { BOARD_VIEW_KEY } from "@/app/(tools)/kanban/board-view";
+import { unnotedLog } from "@/app/(tools)/kanban/block-note-dialog";
 import { sprintBoardMarkdown, toMarkdown } from "@/app/(tools)/kanban/markdown";
 import { buildWorkflowExample } from "@/app/(tools)/kanban/workflow/example";
 import {
@@ -649,6 +650,61 @@ describe("the block note", () => {
     expect(boardCard("w").blockLog).toEqual([{ from: expect.any(String) }]);
   });
 
+  it("Undo takes back only the note: a spell closed since keeps its end", async () => {
+    seed({ cards: [blocked()] });
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Add why: Wallet payments" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.change(within(dialog).getByLabelText("What blocks it"), {
+      target: { value: "Waiting on keys" },
+    });
+    fireEvent.change(within(dialog).getByLabelText("Blocker cluster"), {
+      target: { value: "default:6" },
+    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save why" }));
+    const saveToast = lastToast();
+    // Unblocked inside the Undo window: the store closes the spell.
+    act(() => {
+      const board = useWorkspaceStore.getState().kanbanBoards![0];
+      useWorkspaceStore.getState().upsertKanbanBoard({
+        ...board,
+        cards: board.cards.map((c) => (c.id === "w" ? { ...c, blocked: false } : c)),
+      });
+    });
+    const closedAt = boardCard("w").blockLog?.[0].to;
+    expect(closedAt).toBeTruthy();
+    act(() => saveToast[1].action.onClick());
+    expect(boardCard("w").blocked).toBeFalsy();
+    expect(boardCard("w").blockLog).toEqual([{ from: expect.any(String), to: closedAt }]);
+  });
+
+  it("Undo removes a spell the note started for a block from before tracking", () => {
+    const log = [{ from: "2026-11-01T09:00:00.000Z", to: "2026-11-02T09:00:00.000Z" }];
+    const started = [...log, { from: "2026-11-20T09:00:00.000Z", earlier: true, cause: "Keys" }];
+    expect(unnotedLog(started, "2026-11-20T09:00:00.000Z", null)).toEqual(log);
+    expect(unnotedLog(started.slice(1), "2026-11-20T09:00:00.000Z", null)).toBeUndefined();
+    // A note on an existing spell: its own fields come back, its end stays.
+    const noted = [
+      {
+        from: "2026-11-01T09:00:00.000Z",
+        to: "2026-11-03T09:00:00.000Z",
+        cause: "New",
+        cluster: "Another team",
+        side: "external" as const,
+      },
+    ];
+    expect(
+      unnotedLog(noted, "2026-11-01T09:00:00.000Z", {
+        from: "2026-11-01T09:00:00.000Z",
+        cause: "Old",
+      })
+    ).toEqual([{ from: "2026-11-01T09:00:00.000Z", to: "2026-11-03T09:00:00.000Z", cause: "Old" }]);
+    // A spell no longer there: the log as it is.
+    expect(
+      unnotedLog(noted, "2026-10-01T09:00:00.000Z", { from: "2026-10-01T09:00:00.000Z" })
+    ).toBe(noted);
+  });
+
   it("closes without an Undo toast when Save why changes nothing", async () => {
     seed({
       cards: [
@@ -811,6 +867,10 @@ describe("the block note", () => {
     expect(boardCard("w").blockLog).toEqual([
       { from: expect.any(String), earlier: true, cause: "Another team" },
     ]);
+    // Undo takes the spell the note started away again.
+    undoLast();
+    expect(boardCard("w").blockLog).toBeUndefined();
+    expect(boardCard("w").blocked).toBe(true);
   });
 
   it("is never offered on example cards or unblocked ones", () => {
