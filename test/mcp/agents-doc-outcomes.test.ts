@@ -18,6 +18,9 @@ import "@/lib/actions/tools/hypothesis-tracker";
 import "@/lib/actions/tools/user-interviews";
 import "@/lib/actions/tools/opportunity-tree";
 import "@/lib/actions/tools/riskiest-assumption";
+import "@/lib/actions/tools/product-metrics";
+import "@/lib/actions/tools/ab-calculator";
+import "@/lib/actions/tools/ebm-dashboard";
 import "@/lib/actions/tools/risk-register";
 import "@/lib/actions/tools/tech-debt";
 import "@/lib/actions/tools/quality-cost";
@@ -71,6 +74,9 @@ const HYPOTHESES = section("#### Hypothesis Tracker — `tool.hypothesis_tracker
 const INTERVIEWS = section("#### User Interview Log — `tool.user_interviews.*`");
 const TREE = section("#### Opportunity Solution Tree — `tool.opportunity_tree.*`");
 const ASSUMPTIONS = section("#### Riskiest Assumption Canvas — `tool.riskiest_assumption.*`");
+const METRICS = section("#### Product Metrics — `tool.product_metrics.*`");
+const AB = section("#### A/B Calculator — `tool.ab_calculator.*`");
+const EBM = section("#### EBM Dashboard — `tool.ebm_dashboard.*`");
 const RISKS = section("#### Risk Register — `tool.risk_register.*`");
 const DEBT = section("#### Technical Debt Tracker — `tool.tech_debt.*`");
 const COQ = section("#### Cost of Quality — `tool.quality_cost.*`");
@@ -85,6 +91,9 @@ const TOOLS = [
   ["tool.user_interviews", INTERVIEWS],
   ["tool.opportunity_tree", TREE],
   ["tool.riskiest_assumption", ASSUMPTIONS],
+  ["tool.product_metrics", METRICS],
+  ["tool.ab_calculator", AB],
+  ["tool.ebm_dashboard", EBM],
   ["tool.risk_register", RISKS],
   ["tool.tech_debt", DEBT],
   ["tool.quality_cost", COQ],

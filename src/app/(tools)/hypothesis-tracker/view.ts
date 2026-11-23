@@ -6,18 +6,29 @@
  * file only arranges it for the page, its export and its tests.
  */
 
-import type { Hypothesis, HypothesisStatus, HypothesisTarget } from "@/lib/stores/workspace-types";
+import type {
+  Hypothesis,
+  HypothesisMeasuredBy,
+  HypothesisStatus,
+  HypothesisTarget,
+  ProductMetric,
+} from "@/lib/stores/workspace-types";
 import { durationsFromTimeRanges, kaplanMeier, medianSurvivalTime } from "@/lib/analytics/survival";
 import { enoughData } from "@/lib/analytics/min-sample";
 import type { ChartTable } from "@/lib/charts/chart-text";
 import {
+  HYPOTHESIS_TEXT_MAX,
+  HYPOTHESIS_UNIT_MAX,
+  emptyHypothesisDraft,
   formatMetric,
   isResolved,
   missingFields,
   validationRate,
+  type HypothesisDraft,
   type MissingField,
   type ValidationRate,
 } from "@/lib/hypotheses/model";
+import { isValueCheck } from "@/lib/hypotheses/value-steps";
 import { isExampleId } from "@/lib/utils/example-id";
 
 export const STATUS_LABEL: Record<HypothesisStatus, string> = {
@@ -83,6 +94,68 @@ export function filterCounts(list: readonly Hypothesis[]): Record<StatusFilter, 
     for (const [f] of STATUS_FILTERS) if (matchesFilter(h, f)) counts[f] += 1;
   }
   return counts;
+}
+
+/* ── The kind filter (P2.5) ──────────────────────────────────────────── */
+
+/** Experiments are the tests the team frames; value checks follow shipped work. */
+export type KindFilter = "all" | "experiments" | "value-checks";
+
+/** The kind filter's options, in order. */
+export const KIND_FILTERS: readonly (readonly [KindFilter, string])[] = [
+  ["all", "All"],
+  ["experiments", "Experiments"],
+  ["value-checks", "Value checks"],
+];
+
+export function matchesKind(h: Hypothesis, kind: KindFilter): boolean {
+  if (kind === "all") return true;
+  return kind === "value-checks" ? isValueCheck(h) : !isValueCheck(h);
+}
+
+/* ── `?metric=<id>`: a new hypothesis for a product metric ───────────── */
+
+/** The product metric a `?metric=<id>` link names, or null. */
+export function readMetricParam(search: URLSearchParams): string | null {
+  const id = search.get("metric")?.trim();
+  return id ? id : null;
+}
+
+const numText = (n: number | undefined) =>
+  typeof n === "number" && Number.isFinite(n) ? String(n) : "";
+
+/**
+ * New hypothesis for a metric: measured by it, its direction and unit,
+ * and its latest reading (else its baseline) as the baseline. Its target
+ * is filled only when it is on the far side of that baseline (above a
+ * rise's, below a fall's); otherwise the person types one.
+ */
+export function draftForMetric(
+  m: ProductMetric,
+  today: string
+): { draft: HypothesisDraft; measuredBy: HypothesisMeasuredBy } {
+  const readings = (Array.isArray(m.readings) ? m.readings : [])
+    .filter((r) => Number.isFinite(r.value) && typeof r.date === "string" && r.date <= today)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  const latest = readings.at(-1)?.value;
+  const baseline = typeof latest === "number" ? latest : m.baseline;
+  const direction = m.direction === "decrease" ? "decrease" : "increase";
+  const beyond =
+    typeof m.target === "number" &&
+    Number.isFinite(m.target) &&
+    (typeof baseline !== "number" ||
+      (direction === "decrease" ? m.target < baseline : m.target > baseline));
+  return {
+    draft: {
+      ...emptyHypothesisDraft(today),
+      successMetric: m.name.trim().slice(0, HYPOTHESIS_TEXT_MAX),
+      direction,
+      unit: (m.unit ?? "").trim().slice(0, HYPOTHESIS_UNIT_MAX),
+      baseline: numText(baseline),
+      targetValue: beyond ? numText(m.target) : "",
+    },
+    measuredBy: { kind: "metric", metricId: m.id },
+  };
 }
 
 /* ── Target ──────────────────────────────────────────────────────────── */

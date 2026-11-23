@@ -159,6 +159,7 @@ import { targetClashes } from "@/lib/opportunity-tree/model";
 import { isDay } from "@/lib/notebook/model";
 import { CATEGORY_MAX, CAUSE_COUNT_MAX } from "@/lib/root-cause/model";
 import { productCanvasWriteProblems } from "@/lib/product-canvas/model";
+import { sourceProblem } from "@/lib/ebm/model";
 import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
@@ -5393,6 +5394,11 @@ async function beforeProductMetricWrite(
     problems.push(
       `There are already ${others.length} metrics, the most the tool keeps. Remove one first.`
     );
+  }
+  // An EBM measure read from the toolkit takes the source's own area and direction.
+  if (next.kva && next.source) {
+    const wrong = sourceProblem(next.kva, next.source, next.direction);
+    if (wrong) problems.push(wrong);
   }
   unlessRefused(next, problems);
 }

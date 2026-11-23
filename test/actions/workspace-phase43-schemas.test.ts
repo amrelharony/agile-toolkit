@@ -1190,6 +1190,34 @@ describe("P2.5 product metrics", () => {
     await expect(create(T, metric("one-more"), true)).rejects.toThrow(/the most the tool keeps/);
   });
 
+  it("refuse an EBM source from another area or against its direction, in the tab and over MCP", async () => {
+    seed();
+    await expect(
+      create(
+        T,
+        metric("cycle", {
+          direction: "increase",
+          kva: "time-to-market",
+          source: "cycle-time-median",
+        })
+      )
+    ).rejects.toThrow(/“Lower is better” number/);
+    await expect(
+      create(
+        T,
+        metric("nps", { direction: "increase", kva: "unrealized-value", source: "nps-90d" }),
+        true
+      )
+    ).rejects.toThrow(/is a Current Value number, not Unrealized Value/);
+    expect(upsertEntity).not.toHaveBeenCalled();
+    await create(
+      T,
+      metric("cycle", { direction: "decrease", kva: "time-to-market", source: "cycle-time-median" })
+    );
+    // A source on a metric that isn't an EBM measure isn't checked against an area.
+    await create(T, metric("plain", { direction: "increase", source: "cycle-time-median" }));
+  });
+
   it("count the example's rows apart from real ones", async () => {
     seed(metric("example-m1", { role: "north-star" }), metric("example-m2", { aarrr: "revenue" }));
     await create(T, metric("m1", { role: "north-star", aarrr: "revenue" }));

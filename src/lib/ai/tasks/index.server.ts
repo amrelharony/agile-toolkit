@@ -6,10 +6,12 @@
 import "server-only";
 import type { AiTaskPrompt } from "../task-types";
 import { suggestOptionsPrompt } from "./_example.server";
+import { abPlanCheckPrompt } from "./ab-calculator.server";
 import { clusterPrompt, mergeQuestionsPrompt, toBacklogPrompt } from "./audience-wall.server";
 import { backlogHealthReviewPrompt } from "./backlog-health.server";
 import { bugTriageSeverityPrompt } from "./bug-triage.server";
 import { cardForMoodPrompt, generateCardsPrompt } from "./card-decks.server";
+import { ebmMeasuresPrompt } from "./ebm-dashboard.server";
 import { mapExamplesPrompt, mapQuestionsPrompt, mapRulesPrompt } from "./example-mapping.server";
 import { agendaPrompt } from "./facilitator-timers.server";
 import { hillChartUpdateNotePrompt } from "./hill-chart.server";
@@ -23,6 +25,7 @@ import { themeNamesPrompt } from "./picker.server";
 import { pokerSimilarPrompt } from "./planning-poker.server";
 import { productCanvasDraftPrompt, productCanvasGapsPrompt } from "./product-canvas.server";
 import { productGoalDraftPrompt } from "./product-goal.server";
+import { productMetricsSuggestPrompt } from "./product-metrics.server";
 import { sizingDiscussPrompt, sizingSplitPrompt } from "./relative-sizing.server";
 import { releaseReadinessNotesPrompt } from "./release-readiness.server";
 import { groupTopicsPrompt, surprisePlanPrompt } from "./retro.server";
@@ -37,6 +40,7 @@ import { testSessionsChartersPrompt } from "./test-sessions.server";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   suggestOptionsPrompt,
+  abPlanCheckPrompt,
   clusterPrompt,
   mergeQuestionsPrompt,
   toBacklogPrompt,
@@ -44,6 +48,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   bugTriageSeverityPrompt,
   generateCardsPrompt,
   cardForMoodPrompt,
+  ebmMeasuresPrompt,
   mapRulesPrompt,
   mapExamplesPrompt,
   mapQuestionsPrompt,
@@ -60,6 +65,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   productCanvasDraftPrompt,
   productCanvasGapsPrompt,
   productGoalDraftPrompt,
+  productMetricsSuggestPrompt,
   sizingDiscussPrompt,
   sizingSplitPrompt,
   releaseReadinessNotesPrompt,

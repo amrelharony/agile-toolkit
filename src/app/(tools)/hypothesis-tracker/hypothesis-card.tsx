@@ -12,8 +12,9 @@
  * and no day lands in the future or before the day it was raised.
  */
 
+import Link from "next/link";
 import { useEffect, useId, useRef, useState } from "react";
-import { CheckCircle2, Pencil, Trash2 } from "lucide-react";
+import { CheckCircle2, FlaskConical, Gauge, PackageCheck, Pencil, Trash2 } from "lucide-react";
 import { SourceLink } from "@/components/handoff/source-link";
 import { BlurTextarea } from "@/components/shared/blur-fields";
 import { DayInput } from "@/components/shared/day-input";
@@ -21,10 +22,27 @@ import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
-import type { Hypothesis, HypothesisStatus } from "@/lib/stores/workspace-types";
+import type {
+  AbTest,
+  Hypothesis,
+  HypothesisMeasuredBy,
+  HypothesisStatus,
+  Okr,
+  ProductMetric,
+} from "@/lib/stores/workspace-types";
+import { testForHypothesis, testSummary } from "@/lib/experiments/model";
+import {
+  abResultUpdate,
+  isDue,
+  measuredByText,
+  readMeasure,
+  shippedText,
+} from "@/lib/hypotheses/value";
+import { MeasuredByEditor } from "./value-checks";
 import {
   HYPOTHESIS_STATUSES,
   HYPOTHESIS_TEXT_MAX,
+  formatMetric,
   hypothesisDraftFrom,
   isResolved,
   missingFields,
@@ -48,12 +66,29 @@ const STATUS_TONE: Record<HypothesisStatus, string> = {
   inconclusive: "border-warning/40 bg-warning/10 text-warning",
 };
 
+/** What a value check and the A/B line read (P2.5): the product metrics, OKRs and A/B tests. */
+export interface CardContext {
+  metrics: readonly ProductMetric[];
+  okrs: readonly Okr[];
+  tests: readonly AbTest[];
+}
+
+/** A value-check write the page makes, with Undo where it sets a result (P2.5). */
+export type ValueAction =
+  | { kind: "read-measure" }
+  | { kind: "use-ab"; testId: string }
+  | { kind: "measured-by"; measuredBy: HypothesisMeasuredBy | null };
+
+const NO_CONTEXT: CardContext = { metrics: [], okrs: [], tests: [] };
+
 export interface HypothesisCardProps {
   hypothesis: Hypothesis;
   today: string;
   /** Save checked values over the row (an edit, a status, a day, a result). */
   onSave: (h: Hypothesis, values: HypothesisValues, what: CardChange) => void;
   onRemove: (h: Hypothesis) => void;
+  context?: CardContext;
+  onValueAction?: (h: Hypothesis, action: ValueAction) => void;
 }
 
 /** What a save changed, for the page's announcement and history. */
@@ -62,14 +97,24 @@ export type CardChange = "edit" | "status" | "raised" | "resolved" | "result" | 
 const firstError = (errors: Partial<Record<string, string>>) =>
   Object.values(errors).find(Boolean) ?? null;
 
-export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: HypothesisCardProps) {
+export function HypothesisCard({
+  hypothesis: h,
+  today,
+  onSave,
+  onRemove,
+  context = NO_CONTEXT,
+  onValueAction,
+}: HypothesisCardProps) {
   const [editing, setEditing] = useState(false);
+  const [measuring, setMeasuring] = useState(false);
   const [statusError, setStatusError] = useState<{ message: string; detail: boolean } | null>(null);
   const [outcomeError, setOutcomeError] = useState<string | null>(null);
   const titleId = useId();
   const editRef = useRef<HTMLButtonElement>(null);
   const statusRef = useRef<HTMLSelectElement>(null);
   const refocusEdit = useRef(false);
+  const measureRef = useRef<HTMLButtonElement>(null);
+  const refocusMeasure = useRef(false);
   /** Words typed in "What we learned" that the row's check refused, held until it passes. */
   const heldOutcome = useRef<string | null>(null);
 
@@ -78,11 +123,33 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
   const suggestion = suggestVerdict(h);
   const title = h.believe?.trim() || "Untitled hypothesis";
 
+  // Value checks and the A/B line (P2.5), read live from the workspace.
+  const sources = { metrics: context.metrics, okrs: context.okrs };
+  const due = isDue(h, today);
+  const shippedLine = shippedText(h);
+  const measuredLine = measuredByText(h.measuredBy, sources);
+  const read = readMeasure(h, sources);
+  const test = testForHypothesis(context.tests, h.id);
+  const abResult = test ? testSummary(test).result : null;
+  const abUse = test ? abResultUpdate(h, test) : null;
+  const percentTarget = h.target?.unit?.trim() === "%";
+
   useEffect(() => {
     if (editing || !refocusEdit.current) return;
     refocusEdit.current = false;
     editRef.current?.focus();
   }, [editing]);
+
+  // The "Measured by" editor closed: focus goes back to the button that opened it.
+  useEffect(() => {
+    if (measuring || !refocusMeasure.current) return;
+    refocusMeasure.current = false;
+    measureRef.current?.focus();
+  }, [measuring]);
+  const closeMeasuring = () => {
+    refocusMeasure.current = true;
+    setMeasuring(false);
+  };
 
   /**
    * The saved row with `patch` typed over it, checked as the editor checks
@@ -203,6 +270,12 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
           </h3>
           {/* Sent from another tool: a riskiest assumption, an experiment, a Cynefin item. */}
           <SourceLink sourceRef={h.sourceRef} className="mt-1" />
+          {shippedLine && (
+            <p className="mt-1 flex items-start gap-1 break-words text-xs text-sub">
+              <PackageCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span>{shippedLine}</span>
+            </p>
+          )}
         </div>
         <div className="flex shrink-0 items-center">
           <IconButton
@@ -235,6 +308,11 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
         {missing.length > 0 && (
           <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning">
             Needs detail: {missingText(missing)}
+          </span>
+        )}
+        {due && (
+          <span className="inline-flex items-center rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-xs text-warning">
+            Due
           </span>
         )}
         {isExampleId(h.id) && (
@@ -286,6 +364,102 @@ export function HypothesisCard({ hypothesis: h, today, onSave, onRemove }: Hypot
                 </Button>
               )}
             </div>
+          )}
+        </div>
+      )}
+
+      {onValueAction && (
+        <div className="space-y-1.5 text-xs">
+          {measuring ? (
+            <MeasuredByEditor
+              current={h.measuredBy}
+              metrics={context.metrics}
+              okrs={context.okrs}
+              onSave={(m) => {
+                closeMeasuring();
+                onValueAction(h, { kind: "measured-by", measuredBy: m });
+              }}
+              onCancel={closeMeasuring}
+            />
+          ) : (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <Gauge className="h-3.5 w-3.5 shrink-0 text-sub" aria-hidden="true" />
+              <span className={cn("min-w-0 break-words", measuredLine ? "text-text" : "text-sub")}>
+                {measuredLine ? `Measured by ${measuredLine}` : "Measured by: not set"}
+              </span>
+              <Button
+                ref={measureRef}
+                type="button"
+                size="sm"
+                variant="ghost"
+                className="h-auto px-1.5 py-0.5 text-xs"
+                // The visible words first, so speech input can say them.
+                aria-label={`${h.measuredBy ? "Change" : "Set it:"} how “${title}” is measured`}
+                onClick={() => setMeasuring(true)}
+              >
+                {h.measuredBy ? "Change" : "Set it"}
+              </Button>
+            </div>
+          )}
+
+          {!resolved && read.state === "ready" && h.actual !== read.reading.value && (
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                aria-label={`Read the metric: “${title}”`}
+                onClick={() => onValueAction(h, { kind: "read-measure" })}
+              >
+                Read the metric
+              </Button>
+              <span className="text-sub">
+                {read.measure.name} read {formatMetric(read.reading.value, read.measure.unit)} on{" "}
+                {read.reading.date}
+              </span>
+            </div>
+          )}
+          {!resolved && read.state === "no_reading" && (
+            <p className="text-sub">
+              No reading of {read.measure.name} on or after {read.checkOn} yet.
+            </p>
+          )}
+          {!resolved && read.state === "no_target" && (
+            <p className="text-sub">Set a target to read the metric.</p>
+          )}
+
+          {test ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="flex min-w-0 items-start gap-1 break-words text-text">
+                <FlaskConical className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sub" aria-hidden="true" />
+                <span>
+                  A/B test: {test.name} · {abResult ? abResult.verdict : "no counts yet"}
+                </span>
+              </p>
+              {abUse?.ok && (
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  aria-label={`Use the A/B result: “${title}”`}
+                  onClick={() => onValueAction(h, { kind: "use-ab", testId: test.id })}
+                >
+                  Use the A/B result
+                </Button>
+              )}
+            </div>
+          ) : (
+            h.status === "running" &&
+            percentTarget && (
+              <p>
+                <Link
+                  href={`/ab-calculator?hypothesis=${encodeURIComponent(h.id)}`}
+                  className="text-accent underline underline-offset-2"
+                >
+                  Plan an A/B test
+                </Link>
+              </p>
+            )
           )}
         </div>
       )}

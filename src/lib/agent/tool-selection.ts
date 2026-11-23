@@ -103,7 +103,12 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
   "decision-log": ["workspace.decision"],
   "dod-builder": ["workspace.definition_of_done"],
   // The EBM measures are product metrics; its experiments are hypotheses.
-  "ebm-dashboard": ["workspace.ebm_board", "workspace.product_metric", "tool.hypothesis_tracker"],
+  "ebm-dashboard": [
+    "workspace.ebm_board",
+    "workspace.product_metric",
+    "tool.hypothesis_tracker",
+    "tool.product_metrics",
+  ],
   eisenhower: ["workspace.prioritization"],
   // Rules and examples go to the story as Given/When/Then.
   "example-mapping": ["workspace.example_map", "workspace.story"],
@@ -241,6 +246,8 @@ export const PAGE_ACTION_GROUPS: Readonly<Record<string, readonly string[]>> = {
  * listed here.
  */
 export const PAGE_READ_GROUPS: Readonly<Record<string, readonly string[]>> = {
+  // Its details form links a product metric.
+  "ab-calculator": ["workspace.product_metric"],
   "bug-triage": ["workspace.sprint"],
   "ebm-dashboard": ["tool.product_goal"],
   // Its Three-point check reads Planning Poker's three_point verb.
@@ -258,6 +265,8 @@ export const PAGE_READ_GROUPS: Readonly<Record<string, readonly string[]>> = {
     "workspace.story",
     "workspace.okr",
     "workspace.epic_roadmap",
+    "tool.product_metrics",
+    "tool.ab_calculator",
   ],
   "impact-map": ["workspace.persona", "workspace.product_goal"],
   impediments: ["workspace.story", "workspace.kanban_board"],

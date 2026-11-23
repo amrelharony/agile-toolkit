@@ -1,10 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Hypothesis } from "@/lib/stores/workspace-types";
+import type { AbTest, Hypothesis, ProductMetric } from "@/lib/stores/workspace-types";
+import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
+import { TRACKER_FULL } from "@/lib/hypotheses/value";
 import { addDays } from "@/lib/flow/days";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { isExampleId } from "@/lib/utils/example-id";
@@ -764,5 +767,457 @@ describe("after review", () => {
     seed(hyp("v", { status: "validated", resolvedAt: ago(1) }));
     renderPage();
     expect(screen.getByTestId("ai-prompts").textContent).toContain("Validation rate: 100%");
+  });
+});
+
+/* ── Value validated (P2.5) ─────────────────────────────────────────── */
+
+describe("value checks, the A/B line and the kind filter", () => {
+  const shipped = {
+    kind: "story" as const,
+    id: "s-done",
+    title: "Onboarding tour",
+    doneAt: ago(40),
+  };
+  const metric = (over: Partial<ProductMetric> = {}): ProductMetric => ({
+    id: "m1",
+    name: "Activated teams",
+    unit: "%",
+    direction: "increase",
+    baseline: 20,
+    target: 30,
+    readings: [
+      { id: "r1", date: ago(45), value: 21 },
+      { id: "r2", date: ago(5), value: 27 },
+    ],
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-01T00:00:00.000Z",
+    ...over,
+  });
+  const abTest = (over: Partial<AbTest> = {}): AbTest => ({
+    id: "t1",
+    name: "Shorter form",
+    hypothesisId: "h-ab",
+    plan: {
+      baseline: 0.1,
+      mde: 0.2,
+      mdeMode: "relative",
+      confidence: 0.95,
+      power: 0.8,
+      sided: "two",
+    },
+    variants: [
+      { id: "a", name: "A", visitors: 4020, conversions: 402 },
+      { id: "b", name: "B", visitors: 3980, conversions: 477 },
+    ],
+    status: "done",
+    createdAt: "2026-10-01T00:00:00.000Z",
+    updatedAt: "2026-10-01T00:00:00.000Z",
+    ...over,
+  });
+  const logged = (action: string) => logs.filter((l) => l.action === action);
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({
+      stories: [],
+      epicRoadmaps: [],
+      productMetrics: [],
+      okrs: [],
+      abTests: [],
+    });
+    window.history.replaceState(null, "", "/hypothesis-tracker");
+  });
+
+  it("lists shipped work to check, and adds a value check on it once the form passes", () => {
+    useWorkspaceStore.setState({
+      stories: [
+        { id: "s-new", title: "Bulk invite", status: "done", doneAt: `${ago(3)}T12:00:00` },
+        { id: "s-open", title: "Still going", status: "in_progress" },
+      ],
+    });
+    renderPage();
+    const panel = screen.getByRole("list", { name: "Shipped work to check" });
+    expect(within(panel).getAllByRole("listitem")).toHaveLength(1);
+    fireEvent.click(within(panel).getByRole("button", { name: "Check its value: Bulk invite" }));
+    expect(screen.getByLabelText(/^We believe/)).toHaveValue(
+      "shipping “Bulk invite” gave people the value we expected"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add value check" }));
+    expect(screen.getByText(/Say how you'll tell/)).toBeInTheDocument();
+    expect(stored()).toEqual([]);
+    fireEvent.change(screen.getByLabelText("How you'll tell"), {
+      target: { value: "fewer invite questions to support" },
+    });
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: "Look after" })).getByRole("radio", {
+        name: "14 days",
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add value check" }));
+    const [h] = stored();
+    expect(h).toMatchObject({
+      status: "running",
+      shipped: { kind: "story", id: "s-new", title: "Bulk invite", doneAt: ago(3) },
+      checkOn: addDays(ago(3), 14),
+      measuredBy: { kind: "words", note: "fewer invite questions to support" },
+    });
+    expect(logged("value_check_added")[0].payload).toEqual({
+      hypothesisId: h.id,
+      kind: "story",
+      id: "s-new",
+    });
+    // Checked now: it leaves the list.
+    expect(screen.queryByRole("list", { name: "Shipped work to check" })).toBeNull();
+    expect(within(card(h.believe)).getByText(/^Shipped “Bulk invite” on/)).toBeInTheDocument();
+  });
+
+  /** A row that leaves `room` bytes in the tracker's one synced row beside `others`. */
+  const nearlyFull = (others: Hypothesis[] = [], room = 100): Hypothesis => {
+    const pad = (padding: string) => ({ ...hyp("big", { believe: "a big one" }), padding });
+    const used = jsonBytes({ id: HYPOTHESIS_TRACKER_ID, hypotheses: [...others, pad("")] });
+    return pad("x".repeat(ENTITY_ROW_MAX_BYTES - room - used)) as Hypothesis;
+  };
+
+  it("keeps a value check out of a full tracker, saying so and keeping what was typed", () => {
+    useWorkspaceStore.setState({
+      stories: [
+        { id: "s-new", title: "Bulk invite", status: "done", doneAt: `${ago(3)}T12:00:00` },
+      ],
+    });
+    const big = nearlyFull();
+    seed(big);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Check its value: Bulk invite" }));
+    fireEvent.change(screen.getByLabelText("How you'll tell"), {
+      target: { value: "fewer invite questions" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Add value check" }));
+    expect(stored()).toEqual([big]);
+    expect(screen.getByRole("alert")).toHaveTextContent(TRACKER_FULL);
+    expect(screen.getByLabelText("How you'll tell")).toHaveValue("fewer invite questions");
+    expect(logged("value_check_added")).toEqual([]);
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("keeps an A/B result out of a full tracker, and says so", async () => {
+    useWorkspaceStore.setState({ abTests: [abTest()] });
+    const h = hyp("h-ab", {
+      believe: "short forms convert",
+      status: "running",
+      target: { direction: "increase", value: 11.5, unit: "%", baseline: 10 },
+    });
+    seed(h, nearlyFull([h]));
+    renderPage();
+    fireEvent.click(
+      within(card("short forms convert")).getByRole("button", {
+        name: "Use the A/B result: “short forms convert”",
+      })
+    );
+    expect(one("h-ab")).not.toHaveProperty("outcome");
+    expect(logged("ab_result_used")).toEqual([]);
+    await waitFor(() => expect(screen.getByTestId("live-polite")).toHaveTextContent(TRACKER_FULL));
+  });
+
+  describe("focus", () => {
+    let frames: FrameRequestCallback[] = [];
+    beforeEach(() => {
+      frames = [];
+      vi.stubGlobal("requestAnimationFrame", (cb: FrameRequestCallback) => frames.push(cb));
+    });
+    afterEach(() => vi.unstubAllGlobals());
+    /** Runs the frames the page asked for, after React has rendered. */
+    const nextFrame = () => act(() => frames.splice(0).forEach((f) => f(0)));
+    const checkButton = (title: string) =>
+      screen.getByRole("button", { name: `Check its value: ${title}` });
+    const fillAndAdd = () => {
+      fireEvent.change(screen.getByLabelText("How you'll tell"), {
+        target: { value: "fewer questions" },
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Add value check" }));
+    };
+
+    it("goes back to the shipped item on Cancel, to the next one on a save, then to the new card", () => {
+      useWorkspaceStore.setState({
+        stories: [
+          { id: "s1", title: "Bulk invite", status: "done", doneAt: `${ago(3)}T12:00:00` },
+          { id: "s2", title: "Search", status: "done", doneAt: `${ago(5)}T12:00:00` },
+        ],
+      });
+      renderPage();
+      fireEvent.click(checkButton("Bulk invite"));
+      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+      nextFrame();
+      expect(document.activeElement).toBe(checkButton("Bulk invite"));
+
+      fireEvent.click(checkButton("Bulk invite"));
+      fillAndAdd();
+      nextFrame();
+      expect(document.activeElement).toBe(checkButton("Search"));
+
+      fireEvent.click(checkButton("Search"));
+      fillAndAdd();
+      nextFrame();
+      const added = stored().find((h) => h.shipped?.id === "s2") as Hypothesis;
+      expect(screen.queryByRole("list", { name: "Shipped work to check" })).toBeNull();
+      expect(document.activeElement).toBe(
+        within(card(added.believe)).getByRole("button", { name: `Edit ${added.believe}` })
+      );
+    });
+
+    it("goes back to Set it or Change when the card's Measured by editor closes", () => {
+      seed(hyp("e", { believe: "an experiment" }));
+      renderPage();
+      const setIt = () =>
+        within(card("an experiment")).getByRole("button", {
+          name: /how “an experiment” is measured/,
+        });
+      fireEvent.click(setIt());
+      fireEvent.click(within(card("an experiment")).getByRole("button", { name: "Cancel" }));
+      expect(document.activeElement).toBe(setIt());
+      fireEvent.click(setIt());
+      fireEvent.change(within(card("an experiment")).getByLabelText("How you'll tell"), {
+        target: { value: "fewer refunds" },
+      });
+      fireEvent.click(within(card("an experiment")).getByRole("button", { name: "Save measure" }));
+      expect(one("e")?.measuredBy).toEqual({ kind: "words", note: "fewer refunds" });
+      expect(document.activeElement).toBe(setIt());
+      expect(setIt()).toHaveTextContent("Change");
+    });
+  });
+
+  it("marks a check Due past its day, and reads the metric into the result with Undo", () => {
+    useWorkspaceStore.setState({ productMetrics: [metric()] });
+    seed(
+      hyp("v", {
+        believe: "the tour activates teams",
+        status: "running",
+        shipped,
+        checkOn: ago(10),
+        measuredBy: { kind: "metric", metricId: "m1" },
+        target: { direction: "increase", value: 25, unit: "%", baseline: 21 },
+      })
+    );
+    renderPage();
+    const c = card("the tour activates teams");
+    expect(within(c).getByText("Due")).toBeInTheDocument();
+    expect(
+      within(c).getByText("Measured by Activated teams (a product metric)")
+    ).toBeInTheDocument();
+    expect(within(c).getByText(`Activated teams read 27% on ${ago(5)}`)).toBeInTheDocument();
+    fireEvent.click(
+      within(c).getByRole("button", { name: "Read the metric: “the tour activates teams”" })
+    );
+    expect(one("v")?.actual).toBe(27);
+    expect(logged("result_recorded")[0].payload).toEqual({ hypothesisId: "v", actual: 27 });
+    expect(within(card("the tour activates teams")).queryByText("Due")).toBeNull();
+    undoLast();
+    expect(one("v")).not.toHaveProperty("actual");
+    // Undo logs nothing: Amr answers only a recorded value.
+    expect(logs.filter((l) => l.action.startsWith("result_"))).toHaveLength(1);
+  });
+
+  it("asks for a target before it can read the metric", () => {
+    useWorkspaceStore.setState({ productMetrics: [metric()] });
+    seed(
+      hyp("v", {
+        believe: "no number",
+        shipped,
+        checkOn: ago(10),
+        measuredBy: { kind: "metric", metricId: "m1" },
+      })
+    );
+    renderPage();
+    expect(
+      within(card("no number")).getByText("Set a target to read the metric.")
+    ).toBeInTheDocument();
+  });
+
+  it("filters by kind, and the value line counts only the checks", () => {
+    seed(
+      hyp("v", { believe: "a check", shipped, status: "validated", resolvedAt: ago(1) }),
+      hyp("e", { believe: "an experiment", status: "invalidated", resolvedAt: ago(1) })
+    );
+    renderPage();
+    expect(screen.getByText("Value validated: 1 of 1 decisive (100%)")).toBeInTheDocument();
+    expect(screen.getByText("1 of 2 decisive tests held up (50%).")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("radio", { name: "Value checks (1)" }));
+    expect(screen.getByRole("article", { name: "a check" })).toBeInTheDocument();
+    expect(screen.queryByRole("article", { name: "an experiment" })).toBeNull();
+    fireEvent.click(screen.getByRole("radio", { name: "Experiments (1)" }));
+    expect(screen.getByRole("article", { name: "an experiment" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show all" }));
+    expect(screen.getAllByRole("article")).toHaveLength(2);
+  });
+
+  it("hides the kind filter while nothing is a value check", () => {
+    seed(hyp("e", { believe: "an experiment" }));
+    renderPage();
+    expect(screen.queryByRole("radiogroup", { name: "Kind of hypothesis" })).toBeNull();
+  });
+
+  it("opens New hypothesis for a ?metric= link, measured by it, its target blank once the reading meets it", async () => {
+    useWorkspaceStore.setState({ productMetrics: [metric({ target: 26 })] });
+    window.history.replaceState(null, "", "/hypothesis-tracker?metric=m1");
+    renderPage();
+    expect(await screen.findByText("Measured by Activated teams.")).toBeInTheDocument();
+    expect(screen.getByLabelText(/^The number should/)).toHaveValue("increase");
+    expect(screen.getByLabelText(/^Unit/)).toHaveValue("%");
+    expect(screen.getByLabelText(/^Baseline/)).toHaveValue("27");
+    expect(screen.getByLabelText(/^Target/)).toHaveValue("");
+    expect(window.location.search).toBe("");
+    fireEvent.change(screen.getByLabelText(/^We believe/), { target: { value: "tours activate" } });
+    fireEvent.change(screen.getByLabelText(/^We will/), { target: { value: "ship a tour" } });
+    fireEvent.change(screen.getByLabelText(/^To learn/), { target: { value: "if it helps" } });
+    fireEvent.change(screen.getByLabelText(/^Target/), { target: { value: "30" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add hypothesis" }));
+    expect(stored()[0]).toMatchObject({
+      believe: "tours activate",
+      measuredBy: { kind: "metric", metricId: "m1" },
+      target: { direction: "increase", value: 30, unit: "%", baseline: 27 },
+    });
+    expect(logged("measured_by_set")[0].payload).toEqual({
+      hypothesisId: stored()[0].id,
+      kind: "metric",
+    });
+  });
+
+  it("fills the target from a ?metric= link when it is past the latest reading", async () => {
+    useWorkspaceStore.setState({ productMetrics: [metric()] });
+    window.history.replaceState(null, "", "/hypothesis-tracker?metric=m1");
+    renderPage();
+    await screen.findByText("Measured by Activated teams.");
+    expect(screen.getByLabelText(/^Target/)).toHaveValue("30");
+  });
+
+  it("sets how any hypothesis is measured, from its card", () => {
+    seed(hyp("e", { believe: "an experiment" }));
+    renderPage();
+    const c = card("an experiment");
+    expect(within(c).getByText("Measured by: not set")).toBeInTheDocument();
+    // Its name starts with the visible "Set it", so speech input can say it.
+    const setIt = within(c).getByRole("button", {
+      name: "Set it: how “an experiment” is measured",
+    });
+    expect(setIt).toHaveTextContent("Set it");
+    fireEvent.click(setIt);
+    fireEvent.click(within(c).getByRole("button", { name: "Save measure" }));
+    expect(within(c).getByText(/Say how you'll tell/)).toBeInTheDocument();
+    fireEvent.change(within(c).getByLabelText("How you'll tell"), {
+      target: { value: "fewer refunds" },
+    });
+    fireEvent.click(within(c).getByRole("button", { name: "Save measure" }));
+    expect(one("e")?.measuredBy).toEqual({ kind: "words", note: "fewer refunds" });
+    expect(logged("measured_by_set")[0].payload).toEqual({ hypothesisId: "e", kind: "words" });
+    expect(
+      within(card("an experiment")).getByText("Measured by fewer refunds")
+    ).toBeInTheDocument();
+    expect(
+      within(card("an experiment")).getByRole("button", {
+        name: "Change how “an experiment” is measured",
+      })
+    ).toHaveTextContent("Change");
+  });
+
+  it("shows the linked A/B test and uses its result with Undo, setting the number only when it is in", () => {
+    useWorkspaceStore.setState({ abTests: [abTest()] });
+    seed(
+      hyp("h-ab", {
+        believe: "short forms convert",
+        status: "running",
+        target: { direction: "increase", value: 11.5, unit: "%", baseline: 10 },
+      })
+    );
+    renderPage();
+    const c = card("short forms convert");
+    expect(
+      within(c).getByText(/^A\/B test: Shorter form · B converted better than A by 2\.0 points/)
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(c).getByRole("button", { name: "Use the A/B result: “short forms convert”" })
+    );
+    expect(one("h-ab")).toMatchObject({ status: "running", actual: 11.98 });
+    expect(one("h-ab")?.outcome).toMatch(/^A\/B test “Shorter form”: B converted better/);
+    expect(logged("ab_result_used")[0].payload).toEqual({ hypothesisId: "h-ab", testId: "t1" });
+    expect(logged("result_recorded")[0].payload).toEqual({ hypothesisId: "h-ab", actual: 11.98 });
+    // Used: the button goes, and the card suggests its own verdict.
+    expect(
+      within(card("short forms convert")).queryByRole("button", { name: /^Use the A\/B result/ })
+    ).toBeNull();
+    expect(
+      within(card("short forms convert")).getByText(/Suggested verdict: validated\./)
+    ).toBeInTheDocument();
+    undoLast();
+    expect(one("h-ab")).not.toHaveProperty("actual");
+    expect(one("h-ab")).not.toHaveProperty("outcome");
+    expect(logged("result_recorded")).toHaveLength(1);
+  });
+
+  it("adds only the sentence while the A/B test is short of its plan", () => {
+    useWorkspaceStore.setState({
+      abTests: [
+        abTest({
+          variants: [
+            { id: "a", name: "A", visitors: 1000, conversions: 100 },
+            { id: "b", name: "B", visitors: 1000, conversions: 140 },
+          ],
+        }),
+      ],
+    });
+    seed(
+      hyp("h-ab", {
+        believe: "short forms convert",
+        target: { direction: "increase", value: 11.5, unit: "%" },
+      })
+    );
+    renderPage();
+    const c = card("short forms convert");
+    expect(
+      within(c).getByText(/Too early to call: 1,000 of 3,841 per variant/)
+    ).toBeInTheDocument();
+    fireEvent.click(
+      within(c).getByRole("button", { name: "Use the A/B result: “short forms convert”" })
+    );
+    expect(one("h-ab")).not.toHaveProperty("actual");
+    // The early look is written as one, never as a result.
+    expect(one("h-ab")?.outcome).toMatch(
+      /^A\/B test “Shorter form”: Too early to call: 1,000 of 3,841 per variant\. So far: B converted better/
+    );
+    expect(logged("result_recorded")).toEqual([]);
+  });
+
+  it("offers to plan an A/B test for a running hypothesis with a % target and no test", () => {
+    seed(
+      hyp("h1", {
+        believe: "trials convert",
+        status: "running",
+        target: { direction: "increase", value: 12, unit: "%" },
+      })
+    );
+    renderPage();
+    expect(
+      within(card("trials convert")).getByRole("link", { name: "Plan an A/B test" })
+    ).toHaveAttribute("href", "/ab-calculator?hypothesis=h1");
+  });
+
+  it("exports the value checks, and the example's check reads as open", () => {
+    const list = buildExample(TODAY);
+    const md = hypothesesToMarkdown(list, rateOf(countedRows(list)), { today: TODAY });
+    expect(md).toContain("## Value checks (1)");
+    expect(md).toContain(
+      `- Shipped “Onboarding checklist” on ${ago(32)} · check on ${ago(2)}: Running`
+    );
+    expect(md).toContain("- **Measured by:** median days from sign-up to the first sprint");
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    expect(
+      screen.getByText("Value validated: no check has a decisive result yet (1 open)")
+    ).toBeInTheDocument();
+    expect(
+      within(card("a checklist gets new teams to their first sprint sooner")).queryByText("Due")
+    ).toBeNull();
+    expect(screen.getByTestId("export-markdown").textContent).toContain(
+      "Value validated: no check has a decisive result yet (1 open)."
+    );
   });
 });

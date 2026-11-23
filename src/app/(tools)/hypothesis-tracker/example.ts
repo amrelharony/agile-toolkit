@@ -4,8 +4,9 @@ import { exampleId } from "@/lib/utils/example-id";
 
 /**
  * A product team's tests in every state: a draft, one running with no
- * result yet, one running whose result is in (the card suggests a
- * verdict to apply), and one of each result, with targets and baselines
+ * result yet, one running whose result is in (a value check on a shipped
+ * onboarding checklist, measured in words; the card suggests a verdict to
+ * apply), and one of each result, with targets and baselines
  * on the measured ones. Days count back from `today`. Ids start with
  * `example-`; "Clear example" removes exactly them, and no example row
  * comes from another tool (no sourceRef).
@@ -34,6 +35,7 @@ export function buildExample(today: string): Hypothesis[] {
       raisedAt: ago(20),
     },
     {
+      // A value check whose result is in: the shipped checklist, read 30 days on.
       id: exampleId("hyp-onboarding"),
       believe: "a checklist gets new teams to their first sprint sooner",
       willDo: "show a five-step checklist to new workspaces",
@@ -43,6 +45,14 @@ export function buildExample(today: string): Hypothesis[] {
       actual: 2.5,
       status: "running",
       raisedAt: ago(30),
+      shipped: {
+        kind: "story",
+        id: exampleId("story-checklist"),
+        title: "Onboarding checklist",
+        doneAt: ago(32),
+      },
+      checkOn: ago(2),
+      measuredBy: { kind: "words", note: "median days from sign-up to the first sprint" },
     },
     {
       id: exampleId("hyp-export"),
