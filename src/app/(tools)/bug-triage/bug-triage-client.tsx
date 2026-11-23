@@ -297,6 +297,50 @@ export function BugTriageClient() {
 
   const actions: BugActions = { send, close, reopen, remove, place, edit, open: openBug };
 
+  /**
+   * The bug's panel: placing, moving, sending, closing or reopening swaps
+   * the control pressed for what it did, so focus goes to the panel's
+   * heading, which stays.
+   */
+  const toHeading =
+    <A extends unknown[]>(fn: (...args: A) => void) =>
+    (...args: A) => {
+      fn(...args);
+      detailHeading.current?.focus();
+    };
+  const panelActions: BugActions = {
+    ...actions,
+    place: toHeading(place),
+    send: toHeading(send),
+    close: toHeading(close),
+    reopen: toHeading(reopen),
+  };
+
+  /**
+   * A cell's list: a send swaps the row's buttons for where it went, so
+   * focus goes to the row's title; "Close as fixed" takes the row away, so
+   * focus goes to the next row's title, or the cell itself when none is left.
+   */
+  const cellListRef = useRef<HTMLUListElement>(null);
+  const gridRef = useRef<HTMLDivElement>(null);
+  const rowTitles = () =>
+    Array.from(cellListRef.current?.querySelectorAll<HTMLElement>("[data-cell-bug-title]") ?? []);
+  const sendFromCell = (bug: BugReport, route: BugRoute) => {
+    const title = rowTitles().find((el) => el.dataset.cellBugTitle === bug.id);
+    send(bug, route);
+    title?.focus();
+  };
+  const closeFromCell = (bug: BugReport) => {
+    const titles = rowTitles();
+    const at = titles.findIndex((el) => el.dataset.cellBugTitle === bug.id);
+    const next =
+      titles[at + 1] ??
+      titles[at - 1] ??
+      gridRef.current?.querySelector<HTMLElement>('button[aria-pressed="true"]');
+    close(bug, "fixed");
+    next?.focus();
+  };
+
   // Loading is offered on an empty page only, and neither it nor its clearing
   // is logged: the example isn't the team's work.
   const loadExample = () => buildExample(new Date()).forEach(saveBug);
@@ -420,7 +464,7 @@ export function BugTriageClient() {
                   slices={slices}
                   today={today}
                   sprintRunning={sprintRunning}
-                  actions={actions}
+                  actions={panelActions}
                   onDismiss={() => {
                     setSelectedId(null);
                     logRef.current?.focus();
@@ -450,7 +494,9 @@ export function BugTriageClient() {
                     Rows are how bad (severity), columns how soon (priority). Tap a cell for its
                     bugs.
                   </p>
-                  <BugGrid counts={grid} selected={cell} onSelect={setCell} />
+                  <div ref={gridRef}>
+                    <BugGrid counts={grid} selected={cell} onSelect={setCell} />
+                  </div>
                   {cell && (
                     <div className="space-y-2" data-testid="cell-bugs">
                       <p className="text-sm text-text">
@@ -466,11 +512,15 @@ export function BugTriageClient() {
                       {cellBugs.length === 0 ? (
                         <p className="text-sm text-sub">No open bugs here.</p>
                       ) : (
-                        <ul className="divide-y divide-border rounded-lg border border-border">
+                        <ul
+                          ref={cellListRef}
+                          className="divide-y divide-border rounded-lg border border-border"
+                        >
                           {cellBugs.map((b) => (
                             <li key={b.id} className="space-y-2 px-3 py-2" data-cell-bug={b.id}>
                               <button
                                 type="button"
+                                data-cell-bug-title={b.id}
                                 className="break-words text-left text-sm font-medium text-text hover:text-accent hover:underline"
                                 onClick={() => openBug(b.id)}
                               >
@@ -483,7 +533,7 @@ export function BugTriageClient() {
                                     type="button"
                                     size="sm"
                                     variant="outline"
-                                    onClick={() => close(b, "fixed")}
+                                    onClick={() => closeFromCell(b)}
                                   >
                                     Close as fixed
                                   </Button>
@@ -502,7 +552,7 @@ export function BugTriageClient() {
                                   bug={b}
                                   slices={slices}
                                   sprintRunning={sprintRunning}
-                                  onSend={(route) => send(b, route)}
+                                  onSend={(route) => sendFromCell(b, route)}
                                 />
                               )}
                             </li>

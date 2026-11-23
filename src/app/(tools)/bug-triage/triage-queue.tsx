@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronRight, Copy } from "lucide-react";
 import { AiButton, AiSuggestions } from "@/components/ai";
 import { Button } from "@/components/ui/button";
@@ -55,11 +55,29 @@ export function keptSuggestions(
   return out;
 }
 
+/** Did keyboard focus fall to the page (the focused control went away)? */
+const focusLost = () => {
+  const el = document.activeElement;
+  return !el || el === document.body || !el.isConnected;
+};
+
+/** A bug a change made here takes out of the queue: where it sat, and whether it was open. */
+interface Leaving {
+  id: string;
+  index: number;
+  open: boolean;
+}
+
 /**
  * The bugs waiting to be triaged, oldest first. The first one is open, with
  * its quick checks; another opens on a tap. A bug that reads like an older
  * open one says so, with "Close as duplicate". Amr (or the rules, without
  * AI) suggests a severity and a priority for them all, to accept one by one.
+ *
+ * Placing a bug, closing it as a duplicate or accepting its suggestion takes
+ * it out of the queue, and the control pressed often goes with it. Focus
+ * then moves on: to the bug now open when the open one left, else to the bug
+ * in the one that left's place, or to "Nothing waiting" once none is left.
  */
 export function TriageQueue({
   queue,
@@ -92,10 +110,41 @@ export function TriageQueue({
   // Only the suggestions for bugs still waiting.
   const waiting = new Set(queue.map((b) => b.id));
   const items = suggested?.items.filter((s) => waiting.has(s.id)) ?? [];
+  const titleRefs = useRef(new Map<string, HTMLElement>());
+  const emptyRef = useRef<HTMLParagraphElement>(null);
+  const leaving = useRef<Leaving | null>(null);
+
+  /** Before a change that takes `id` out of the queue: note where focus goes if it falls. */
+  const willLeave = (id: string) => {
+    const index = queue.findIndex((b) => b.id === id);
+    if (index >= 0) leaving.current = { id, index, open: id === active?.id };
+  };
+
+  // Once the queue has re-rendered without the bug, and only if focus fell
+  // to the page (the suggestions list keeps its own focus while it stays).
+  useEffect(() => {
+    const p = leaving.current;
+    if (!p) return;
+    leaving.current = null;
+    if (queue.some((b) => b.id === p.id) || !focusLost()) return;
+    if (queue.length === 0) {
+      emptyRef.current?.focus();
+      return;
+    }
+    const next = p.open
+      ? (queue.find((b) => b.id === activeId) ?? queue[0])
+      : queue[Math.min(p.index, queue.length - 1)];
+    titleRefs.current.get(next.id)?.focus();
+  }, [queue, activeId]);
 
   if (queue.length === 0) {
     return (
-      <p className="text-sm text-sub" data-field="queue-empty" tabIndex={-1}>
+      <p
+        ref={emptyRef}
+        className="text-sm text-sub focus:outline-none"
+        data-field="queue-empty"
+        tabIndex={-1}
+      >
         Nothing waiting: every open bug is on the grid.
       </p>
     );
@@ -133,7 +182,10 @@ export function TriageQueue({
             title: `${s.title}: ${SEVERITY_LABEL[s.severity]} × ${PRIORITY_LABEL[s.priority]}`,
             detail: `${s.reason}${s.duplicateTitle ? ` Looks like “${s.duplicateTitle}”.` : ""}`,
           })}
-          onAccept={(s) => onAccept(s)}
+          onAccept={(s) => {
+            willLeave(s.id);
+            onAccept(s);
+          }}
           onDismiss={() => setSuggested(null)}
           returnFocus={() =>
             askRef.current?.querySelector<HTMLElement>('[data-testid="ai-button"]')
@@ -153,7 +205,17 @@ export function TriageQueue({
             >
               <div className="flex flex-wrap items-start gap-2">
                 <div className="min-w-0 flex-1 basis-48">
-                  <p className="break-words text-sm font-medium text-text">{bug.title}</p>
+                  <p
+                    ref={(el) => {
+                      if (el) titleRefs.current.set(bug.id, el);
+                      else titleRefs.current.delete(bug.id);
+                    }}
+                    tabIndex={-1}
+                    data-queue-title
+                    className="break-words text-sm font-medium text-text focus:outline-none"
+                  >
+                    {bug.title}
+                  </p>
                   <p className="text-xs text-sub">
                     Logged {ageText(age)}
                     {bug.area ? ` · ${bug.area}` : ""}
@@ -196,7 +258,10 @@ export function TriageQueue({
                     size="sm"
                     variant="ghost"
                     className="gap-1"
-                    onClick={() => onDuplicate(bug, like)}
+                    onClick={() => {
+                      willLeave(bug.id);
+                      onDuplicate(bug, like);
+                    }}
                   >
                     <Copy aria-hidden="true" />
                     Close as duplicate
@@ -205,7 +270,14 @@ export function TriageQueue({
               )}
               {open && (
                 <div className="mt-3 border-t border-border pt-3">
-                  <TriageForm key={bug.id} bug={bug} onSave={(placed) => onPlace(bug, placed)} />
+                  <TriageForm
+                    key={bug.id}
+                    bug={bug}
+                    onSave={(placed) => {
+                      willLeave(bug.id);
+                      onPlace(bug, placed);
+                    }}
+                  />
                 </div>
               )}
             </li>

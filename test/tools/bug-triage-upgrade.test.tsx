@@ -116,6 +116,12 @@ const undoLast = () => {
 };
 const titleField = () => screen.getByRole("textbox", { name: /^What's wrong/ });
 const queueItem = (id: string) => document.querySelector(`[data-queue-bug="${id}"]`) as HTMLElement;
+const queueTitle = (id: string) => queueItem(id)?.querySelector("[data-queue-title]");
+/** Focus a control, then click it, as a keyboard user's Enter does. */
+const press = (el: HTMLElement) => {
+  act(() => el.focus());
+  fireEvent.click(el);
+};
 const detail = () => document.querySelector("[data-bug-detail]") as HTMLElement;
 const cellButton = (name: RegExp) => screen.getByRole("button", { name });
 const announced = (text: string | RegExp) =>
@@ -286,20 +292,23 @@ describe("the triage queue", () => {
         { name: "Now" }
       )
     );
-    fireEvent.click(within(first).getByRole("button", { name: "Place it" }));
+    press(within(first).getByRole("button", { name: "Place it" }));
     expect(stored("a")).toMatchObject({ status: "triaged", priority: "now" });
+    // Its row went with the button: focus moves to the bug now open.
+    expect(document.activeElement).toBe(queueTitle("b"));
     expect(stored("a")?.triagedAt).toBeDefined();
     expect(logged(BUG_TRIAGE_ACTIONS.BUG_TRIAGED)[0].payload).toMatchObject({
       bugId: "a",
       priority: "now",
     });
     expect(cheers).toEqual([]);
-    fireEvent.click(within(queueItem("b")).getByRole("button", { name: "Place it" }));
+    press(within(queueItem("b")).getByRole("button", { name: "Place it" }));
     expect(logged(BUG_TRIAGE_ACTIONS.TRIAGE_DONE)).toEqual([
       { action: "triage_done", payload: { count: 2 } },
     ]);
     expect(cheers).toEqual([["bug-triage", "done"]]);
     expect(screen.getByText(/Nothing waiting/)).toBeInTheDocument();
+    expect(document.activeElement).toBe(document.querySelector('[data-field="queue-empty"]'));
   });
 
   it("says when a bug looks like an older one, and closes it as a duplicate with Undo", async () => {
@@ -314,7 +323,9 @@ describe("the triage queue", () => {
       within(item).getByText("Looks like: “Paying with a saved card fails”")
     ).toBeInTheDocument();
     expect(within(queueItem("older")).queryByText(/Looks like/)).toBeNull();
-    fireEvent.click(within(item).getByRole("button", { name: "Close as duplicate" }));
+    press(within(item).getByRole("button", { name: "Close as duplicate" }));
+    // The row went: focus moves to the bug in its place, here the one left.
+    expect(document.activeElement).toBe(queueTitle("older"));
     expect(stored("newer")).toMatchObject({
       status: "closed",
       closeReason: "duplicate",
@@ -351,6 +362,21 @@ describe("the triage queue", () => {
     });
     undoLast();
     expect(stored("typo")?.status).toBe("new");
+  });
+
+  it("keeps focus on the page when the last suggestion placed empties the queue", async () => {
+    seed([bug({ id: "crash", title: "The app crashes on start" })]);
+    renderPage();
+    await screen.findAllByText("The app crashes on start");
+    fireEvent.click(screen.getByRole("button", { name: "Suggest severities without AI" }));
+    const row = (await screen.findByText("The app crashes on start: Critical × Now")).closest(
+      "li"
+    )!;
+    press(within(row).getByRole("button", { name: /^Place/ }));
+    expect(stored("crash")?.status).toBe("triaged");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(document.querySelector('[data-field="queue-empty"]'))
+    );
   });
 });
 
@@ -467,19 +493,27 @@ describe("sending a bug on", () => {
     renderPage();
     await screen.findByText("The grid");
     fireEvent.click(cellButton(/^Major × Later/));
-    fireEvent.click(
+    press(
       within(screen.getByTestId("cell-bugs")).getByRole("button", { name: "Add to the backlog" })
     );
     const story = ws().stories[0];
     expect(story.tags).toEqual(["bug"]);
+    // The send button gave way to where it went: focus is on the row's title.
+    expect(document.activeElement).toBe(
+      within(screen.getByTestId("cell-bugs")).getByRole("button", {
+        name: "The receipt shows the wrong currency",
+      })
+    );
     expect(logged(BUG_TRIAGE_ACTIONS.BUG_SENT)[0].payload).toMatchObject({
       route: "backlog-story",
     });
     act(() => ws().upsertStory({ ...story, status: "done" }));
     const list = screen.getByTestId("cell-bugs");
     expect(within(list).getByText("Fixed? Its work is done.")).toBeInTheDocument();
-    fireEvent.click(within(list).getByRole("button", { name: "Close as fixed" }));
+    press(within(list).getByRole("button", { name: "Close as fixed" }));
     expect(stored("bug_a")).toMatchObject({ status: "closed", closeReason: "fixed" });
+    // Its row went and none is left: focus is on the cell.
+    expect(document.activeElement).toBe(cellButton(/^Major × Later/));
     expect(logged(BUG_TRIAGE_ACTIONS.BUG_CLOSED)[0].payload).toEqual({
       bugId: "bug_a",
       reason: "fixed",
@@ -544,6 +578,18 @@ describe("a bug's panel", () => {
     expect(logged(BUG_TRIAGE_ACTIONS.BUG_REMOVED)).toHaveLength(1);
     undoLast();
     expect(stored("bug_b")).toBeDefined();
+  });
+
+  it("places a bug from its panel and keeps focus on the panel's heading", async () => {
+    seed([bug()]);
+    renderPage();
+    await screen.findAllByText("The receipt shows the wrong currency");
+    fireEvent.click(within(queueItem("bug_a")).getByRole("button", { name: "Details" }));
+    press(within(detail()).getByRole("button", { name: "Place it" }));
+    expect(stored("bug_a")?.status).toBe("triaged");
+    // The panel's triage form went; its heading stays and holds focus.
+    expect(within(detail()).queryByRole("button", { name: "Place it" })).toBeNull();
+    expect(document.activeElement).toBe(within(detail()).getByRole("heading"));
   });
 
   it("edits a bug's details, and moves a placed bug to another cell", async () => {
