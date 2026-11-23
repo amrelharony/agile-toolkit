@@ -59,7 +59,12 @@ import { pokerCsv, sessionTicketKeys } from "./csv";
 import { generateRoomCode } from "./room-code";
 import { signalGamification } from "@/lib/gamification/signal";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
-import { heldStoryIds, readAsyncRound, withStoryEstimate } from "@/lib/estimation/async-rounds";
+import {
+  heldQueueCount,
+  heldStoryIds,
+  readAsyncRound,
+  withStoryEstimate,
+} from "@/lib/estimation/async-rounds";
 import { agreeTypedStory, saveRound } from "./async/round-store";
 import type { AsyncLiveStart } from "./lobby-screen";
 
@@ -306,10 +311,7 @@ export function PlanningPokerClient() {
       if (read !== round) upsertPokerAsyncRound(read);
     }
   }, [hydrated, storedRounds, shownAt]);
-  const heldCount = useMemo(() => {
-    const ids = new Set(held);
-    return (queue ?? []).filter((q) => q.sessionStoryId && ids.has(q.sessionStoryId)).length;
-  }, [queue, held]);
+  const heldCount = useMemo(() => heldQueueCount(queue, storedRounds), [queue, storedRounds]);
 
   const queuedCount = useMemo(
     () => pendingQueueItems(queue, sessionStoryIds, held).length,

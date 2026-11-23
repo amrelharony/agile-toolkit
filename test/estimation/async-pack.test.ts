@@ -20,6 +20,7 @@ import {
   expireRound,
   findReplyCodes,
   hasNames,
+  heldQueueCount,
   heldStoryIds,
   isReplyIn,
   isReadyToReveal,
@@ -460,6 +461,27 @@ describe("closing and expiry", () => {
       ])
     ).toEqual(["q1", "q2"]);
     expect(heldStoryIds(undefined)).toEqual([]);
+  });
+
+  it("counts the queue items open and revealed rounds hold, not expired ones", () => {
+    const queue = [
+      { sessionStoryId: "q1" },
+      { sessionStoryId: "q2" },
+      { sessionStoryId: "q3" },
+      { sessionStoryId: "elsewhere" },
+      {},
+    ];
+    const rounds = [
+      round({ id: "async_aaaa", stories: [{ id: "q1", title: "A" }] }),
+      round({ id: "async_bbbb", status: "revealed", stories: [{ id: "q2", title: "B" }] }),
+      round({ id: "async_cccc", status: "closed", stories: [{ id: "q3", title: "C" }] }),
+    ];
+    const now = new Date("2026-11-21T12:00:00");
+    expect(heldQueueCount(queue, rounds, now)).toBe(2);
+    // Past its 14 days a round reads as closed, so it holds nothing.
+    expect(heldQueueCount(queue, rounds, new Date("2026-12-31T12:00:00"))).toBe(0);
+    expect(heldQueueCount(undefined, rounds, now)).toBe(0);
+    expect(heldQueueCount(queue, undefined, now)).toBe(0);
   });
 
   it("records an agreed card on the round's story, and takes it back", () => {

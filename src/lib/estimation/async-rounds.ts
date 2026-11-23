@@ -38,6 +38,22 @@ export function heldStoryIds(rounds: readonly PokerAsyncRound[] | undefined): st
   return ids;
 }
 
+/**
+ * How many of the queue's items an open or revealed round holds (stamped
+ * with one of its story ids), with each round read as `readAsyncRound`
+ * shows it: the "N in an async round" that Planning Poker's lobby and the
+ * Estimation Guide show, as no session can take those items.
+ */
+export function heldQueueCount(
+  queue: readonly { sessionStoryId?: string }[] | undefined,
+  rounds: readonly PokerAsyncRound[] | undefined,
+  now: Date = new Date()
+): number {
+  const held = new Set(heldStoryIds((rounds ?? []).map((r) => readAsyncRound(r, now))));
+  return (queue ?? []).filter((q) => q.sessionStoryId !== undefined && held.has(q.sessionStoryId))
+    .length;
+}
+
 /** `day` ("YYYY-MM-DD") plus `n` days, as a day. */
 export function addDaysIso(day: string, n: number): string {
   const [y, m, d] = day.split("-").map(Number);
