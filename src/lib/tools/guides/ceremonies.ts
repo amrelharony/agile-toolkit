@@ -364,7 +364,7 @@ export const GUIDES: ToolGuide[] = [
       "A raised-hands wall takes no posts, so phones show Raise my hand first. Call on the first in line and press Done when they've finished.",
       "In brainwriting, people press Yes, and… on a post to build on it, and the replies show under it.",
       "In a 25/10 round, start the scoring once the wall is full: everyone scores five posts from 1 to 5, then show the top ten.",
-      "Save the round. A saved wall shows as a list, a word cloud or the top ten. Ask Amr to group it into themes, find duplicates or draft backlog items: you see the draft first, and nothing changes until you accept it. In a live room a merge asks first, because it can't be split again.",
+      "Save the round. A saved wall shows as a list, a word cloud or the top ten. Ask Amr to group it into themes, find duplicates or draft backlog items: you see the draft first, and nothing changes until you accept it. In a live room you see Amr's merges before they happen, and Undo puts the posts back for a few seconds after.",
     ],
     tips: [
       "Ask for one idea per post: the answers are easier to group.",

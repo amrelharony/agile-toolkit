@@ -10,8 +10,8 @@
  * back would show whose it was) and offers an upvote toggle on everyone
  * else's, and in a brainwriting round "Yes, and…" on each post. The host's
  * list offers Hide or Show again, Mark answered (for questions), and Merge
- * into another post (for duplicates): the list only picks the post, the
- * Merge button asks first, because a merge can't be split again.
+ * into another post (for duplicates): the list only picks the post, and the
+ * Merge button merges; the host's panel offers Undo for a few seconds after.
  *
  * A "Yes, and…" post shows under the post it builds on. A question marked
  * answered says so; a 25/10 post shows its average score once the host
@@ -21,7 +21,6 @@
 import { useId, useState } from "react";
 import { ArrowBigUp, Check, Combine, Eye, EyeOff, MessageSquarePlus, Undo2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { cn } from "@/lib/utils";
 import type { WallPost } from "@/lib/realtime/wall-room/protocol";
 import { scoreText } from "@/lib/realtime/wall-room/score";
@@ -72,11 +71,11 @@ function short(text: string): string {
 function MergeControl({
   post,
   others,
-  onAsk,
+  onMerge,
 }: {
   post: ListedPost;
   others: readonly ListedPost[];
-  onAsk: (fromId: string, intoId: string) => void;
+  onMerge: (fromId: string, intoId: string) => void;
 }) {
   const id = useId();
   const [target, setTarget] = useState("");
@@ -107,13 +106,14 @@ function MergeControl({
         size="sm"
         className="gap-1"
         disabled={!into}
-        onClick={() => onAsk(post.id, into)}
+        onClick={() => onMerge(post.id, into)}
       >
         <Combine className="h-4 w-4" aria-hidden="true" />
         Merge<span className="sr-only">: {short(post.text)}</span>
       </Button>
       <span id={`${id}-hint`} className="sr-only">
-        Merging puts this post under the one you pick, with its votes.
+        Merging puts this post under the one you pick, with its votes. Undo puts it back for a few
+        seconds after.
       </span>
     </div>
   );
@@ -134,11 +134,8 @@ export function WallPostList({
   onAnswer,
   emptyText = "No posts yet.",
 }: WallPostListProps) {
-  const [asked, setAsked] = useState<{ from: string; into: string } | null>(null);
   if (posts.length === 0) return <p className="text-sm text-sub">{emptyText}</p>;
   const host = Boolean(onHide || onMerge || onAnswer);
-  const askedFrom = asked ? posts.find((p) => p.id === asked.from) : undefined;
-  const askedInto = asked ? posts.find((p) => p.id === asked.into) : undefined;
 
   // "Yes, and…" posts go under the post they build on, in the list's order.
   const ids = new Set(posts.map((p) => p.id));
@@ -273,11 +270,7 @@ export function WallPostList({
             </Button>
           )}
           {onMerge && !post.hidden && others.length > 0 && (
-            <MergeControl
-              post={post}
-              others={others}
-              onAsk={(from, into) => setAsked({ from, into })}
-            />
+            <MergeControl post={post} others={others} onMerge={onMerge} />
           )}
         </div>
         {below.length > 0 && (
@@ -292,29 +285,5 @@ export function WallPostList({
     );
   };
 
-  return (
-    <>
-      <ol className="space-y-2">{top.map((post) => item(post, false))}</ol>
-      {onMerge && (
-        <ConfirmDialog
-          open={Boolean(askedFrom && askedInto)}
-          onOpenChange={(open) => {
-            if (!open) setAsked(null);
-          }}
-          title="Merge these posts?"
-          description={
-            askedFrom && askedInto
-              ? `"${short(askedFrom.text)}" goes under "${short(askedInto.text)}", and its votes join that post's. You can't split them again.`
-              : undefined
-          }
-          confirmLabel="Merge posts"
-          tone="default"
-          onConfirm={() => {
-            if (askedFrom && askedInto) onMerge(askedFrom.id, askedInto.id);
-            setAsked(null);
-          }}
-        />
-      )}
-    </>
-  );
+  return <ol className="space-y-2">{top.map((post) => item(post, false))}</ol>;
 }

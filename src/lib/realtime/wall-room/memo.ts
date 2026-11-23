@@ -13,6 +13,7 @@
  * the tab's memory only, as before.
  */
 
+import { tabSecret as sharedTabSecret } from "../tab-secret";
 import { ROUND_ID_RE } from "../vote-room/wire";
 import { WALL_LIMITS, isScore, isSenderSecret } from "./protocol";
 
@@ -44,15 +45,11 @@ function write(key: string, value: string): void {
 
 /**
  * This tab's secret in room `code` as member `member`: the stored one, or
- * `make()`'s, stored for next time.
+ * `make()`'s, stored for next time (the shared `tab-secret.ts`, under the
+ * wall's prefix, so the key is the one it always was).
  */
 export function tabSecret(code: string, member: string, make: () => string): string {
-  const key = `${PREFIX}secret:${code}:${member}`;
-  const stored = read(key);
-  if (isSenderSecret(stored)) return stored;
-  const fresh = make();
-  write(key, fresh);
-  return fresh;
+  return sharedTabSecret(PREFIX, code, member, make);
 }
 
 /** A 25/10 round as this tab remembers it. */

@@ -270,7 +270,7 @@ function ParticipantVoteRoom({
         >
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
           <span>
-            Someone else sent answers under your name in this round. Tell the host: they may want to
+            Someone else sent answers under your name in this room. Tell the host: they may want to
             end the room and share a new link.
           </span>
         </p>
@@ -297,12 +297,19 @@ function ParticipantVoteRoom({
                 minN={room.minN}
                 phase={phase}
               />
-              {room.unconfirmed && (
-                <p role="alert" className="text-sm text-danger">
-                  The host&apos;s browser didn&apos;t confirm your answers, so they may not have
-                  been counted. Pick them again and send them.
-                </p>
-              )}
+              {room.unconfirmed &&
+                (room.impersonated ? (
+                  // Someone may hold this name's seat for the whole room: this
+                  // tab can't answer under it, a new tab gets a new one.
+                  <p role="alert" className="text-sm text-danger">
+                    Your answers weren&apos;t counted. Open the link in a new tab to answer again.
+                  </p>
+                ) : (
+                  <p role="alert" className="text-sm text-danger">
+                    The host&apos;s browser didn&apos;t confirm your answers, so they may not have
+                    been counted. Pick them again and send them.
+                  </p>
+                ))}
               <RoundAnswerForm key={room.roundId ?? "none"} room={room} onSubmit={room.submit} />
             </section>
           )}
