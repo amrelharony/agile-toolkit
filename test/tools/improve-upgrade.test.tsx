@@ -878,6 +878,30 @@ describe("a change the row can't hold is refused before its Undo toast", () => {
     expect(result.current.rowError).toBe(TOO_BIG);
   });
 
+  it("asks before a send the row can't hold: nothing is made and no toast shows", () => {
+    useWorkspaceStore.setState({ improvements: [a3({ steps: giantSteps() })] });
+    const { result } = hook("improve_a3");
+    let link: unknown = "not yet";
+    act(() => {
+      link = sendHandoff(
+        "retro-action",
+        { title: "Automate checks", sourceRef: { tool: "improve", id: "s0", doc: "improve_a3" } },
+        {
+          getLinks: () => byId("improve_a3")!.steps[0].sentTo,
+          setLinks: (update) => result.current.stepLinks("s0", update),
+          canLink: result.current.canLink,
+        }
+      );
+    });
+    expect(link).toBeNull();
+    expect(undo.all).toEqual([]);
+    expect(retroCards()).toEqual([]);
+    expect(result.current.rowError).toBe(TOO_BIG);
+    // A record with room sends as before.
+    useWorkspaceStore.setState({ improvements: [a3()] });
+    expect(result.current.canLink()).toBe(true);
+  });
+
   it("takes back an analysis opened from an A3 whose link the row can't hold", () => {
     useWorkspaceStore.setState({ improvements: [a3({ steps: giantSteps() })] });
     const { result } = hook("improve_a3");
@@ -889,6 +913,9 @@ describe("a change the row can't hold is refused before its Undo toast", () => {
     expect(ws().rootCauseAnalyses).toEqual([]);
     expect(byId("improve_a3")!.rootCauseId).toBeUndefined();
     expect(logs).toEqual([]);
+    // Refused before the send: no "Sent to Root Cause" toast, and the reason in place.
+    expect(undo.all).toEqual([]);
+    expect(result.current.rowError).toBe(TOO_BIG);
   });
 });
 

@@ -119,6 +119,7 @@ function ObstacleRow({
             }}
             sentTo={obstacle.sentTo}
             onLinksChange={(update) => actions.obstacleLinks(obstacle.id, update)}
+            canLink={actions.canLink}
             itemLabels={{ impediment: "Impediment (outside the team's control)" }}
           />
         )}

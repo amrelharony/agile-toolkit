@@ -27,6 +27,7 @@ import {
   coachingDue,
   composeCondition,
   fitsRow,
+  holdsLink,
   improveVerdict,
   itemVerdict,
   kataChecks,
@@ -712,6 +713,26 @@ describe("row size", () => {
       ENTITY_ROW_MAX_BYTES
     );
     expect(fitsRow(giant)).toBe(false);
+  });
+
+  it("holds one more send's link only with room for the largest one", () => {
+    expect(holdsLink(IMPROVEMENT)).toBe(true);
+    const bytes = (i: Improvement) => new TextEncoder().encode(JSON.stringify(i)).length;
+    const padded = (room: number) =>
+      improvement({ background: "x".repeat(ENTITY_ROW_MAX_BYTES - room - bytes(improvement())) });
+    // It fits a row, but a link would pass it: the send is refused before it makes anything.
+    const tight = padded(10);
+    expect(fitsRow(tight)).toBe(true);
+    expect(holdsLink(tight)).toBe(false);
+    const roomy = padded(400);
+    expect(holdsLink(roomy)).toBe(true);
+    // The largest link a send writes, with the rootCauseId an analysis's send sets, still fits.
+    const sent: Improvement = {
+      ...roomy,
+      rootCauseId: "x".repeat(64),
+      sentTo: [{ route: "backlog-story", targetId: "x".repeat(64), at: new Date().toISOString() }],
+    };
+    expect(fitsRow(sent)).toBe(true);
   });
 });
 

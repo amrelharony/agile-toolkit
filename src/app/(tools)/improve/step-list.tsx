@@ -149,6 +149,7 @@ function StepRow({
               }}
               sentTo={step.sentTo}
               onLinksChange={(update) => actions.stepLinks(step.id, update)}
+              canLink={actions.canLink}
             />
           )}
           <Button

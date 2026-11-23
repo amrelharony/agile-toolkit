@@ -126,6 +126,27 @@ export function fitsRow(item: Improvement): boolean {
   return jsonBytes(item) <= ENTITY_ROW_MAX_BYTES;
 }
 
+/**
+ * The most one send can add to the row: `,"sentTo":[…]` where there was no
+ * link yet, on the longest route Improve sends on, with a 64-character
+ * target id and an ISO time, plus the `rootCauseId` an analysis's send sets.
+ */
+const LINK_MAX_BYTES =
+  jsonBytes({
+    sentTo: [{ route: "backlog-story", targetId: "x".repeat(64), at: new Date(0).toISOString() }],
+    rootCauseId: "x".repeat(64),
+  }) - 1;
+
+/**
+ * Whether the improvement can still take one more send's link, stamped as a
+ * save stamps it. A send asks this before it makes its target, so a link
+ * the row would refuse sends nothing and shows no "Sent to …" toast.
+ */
+export function holdsLink(item: Improvement): boolean {
+  const stamped = { ...item, updatedAt: new Date().toISOString() };
+  return jsonBytes(stamped) + LINK_MAX_BYTES <= ENTITY_ROW_MAX_BYTES;
+}
+
 /** What the page and the verbs say when a write would pass the row's size. */
 export const TOO_BIG =
   "This improvement is too big to save. Shorten or remove some lines. Nothing was saved.";

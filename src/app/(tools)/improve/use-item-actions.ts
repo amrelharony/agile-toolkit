@@ -42,6 +42,7 @@ import {
   STEP_REFUSAL_TEXT,
   TOO_BIG,
   fitsRow,
+  holdsLink,
   isActive,
   readImprovement,
   touched,
@@ -136,6 +137,18 @@ export function useItemActions(itemId: string, log: Log) {
   const refuseTooBig = () => {
     setRowError(TOO_BIG);
     announce(TOO_BIG);
+  };
+
+  /**
+   * Whether the record can hold one more send's link, asked before the send
+   * makes anything: a refusal sends nothing, shows no "Sent to …" toast and
+   * says why in place. The take-back in the link writers stays as a backstop.
+   */
+  const canLink = (): boolean => {
+    const cur = freshImprovement(itemId);
+    if (cur && holdsLink(cur)) return true;
+    if (cur) refuseTooBig();
+    return false;
   };
 
   /** Change the improvement through the store, stamped; the saved one, or null. */
@@ -558,6 +571,7 @@ export function useItemActions(itemId: string, log: Log) {
           });
           if (!saved) takeBackUnsaved(made);
         },
+        canLink,
       }
     );
     // A link the row couldn't hold was taken back with its analysis: nothing opened.
@@ -605,6 +619,7 @@ export function useItemActions(itemId: string, log: Log) {
     addStep,
     patchStep,
     removeStep,
+    canLink,
     stepLinks,
     addObstacle,
     patchObstacle,
