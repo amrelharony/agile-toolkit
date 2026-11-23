@@ -1,8 +1,18 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { nanoid } from "nanoid";
-import { CalendarRange, Gauge, GitBranch, Plus, Target } from "lucide-react";
+import {
+  BarChart3,
+  CalendarRange,
+  Gauge,
+  GitBranch,
+  Plus,
+  ShieldAlert,
+  Target,
+  Vote,
+} from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -55,6 +65,8 @@ import { dependencyViews, isLegacyDependency, overloads, teamLoad, waitsOnTeam }
 import { LoadChart } from "./load-chart";
 import { toMarkdown } from "./markdown";
 import { ObjectivesPanel } from "./objectives";
+import { PredictabilitySection } from "./predictability-section";
+import { RoamSection } from "./roam-section";
 import {
   MAX_ITERATIONS,
   usePiState,
@@ -64,6 +76,19 @@ import {
   type PiTeam,
 } from "./store";
 import { piVerdict } from "./verdict";
+
+/**
+ * The confidence vote loads only when the board has teams to vote, so the
+ * vote kit doesn't come down with every visit to the board.
+ */
+const ConfidenceVote = dynamic(() => import("./confidence-vote").then((m) => m.ConfidenceVote), {
+  ssr: false,
+  loading: () => (
+    <p role="status" className="text-sm text-sub">
+      Loading the confidence vote…
+    </p>
+  ),
+});
 
 type Placed<T> = { item: T; index: number }[];
 
@@ -100,6 +125,9 @@ type Confirm =
 
 export function PiPlanningClient() {
   const [state, update] = usePiState();
+  // The board as last rendered, for a hand-off's links (read fresh, then on Undo).
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const map = useDependencyMap();
   const today = todayLocalISO();
   const { log } = useHistoryLogger("pi-planning");
@@ -508,6 +536,8 @@ export function PiPlanningClient() {
         teams: [...base.teams, ...ex.teams],
         items: [...base.items, ...items],
         objectives: [...(base.objectives ?? []), ...(ex.objectives ?? [])],
+        confidence: [...(base.confidence ?? []), ...(ex.confidence ?? [])],
+        history: [...(base.history ?? []), ...(ex.history ?? [])],
       };
     });
   };
@@ -588,7 +618,7 @@ export function PiPlanningClient() {
     <ToolPageWrapper
       toolId="pi-planning"
       title="PI Planning Board"
-      description="SAFe Program Increment board — teams × iterations with features, dependencies, and risks."
+      description="SAFe Program Increment board: teams × iterations, PI objectives, ROAM risks, a confidence vote and predictability."
       category="Portfolio & Scaling"
     >
       <div ref={exportRef} className="space-y-4">
@@ -722,6 +752,23 @@ export function PiPlanningClient() {
                 onSave={saveObjective}
                 onRemove={removeObjective}
               />
+            </SectionCard>
+
+            <SectionCard title="Risks: ROAM" icon={ShieldAlert}>
+              <RoamSection
+                state={state}
+                latest={() => stateRef.current}
+                update={update}
+                log={log}
+              />
+            </SectionCard>
+
+            <SectionCard title="Confidence vote" icon={Vote}>
+              <ConfidenceVote state={state} update={update} log={log} />
+            </SectionCard>
+
+            <SectionCard title="Predictability" icon={BarChart3}>
+              <PredictabilitySection state={state} update={update} log={log} today={today} />
             </SectionCard>
           </>
         )}

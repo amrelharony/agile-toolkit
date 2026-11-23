@@ -1,6 +1,28 @@
 import type { DependencyMap, ISODateString } from "@/lib/stores/workspace-types";
 import { DEPENDENCY_STATUS_LABEL } from "@/lib/dependencies/edges";
 import { dayLabel } from "../dependency-map/format";
+import {
+  averageText,
+  confidenceRule,
+  confidenceVotes,
+  scopeLabel,
+} from "@/lib/pi-planning/confidence";
+import { localDayOf } from "@/lib/pi-planning/model";
+import {
+  HISTORY_AVERAGE_MIN,
+  historyAverage,
+  piPredictability,
+  predictabilityVerdict,
+  recordPct,
+  teamPctText,
+} from "@/lib/pi-planning/predictability";
+import {
+  ROAM_GROUPS,
+  ROAM_GROUP_LABEL,
+  piRisks,
+  roamGroups,
+  roamVerdict,
+} from "@/lib/pi-planning/roam";
 import { capacityOf, cellLoad, dependencyView, dependencyViews, teamLoad } from "./load";
 import type { PiItem, PiState } from "./store";
 import { piVerdict } from "./verdict";
@@ -106,5 +128,98 @@ export function toMarkdown(state: PiState, map: Graph, today: ISODateString): st
       ""
     );
   }
+
+  lines.push(...roamLines(state), ...confidenceLines(state), ...predictabilityLines(state));
   return `${lines.join("\n").trimEnd()}\n`;
+}
+
+const teamOf = (state: PiState, id: string) => state.teams.find((t) => t.id === id)?.name ?? "";
+
+/** The risks by ROAM status, when the board has any. */
+function roamLines(state: PiState): string[] {
+  const risks = piRisks(state);
+  if (risks.length === 0) return [];
+  const groups = roamGroups(state);
+  return [
+    "## Risks (ROAM)",
+    "",
+    roamVerdict(state),
+    "",
+    "| Status | Risk | Team | Owner | Note |",
+    "|---|---|---|---|---|",
+    ...ROAM_GROUPS.flatMap((g) =>
+      groups[g].map(
+        (r) =>
+          `| ${ROAM_GROUP_LABEL[g]} | ${md(r.title)} | ${md(teamOf(state, r.teamId))} | ${
+            md(r.roamOwner) || "—"
+          } | ${md(r.roamNote) || "—"} |`
+      )
+    ),
+    "",
+  ];
+}
+
+/** Each saved confidence vote's totals, newest first, when there are any. */
+function confidenceLines(state: PiState): string[] {
+  const votes = confidenceVotes(state);
+  if (votes.length === 0) return [];
+  return [
+    "## Confidence vote",
+    "",
+    "| Saved | For | Votes | Average | 1 | 2 | 3 | 4 | 5 | Under 3 |",
+    "|---|---|---:|---:|---:|---:|---:|---:|---:|---|",
+    ...[...votes]
+      .reverse()
+      .map(
+        (v) =>
+          `| ${dayLabel(localDayOf(v.at), true)} | ${md(scopeLabel(state, v.scope, v.scopeName))} | ${
+            v.ballots
+          } | ${averageText(v.counts)} | ${v.counts.join(" | ")} | ${md(confidenceRule(v.counts))} |`
+      ),
+    "",
+  ];
+}
+
+/** Planned against actual business value per team, and the closed PIs, when there's any. */
+function predictabilityLines(state: PiState): string[] {
+  const p = piPredictability(state);
+  const history = state.history ?? [];
+  const planned = p.teams.some((t) => t.plannedBv > 0 || t.actualBv > 0);
+  if (!planned && history.length === 0) return [];
+  const out = ["## Predictability", "", predictabilityVerdict(p), ""];
+  if (planned) {
+    out.push(
+      "| Team | Planned BV | Actual BV | Predictability |",
+      "|---|---:|---:|---:|",
+      ...p.teams.map(
+        (t) => `| ${md(t.name)} | ${t.plannedBv} | ${t.actualBv} | ${md(teamPctText(t))} |`
+      ),
+      ...(p.total && p.total.teams > 1
+        ? [`| Train | ${p.total.plannedBv} | ${p.total.actualBv} | ${p.total.pct}% |`]
+        : []),
+      ""
+    );
+  }
+  if (history.length > 0) {
+    const avg = historyAverage(history);
+    out.push(
+      "### Closed PIs",
+      "",
+      "| PI | Closed | Planned BV | Actual BV | Predictability |",
+      "|---|---|---:|---:|---:|",
+      ...[...history].reverse().map((r) => {
+        const pct = recordPct(r);
+        const sum = (k: "plannedBv" | "actualBv") => r.teams.reduce((a, t) => a + t[k], 0);
+        return `| ${md(r.name) || "—"} | ${dayLabel(localDayOf(r.closedAt), true)} | ${sum(
+          "plannedBv"
+        )} | ${sum("actualBv")} | ${pct === null ? "—" : `${pct}%`} |`;
+      }),
+      "",
+      avg
+        ? `Average over ${avg.count} closed PIs: ${avg.pct}%.`
+        : `The average shows once ${HISTORY_AVERAGE_MIN} PIs are closed.`,
+      ""
+    );
+  }
+  return out;
 }
