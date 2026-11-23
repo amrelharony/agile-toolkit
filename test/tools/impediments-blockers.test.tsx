@@ -200,6 +200,32 @@ describe("Blockers: where the time goes", () => {
     expect(screen.getByRole("radio", { name: /^All/ })).toHaveAttribute("aria-checked", "true");
   });
 
+  it("shows the blocked work and its export before any impediment is logged", async () => {
+    useWorkspaceStore.setState({
+      stories: [
+        story("a", {
+          blockLog: [{ from: stamp(6), to: stamp(4), cluster: "Waiting for a review" }],
+        }),
+        story("b", { title: "Refund flow", blocked: true, blockLog: [{ from: stamp(1) }] }),
+      ],
+    });
+    renderPage();
+    expect(await screen.findByText(/^No impediments logged\./)).toBeInTheDocument();
+    const s = within(screen.getByRole("region", { name: "Blockers: where the time goes" }));
+    expect(s.getByText(/^Waiting for a review cost the most: 2 blocked days/)).toBeInTheDocument();
+    expect(s.getByRole("list", { name: "Clusters to raise" })).toBeInTheDocument();
+    expect(s.getByRole("combobox", { name: "Cluster for Refund flow" })).toBeInTheDocument();
+    const md = s.getByTestId("export-markdown").textContent ?? "";
+    expect(md).toContain("No impediments logged yet.");
+    expect(md).toContain("## Blockers (last 90 days)");
+  });
+
+  it("keeps to the empty state with nothing blocked and nothing logged", async () => {
+    renderPage();
+    expect(await screen.findByText(/^No impediments logged\./)).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: "Blockers: where the time goes" })).toBeNull();
+  });
+
   it("clusters a blocked story's spell from the list, with Undo", async () => {
     useWorkspaceStore.setState({
       impediments: [imp("i1", "Release waiting", { cluster: "A decision or approval" })],
@@ -448,6 +474,24 @@ describe("the Markdown's Blockers section", () => {
     const md = toMarkdown(list, TODAY, { stories: [], cards: [], now: Date.now() });
     expect(md).toContain("of impediments raised");
     expect(md).toContain("| Test or build environment | Inside | 0 | 3 |");
+  });
+
+  it("adds the blocked stories and cards with no impediment logged yet", () => {
+    const blocked = {
+      stories: [
+        story("s", { blockLog: [{ from: stamp(4), to: stamp(2), cluster: "Another team" }] }),
+      ],
+      cards: [],
+      now: Date.now(),
+    };
+    const md = toMarkdown([], TODAY, blocked);
+    expect(md).toContain("No impediments logged yet.");
+    expect(md).toContain("## Blockers (last 90 days)");
+    expect(md).toContain("| Another team | Outside | 2 | 0 | 100% |");
+    // Nothing blocked: the two-line export as before.
+    expect(toMarkdown([], TODAY, { stories: [], cards: [], now: Date.now() })).toBe(
+      toMarkdown([], TODAY)
+    );
   });
 });
 

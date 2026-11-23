@@ -26,6 +26,7 @@ import { MIN_SAMPLE, enoughData } from "@/lib/analytics/min-sample";
 import { plural } from "@/lib/charts/chart-text";
 import { IMPEDIMENT_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { BLOCKER_WINDOWS, lastDays, readBlockers } from "@/lib/impediments/blockers";
 import { hasLegacyImpediments } from "@/lib/impediments/legacy-key";
 import {
   IMPEDIMENT_CATEGORIES,
@@ -187,6 +188,16 @@ export function ImpedimentsClient() {
   const cards = useMemo(() => boards.find((b) => b.id === KANBAN_BOARD_ID)?.cards ?? [], [boards]);
   const [now] = useState(() => Date.now());
   const today = todayLocalISO();
+  // With no impediment logged, the Blockers section still shows once a story
+  // or a card was blocked in the widest window it offers.
+  const blockedBeforeLog = useMemo(
+    () =>
+      list.length === 0 &&
+      readBlockers(stories, cards, list, lastDays(Math.max(...BLOCKER_WINDOWS), today, now), {
+        includeExamples: true,
+      }).rows.length > 0,
+    [list, stories, cards, today, now]
+  );
   const { log } = useHistoryLogger("impediments");
   const announce = useAnnounce();
   const legacyPending = useLegacyMovePending();
@@ -438,13 +449,29 @@ export function ImpedimentsClient() {
         </div>
 
         {list.length === 0 ? (
-          !legacyPending && (
-            <EmptyState icon={AlertTriangle} action={<LoadExampleButton onLoad={loadExample} />}>
-              No impediments logged. Use “Log impediment” for anything in the team’s way, or load an
-              example to see the tracker filled in. Blockers sent from Standup, Retro and Scrum of
-              Scrums land here too.
-            </EmptyState>
-          )
+          <>
+            {!legacyPending && (
+              <EmptyState icon={AlertTriangle} action={<LoadExampleButton onLoad={loadExample} />}>
+                No impediments logged. Use “Log impediment” for anything in the team’s way, or load
+                an example to see the tracker filled in. Blockers sent from Standup, Retro and Scrum
+                of Scrums land here too.
+              </EmptyState>
+            )}
+            {/* Blocked stories and cards count from day one, before any impediment is logged. */}
+            {blockedBeforeLog && (
+              <BlockersSection
+                impediments={list}
+                today={today}
+                actions={
+                  <ExportButton
+                    filename="impediments"
+                    markdown={toMarkdown(list, today, { stories, cards, now })}
+                    targetRef={exportRef}
+                  />
+                }
+              />
+            )}
+          </>
         ) : (
           <>
             <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">

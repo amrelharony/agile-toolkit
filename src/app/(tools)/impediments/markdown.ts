@@ -125,7 +125,12 @@ export function toMarkdown(
   blockers?: MarkdownBlockers
 ): string {
   const title = `# Impediments — ${dayLabel(today, true)}`;
-  if (list.length === 0) return `${title}\n\nNo impediments logged yet.\n`;
+  if (list.length === 0) {
+    // Blocked stories and cards count before any impediment is logged.
+    const lines = [title, "", "No impediments logged yet."];
+    if (blockers) lines.push(...blockersSection(list, today, blockers));
+    return `${lines.join("\n")}\n`;
+  }
 
   const sorted = sortImpediments(list, today);
   const lines = [title, "", `**${impedimentVerdict(list, today)}**`];

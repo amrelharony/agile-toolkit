@@ -12,7 +12,7 @@
  */
 
 import dynamic from "next/dynamic";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Layers, Plus } from "lucide-react";
 import { AiButton, AiSuggestions } from "@/components/ai";
 import { ChartFigure } from "@/components/shared/chart-card";
@@ -162,12 +162,15 @@ export function BlockersSection({
   impediments,
   today,
   onShowImpediment,
+  actions,
 }: {
   /** The tracker's impediments, as the page shows them. */
   impediments: readonly Impediment[];
   today: string;
   /** Takes the person to an impediment's card in the tracker's list (a raised cluster's). */
   onShowImpediment?: (id: string) => void;
+  /** Beside the title: the page's export, while there is no list of impediments to carry it. */
+  actions?: ReactNode;
 }) {
   const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
   const boards = useWorkspaceStore((s) => s.kanbanBoards) ?? NO_BOARDS;
@@ -326,7 +329,12 @@ export function BlockersSection({
 
   return (
     <section aria-label="Blockers: where the time goes">
-      <SectionCard title="Blockers: where the time goes" icon={Layers} contentClassName="space-y-4">
+      <SectionCard
+        title="Blockers: where the time goes"
+        icon={Layers}
+        actions={actions}
+        contentClassName="space-y-4"
+      >
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1.5">
             <span className="text-sm text-text" aria-hidden="true">
