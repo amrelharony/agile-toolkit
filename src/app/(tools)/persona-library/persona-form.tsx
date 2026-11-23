@@ -46,6 +46,8 @@ export const NOTES_AI_LINE =
 export const INTERVIEWS_AI_LINE =
   "Participant names become Participant 1, 2… Other names in quotes aren't caught, so check before you ask Amr.";
 export const NAME_HINT = "Use a made-up name. Don't describe a real person.";
+/** Under the notes box: what the best-effort filter does, promising no more than D4's line. */
+export const NOTES_HINT = "Emails and phone numbers we can spot are taken out first.";
 
 /** Notes as they go to Amr or the rules: contact details taken out, then capped. */
 export const draftableNotes = (text: string) =>
@@ -134,8 +136,7 @@ export function PersonaForm({
             label="Research notes"
             hint={
               <span className={cn(notes.length >= PERSONA_NOTES_MAX && "text-warning")}>
-                {n(notes.length)} of {n(PERSONA_NOTES_MAX)} characters. Contact details are taken
-                out before anything is read.
+                {n(notes.length)} of {n(PERSONA_NOTES_MAX)} characters. {NOTES_HINT}
               </span>
             }
           >

@@ -107,7 +107,8 @@ const freshFields = () => emptyFields(defaultTier(readPersonas(currentPersonas()
  * frustrations and habits, a tier (main, also served, not for us) and how
  * much of it is researched. A persona can be drafted from pasted notes or
  * from picked interviews of the User Interview Log (Amr, or keyword rules
- * without AI), with contact details and participant names taken out first;
+ * without AI), with the contact details redactPii spots and the participant
+ * names taken out first (best effort: the page says what can get through);
  * the draft only fills the form, and nothing is saved until Save. Each card
  * says which Impact Maps use it and how many interviews it is based on.
  * Everything lives in workspace.personas, which Amr's verbs and the next

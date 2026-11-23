@@ -81,6 +81,7 @@ import {
   INTERVIEWS_AI_LINE,
   NAME_HINT,
   NOTES_AI_LINE,
+  NOTES_HINT,
 } from "@/app/(tools)/persona-library/persona-form";
 import { emptyFields, validatePersona } from "@/app/(tools)/persona-library/form";
 import { buildExample } from "@/app/(tools)/persona-library/example";
@@ -219,6 +220,12 @@ describe("Persona Library first run", () => {
     expect(INTERVIEWS_AI_LINE).toBe(
       "Participant names become Participant 1, 2… Other names in quotes aren't caught, so check before you ask Amr."
     );
+    // The hint under the notes promises no more than that line.
+    expect(
+      screen.getByText(new RegExp(`^0 of 6,000 characters\\. ${NOTES_HINT}$`))
+    ).toBeInTheDocument();
+    expect(NOTES_HINT).toBe("Emails and phone numbers we can spot are taken out first.");
+    expect(document.body.textContent).not.toContain("taken out before anything is read");
   });
 });
 
