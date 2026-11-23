@@ -336,6 +336,20 @@ describe("adding and editing", () => {
     expect(screen.getByText("Already on the list.")).toBeInTheDocument();
   });
 
+  it("reads out why a point wasn't added, from the line the add box describes", async () => {
+    renderPage();
+    const input = await screen.findByLabelText("Add a frustration");
+    fireEvent.keyDown(input, { key: "Enter" });
+    const note = screen.getByText("Type a frustration first.");
+    expect(note).toHaveAttribute("role", "status");
+    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(note.id);
+    fireEvent.change(input, { target: { value: "Slow checkout" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    fireEvent.change(input, { target: { value: "slow checkout" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByText("Already on the list.")).toHaveAttribute("role", "status");
+  });
+
   it("adds a point with Undo, which takes it back only from the form it went into", async () => {
     seed([persona("persona_a")]);
     renderPage();

@@ -92,7 +92,7 @@ export function PointsField({
               value={text}
               maxLength={PERSONA_POINT_MAX}
               aria-invalid={error ? true : undefined}
-              aria-describedby={error ? `${id}-error` : undefined}
+              aria-describedby={error ? `${id}-hint ${id}-error` : `${id}-hint`}
               placeholder={`Add a ${one}`}
               onChange={(e) => {
                 setText(e.target.value);
@@ -112,7 +112,8 @@ export function PointsField({
               Add
             </Button>
           </div>
-          <p id={`${id}-hint`} className="text-xs text-sub">
+          {/* A live region, so a refused point ("Already on the list.") is read out. */}
+          <p id={`${id}-hint`} role="status" className="text-xs text-sub">
             {note ?? `Up to ${PERSONA_POINTS_MAX}, each a short line.`}
           </p>
         </>
