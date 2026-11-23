@@ -26,6 +26,7 @@ import { PlaneTakeoff, Plus } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ProductGoalLine, useActiveProductGoal } from "@/components/product-goal/product-goal-line";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
@@ -111,6 +112,22 @@ export function KickoffClient() {
   const { log } = useHistoryLogger(TOOL_ID);
   const announce = useAnnounce();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** The kickoff whose collect room is live (it is the one shown), and whether its round holds unsaved answers. */
+  const [liveRoom, setLiveRoom] = useState<{ kickoffId: string; unsaved: boolean } | null>(null);
+  const liveRef = useRef(liveRoom);
+  liveRef.current = liveRoom;
+  /** A change of what shows that would end the live room, waiting on the host's answer. */
+  const [pending, setPending] = useState<{ go: () => void; deletes: boolean } | null>(null);
+  /**
+   * Run `go` (which shows `targetId`, or deletes the shown kickoff), or,
+   * when it would end the live room on the kickoff shown, ask first: the
+   * room ends for every phone in it, and answers not saved are lost.
+   */
+  const guard = useCallback((targetId: string | null, go: () => void, deletes = false) => {
+    const live = liveRef.current;
+    if (live && (deletes || live.kickoffId !== targetId)) setPending({ go, deletes });
+    else go();
+  }, []);
   /** The start form: open with what it starts from, or closed (null). */
   const [creating, setCreating] = useState<Partial<StartDraft> | null>(null);
   const [startKey, setStartKey] = useState(0);
@@ -122,16 +139,25 @@ export function KickoffClient() {
     setSelectedId(id);
   };
 
-  const openFromUrl = useCallback((params: URLSearchParams) => {
-    const id = params.get("kickoff");
-    if (!id) return;
-    setSelectedId(id);
-    setCreating(null);
-    focus.current = "shown";
-    dropSearchParam("kickoff");
-  }, []);
+  const openFromUrl = useCallback(
+    (params: URLSearchParams) => {
+      const id = params.get("kickoff");
+      if (!id) return;
+      dropSearchParam("kickoff");
+      guard(id, () => {
+        setSelectedId(id);
+        setCreating(null);
+        focus.current = "shown";
+      });
+    },
+    [guard]
+  );
 
   const selected = kickoffs.find((k) => k.id === selectedId) ?? kickoffs[0] ?? null;
+  // Pin what shows: with nothing picked, the newest kickoff shows, and a
+  // change to another one (Amr's verb, another tab) re-sorts the list. The
+  // view, and a live room in it, stays on the one shown.
+  if (hydrated && selected && selected.id !== selectedId) setSelectedId(selected.id);
   const example = hasExampleItems(kickoffs);
 
   useEffect(() => {
@@ -187,7 +213,8 @@ export function KickoffClient() {
     ws().upsertKickoff(k);
     log(KICKOFF_ACTIONS.KICKOFF_CREATED, { kickoffId: k.id, format: k.format });
     setCreating(null);
-    select(k.id);
+    // With a live room on the one shown, the new kickoff waits in the list until the host says.
+    guard(k.id, () => select(k.id));
     announce(`Started “${short(k.title)}”, a ${formatOf(k).name}.`);
   };
 
@@ -211,7 +238,7 @@ export function KickoffClient() {
       },
       revert: () => {
         if (!(ws().kickoffs ?? []).some((x) => x.id === k.id)) ws().upsertKickoff(saved);
-        setSelectedId(k.id);
+        guard(k.id, () => setSelectedId(k.id));
       },
     });
     select(neighbour?.id ?? null);
@@ -221,12 +248,22 @@ export function KickoffClient() {
     for (const k of buildExample()) ws().upsertKickoff(k);
     setSelectedId(null);
   };
+  // The kickoff shown stays unless it was an example (then the newest left shows).
   const clearExample = () => {
     for (const k of ws().kickoffs ?? []) {
       if (isExampleId(k.id)) ws().removeKickoff(k.id);
     }
-    setSelectedId(null);
   };
+
+  /** The live room on the kickoff shown says when it opens, holds unsaved answers, or ends. */
+  const onRoomChange = useCallback(
+    (kickoffId: string) => (room: { unsaved: boolean } | null) =>
+      setLiveRoom(room ? { kickoffId, unsaved: room.unsaved } : null),
+    []
+  );
+  const liveTitle = liveRoom
+    ? (kickoffs.find((k) => k.id === liveRoom.kickoffId)?.title ?? "")
+    : "";
 
   const context = useMemo(
     () => ({
@@ -289,10 +326,12 @@ export function KickoffClient() {
                         <button
                           type="button"
                           aria-current={current ? "true" : undefined}
-                          onClick={() => {
-                            setCreating(null);
-                            select(k.id);
-                          }}
+                          onClick={() =>
+                            guard(k.id, () => {
+                              setCreating(null);
+                              select(k.id);
+                            })
+                          }
                           className={cn(
                             "w-full rounded-lg border px-3 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                             current
@@ -354,7 +393,8 @@ export function KickoffClient() {
                       handle={handleFor(selected)}
                       context={context}
                       onStartAnother={() => startAnother(selected)}
-                      onRemove={() => remove(selected)}
+                      onRemove={() => guard(null, () => remove(selected), true)}
+                      onRoomChange={onRoomChange(selected.id)}
                     />
                   </section>
                 )}
@@ -370,6 +410,24 @@ export function KickoffClient() {
               clipboardText={markdown}
             />
           </div>
+          <ConfirmDialog
+            open={pending !== null}
+            onOpenChange={(open) => {
+              if (!open) setPending(null);
+            }}
+            title="End the live room?"
+            description={[
+              `The room on “${short(liveTitle) || "this kickoff"}” is still live.`,
+              `${pending?.deletes ? "Deleting the kickoff" : "Showing another kickoff"} ends it for everyone in it${
+                liveRoom?.unsaved
+                  ? ", and the answers in its round aren't saved, so they'd be lost."
+                  : "."
+              }`,
+            ].join(" ")}
+            confirmLabel={pending?.deletes ? "End it and delete" : "End it and switch"}
+            cancelLabel="Keep the room"
+            onConfirm={() => pending?.go()}
+          />
         </div>
       )}
     </ToolPageWrapper>

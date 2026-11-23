@@ -16,7 +16,8 @@
  * takes the whole round back out.
  *
  * While it is live it registers with Amr's live-wall registry (counts
- * only), so his Audience Wall room verbs reach it.
+ * only), so his Audience Wall room verbs reach it, and tells the page
+ * (`onLiveChange`), which asks before showing another kickoff would end it.
  */
 
 import { useEffect, useId, useRef, useState } from "react";
@@ -83,10 +84,17 @@ export function linesFromRound(
 export function CollectRoom({
   handle,
   crypto: cryptoImpl,
+  onLiveChange,
 }: {
   handle: KickoffHandle;
   /** Tests inject a fake (undefined: WebCrypto). */
   crypto?: VoteCrypto | null;
+  /**
+   * The room is live, with whether its round holds answers a new round (or
+   * the room ending) would lose; null once it ends. The page asks before
+   * anything else would end it.
+   */
+  onLiveChange?: (room: { unsaved: boolean } | null) => void;
 }) {
   const { kickoff: k, read, write, log } = handle;
   const announce = useAnnounce();
@@ -191,7 +199,9 @@ export function CollectRoom({
         crypto={cryptoImpl}
         onSave={save}
       >
-        {(room, { unsaved }) => <LiveRoom room={room} unsaved={unsaved} />}
+        {(room, { unsaved }) => (
+          <LiveRoom room={room} unsaved={unsaved} onLiveChange={onLiveChange} />
+        )}
       </WallRoomHost>
       {note && (
         <p role="status" className="text-sm text-sub">
@@ -206,12 +216,31 @@ export function CollectRoom({
 const SELECT_CLASS =
   "flex h-11 pointer-fine:md:h-9 w-full max-w-sm rounded-md border border-input bg-background px-3 py-1 text-base pointer-fine:md:text-sm text-text shadow-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
-/** Mounted only while the room is live: registers it for Amr (counts only). */
-function LiveRoom({ room, unsaved }: { room: WallRoom; unsaved: boolean }) {
+/**
+ * Mounted only while the room is live: registers it for Amr (counts only),
+ * and tells the page it is live (and whether its round holds unsaved
+ * answers) until it ends.
+ */
+function LiveRoom({
+  room,
+  unsaved,
+  onLiveChange,
+}: {
+  room: WallRoom;
+  unsaved: boolean;
+  onLiveChange?: (room: { unsaved: boolean } | null) => void;
+}) {
   const roomRef = useRef(room);
   roomRef.current = room;
   const unsavedRef = useRef(unsaved);
   unsavedRef.current = unsaved;
+  const liveRef = useRef(onLiveChange);
+  liveRef.current = onLiveChange;
+
+  useEffect(() => {
+    liveRef.current?.({ unsaved });
+  }, [unsaved]);
+  useEffect(() => () => liveRef.current?.(null), []);
 
   useEffect(
     () =>

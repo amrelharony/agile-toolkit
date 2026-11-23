@@ -214,12 +214,15 @@ export function KickoffView({
   context,
   onStartAnother,
   onRemove,
+  onRoomChange,
 }: {
   handle: KickoffHandle;
   context: KickoffDraftContext;
   /** "Start another format from this brief". */
   onStartAnother: () => void;
   onRemove: () => void;
+  /** The collect room opened live, its round's unsaved answers changed, or it ended (null). */
+  onRoomChange?: (room: { unsaved: boolean } | null) => void;
 }) {
   const { kickoff: k, example } = handle;
   const format = formatOf(k);
@@ -275,8 +278,9 @@ export function KickoffView({
             Start your own kickoff to collect answers from phones: the example keeps nothing.
           </p>
         ) : roomOpen ? (
-          // Stays once opened: a live room ends only through its own End room.
-          <CollectRoomLazy key={k.id} handle={handle} />
+          // Stays once opened. While it is live the page asks before anything
+          // ends it (another kickoff shown, this one deleted): see kickoff-client.
+          <CollectRoomLazy key={k.id} handle={handle} onLiveChange={onRoomChange} />
         ) : (
           <>
             <p className="text-sm text-sub">

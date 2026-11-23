@@ -343,4 +343,32 @@ describe("collecting from the room", () => {
     expect(liveWall()).toBeNull();
     expect(within(document.body).queryByText("Testing early")).toBeNull();
   });
+
+  it("tells the page while it is live, with unsaved answers, and when it ends", async () => {
+    const crypto = fakeVoteCrypto();
+    const onLiveChange = vi.fn();
+    const view = wrap(
+      <CollectRoom handle={handleFor("k1")} crypto={crypto} onLiveChange={onLiveChange} />
+    );
+    await flush();
+    // Not live before it opens.
+    expect(onLiveChange).not.toHaveBeenCalled();
+    const ch = await openRoom();
+    expect(onLiveChange).toHaveBeenLastCalledWith({ unsaved: false });
+    act(() => {
+      liveWall()!.openRound("What are we good at?", "hidden");
+    });
+    await tick(600);
+    await send(ch, crypto, A.id, {
+      t: "post",
+      r: states(ch).at(-1)!.round!.id,
+      pid: "pid_ko000004",
+      text: "Testing early",
+      lock: lockOf("keyA_0123456789abcdef"),
+    });
+    // A hidden round holding a post: a switch would lose it.
+    expect(onLiveChange).toHaveBeenLastCalledWith({ unsaved: true });
+    view.unmount();
+    expect(onLiveChange).toHaveBeenLastCalledWith(null);
+  });
 });
