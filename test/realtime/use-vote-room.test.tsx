@@ -3,11 +3,13 @@ import { act, renderHook } from "@testing-library/react";
 import { VISITOR_LIMITS } from "@/lib/realtime/visitor-rooms";
 import { HOST_MIGRATION_DELAY_MS } from "@/lib/realtime/host-election";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { ballotAad, type HostKeyPair } from "@/lib/realtime/vote-room/crypto";
+import { ballotAad, ballotTabAad, type HostKeyPair } from "@/lib/realtime/vote-room/crypto";
 import {
   VOTE_LIMITS,
   VOTE_ROOM_EVENTS,
+  readBallotEnvelope,
   signingInput,
+  type BallotEnvelope,
   type Questionnaire,
   type VoteStateMessage,
 } from "@/lib/realtime/vote-room/protocol";
@@ -103,6 +105,24 @@ async function ballotFor(
   );
   return { v: 1, by, roundId, bid, ...sealed };
 }
+
+/** The same ballot with its tab's secret sealed beside it, as a current participant sends it. */
+async function tabbedBallotFor(
+  crypto: FakeVoteCrypto,
+  state: Pick<VoteStateMessage, "roundId" | "keys">,
+  by: string,
+  indexes: number[],
+  secret: string,
+  over: { roundId?: string; bid?: string } = {}
+) {
+  const b = await ballotFor(crypto, state, by, indexes, over);
+  const tab = await crypto.seal(state.keys.ecdh, ballotTabAad(b.roundId, by, b.bid, b.ct), secret);
+  return { ...b, tab };
+}
+
+/** Tab secrets: 21 URL-safe characters, like nanoid(21). */
+const TAB_A = "tabOfAlex_0123456789a";
+const TAB_SPOOF = "tabOfSly__0123456789s";
 
 async function startHost(
   over: Partial<UseVoteRoomHostOptions> = {},
@@ -424,8 +444,11 @@ describe("useVoteRoom: a participant pins the host's key", () => {
       "epk",
       "iv",
       "roundId",
+      "tab",
       "v",
     ]);
+    // The tab secret rides sealed beside the answers, and reads back off the wire.
+    expect(readBallotEnvelope(ballots[0])).toEqual(ballots[0]);
     expect(ballots[0].by).toBe(A.id);
     expect(ballots[0].roundId).toBe(ROUND);
     expect(result.current.awaitingAck).toBe(true);
@@ -1049,7 +1072,8 @@ describe("useVoteRoom: no ballot is lost for a temporary reason", () => {
     // Byte for byte the same ballot: nothing new is sealed, nothing more is said.
     expect(sent[1]).toEqual(sent[0]);
     expect(sent[2]).toEqual(sent[0]);
-    expect(crypto.calls.seal).toBe(1);
+    // Two seals in all: the answers and the tab secret, once.
+    expect(crypto.calls.seal).toBe(2);
     expect(result.current.awaitingAck).toBe(true);
     const { bid } = sent[0] as { bid: string };
     await deliver(
@@ -1351,13 +1375,14 @@ describe("useVoteRoom: a ballot sent under someone else's id is noticed", () => 
       bid: "stolen_seat1",
     });
     expect(result.current.impersonated).toBe(true);
-    // A new round starts without the warning.
+    // Room-wide: the host may have tied the id to the other tab, so a new
+    // round keeps the warning.
     await deliver(
       ch,
       VOTE_ROOM_EVENTS.state,
       await signedState(crypto, HOST.id, keys, { seq: 2, roundId: "round_000002" })
     );
-    expect(result.current.impersonated).toBe(false);
+    expect(result.current.impersonated).toBe(true);
   });
 
   it("counts, for the host, second ballots from an id that already answered, each once", async () => {
@@ -1406,6 +1431,218 @@ describe("useVoteRoom: a ballot sent under someone else's id is noticed", () => 
     const kicks = ch.sent(VOTE_ROOM_EVENTS.kick) as { id: string }[];
     expect(kicks).toHaveLength(2);
     expect(kicks[1].id).toBe(SPOOF.id);
+  });
+});
+
+// ── An id answers from the tab it first answered from ────────────────
+
+describe("useVoteRoom: each id is tied to its tab for the whole room", () => {
+  /** Count three ballots, reveal, and start round 2 (same questions, new key). */
+  async function toRoundTwo(
+    ch: FakeChannel,
+    result: { current: ReturnType<typeof useVoteRoom> },
+    first: unknown[]
+  ) {
+    for (const b of first) await deliver(ch, VOTE_ROOM_EVENTS.ballot, b);
+    expect(result.current.ballots).toBe(first.length);
+    act(() => result.current.reveal());
+    await flush();
+    act(() => result.current.newRound());
+    await flush();
+    return lastState(ch);
+  }
+
+  it("refuses another tab's ballot under a tied id in a later round, and warns the host", async () => {
+    const { ch, crypto, result } = await startHost({}, [HOST, A, B, C]);
+    const s1 = lastState(ch);
+    const s2 = await toRoundTwo(ch, result, [
+      await tabbedBallotFor(crypto, s1, A.id, [0, 0, 0], TAB_A),
+      await ballotFor(crypto, s1, B.id, [1, 1, 1]),
+      await ballotFor(crypto, s1, C.id, [2, 2, 2]),
+    ]);
+    expect(s2.roundId).not.toBe(s1.roundId);
+    expect(result.current.duplicateBallots).toBe(0);
+    // Someone else's tab under Alex's id: refused, and it feeds the warning, once.
+    const stolen = await tabbedBallotFor(crypto, s2, A.id, [2, 2, 2], TAB_SPOOF);
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, stolen);
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, stolen);
+    expect(result.current.ballots).toBe(0);
+    expect(result.current.duplicateBallots).toBe(1);
+    // Alex's own tab still answers.
+    const own = await tabbedBallotFor(crypto, s2, A.id, [1, 1, 1], TAB_A);
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, own);
+    expect(result.current.ballots).toBe(1);
+    await tick(VOTE_LIMITS.stateThrottleMs);
+    expect(lastState(ch).acks).toEqual([own.bid]);
+  });
+
+  it("refuses, before opening it, a ballot without a tab under an id tied to one, and the reverse", async () => {
+    const { ch, crypto, result } = await startHost({}, [HOST, A, B, C]);
+    const s1 = lastState(ch);
+    // Bo is on an older build: no tab, tied to none.
+    const s2 = await toRoundTwo(ch, result, [
+      await tabbedBallotFor(crypto, s1, A.id, [0, 0, 0], TAB_A),
+      await ballotFor(crypto, s1, B.id, [1, 1, 1]),
+      await ballotFor(crypto, s1, C.id, [2, 2, 2]),
+    ]);
+    const opens = crypto.calls.open;
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s2, A.id, [2, 2, 2]));
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.ballot,
+      await tabbedBallotFor(crypto, s2, B.id, [2, 2, 2], TAB_SPOOF)
+    );
+    expect(crypto.calls.open).toBe(opens);
+    expect(result.current.ballots).toBe(0);
+    expect(result.current.duplicateBallots).toBe(2);
+    // Each id's own kind of ballot still counts: legacy ballots keep counting.
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.ballot,
+      await tabbedBallotFor(crypto, s2, A.id, [1, 1, 1], TAB_A)
+    );
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, await ballotFor(crypto, s2, B.id, [1, 1, 1]));
+    expect(result.current.ballots).toBe(2);
+  });
+
+  it("refuses a tab secret lifted onto other answers under the same ballot id", async () => {
+    const { ch, crypto, result } = await startHost({}, [HOST, A, B, C, SPOOF]);
+    const s = lastState(ch);
+    const real = await tabbedBallotFor(crypto, s, A.id, [0, 0, 0], TAB_A);
+    // Someone copies Alex's sealed secret onto their own answers, under Alex's id and ballot id.
+    const forged = {
+      ...(await ballotFor(crypto, s, A.id, [2, 2, 2], { bid: real.bid })),
+      tab: real.tab,
+    };
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, forged);
+    expect(result.current.ballots).toBe(0);
+    expect(result.current.duplicateBallots).toBe(1);
+    // Alex's own ballot still counts: the forged one tied nothing.
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, real);
+    expect(result.current.ballots).toBe(1);
+  });
+
+  it("ties nothing for a ballot it doesn't count", async () => {
+    const { ch, crypto, result } = await startHost({}, [HOST, A, B, C, SPOOF]);
+    const s = lastState(ch);
+    // Under Alex's id from another tab: answers that don't read, then a ballot that doesn't open.
+    const bad = await crypto.seal(s.keys.ecdh, ballotAad(s.roundId, A.id, "bid_badansw1"), "zzz");
+    const badTab = await crypto.seal(
+      s.keys.ecdh,
+      ballotTabAad(s.roundId, A.id, "bid_badansw1", bad.ct),
+      TAB_SPOOF
+    );
+    await deliver(ch, VOTE_ROOM_EVENTS.ballot, {
+      v: 1,
+      by: A.id,
+      roundId: s.roundId,
+      bid: "bid_badansw1",
+      ...bad,
+      tab: badTab,
+    });
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.ballot,
+      await tabbedBallotFor(crypto, s, A.id, [0, 0, 0], TAB_SPOOF, { roundId: "round_999999" })
+    );
+    expect(result.current.ballots).toBe(0);
+    await deliver(
+      ch,
+      VOTE_ROOM_EVENTS.ballot,
+      await tabbedBallotFor(crypto, s, A.id, [0, 1, 2], TAB_A)
+    );
+    expect(result.current.ballots).toBe(1);
+    expect(result.current.duplicateBallots).toBe(0);
+  });
+
+  it("a participant seals its tab's secret beside its answers, the same one after a refresh", async () => {
+    const crypto = fakeVoteCrypto();
+    const keys = await crypto.createHostKeys();
+    const mount = async (o: Parameters<typeof signedState>[3]) => {
+      const view = renderHook(() =>
+        useVoteRoom({
+          role: "participant",
+          tool: "health-check",
+          code: CODE,
+          identity: ident(A),
+          hostFingerprint: keys.fingerprint,
+          crypto,
+        })
+      );
+      const ch = fakeRealtime.last();
+      act(() => {
+        ch.connect();
+        ch.setPresence([HOST, A]);
+      });
+      await deliver(ch, VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys, o));
+      await act(async () => {
+        await view.result.current.submit({ fun: 2, speed: 0 });
+      });
+      const [ballot] = ch.sent(VOTE_ROOM_EVENTS.ballot) as BallotEnvelope[];
+      view.unmount();
+      return ballot;
+    };
+    const secretOf = (b: BallotEnvelope) =>
+      crypto.open(
+        keys,
+        { ...b, epk: b.tab!.epk, iv: b.tab!.iv, ct: b.tab!.ct },
+        ballotTabAad(b.roundId, b.by, b.bid, b.ct)
+      );
+    const first = await mount({});
+    const secret = await secretOf(first);
+    expect(secret).toMatch(/^[A-Za-z0-9_-]{21}$/);
+    // Kept for the tab's session, beside the ids it keeps: never with an answer.
+    expect(window.sessionStorage.getItem(`agile-toolkit:vote-room:secret:${CODE}:${A.id}`)).toBe(
+      secret
+    );
+    // The answers' seal doesn't open as the secret, nor the secret's as answers.
+    expect(await crypto.open(keys, first, ballotTabAad(ROUND, A.id, first.bid, first.ct))).toBe(
+      null
+    );
+    // A refresh, a new round: the same secret, so the host's tie keeps counting this tab.
+    const second = await mount({ seq: 2, roundId: "round_000002" });
+    expect(second.bid).not.toBe(first.bid);
+    expect(await secretOf(second)).toBe(secret);
+  });
+
+  it("keeps the impersonation warning after a refresh, for the rest of the room", async () => {
+    const crypto = fakeVoteCrypto();
+    const keys = await crypto.createHostKeys();
+    const mount = async () => {
+      const view = renderHook(() =>
+        useVoteRoom({
+          role: "participant",
+          tool: "health-check",
+          code: CODE,
+          identity: ident(A),
+          hostFingerprint: keys.fingerprint,
+          crypto,
+        })
+      );
+      const ch = fakeRealtime.last();
+      act(() => {
+        ch.connect();
+        ch.setPresence([HOST, A, SPOOF]);
+      });
+      await deliver(ch, VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys));
+      return { ...view, ch };
+    };
+    const first = await mount();
+    expect(first.result.current.impersonated).toBe(false);
+    await deliver(first.ch, VOTE_ROOM_EVENTS.ballot, {
+      ...(await tabbedBallotFor(
+        crypto,
+        { roundId: ROUND, keys: keys.publicKeys },
+        A.id,
+        [0, 0, 0],
+        TAB_SPOOF
+      )),
+      bid: "stolen_seat2",
+    });
+    expect(first.result.current.impersonated).toBe(true);
+    first.unmount();
+    const again = await mount();
+    expect(again.result.current.impersonated).toBe(true);
   });
 });
 

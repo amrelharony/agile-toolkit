@@ -192,7 +192,15 @@ describe("VoteJoinRoom", () => {
       ...sealed,
     });
     expect(screen.getByRole("alert")).toHaveTextContent(
-      "Someone else sent answers under your name in this round. Tell the host"
+      "Someone else sent answers under your name in this room. Tell the host"
+    );
+    // A new round keeps it: the host may have tied the name to their tab.
+    await deliver(
+      VOTE_ROOM_EVENTS.state,
+      await signedState(crypto, HOST.id, keys, { seq: 2, roundId: "round_000002" })
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Someone else sent answers under your name in this room."
     );
   });
 
@@ -260,7 +268,47 @@ describe("VoteJoinRoom: when the host never answers", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(
       "The host's browser didn't confirm your answers, so they may not have been counted."
     );
+    expect(screen.queryByText(/Open the link in a new tab/)).toBeNull();
     expect(screen.getByRole("radiogroup", { name: /Fun/ })).toBeInTheDocument();
     expect(ch.sent(VOTE_ROOM_EVENTS.ballot)).toHaveLength(BALLOT_RESEND_DELAYS_MS.length);
+  });
+
+  it("says to answer from a new tab when someone used this name and the answers went unconfirmed", async () => {
+    renderRoom();
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+      ch.setPresence([HOST, ME]);
+    });
+    await deliver(VOTE_ROOM_EVENTS.state, await signedState(crypto, HOST.id, keys));
+    // Someone else answers under this person's name first.
+    const sealed = await crypto.seal(keys.publicKeys.ecdh, "aad", "21-");
+    await deliver(VOTE_ROOM_EVENTS.ballot, {
+      v: 1,
+      by: ME.id,
+      roundId: "round_000001",
+      bid: "stolen_seat1",
+      ...sealed,
+    });
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: /Fun/ })).getByRole("radio", { name: "Green" })
+    );
+    fireEvent.click(
+      within(screen.getByRole("radiogroup", { name: /Speed/ })).getByRole("radio", { name: "Red" })
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Send answers" }));
+      for (let i = 0; i < 30; i++) await Promise.resolve();
+    });
+    // The host never confirms them: the name's seat may belong to the other tab now.
+    act(() => {
+      vi.advanceTimersByTime(BALLOT_RESEND_DELAYS_MS.reduce((a, b) => a + b, 0));
+    });
+    const alerts = screen.getAllByRole("alert").map((a) => a.textContent);
+    expect(alerts).toContain(
+      "Your answers weren't counted. Open the link in a new tab to answer again."
+    );
+    expect(alerts.join(" ")).not.toMatch(/Pick them again/);
+    expect(alerts.join(" ")).toMatch(/under your name in this room/);
   });
 });

@@ -5,6 +5,7 @@ import { createWebVoteCrypto, fromBase64Url } from "@/lib/realtime/vote-room/cry
 import {
   VOTE_ROOM_EVENTS,
   ballotCiphertextChars,
+  tabCiphertextChars,
   type VoteStateMessage,
 } from "@/lib/realtime/vote-room/protocol";
 import { fakeRealtime, type FakeChannel, type FakeMember } from "../realtime/fake-realtime";
@@ -168,16 +169,24 @@ describe("a vote round's privacy", () => {
         "epk",
         "iv",
         "roundId",
+        "tab",
         "v",
       ]);
       // Every ballot is the same size, and its bytes don't hold an answer string in the clear.
       const ct = (b.payload as { ct: string }).ct;
       expect(ct).toHaveLength(ballotCiphertextChars(QUESTIONNAIRE.questions.length));
-      const bytes = Array.from(fromBase64Url(ct) ?? []);
-      for (const a of ANSWER_STRINGS) {
-        const plain = Array.from(new TextEncoder().encode(a));
-        const found = bytes.some((_, i) => plain.every((p, j) => bytes[i + j] === p));
-        expect(found).toBe(false);
+      // The tab secret rides sealed beside it, one size too: never in the clear.
+      const tab = (b.payload as { tab: { epk: string; iv: string; ct: string } }).tab;
+      expect(Object.keys(tab).sort()).toEqual(["ct", "epk", "iv"]);
+      expect(tab.ct).toHaveLength(tabCiphertextChars());
+      expect(tab.epk).not.toBe((b.payload as { epk: string }).epk);
+      for (const sealed of [ct, tab.ct]) {
+        const bytes = Array.from(fromBase64Url(sealed) ?? []);
+        for (const a of ANSWER_STRINGS) {
+          const plain = Array.from(new TextEncoder().encode(a));
+          const found = bytes.some((_, i) => plain.every((p, j) => bytes[i + j] === p));
+          expect(found).toBe(false);
+        }
       }
     }
     // Participants send nothing but ballots.
@@ -222,15 +231,24 @@ describe("a vote round's privacy", () => {
       expect(savedJson).not.toContain(m.name);
     }
     expect(savedJson).not.toMatch(/acks|voted|ballotId|bid/);
-    // Each tab kept ids only: the round's and its own ballot's, nothing else.
-    // Checked field by field (random ids could contain "021" or "Red" by chance).
-    expect(storage).toHaveLength(people.length);
+    // Each tab kept ids only (the round's and its own ballot's) and its own
+    // tab secret, nothing else. Checked field by field (random ids could
+    // contain "021" or "Red" by chance).
+    expect(storage).toHaveLength(people.length * 2);
     const roundId = (after.at(-1)!.payload as VoteStateMessage).roundId;
-    for (const entry of storage) {
-      const [key, value] = [
-        entry.slice(0, entry.indexOf("=")),
-        entry.slice(entry.indexOf("=") + 1),
-      ];
+    const split = (entry: string) => [
+      entry.slice(0, entry.indexOf("=")),
+      entry.slice(entry.indexOf("=") + 1),
+    ];
+    const secrets = storage.map(split).filter(([key]) => key.includes(":secret:"));
+    expect(secrets.map(([key]) => key).sort()).toEqual(
+      PEOPLE.map((m) => `agile-toolkit:vote-room:secret:${CODE}:${m.id}`).sort()
+    );
+    for (const [, value] of secrets) expect(value).toMatch(/^[A-Za-z0-9_-]{21}$/);
+    // One secret per tab: nobody else's.
+    expect(new Set(secrets.map(([, value]) => value)).size).toBe(people.length);
+    for (const entry of storage.filter((e) => !split(e)[0].includes(":secret:"))) {
+      const [key, value] = split(entry);
       expect(key).toBe(`agile-toolkit:vote-room:answered:${CODE}`);
       const rounds = JSON.parse(value) as unknown[];
       expect(rounds).toHaveLength(1);
