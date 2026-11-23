@@ -7,6 +7,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   KANBAN_BOARD_ID,
   WORKFLOW_DEFINITION_ID,
+  type BlockSpell,
   type Impediment,
   type KanbanCard,
   type Sprint,
@@ -687,8 +688,13 @@ describe("the block note", () => {
   });
 
   it("Undo removes a spell the note started for a block from before tracking", () => {
-    const log = [{ from: "2026-11-01T09:00:00.000Z", to: "2026-11-02T09:00:00.000Z" }];
-    const started = [...log, { from: "2026-11-20T09:00:00.000Z", earlier: true, cause: "Keys" }];
+    const log: BlockSpell[] = [
+      { from: "2026-11-01T09:00:00.000Z", to: "2026-11-02T09:00:00.000Z" },
+    ];
+    const started: BlockSpell[] = [
+      ...log,
+      { from: "2026-11-20T09:00:00.000Z", earlier: true, cause: "Keys" },
+    ];
     expect(unnotedLog(started, "2026-11-20T09:00:00.000Z", null)).toEqual(log);
     expect(unnotedLog(started.slice(1), "2026-11-20T09:00:00.000Z", null)).toBeUndefined();
     // A note on an existing spell: its own fields come back, its end stays.
