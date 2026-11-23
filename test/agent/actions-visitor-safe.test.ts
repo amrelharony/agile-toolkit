@@ -16,8 +16,10 @@ import path from "node:path";
  *    MCP transport's server handlers (`mcpHandler`). The agent never calls
  *    those, and they can't run in a browser anyway: they need
  *    SUPABASE_SERVICE_ROLE_KEY, which is never exposed to the browser.
- *  - two pure modules of the vote rooms' wire format (validators and
- *    constants, no connection).
+ *  - a few pure realtime modules: the vote rooms' wire format (validators
+ *    and constants), their counting rules, the text cleaners and the
+ *    base64url codec. None opens a connection, which is checked below,
+ *    since the scan of what actions import stops one level down.
  *
  * `visitor: false` is for actions whose effects go beyond the tab on their own.
  * The canvas actions broadcast to live room peers through the board's store,
@@ -71,6 +73,12 @@ const ALLOWED_REALTIME = new Set([
   "@/lib/realtime/vote-room/allocation",
   // Vote counting and reveal rules: pure, no store and no connection.
   "@/lib/realtime/vote-room/aggregate",
+  // Planning Poker's rounds without a meeting (lib/estimation/async-pack):
+  // the text cleaners, which protocol already imports, and the base64url
+  // codec of the vote rooms' crypto module (WebCrypto only, no connection;
+  // its own imports are visitor-rooms and protocol).
+  "@/lib/realtime/sanitize",
+  "@/lib/realtime/vote-room/crypto",
 ]);
 
 /**
@@ -153,6 +161,17 @@ describe("action modules are safe to run in a visitor's tab", () => {
   it.each(files)("%s imports no Supabase, sync or realtime client", (file) => {
     expectNoClients(importsOf(readFileSync(path.join(ROOT, file), "utf8")), file);
   });
+
+  it.each([...ALLOWED_REALTIME])(
+    "%s (a realtime module actions may import) opens no connection",
+    (spec) => {
+      const file = resolveAlias(spec);
+      expect(file, `${spec} resolves`).not.toBeNull();
+      const src = readFileSync(file as string, "utf8");
+      expectNoNetwork(codeOnly(src), spec);
+      expectNoClients(importsOf(src), spec);
+    }
+  );
 
   it.each(reached)("%s (imported by an action) makes no network call either", (file) => {
     expectNoNetwork(codeOnly(readFileSync(path.join(SRC, file), "utf8")), file);
