@@ -26,6 +26,7 @@ import {
   ROAM_NOTE_MAX,
   ROAM_OWNER_MAX,
   ROAM_STATUSES,
+  cleanText,
   isRoamStatus,
   type PiItem,
   type PiState,
@@ -43,6 +44,7 @@ import {
   type RoamGuessStatus,
 } from "@/lib/pi-planning/roam";
 import { IMPACT_HINT, IMPACT_STEPS, LIKELIHOOD_HINT, LIKELIHOOD_STEPS } from "@/lib/risks/scales";
+import { cutText } from "@/lib/utils/cut-text";
 import { isExampleId } from "@/lib/utils/example-id";
 import type { Validation } from "@/lib/utils/form";
 import { undoable } from "@/lib/utils/undoable";
@@ -61,7 +63,7 @@ function withField<K extends keyof PiItem>(item: PiItem, key: K, value: PiItem[K
 
 const short = (text: string, max = 40) => {
   const t = text.trim();
-  return t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t;
+  return t.length > max ? `${cutText(t, max - 1).trimEnd()}…` : t;
 };
 
 /* ── Owner and note ─────────────────────────────────────────────────── */
@@ -75,17 +77,21 @@ export interface DetailsValues {
   note?: string;
 }
 
-/** Owner and note are both optional; each is cut to its cap, blank clears it. */
+/**
+ * Owner and note are both optional; each is cut to its cap (never through
+ * a character: half an emoji makes the cloud row refuse the board), blank
+ * clears it.
+ */
 export function validateRoamDetails(
   d: DetailsDraft
 ): Validation<DetailsValues, keyof DetailsDraft> {
-  const owner = d.owner.trim();
-  const note = d.note.trim();
+  const owner = cleanText(d.owner, ROAM_OWNER_MAX);
+  const note = cleanText(d.note, ROAM_NOTE_MAX);
   return {
     ok: true,
     values: {
-      ...(owner ? { owner: owner.slice(0, ROAM_OWNER_MAX) } : {}),
-      ...(note ? { note: note.slice(0, ROAM_NOTE_MAX) } : {}),
+      ...(owner ? { owner } : {}),
+      ...(note ? { note } : {}),
     },
   };
 }
@@ -117,7 +123,7 @@ function DetailsEditor({
         label="Owner"
         hint="Who chases it. Optional."
         value={draft.owner}
-        onChange={(owner) => update({ owner: owner.slice(0, ROAM_OWNER_MAX) })}
+        onChange={(owner) => update({ owner: cutText(owner, ROAM_OWNER_MAX) })}
         offerAddToRoster={false}
       />
       <Field label="Note" hint="What's being done about it, or why the train accepts it. Optional.">

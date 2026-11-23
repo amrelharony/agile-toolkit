@@ -20,6 +20,7 @@ import {
   HISTORY_MAX,
   PI_NAME_MAX,
   appendCapped,
+  cleanText,
   localDayOf,
   removeAppended,
   type PiBand,
@@ -83,7 +84,8 @@ export function validatePiSettings(
     }
   }
   if (Object.keys(errors).length > 0) return { ok: false, errors };
-  const name = d.name.trim().slice(0, PI_NAME_MAX).trim();
+  // Cut without splitting a character: half an emoji makes the cloud row refuse the board.
+  const name = cleanText(d.name, PI_NAME_MAX);
   return {
     ok: true,
     values: {

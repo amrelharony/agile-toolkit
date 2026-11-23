@@ -86,7 +86,7 @@ import {
 import { toMarkdown } from "@/app/(tools)/pi-planning/markdown";
 import { buildExample, withoutExample } from "@/app/(tools)/pi-planning/example";
 import { validatePiSettings } from "@/app/(tools)/pi-planning/predictability-section";
-import { validateRiskRatings } from "@/app/(tools)/pi-planning/roam-section";
+import { validateRiskRatings, validateRoamDetails } from "@/app/(tools)/pi-planning/roam-section";
 import { PI_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 
 const stored = (): PiState => normalizePiState(JSON.parse(localStorage.getItem(PI_STORAGE_KEY)!));
@@ -185,6 +185,20 @@ describe("Risks: ROAM", () => {
     });
     expect(screen.getByText("Book the auditor early")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Owner and note for Audit" })).toHaveFocus();
+  });
+
+  it("never stores half an emoji in a risk's owner", () => {
+    seedBoard(board({ items: [risk("Audit", { roam: "owned" })] }));
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Owner and note for Audit" }));
+    const form = screen.getByRole("button", { name: "Save owner and note" }).closest("form")!;
+    // The emoji straddles the 120-unit cap: a plain slice would keep its first half.
+    fireEvent.change(within(form).getByLabelText(/^Owner/), {
+      target: { value: `${"a".repeat(119)}😀` },
+    });
+    fireEvent.submit(form);
+    expect(stored().items[0].roamOwner).toBe("a".repeat(119));
+    expect(localStorage.getItem(PI_STORAGE_KEY)).not.toContain("\\ud83d");
   });
 
   it("logs an owned risk in the Risk Register once it's rated, with Undo", () => {
@@ -654,6 +668,21 @@ describe("forms", () => {
     expect(validateRiskRatings({ likelihood: 2, impact: 3 })).toEqual({
       ok: true,
       values: { likelihood: 2, impact: 3 },
+    });
+  });
+
+  it("cut the owner, note and PI name to their caps without splitting a character", () => {
+    const emoji = "😀"; // two UTF-16 units, straddling each cap below
+    expect(
+      validateRoamDetails({
+        owner: ` ${"a".repeat(119)}${emoji}`,
+        note: `${"b".repeat(999)}${emoji}`,
+      })
+    ).toEqual({ ok: true, values: { owner: "a".repeat(119), note: "b".repeat(999) } });
+    expect(validateRoamDetails({ owner: "  ", note: "" })).toEqual({ ok: true, values: {} });
+    expect(validatePiSettings({ name: `${"c".repeat(79)}${emoji}`, low: "", high: "" })).toEqual({
+      ok: true,
+      values: { name: "c".repeat(79) },
     });
   });
 
