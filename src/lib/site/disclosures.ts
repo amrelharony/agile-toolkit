@@ -96,12 +96,17 @@ export const WALL_ROOM_CONSENT_TEXT =
 /**
  * The header of the estimator's page, /planning-poker/estimate. `{name}` is
  * the facilitator's name from the link (the page puts "the facilitator" when
- * the link has none). The facilitator's page drops names and notes when the
- * round closes, or 14 days after its due day (lib/estimation/async-rounds,
- * POKER_ASYNC_MAX.keepDays). The wording is a draft the owner approves.
+ * the link has none). Copy reply, Copy link and Share each carry the reply
+ * off the page. Closing a round drops its names and notes and keeps the
+ * cards, unnamed; a round left open is closed that way the first time the
+ * facilitator's toolkit loads more than 14 days after its due day, or after
+ * the day it was made when it has none (lib/estimation/async-rounds
+ * `keepUntil`, POKER_ASYNC_MAX.keepDays; lib/estimation/async-expiry writes
+ * it, and sync carries it to the facilitator's account). The wording is a
+ * draft the owner approves.
  */
 export const ASYNC_ESTIMATE_NOTICE =
-  "Made in Planning Poker by {name}. Nothing you pick leaves this page until you copy your reply. If you send it, {name}'s toolkit keeps your name, cards and notes until the round closes, at most 14 days after it's due.";
+  "Made in Planning Poker by {name}. Nothing you pick leaves this page until you copy or share your reply. If you send it, {name}'s toolkit keeps your name and notes until the round closes, or until {name} next opens it more than 14 days after it's due (or made, if it has no due day). Your cards stay, without your name.";
 
 // ── Amr's AI for visitors ──────────────────────────────────────────────────
 // The card in the mascot panel (components/agent/mascot/visitor-ai-consent.tsx)

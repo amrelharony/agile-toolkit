@@ -124,7 +124,7 @@ describe("the disclosure wording", () => {
 
   it("is the notice at the top of the estimator's page, with the facilitator's name in it", () => {
     expect(disclosures.ASYNC_ESTIMATE_NOTICE).toBe(
-      "Made in Planning Poker by {name}. Nothing you pick leaves this page until you copy your reply. If you send it, {name}'s toolkit keeps your name, cards and notes until the round closes, at most 14 days after it's due."
+      "Made in Planning Poker by {name}. Nothing you pick leaves this page until you copy or share your reply. If you send it, {name}'s toolkit keeps your name and notes until the round closes, or until {name} next opens it more than 14 days after it's due (or made, if it has no due day). Your cards stay, without your name."
     );
     expect(estimatorNotice("Lee")).toBe(
       disclosures.ASYNC_ESTIMATE_NOTICE.split("{name}").join("Lee")

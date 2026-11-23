@@ -88,7 +88,7 @@ describe("the estimator's page", () => {
     const note = screen.getByRole("note");
     expect(note.textContent).toBe(estimatorNotice("Priya"));
     expect(note.textContent).toBe(
-      "Made in Planning Poker by Priya. Nothing you pick leaves this page until you copy your reply. If you send it, Priya's toolkit keeps your name, cards and notes until the round closes, at most 14 days after it's due."
+      "Made in Planning Poker by Priya. Nothing you pick leaves this page until you copy or share your reply. If you send it, Priya's toolkit keeps your name and notes until the round closes, or until Priya next opens it more than 14 days after it's due (or made, if it has no due day). Your cards stay, without your name."
     );
     expect(estimatorNotice(undefined)).toBe(
       ASYNC_ESTIMATE_NOTICE.split("{name}").join("the facilitator")
@@ -135,7 +135,12 @@ describe("the estimator's page", () => {
     fireEvent.click(screen.getByRole("button", { name: "Make my reply" }));
 
     const result = screen.getByRole("region", { name: "Your reply" });
-    expect(result.textContent).toContain("Send it to Priya only");
+    // The code is packed, not sealed: the warning names all it carries.
+    expect(
+      within(result).getByText(
+        "Your reply is ready. Send it to Priya only: anyone who sees it can read your name, cards and notes."
+      )
+    ).toBeTruthy();
     const code = within(result).getByText(/^AT1\./).textContent as string;
     expect(readReply(code)).toEqual({
       roundId: ROUND.id,
