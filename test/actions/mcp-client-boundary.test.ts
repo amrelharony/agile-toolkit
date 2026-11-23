@@ -93,7 +93,14 @@ describe("what the MCP handlers call", () => {
         "src/lib/relative-sizing/state.ts",
         "src/lib/releases/notes-steps.ts",
         "src/lib/releases/notes.ts",
+        "src/lib/strategy-map/checks.ts",
+        "src/lib/strategy-map/drafts.ts",
+        "src/lib/strategy-map/formats.ts",
+        "src/lib/strategy-map/model.ts",
+        "src/lib/strategy-map/rules.ts",
+        "src/lib/strategy-map/send.ts",
         "src/lib/test-sessions/model.ts",
+        "src/lib/trees/parent-tree.ts",
       ].map(abs)
     );
     expect(clients).toEqual([]);
@@ -115,10 +122,12 @@ describe("the action files", () => {
     "example-mapping",
     "facilitator-timers",
     "hill-chart",
+    "impact-map",
     "notes-to-actions",
     "product-canvas",
     "relative-sizing",
     "release-readiness",
+    "strategy-tree",
     "test-sessions",
   ])("%s reaches no client module but the workspace store", (tool) => {
     const { seen, clients } = walk([abs(`src/lib/actions/tools/${tool}.ts`)]);

@@ -13,6 +13,7 @@ import { cardForMoodTask, generateCardsTask } from "./card-decks";
 import { mapExamplesTask, mapQuestionsTask, mapRulesTask } from "./example-mapping";
 import { agendaTask } from "./facilitator-timers";
 import { hillChartUpdateNoteTask } from "./hill-chart";
+import { impactMapDraftTask } from "./impact-map";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { meetingAuditSuggestTask } from "./meeting-audit";
 import { notesToActionsExtractTask } from "./notes-to-actions";
@@ -28,6 +29,7 @@ import { retroActionsThemesTask } from "./retro-actions";
 import { categoriesTask, countermeasureTask, nextWhyTask } from "./root-cause";
 import { notebookTagTask, notebookWeeklySummaryTask } from "./sm-notebook";
 import { sprintRiskNoteTask } from "./sprint";
+import { strategyTreeDraftTask } from "./strategy-tree";
 import { testSessionsChartersTask } from "./test-sessions";
 
 // `any` here only erases each task's own input/output types for the list; the
@@ -47,6 +49,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   mapQuestionsTask,
   agendaTask,
   hillChartUpdateNoteTask,
+  impactMapDraftTask,
   interruptClassifyTask,
   meetingAuditSuggestTask,
   notesToActionsExtractTask,
@@ -68,5 +71,6 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   notebookWeeklySummaryTask,
   notebookTagTask,
   sprintRiskNoteTask,
+  strategyTreeDraftTask,
   testSessionsChartersTask,
 ];
