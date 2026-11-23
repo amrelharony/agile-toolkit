@@ -55,12 +55,18 @@ export function StatikSteps({
   const def = controller.def;
   const progress = statikProgress(def?.statik, def?.cadences);
   const firstOpen = progress.steps.findIndex((done) => !done);
-  const [at, setAt] = useState(firstOpen < 0 ? 0 : firstOpen);
+  // The tab stays mounted from page load, so until the person picks, types
+  // in or saves a step, it shows the first one not written yet (the
+  // definition may arrive after the first render).
+  const [picked, setPicked] = useState<number | null>(null);
+  const at = picked ?? (firstOpen < 0 ? 0 : firstOpen);
+  const go = (i: number) => setPicked(Math.max(0, Math.min(STATIK_STEPS.length - 1, i)));
   const [drafts, setDrafts] = useState<Partial<Record<keyof StatikNotes, string>>>({});
   const step = STATIK_STEPS[at];
   const valueOf = (key: keyof StatikNotes) => drafts[key] ?? def?.statik?.[key] ?? "";
 
   const saveStep = () => {
+    setPicked(at);
     const notes: Partial<StatikNotes> = {};
     for (const f of step.fields) notes[f.key] = valueOf(f.key);
     const saved = controller.saveQuietly((cur) =>
@@ -98,7 +104,7 @@ export function StatikSteps({
               size="sm"
               variant={i === at ? "default" : "outline"}
               aria-current={i === at ? "step" : undefined}
-              onClick={() => setAt(i)}
+              onClick={() => go(i)}
               className="min-touch-coarse h-8 gap-1 px-2.5 text-xs"
             >
               {progress.steps[i] && <Check aria-hidden="true" />}
@@ -125,19 +131,17 @@ export function StatikSteps({
             hint={f.hint}
             value={valueOf(f.key)}
             max={STATIK_NOTE_MAX}
-            onChange={(v) => setDrafts((d) => ({ ...d, [f.key]: v }))}
+            onChange={(v) => {
+              setPicked(at);
+              setDrafts((d) => ({ ...d, [f.key]: v }));
+            }}
           />
         ))}
         <div className="flex flex-wrap items-center gap-2">
           <Button type="button" onClick={saveStep}>
             Save step {step.n}
           </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={at === 0}
-            onClick={() => setAt((i) => Math.max(0, i - 1))}
-          >
+          <Button type="button" variant="ghost" disabled={at === 0} onClick={() => go(at - 1)}>
             <ChevronLeft aria-hidden="true" />
             Back
           </Button>
@@ -145,7 +149,7 @@ export function StatikSteps({
             type="button"
             variant="ghost"
             disabled={at === STATIK_STEPS.length - 1}
-            onClick={() => setAt((i) => Math.min(STATIK_STEPS.length - 1, i + 1))}
+            onClick={() => go(at + 1)}
           >
             Next step
             <ChevronRight aria-hidden="true" />

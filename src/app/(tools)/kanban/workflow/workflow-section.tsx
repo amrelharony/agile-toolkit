@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { Workflow } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -24,6 +24,8 @@ import { StatikSteps } from "./statik-steps";
 import { Versions } from "./versions";
 import { buildWorkflowExample } from "./example";
 import type { WorkflowController } from "./use-workflow";
+
+type WorkflowTab = "definition" | "statik" | "versions";
 
 export interface WorkflowSectionProps {
   controller: WorkflowController;
@@ -64,6 +66,8 @@ export function WorkflowSection({
     [stories, cards, wipLimits, controller.example]
   );
   const items = useMemo(() => itemsFor(board), [itemsFor, board]);
+  const [tab, setTab] = useState<WorkflowTab>("definition");
+  const kept = (value: WorkflowTab) => ({ forceMount: true as const, hidden: tab !== value });
 
   return (
     <SectionCard title="How we work" icon={Workflow} className="mt-6">
@@ -90,13 +94,15 @@ export function WorkflowSection({
           />
         </div>
       )}
-      <Tabs defaultValue="definition">
+      <Tabs value={tab} onValueChange={(v) => setTab(v as WorkflowTab)}>
         <TabsList className="border border-border bg-surface-deep">
           <TabsTrigger value="definition">Definition</TabsTrigger>
           <TabsTrigger value="statik">Design it (STATIK)</TabsTrigger>
           <TabsTrigger value="versions">Versions</TabsTrigger>
         </TabsList>
-        <TabsContent value="definition" className="mt-4">
+        {/* Every panel stays mounted (hidden when not shown), so a draft
+            typed on one tab is still there after a look at another. */}
+        <TabsContent value="definition" className="mt-4" {...kept("definition")}>
           <DowEditor
             controller={controller}
             view={view}
@@ -106,10 +112,10 @@ export function WorkflowSection({
             log={log}
           />
         </TabsContent>
-        <TabsContent value="statik" className="mt-4">
+        <TabsContent value="statik" className="mt-4" {...kept("statik")}>
           <StatikSteps controller={controller} board={board} items={items} log={log} />
         </TabsContent>
-        <TabsContent value="versions" className="mt-4">
+        <TabsContent value="versions" className="mt-4" {...kept("versions")}>
           <Versions controller={controller} wipLimits={wipLimits} items={items} log={log} />
         </TabsContent>
       </Tabs>

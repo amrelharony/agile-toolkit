@@ -311,6 +311,26 @@ describe("How we work: the definition", () => {
     expect(screen.queryByText("SLE: 85% within 8 days")).toBeNull();
   });
 
+  it("keeps what was typed on each tab when switching between them", async () => {
+    renderBoard();
+    await section();
+    type("What one work item is", "A support request");
+    type("Review: Leaves when", "Someone else checked it");
+    await openTab("Design it (STATIK)");
+    type("Inside the team", "Reviews wait for days");
+    await openTab("Versions");
+    await openTab("Definition");
+    expect(screen.getByLabelText("What one work item is")).toHaveValue("A support request");
+    expect(screen.getByLabelText("Review: Leaves when")).toHaveValue("Someone else checked it");
+    await openTab("Design it (STATIK)");
+    expect(screen.getByLabelText("Inside the team")).toHaveValue("Reviews wait for days");
+    // Only the tab in view shows; switching saved nothing.
+    const panels = screen.getAllByRole("tabpanel");
+    expect(panels).toHaveLength(1);
+    expect(within(panels[0]).getByLabelText("Inside the team")).toBeInTheDocument();
+    expect(def()).toBeUndefined();
+  });
+
   it("says what is wrong and saves nothing for a bad draft", async () => {
     renderBoard();
     await section();
