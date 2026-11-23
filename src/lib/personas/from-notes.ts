@@ -13,7 +13,7 @@
  *   - the quote: the first quoted line, else the first frustration said in
  *     the first person;
  *   - tags: the words more than one sentence uses (Audience Wall's word
- *     cloud);
+ *     cloud), leaving out the "Participant N" pseudonyms of interview notes;
  *   - a made-up first name from a built-in list, never one in `names`.
  *
  * Every string is cut to the draft's caps, so a draft always fits the
@@ -144,6 +144,15 @@ const NOT_A_ROLE = new Set([
 /** Words that are a role only with more after them ("as a team, we…", but "a team lead"). */
 const NOT_A_ROLE_ALONE = new Set(["team", "group", "family", "company", "business"]);
 
+/**
+ * The pseudonyms interview notes carry (interviewNotes): a "Participant N:"
+ * line opens each interview, and "Participant N" stands in for the
+ * participant's own name in the text. Neither says anything about the
+ * persona, so neither becomes a tag.
+ */
+const PSEUDONYM_HEAD = /^Participant \d+:$/i;
+const PSEUDONYM = /\bParticipant \d+\b/gi;
+
 /** `text` as one line cut to `max`. */
 const cut = (text: string, max: number) => text.replace(/\s+/g, " ").trim().slice(0, max).trim();
 
@@ -248,7 +257,10 @@ export function personaFromNotes(
   }
 
   const quote = quotedLine(text) ?? pains.find((s) => FIRST_PERSON.test(s)) ?? null;
-  const tags = wordCloud(sentences, { max: 40 })
+  const tagText = sentences
+    .filter((s) => !PSEUDONYM_HEAD.test(s))
+    .map((s) => s.replace(PSEUDONYM, " "));
+  const tags = wordCloud(tagText, { max: 40 })
     .filter((w) => w.count > 1 && w.word.length >= 3)
     .slice(0, DRAFT_TAGS_MAX)
     .map((w) => cut(w.word.toLowerCase(), DRAFT_TAG_MAX));

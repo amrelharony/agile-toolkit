@@ -331,4 +331,31 @@ describe("interviewNotes", () => {
     expect(text.endsWith("”")).toBe(true);
     expect(interviewNotes([])).toBe("");
   });
+
+  it("never tags a draft from interviews with the participants' pseudonym", () => {
+    const people = ["Dana Lee", "Sam", "Omar Khalil"].map((participant, k) =>
+      interview({
+        id: `i${k}`,
+        date: `2026-11-0${k + 1}T09:00:00.000Z`,
+        participant,
+        context: `${participant.split(" ")[0]} orders dinner for the family.`,
+        quotes: [
+          {
+            id: `q${k}`,
+            text: `${participant.split(" ")[0]} here: I want dinner sorted before the shift.`,
+            tags: [],
+          },
+        ],
+      })
+    );
+    const notes = interviewNotes(people);
+    // The pseudonym is all over the notes: a head line and the text of each interview.
+    expect(notes.match(/Participant \d+/g)?.length).toBeGreaterThanOrEqual(9);
+    const d = personaFromNotes(notes, "primary", []);
+    expect(d.tags.length).toBeGreaterThan(0);
+    expect(d.tags).toContain("dinner");
+    expect(d.tags.map((t) => t.toLowerCase())).not.toContain("participant");
+    // Nor a number left behind by it.
+    expect(d.tags.some((t) => /^\d+$/.test(t))).toBe(false);
+  });
 });
