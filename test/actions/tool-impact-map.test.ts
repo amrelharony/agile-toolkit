@@ -54,6 +54,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { strategyMapProblems } from "@/lib/strategy-map/rules";
 import { STRATEGY_NODES_MAX } from "@/lib/strategy-map/model";
 import "@/lib/actions/tools/impact-map";
+import { nearlyFull } from "../strategy-map/near-full";
 
 const ctx = (source: "agent" | "mcp" = "agent") => ({
   userId: "u",
@@ -406,6 +407,26 @@ describe("send_deliverable and test_impact, in the browser", () => {
     ).toMatchObject({ sent: false, reason: "example" });
     expect(ws().stories).toEqual([]);
   });
+
+  it("refuses a row that can't hold the link before it makes anything, retry after retry", async () => {
+    const full = nearlyFull(map());
+    useWorkspaceStore.setState({ strategyMaps: [full] });
+    const tries = [
+      ["send_deliverable", { mapId: "strategyMap_m", nodeId: "d", to: "backlog-story" }],
+      ["send_deliverable", { mapId: "strategyMap_m", nodeId: "d", to: "backlog-story" }],
+      ["send_deliverable", { mapId: "strategyMap_m", nodeId: "d", to: "epic" }],
+      ["test_impact", { mapId: "strategyMap_m", nodeId: "i" }],
+    ] as const;
+    for (const [name, params] of tries) {
+      const r = await run(name, params);
+      expect(r).toMatchObject({ sent: false, reason: "too_big" });
+      expect(r).not.toHaveProperty("targetId");
+    }
+    expect(ws().stories).toEqual([]);
+    expect(ws().epicRoadmaps).toEqual([]);
+    expect(ws().hypothesisTrackers).toEqual([]);
+    expect(stored()).toEqual(full);
+  });
 });
 
 describe("over MCP", () => {
@@ -448,6 +469,18 @@ describe("over MCP", () => {
     expect(nodeOf(saved, "i").sentTo?.map((l) => l.route)).toEqual(["hypothesis"]);
     // The browser's store is never touched.
     expect(ws().stories).toEqual([]);
+  });
+
+  it("writes no story, epic or hypothesis when the map's row can't hold the link", async () => {
+    server.rows.set("workspace:strategyMap/strategyMap_m", nearlyFull(map()));
+    for (const [name, params] of [
+      ["send_deliverable", { mapId: "strategyMap_m", nodeId: "d", to: "backlog-story" }],
+      ["send_deliverable", { mapId: "strategyMap_m", nodeId: "d", to: "epic" }],
+      ["test_impact", { mapId: "strategyMap_m", nodeId: "i" }],
+    ] as const) {
+      expect(await run(name, params, true)).toMatchObject({ sent: false, reason: "too_big" });
+    }
+    expect(Array.from(server.rows.keys())).toEqual(["workspace:strategyMap/strategyMap_m"]);
   });
 
   it("sends again only once the server's target is gone", async () => {

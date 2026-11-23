@@ -70,6 +70,7 @@ import {
   childrenOf,
   cleanText,
   fitsRow,
+  holdsLink,
   levelCounts,
   newStrategyMap,
   newestFirst,
@@ -319,6 +320,11 @@ export function StrategyTreeClient() {
     const fresh = current.nodes.find((n) => n.id === node.id) ?? node;
     const src = strategySource(current, fresh, route);
     if (!src) return;
+    // Checked before the hypothesis or the epic is made: the row must hold its link.
+    if (!holdsLink(current)) {
+      setNotice(TOO_BIG);
+      return;
+    }
     const links = {
       getLinks: () => freshTree(tree.id)?.nodes.find((n) => n.id === node.id)?.sentTo,
       setLinks: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) => {

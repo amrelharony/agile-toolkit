@@ -576,6 +576,28 @@ export function fitsRow(map: StrategyMap): boolean {
   return jsonBytes(map) <= ENTITY_ROW_MAX_BYTES;
 }
 
+/**
+ * The most one send's link can add to a row: `,"sentTo":[…]` on a node
+ * that had no links, on the longest route a map sends on, with a target
+ * id of 64 characters (the routes' own ids are far shorter) and an ISO time.
+ */
+const LINK_MAX_BYTES =
+  jsonBytes({
+    sentTo: [{ route: "backlog-story", targetId: "x".repeat(64), at: new Date(0).toISOString() }],
+  }) - 1;
+
+/**
+ * Whether the map's row can still take one more send's link, stamped as a
+ * save stamps it. A send checks this before it makes its target: a link
+ * the row then refused would leave a story, an epic or a hypothesis with
+ * no link back, which nothing would stop a second send from making again.
+ */
+export function holdsLink(map: StrategyMap): boolean {
+  const now = new Date().toISOString();
+  const stamped = { ...map, createdAt: map.createdAt || now, updatedAt: now };
+  return jsonBytes(stamped) + LINK_MAX_BYTES <= ENTITY_ROW_MAX_BYTES;
+}
+
 /** The plain sentence a page or verb shows when a write would pass the row's size. */
 export const TOO_BIG =
   "This map is too big to save. Shorten or remove some parts. Nothing was saved.";

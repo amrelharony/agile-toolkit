@@ -54,7 +54,7 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 import { strategyMapProblems } from "@/lib/strategy-map/rules";
 import { levelSends, type StrategySendRoute } from "@/lib/strategy-map/formats";
-import { TOO_BIG, fitsRow, nodeTitle, readStrategyMaps } from "@/lib/strategy-map/model";
+import { TOO_BIG, fitsRow, holdsLink, nodeTitle, readStrategyMaps } from "@/lib/strategy-map/model";
 import { strategySource } from "@/lib/strategy-map/send";
 
 const KIND_STORY = "workspace:story";
@@ -217,7 +217,8 @@ export type SendOutcome =
  * Send the node `nodeId` of the map `mapId` on `route`, as the page does:
  * only from a level that takes the route, never an example, once while
  * the target exists (a target that is gone can be sent again), with the
- * link written on the node. `want` names the map's tool: an impact map's
+ * link written on the node; a map whose row can't hold the link is refused
+ * (too_big) before the target is made. `want` names the map's tool: an impact map's
  * verb never sends a tree's node, and the other way round.
  */
 export async function sendNode(
@@ -242,6 +243,9 @@ export async function sendNode(
   }
   const src = strategySource(map, node, p.route);
   if (!src || !src.title.trim()) return { sent: false, reason: "blank" };
+  // The row must hold the link before anything is made: a target left with
+  // no link back is never seen as already sent, so each retry would make another.
+  if (!holdsLink(map)) return { sent: false, reason: "too_big", message: TOO_BIG };
   const targetId = await store.send(p.route, src);
   const link: HandoffLink = { route: p.route, targetId, at: new Date().toISOString() };
   const next: StrategyMap = {

@@ -44,6 +44,7 @@ import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { strategyMapProblems } from "@/lib/strategy-map/rules";
 import "@/lib/actions/tools/strategy-tree";
+import { nearlyFull } from "../strategy-map/near-full";
 
 const ctx = (source: "agent" | "mcp" = "agent") => ({
   userId: "u",
@@ -403,6 +404,23 @@ describe("send, in the browser", () => {
     ).toMatchObject({ sent: false, reason: "level" });
     expect(ws().hypothesisTrackers).toEqual([]);
   });
+
+  it("refuses a row that can't hold the link before it makes anything, retry after retry", async () => {
+    const full = nearlyFull(lvt());
+    useWorkspaceStore.setState({ strategyMaps: [full] });
+    for (const to of ["hypothesis", "hypothesis", "epic"] as const) {
+      const r = await run("send", {
+        treeId: "strategyMap_l",
+        nodeId: to === "epic" ? "in" : "b",
+        to,
+      });
+      expect(r).toMatchObject({ sent: false, reason: "too_big" });
+      expect(r).not.toHaveProperty("targetId");
+    }
+    expect(ws().hypothesisTrackers).toEqual([]);
+    expect(ws().epicRoadmaps).toEqual([]);
+    expect(stored("strategyMap_l")).toEqual(full);
+  });
 });
 
 describe("over MCP", () => {
@@ -431,6 +449,17 @@ describe("over MCP", () => {
     expect(nodeOf(saved, "b").sentTo?.[0]).toMatchObject({ route: "hypothesis" });
     expect(nodeOf(saved, "in").sentTo?.[0]).toMatchObject({ route: "epic" });
     expect(ws().hypothesisTrackers).toEqual([]);
+  });
+
+  it("writes no hypothesis or epic when the tree's row can't hold the link", async () => {
+    server.rows.set("workspace:strategyMap/strategyMap_l", nearlyFull(lvt()));
+    expect(
+      await run("send", { treeId: "strategyMap_l", nodeId: "b", to: "hypothesis" }, true)
+    ).toMatchObject({ sent: false, reason: "too_big" });
+    expect(
+      await run("send", { treeId: "strategyMap_l", nodeId: "in", to: "epic" }, true)
+    ).toMatchObject({ sent: false, reason: "too_big" });
+    expect(Array.from(server.rows.keys())).toEqual(["workspace:strategyMap/strategyMap_l"]);
   });
 
   it("sets a status on the user's row", async () => {

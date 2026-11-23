@@ -21,6 +21,7 @@ import {
   emptyNodeDraft,
   fitsRow,
   focusFirstSet,
+  holdsLink,
   keepOneFocus,
   levelCounts,
   mapTitle,
@@ -61,6 +62,7 @@ import {
 } from "@/lib/strategy-map/send";
 import { drawTree, subtreeIds, withoutNode, withoutSubtree } from "@/lib/trees/parent-tree";
 import { IMPACT_MAP, STRATEGY_TREE } from "../stores/phase43-fixtures";
+import { nearlyFull } from "./near-full";
 
 const AT = "2026-11-20T10:00:00.000Z";
 
@@ -289,6 +291,24 @@ describe("edits", () => {
     expect(
       keepOneFocus(none, [...none, { ...node("i1", "a1", 2), focus: true }]).some((n) => n.focus)
     ).toBe(true);
+  });
+
+  it("says whether the row can take one more send's link, its longest link included", () => {
+    expect(holdsLink(IMPACT)).toBe(true);
+    expect(holdsLink(nearlyFull(IMPACT, 0))).toBe(false);
+    // Wherever it says yes, the longest link a send writes still fits: the
+    // longest route, a long target id, on a node that had no links.
+    for (let slack = 0; slack <= 400; slack += 20) {
+      const m = nearlyFull(IMPACT, slack);
+      if (!holdsLink(m)) continue;
+      const link: HandoffLink = {
+        route: "backlog-story",
+        targetId: `story_${"x".repeat(40)}`,
+        at: new Date().toISOString(),
+      };
+      expect(fitsRow(withNodePatch(m, "d1", { sentTo: [link] }))).toBe(true);
+    }
+    expect(holdsLink(nearlyFull(IMPACT, 400))).toBe(true);
   });
 
   it("orders maps newest first", () => {

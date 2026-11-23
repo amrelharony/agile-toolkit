@@ -81,6 +81,7 @@ import {
   fitsRow,
   focusFirstSet,
   focusOf,
+  holdsLink,
   keepOneFocus,
   levelCounts,
   newStrategyMap,
@@ -381,9 +382,18 @@ export function ImpactMapClient() {
     setLinks: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) => {
       const before = freshMap(map.id)?.nodes.find((n) => n.id === node.id)?.sentTo;
       const next = update(before);
-      write(map.id, (m) =>
+      const saved = write(map.id, (m) =>
         withNodePatch(m, node.id, { sentTo: next.length > 0 ? next : undefined })
       );
+      // The row refused the link (it says so inline): Send to… had already made the
+      // story or epic, which is taken back at once rather than left with no link
+      // back for a second send to duplicate. Nothing was sent, so nothing is logged.
+      if (!saved) {
+        for (const link of addedLinks(before, next)) {
+          getHandoffRoute(link.route).remove(link.targetId);
+        }
+        return;
+      }
       // A send adds a live link. An Undo may put back an older, dead one: not a send.
       for (const link of addedLinks(before, next)) {
         if (link.route === "hypothesis" || liveLink(next, link.route) !== link) continue;
@@ -399,6 +409,11 @@ export function ImpactMapClient() {
   function testImpact(map: StrategyMap, impact: StrategyMapNode) {
     const current = freshMap(map.id) ?? map;
     const fresh = current.nodes.find((n) => n.id === impact.id) ?? impact;
+    // Checked before the hypothesis is made: the row must hold its link.
+    if (!holdsLink(current)) {
+      setNotice(TOO_BIG);
+      return;
+    }
     const link = sendHandoff(
       "hypothesis",
       impactHypothesisSource(current, fresh),

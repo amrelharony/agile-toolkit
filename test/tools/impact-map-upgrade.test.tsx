@@ -67,6 +67,7 @@ import { strategyMapProblems } from "@/lib/strategy-map/rules";
 import { TOO_BIG } from "@/lib/strategy-map/model";
 import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
 import { jsonBytes } from "@/lib/utils/json-bytes";
+import { nearlyFull } from "../strategy-map/near-full";
 
 const AT = "2026-11-20T09:00:00.000Z";
 const node = (
@@ -93,25 +94,6 @@ const map = (over: Partial<StrategyMap> = {}): StrategyMap => ({
   updatedAt: AT,
   ...over,
 });
-/**
- * A map within `slack` bytes of its row's cap, under the node cap: actors
- * with 3-byte text and detail at their caps, the last one's detail taking
- * what is left.
- */
-const nearlyFull = (slack = 120): StrategyMap => {
-  const actor = (i: number, text: string, detail: string) =>
-    node(`x${i}`, "g", 1, text, detail ? { detail } : {});
-  const nodes = [node("g", null, 0, "Grow repeat orders")];
-  const cap = ENTITY_ROW_MAX_BYTES - slack;
-  const size = (extra: StrategyMapNode) => jsonBytes(map({ nodes: [...nodes, extra] }));
-  const wide = () => actor(nodes.length, "語".repeat(200), "語".repeat(1000));
-  while (size(wide()) <= cap) nodes.push(wide());
-  const room = cap - size(actor(nodes.length, "Pad", "x"));
-  if (room > 0) {
-    nodes.push(actor(nodes.length, "Pad", "x" + "語".repeat(Math.min(999, Math.floor(room / 3)))));
-  }
-  return map({ nodes });
-};
 const goal = (over: Partial<ProductGoal> = {}): ProductGoal => ({
   id: "goal_1",
   statement: "Families eat well without planning",
@@ -776,6 +758,27 @@ describe("sends, each with Undo", () => {
     expect(hypotheses()).toEqual([]);
     expect(screen.getByRole("button", { name: /^Test this impact: Skip a week/ })).toBeEnabled();
   });
+
+  it("leaves no story, epic or hypothesis and logs no send when the row can't hold the link", async () => {
+    const full = nearlyFull(map());
+    seed([full]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^Test this impact: Skip a week/ }));
+    expect(hypotheses()).toEqual([]);
+    expect(screen.getByText(TOO_BIG)).toBeInTheDocument();
+    expect(toastSpy).not.toHaveBeenCalled();
+    // Send to… makes the story before the page can refuse its link: it is taken back at once.
+    openSendTo(/^Send to… Pause instead of cancel/);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Backlog story" }));
+    expect(ws().stories).toEqual([]);
+    openSendTo(/^Send to… Pause instead of cancel/);
+    fireEvent.click(screen.getByRole("menuitem", { name: "Epic on the roadmap" }));
+    expect((ws().epicRoadmaps ?? []).flatMap((d) => d.epics)).toEqual([]);
+    expect(screen.getByText(TOO_BIG)).toBeInTheDocument();
+    expect(logged(IMPACT_MAP_ACTIONS.IMPACT_TESTED)).toEqual([]);
+    expect(logged(IMPACT_MAP_ACTIONS.DELIVERABLE_SENT)).toEqual([]);
+    expect(stored()).toEqual(full);
+  });
 });
 
 describe("drafting the map", () => {
@@ -830,7 +833,8 @@ describe("drafting the map", () => {
   });
 
   it("adds nothing, says nothing was added and logs nothing when the draft won't fit the row", async () => {
-    const full = nearlyFull();
+    // Room for a link, not for a drafted actor.
+    const full = nearlyFull(map({ nodes: [node("g", null, 0, "Grow repeat orders")] }), 120);
     expect(jsonBytes(full)).toBeLessThanOrEqual(ENTITY_ROW_MAX_BYTES);
     seed([full]);
     renderPage();
