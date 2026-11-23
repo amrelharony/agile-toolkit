@@ -16,12 +16,34 @@ import { CONFIDENCE_POINTS, type PiConfidenceVote, type PiState } from "./model"
 export const TRAIN_SCOPE = "train";
 export const TRAIN_SCOPE_NAME = "Whole train";
 
-/** The question a vote asks, for the train or one team. */
-export function confidenceQuestion(teamName?: string): string {
-  const name = teamName?.trim();
-  return name
-    ? `How confident are you that ${name} will meet its PI objectives?`
-    : "How confident are you that we'll meet this PI's objectives?";
+const TRAIN_QUESTION = "How confident are you that we'll meet this PI's objectives?";
+const TEAM_BEFORE = "How confident are you that ";
+const TEAM_AFTER = " will meet its PI objectives?";
+/** Characters the team question takes besides the team's name. */
+const TEAM_WORDS = Array.from(TEAM_BEFORE + TEAM_AFTER).length;
+
+/**
+ * The question a vote asks, for the train or one team, in at most
+ * `maxChars` characters, counted by code point as the vote kit counts its
+ * titles (the page passes the kit's cap). A team name too long for the
+ * sentence is shortened with "…", so the question never stops mid-word.
+ */
+export function confidenceQuestion(
+  teamName?: string,
+  maxChars: number = Number.POSITIVE_INFINITY
+): string {
+  const name = teamName?.replace(/\s+/g, " ").trim();
+  if (!name) return TRAIN_QUESTION;
+  const room = maxChars - TEAM_WORDS;
+  const chars = Array.from(name);
+  const fitted =
+    chars.length <= room
+      ? name
+      : `${chars
+          .slice(0, Math.max(0, room - 1))
+          .join("")
+          .trimEnd()}…`;
+  return `${TEAM_BEFORE}${fitted}${TEAM_AFTER}`;
 }
 
 /** What a scope is called now: the train, the team's name, or the name it was saved under. */

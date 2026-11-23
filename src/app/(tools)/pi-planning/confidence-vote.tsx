@@ -34,11 +34,12 @@ import {
   type PiConfidenceVote,
   type PiState,
 } from "@/lib/pi-planning/model";
-import { draftFromPreset, validateRoundDraft } from "@/lib/quick-vote/draft";
+import { QUESTION_MAX, draftFromPreset, validateRoundDraft } from "@/lib/quick-vote/draft";
 import { presetById } from "@/lib/quick-vote/presets";
 import { roundFor } from "@/lib/quick-vote/sheets";
 import type { Questionnaire } from "@/lib/realtime/vote-room/protocol";
 import type { VoteRoundResult } from "@/lib/realtime/vote-room/aggregate";
+import { ID_RE } from "@/lib/realtime/vote-room/wire";
 import { cn } from "@/lib/utils";
 import { SelectField } from "../dependency-map/fields";
 import { SavedVotes } from "./saved-votes";
@@ -48,19 +49,39 @@ type Update = (fn: (s: PiState) => PiState) => void;
 
 const PRESET = presetById("confidence");
 
+/** Marks the scope in a round's questionnaire id: "qv:confidence:pi-train". */
+const SCOPE_MARK = ":pi-";
+
 /**
  * The round the kit runs for `question`, checked as Quick Vote checks its
- * own drafts: the confidence format with the PI's question. Null when the
- * format is missing or the question can't run.
+ * own drafts: the confidence format with the PI's question. With `scope`,
+ * its questionnaire id also names the scope (as Quick Vote's own ids name
+ * a backlog item), so a saved round says whom it asked even when two
+ * questions read the same or the host picked another scope while the room
+ * was open. Null when the format is missing or the question can't run.
  */
 export function confidenceRound(
-  question: string
+  question: string,
+  scope?: string
 ): { questionnaire: Questionnaire; minN: number } | null {
   if (!PRESET) return null;
   const v = validateRoundDraft({ ...draftFromPreset(PRESET), question });
   const round = v.ok ? roundFor(v.values) : null;
-  return round?.kind === "scale" ? { questionnaire: round.questionnaire, minN: round.minN } : null;
+  if (round?.kind !== "scale") return null;
+  const scoped = scope ? `${round.questionnaire.id}${SCOPE_MARK}${scope}` : "";
+  const questionnaire =
+    scoped && ID_RE.test(scoped) ? { ...round.questionnaire, id: scoped } : round.questionnaire;
+  return { questionnaire, minN: round.minN };
 }
+
+/** The scope a saved round's questionnaire id names, or null when it names none. */
+export function scopeFromRoundId(id: string): string | null {
+  const at = id.indexOf(SCOPE_MARK);
+  return at < 0 ? null : id.slice(at + SCOPE_MARK.length) || null;
+}
+
+/** A scope's question, fitted to the vote kit's cap. */
+const questionFor = (teamName?: string) => confidenceQuestion(teamName, QUESTION_MAX);
 
 const round1 = (n: number | null) => (n === null ? null : Math.round(n * 10) / 10);
 
@@ -80,19 +101,25 @@ export function ConfidenceVote({
     picked === TRAIN_SCOPE || state.teams.some((t) => t.id === picked) ? picked : TRAIN_SCOPE;
   const scopeTeam = state.teams.find((t) => t.id === scope);
   const scopeTeamName = scopeTeam?.name;
-  const round = useMemo(() => confidenceRound(confidenceQuestion(scopeTeamName)), [scopeTeamName]);
+  const round = useMemo(
+    () => confidenceRound(questionFor(scopeTeamName), scope),
+    [scopeTeamName, scope]
+  );
 
   /**
-   * The scope a saved round asked about, read from its question (the host
-   * may have picked another scope while the room was open), else the one
-   * picked now.
+   * The scope a saved round asked about (the host may have picked another
+   * scope while the room was open): the one its questionnaire id names,
+   * else the one its question names, else the one picked now.
    */
-  const scopeOf = (title: string): { scope: string; name: string } => {
-    if (confidenceRound(confidenceQuestion())?.questionnaire.title === title) {
+  const scopeOf = (result: VoteRoundResult): { scope: string; name: string } => {
+    const named = scopeFromRoundId(result.questionnaireId);
+    if (named === TRAIN_SCOPE) return { scope: TRAIN_SCOPE, name: TRAIN_SCOPE_NAME };
+    if (named) return { scope: named, name: state.teams.find((t) => t.id === named)?.name ?? "" };
+    if (confidenceRound(questionFor())?.questionnaire.title === result.title) {
       return { scope: TRAIN_SCOPE, name: TRAIN_SCOPE_NAME };
     }
     const team = state.teams.find(
-      (t) => confidenceRound(confidenceQuestion(t.name))?.questionnaire.title === title
+      (t) => confidenceRound(questionFor(t.name))?.questionnaire.title === result.title
     );
     if (team) return { scope: team.id, name: team.name };
     return { scope, name: scopeTeam?.name ?? TRAIN_SCOPE_NAME };
@@ -107,7 +134,7 @@ export function ConfidenceVote({
       );
       return false;
     }
-    const asked = scopeOf(result.title);
+    const asked = scopeOf(result);
     const vote: PiConfidenceVote = {
       id: nanoid(8),
       at: result.closedAt || new Date().toISOString(),

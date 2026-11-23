@@ -16,17 +16,31 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 const toastSpy = vi.hoisted(() => Object.assign(vi.fn(), { dismiss: vi.fn() }));
 const logs = vi.hoisted(() => ({ calls: [] as [string, Record<string, unknown> | undefined][] }));
 const cheers = vi.hoisted(() => ({ cheer: vi.fn() }));
+type Asked = { id: string; title: string; questions: { id: string; text: string }[] };
 const panel = vi.hoisted(() => ({
   props: null as null | {
     tool: string;
     kind?: string;
     toolName: string;
-    questionnaire: { title: string; questions: { id: string; text: string }[] } | null;
+    questionnaire: Asked | null;
     minN?: number;
     onSave: (r: unknown) => false | void | (() => void);
     onLiveChange?: unknown;
   },
   undo: null as null | (() => void),
+  /** A closed round of `q`, as the kit hands it to onSave. */
+  resultOf: (q: Asked | null, distribution: number[] | null, ballots: number, minN = 3) => ({
+    roundId: "round-1",
+    tool: "quick-vote",
+    questionnaireId: q?.id ?? "qv:confidence",
+    title: q?.title ?? "",
+    scale: { id: "qv:scale", points: [] },
+    closedAt: "2026-11-23T09:00:00.000Z",
+    minN,
+    ballots,
+    source: "live",
+    questions: [{ id: "q1", text: q?.title ?? "", responses: ballots, distribution }],
+  }),
 }));
 
 vi.mock("@/lib/utils/toast", () => ({ toast: toastSpy }));
@@ -44,20 +58,8 @@ vi.mock("@/lib/celebrate/cheer", () => ({ cheer: cheers.cheer }));
 vi.mock("@/components/collab/vote-room", () => ({
   VoteRoundPanel: (props: NonNullable<typeof panel.props>) => {
     panel.props = props;
-    const result = (distribution: number[] | null, ballots: number) => ({
-      roundId: "round-1",
-      tool: "quick-vote",
-      questionnaireId: "qv:confidence",
-      title: props.questionnaire?.title ?? "",
-      scale: { id: "qv:scale", points: [] },
-      closedAt: "2026-11-23T09:00:00.000Z",
-      minN: props.minN ?? 3,
-      ballots,
-      source: "live",
-      questions: [
-        { id: "q1", text: props.questionnaire?.title ?? "", responses: ballots, distribution },
-      ],
-    });
+    const result = (distribution: number[] | null, ballots: number) =>
+      panel.resultOf(props.questionnaire, distribution, ballots, props.minN ?? 3);
     const save = (r: unknown) => {
       const out = props.onSave(r);
       panel.undo = typeof out === "function" ? out : null;
@@ -88,6 +90,7 @@ import { buildExample, withoutExample } from "@/app/(tools)/pi-planning/example"
 import { validatePiSettings } from "@/app/(tools)/pi-planning/predictability-section";
 import { validateRiskRatings, validateRoamDetails } from "@/app/(tools)/pi-planning/roam-section";
 import { PI_PLANNING_ACTIONS } from "@/lib/history/event-actions";
+import { QUESTION_MAX } from "@/lib/quick-vote/draft";
 
 const stored = (): PiState => normalizePiState(JSON.parse(localStorage.getItem(PI_STORAGE_KEY)!));
 const seedBoard = (s: unknown) => localStorage.setItem(PI_STORAGE_KEY, JSON.stringify(s));
@@ -405,6 +408,38 @@ describe("Confidence vote", () => {
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save counted round" }));
     expect(stored().confidence?.[0]).toMatchObject({ scope: "t2", scopeName: "Payments" });
+  });
+
+  it("fits a long team name into the question, and files a round under the team it asked", async () => {
+    // 64 characters in common: both questions shorten to the same words.
+    const long = "Platform engineering and developer experience for the payments a";
+    seedBoard(
+      board({
+        teams: [
+          { id: "t1", name: `${long}rea one` },
+          { id: "t2", name: `${long}rea two` },
+        ],
+      })
+    );
+    renderBoard();
+    await screen.findByRole("button", { name: "Save counted round" });
+    fireEvent.change(screen.getByLabelText(/^Who votes/), { target: { value: "t1" } });
+    const asked = panel.props!.questionnaire!;
+    expect(asked.title).toMatch(
+      /^How confident are you that Platform engineering .*… will meet its PI objectives\?$/
+    );
+    expect(Array.from(asked.title).length).toBeLessThanOrEqual(QUESTION_MAX);
+    expect(asked.id).toBe("qv:confidence:pi-t1");
+
+    // The host picks the other team while that round is still open: it reads the same.
+    fireEvent.change(screen.getByLabelText(/^Who votes/), { target: { value: "t2" } });
+    expect(panel.props!.questionnaire!.title).toBe(asked.title);
+    act(() => {
+      panel.props!.onSave(panel.resultOf(asked, [0, 0, 1, 2, 1], 4));
+    });
+    expect(stored().confidence?.[0]).toMatchObject({ scope: "t1", scopeName: `${long}rea one` });
+    fireEvent.click(screen.getByRole("button", { name: "Save counted round" }));
+    expect(stored().confidence?.[1]).toMatchObject({ scope: "t2", scopeName: `${long}rea two` });
   });
 
   it("keeps a team's votes when the team goes, under the name they were saved with", async () => {

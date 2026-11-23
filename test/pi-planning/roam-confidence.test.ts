@@ -25,6 +25,7 @@ import {
   scopeLabel,
   voteAverage,
 } from "@/lib/pi-planning/confidence";
+import { QUESTION_MAX, cleanLine } from "@/lib/quick-vote/draft";
 
 const risk = (id: string, over: Partial<PiItem> = {}): PiItem => ({
   id,
@@ -123,6 +124,29 @@ describe("the confidence vote", () => {
     );
     expect(confidenceQuestion("Payments")).toBe(
       "How confident are you that Payments will meet its PI objectives?"
+    );
+  });
+
+  it("shortens a long team name so the whole question fits the vote kit's cap", () => {
+    const fits = (q: string) => expect(cleanLine(q, QUESTION_MAX)).toBe(q);
+    const room = QUESTION_MAX - 56; // the question's own words take 56 characters
+    const exact = confidenceQuestion("x".repeat(room), QUESTION_MAX);
+    expect(exact).toBe(
+      `How confident are you that ${"x".repeat(room)} will meet its PI objectives?`
+    );
+    fits(exact);
+    const long = confidenceQuestion(`${"x".repeat(room)}y`, QUESTION_MAX);
+    expect(long).toBe(
+      `How confident are you that ${"x".repeat(room - 1)}… will meet its PI objectives?`
+    );
+    fits(long);
+    // Counted by character, as the kit counts, so an emoji is never split.
+    const emoji = confidenceQuestion("😀".repeat(room + 5), QUESTION_MAX);
+    expect(emoji).toContain(`${"😀".repeat(room - 1)}… will`);
+    fits(emoji);
+    // Spaces in a name read as one, as the kit reads them.
+    expect(confidenceQuestion("  Mobile   apps ")).toBe(
+      "How confident are you that Mobile apps will meet its PI objectives?"
     );
   });
 
