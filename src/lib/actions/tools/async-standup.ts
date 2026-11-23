@@ -26,18 +26,30 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverListEntities, serverUpsertEntity } from "../server-store";
-import type { AsyncUpdate, StandupEntry } from "@/lib/stores/workspace-types";
 import {
+  STANDUP_FORMATS,
+  TEAM_TIME_PERSON_KIND,
+  type AsyncUpdate,
+  type StandupEntry,
+  type TeamMember,
+} from "@/lib/stores/workspace-types";
+import {
+  BLOCKER_DRI_MAX,
+  HANDOFF_MAX,
   allStandupEntries,
   entryFor,
   hasBlocker,
   postedEntry,
   standupDigest,
   standupMode,
+  type StandupPlaces,
 } from "@/lib/standup/entries";
+import { standupPlaces } from "@/lib/team-time/sun";
 
 const KIND_STANDUP = "workspace:standupEntry";
 const KIND_ASYNC = "workspace:asyncUpdate";
+/** MUST match registerCollection("teamMember", …) in workspace-store.ts. */
+const KIND_MEMBER = "workspace:teamMember";
 
 const ws = () => useWorkspaceStore.getState();
 
@@ -53,11 +65,15 @@ interface AsyncStore {
   /** Every standup entry, both modes, old async updates included. */
   list: () => Promise<StandupEntry[]>;
   put: (entry: StandupEntry) => Promise<void>;
+  /** Where each poster works (Team Time), as the page reads it. */
+  places: (entries: readonly StandupEntry[]) => Promise<StandupPlaces>;
 }
 
 const browserStore: AsyncStore = {
   list: async () => allStandupEntries(ws().standupEntries, ws().asyncUpdates),
   put: async (entry) => ws().upsertStandupEntry(entry),
+  places: async (entries) =>
+    standupPlaces(ws().teamTimePeople ?? [], ws().teamMembers ?? [], entries),
 };
 
 const serverStore = (userId: string): AsyncStore => ({
@@ -70,6 +86,14 @@ const serverStore = (userId: string): AsyncStore => ({
   },
   put: async (entry) => {
     await serverUpsertEntity<StandupEntry>(userId, KIND_STANDUP, entry);
+  },
+  places: async (entries) => {
+    const [people, members] = await Promise.all([
+      // Read through readPerson inside standupPlaces: a bad row is left out.
+      serverListEntities<{ id: string }>(userId, TEAM_TIME_PERSON_KIND),
+      serverListEntities<TeamMember>(userId, KIND_MEMBER),
+    ]);
+    return standupPlaces(people, members, entries);
   },
 });
 
@@ -89,14 +113,23 @@ function listState(items: StandupEntry[]) {
   return { total: items.length, today, todaysCount: todays.length, todaysBlockers, byDate };
 }
 
-function digest(items: StandupEntry[], date: string) {
+function digest(items: StandupEntry[], date: string, places: StandupPlaces) {
   const day = items.filter((u) => u.date === date);
   return {
     date,
-    markdown: standupDigest(items, date),
+    markdown: standupDigest(items, date, { places }),
     updateCount: day.length,
     blockerCount: day.filter(hasBlocker).length,
+    handoffCount: day.filter((u) => (u.handoff ?? "").trim()).length,
   };
+}
+
+async function digestOf(
+  store: AsyncStore,
+  params: { date?: string; mode?: "all" | "async" | "live" }
+) {
+  const all = await store.list();
+  return digest(byMode(all, params.mode), params.date ?? todayUTC(), await store.places(all));
 }
 
 const PostParams = z.object({
@@ -106,10 +139,27 @@ const PostParams = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional()
     .describe("YYYY-MM-DD. Defaults to today (UTC)."),
-  yesterday: z.string().max(4000),
-  today: z.string().max(4000),
-  blockers: z.string().max(4000).optional(),
+  yesterday: z.string().max(4000).describe("Yesterday, or Progress in the ppp format."),
+  today: z.string().max(4000).describe("Today, or Plans in the ppp format."),
+  blockers: z.string().max(4000).optional().describe("Blockers, or Problems in the ppp format."),
   description: z.string().max(4000).optional(),
+  format: z
+    .enum(STANDUP_FORMATS)
+    .optional()
+    .describe(
+      "classic (Yesterday, Today, Blockers; the default) or ppp (Progress, Plans, Problems)."
+    ),
+  dri: z
+    .string()
+    .trim()
+    .max(BLOCKER_DRI_MAX)
+    .optional()
+    .describe("Who can clear the blocker (the DRI); dropped when there is no blocker."),
+  handoff: z
+    .string()
+    .max(HANDOFF_MAX)
+    .optional()
+    .describe("A hand-over to the next time zone: what to pick up, and where it is."),
 });
 
 /** One async post per person per day (postedEntry in lib/standup/entries). */
@@ -155,15 +205,13 @@ registry.register({
   name: "digest",
   category: "read",
   description:
-    "Render a grouped-by-member markdown digest of one day's standup updates (defaults to today, UTC), blockers first: by default every entry of the day, live and async, as the page's digest (one per person per day); mode narrows it. Returns {date, markdown, updateCount, blockerCount}.",
+    "Render a grouped-by-member markdown digest of one day's standup updates (defaults to today, UTC), blockers first: by default every entry of the day, live and async, as the page's digest (one per person per day); mode narrows it. Progress/Plans/Problems updates print under those words (the blockers heading reads Problems when every update is one); a blocker with a DRI ends ' (DRI: name)'; '## Hand-overs' lists each hand-over from the poster's place to the next one east to west; and with Team Time's places known, people follow the order the day reaches them. Returns {date, markdown, updateCount, blockerCount, handoffCount}.",
   paramsSchema: z.object({
     date: z.string().optional().describe("Day to digest, YYYY-MM-DD. Defaults to today (UTC)."),
     mode: DigestMode,
   }),
-  handler: async (params) =>
-    digest(byMode(await browserStore.list(), params.mode), params.date ?? todayUTC()),
-  mcpHandler: async (params, ctx) =>
-    digest(byMode(await serverStore(ctx.userId).list(), params.mode), params.date ?? todayUTC()),
+  handler: async (params) => digestOf(browserStore, params),
+  mcpHandler: async (params, ctx) => digestOf(serverStore(ctx.userId), params),
 });
 
 // ──────── tool.async_standup.post ────────
@@ -174,7 +222,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Post one member's async standup update for a day (defaults to today, UTC): yesterday, today, optional blockers and notes. One per person per day: posting again replaces that day's entry. Returns {posted: true, id, replaced}.",
+    "Post one member's async standup update for a day (defaults to today, UTC): yesterday, today, optional blockers and notes; format? 'ppp' when they wrote Progress, Plans and Problems; dri? (who can clear the blocker, kept only with one); handoff? (a hand-over to the next time zone). One per person per day: posting again replaces that day's entry. Returns {posted: true, id, replaced}.",
   paramsSchema: PostParams,
   handler: async (params) => post(browserStore, params),
   mcpHandler: async (params, ctx) => post(serverStore(ctx.userId), params),
