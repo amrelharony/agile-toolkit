@@ -8,7 +8,8 @@
  *   2. log_idea: an idea asked for once, with the open ideas like it (the
  *      team's, never the example's)
  *   3. triage_idea: assess, accept, decline with a note, merge into the
- *      root of a chain (never into itself, never across the example)
+ *      root of a chain (never into itself, never across the example), and
+ *      out of a merge again with its demand given back
  *   4. set_decision: a business case's verdict, stamped when it changes
  *   5. place_bet: a known cycle's dates taken, a conflict refused, a new
  *      cycle's start needed
@@ -229,6 +230,25 @@ describe("triage_idea", () => {
       mergedInto: "pcanvas_b",
     });
     expect(stored("pcanvas_b")?.intake?.demand).toBe(3);
+  });
+
+  it("takes a merged idea out of its merge, its demand given back, so merging again counts it once", async () => {
+    useWorkspaceStore.setState({
+      productCanvases: [
+        idea("pcanvas_r", "Split a bill", { demand: 4 }),
+        idea("pcanvas_d", "Pay with two cards", { demand: 2 }),
+      ],
+    });
+    const merge = { canvasId: "pcanvas_d", status: "merged", mergeInto: "pcanvas_r" };
+    expect(await run("tool.product_canvas.triage_idea", merge)).toMatchObject({ demand: 6 });
+    expect(
+      await run("tool.product_canvas.triage_idea", { canvasId: "pcanvas_d", status: "assessing" })
+    ).toEqual({ triaged: true, status: "assessing", outOf: "pcanvas_r" });
+    expect(stored("pcanvas_r")?.intake?.demand).toBe(4);
+    expect(stored("pcanvas_d")?.intake).toMatchObject({ status: "assessing", demand: 2 });
+    expect(stored("pcanvas_d")?.intake).not.toHaveProperty("mergedInto");
+    expect(await run("tool.product_canvas.triage_idea", merge)).toMatchObject({ demand: 6 });
+    expect(stored("pcanvas_r")?.intake?.demand).toBe(6);
   });
 
   it("refuses a merge with no target, into itself, across the example, or of a canvas that isn't an idea", async () => {

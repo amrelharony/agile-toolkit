@@ -1,8 +1,9 @@
 /**
  * The idea inbox: every idea canvas, filtered by status and sorted by how
- * many asked for it, then by the newest; how many wait in each status; and
- * a merge, which joins a duplicate into the idea it repeats (following a
- * chain of merges to its root) so the root keeps every ask.
+ * many asked for it, then by the newest; how many wait in each status; a
+ * merge, which joins a duplicate into the idea it repeats (following a
+ * chain of merges to its root) so the root keeps every ask; and taking one
+ * out of its merge, which gives those asks back.
  *
  * One idea is one canvas (format "idea"), its intake beside its boxes, so
  * a big inbox is many small rows, never one big one. Single-idea writes
@@ -19,7 +20,7 @@ import {
   type ProductIdeaStatus,
 } from "@/lib/stores/workspace-types";
 import { DEMAND_MAX, NEW_INTAKE, REQUESTERS_MAX, cleanRequesters, isOpenStatus } from "./fields";
-import { finishAll, type CanvasRefused } from "./model";
+import { finishAll, withIdeaStatus, type CanvasRefused, type TriageStatus } from "./model";
 
 /** What the inbox can show: the open ideas, one status, or every idea. */
 export const INBOX_FILTERS = ["open", ...PRODUCT_IDEA_STATUSES, "all"] as const;
@@ -169,4 +170,77 @@ export function mergeIdeas(
   if (!written.ok) return written;
   const [nextRoot, nextDuplicate] = written.canvases;
   return { ok: true, root: nextRoot, duplicate: nextDuplicate };
+}
+
+/**
+ * The ideas a merged idea's demand was added to: the one it went into, then
+ * each one that idea was merged into, up to the root. A merge adds to the
+ * root of its day, and that root's own later merge carries the sum on, so
+ * every idea along the chain counts the duplicate's asks. Stops at a loop
+ * or an idea that is gone.
+ */
+function carriersOf(duplicate: ProductCanvas, canvases: readonly ProductCanvas[]): ProductCanvas[] {
+  const byId = new Map(
+    ideasOf(canvases)
+      .filter((c) => c.id !== duplicate.id)
+      .map((c) => [c.id, c])
+  );
+  const out: ProductCanvas[] = [];
+  const seen = new Set<string>();
+  let next = duplicate.intake?.mergedInto;
+  while (next) {
+    const at = byId.get(next);
+    if (!at || seen.has(at.id)) break;
+    seen.add(at.id);
+    out.push(at);
+    next = statusOf(at) === "merged" ? at.intake?.mergedInto : undefined;
+  }
+  return out;
+}
+
+export type UnmergeResult =
+  | {
+      ok: true;
+      /** The idea out of its merge, with its new status. */
+      duplicate: ProductCanvas;
+      /** The ideas that gave its demand back, the one it went into first, the root last. */
+      carriers: ProductCanvas[];
+    }
+  | CanvasRefused;
+
+/**
+ * A merged idea taken out of its merge and triaged to `status` (its note
+ * as `withIdeaStatus` takes one). Every idea along its chain of merges, up
+ * to the root, gives back the demand the merge added (never below 1), so
+ * merging it again counts its asks once. Who asked stays listed there: a
+ * name may have asked for both. An idea that isn't merged is only triaged.
+ * All are stamped `now`; the caller writes them all, and its Undo puts
+ * them back.
+ */
+export function unmergeIdea(
+  duplicate: ProductCanvas,
+  status: TriageStatus,
+  note: string | undefined,
+  canvases: readonly ProductCanvas[],
+  now: string
+): UnmergeResult {
+  if (duplicate.format !== "idea") {
+    return { ok: false, reason: "wrong_format", message: "Only an idea in the inbox is triaged." };
+  }
+  const intake = duplicate.intake ?? { ...NEW_INTAKE, requesters: [] };
+  const merged = statusOf(duplicate) === "merged";
+  // Triage rebuilds the intake without `mergedInto`; it only refuses the merged status.
+  const freed: ProductCanvas = merged
+    ? { ...duplicate, intake: { ...intake, status: "new" } }
+    : duplicate;
+  const w = withIdeaStatus(freed, status, note, now);
+  if (!w.ok) return w;
+  if (!merged) return { ok: true, duplicate: w.canvas, carriers: [] };
+  const given = carriersOf(duplicate, canvases).map((c) => {
+    const ci = c.intake ?? { ...NEW_INTAKE, requesters: [] };
+    return { ...c, intake: { ...ci, demand: Math.max(1, ci.demand - intake.demand) } };
+  });
+  const written = finishAll(given, now);
+  if (!written.ok) return written;
+  return { ok: true, duplicate: w.canvas, carriers: written.canvases };
 }

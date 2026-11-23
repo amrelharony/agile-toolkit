@@ -22,6 +22,7 @@ import {
   mergeIdeas,
   readInboxFilter,
   rootOf,
+  unmergeIdea,
 } from "@/lib/product-canvas/intake";
 import {
   canvasGaps,
@@ -221,14 +222,11 @@ describe("triage", () => {
     expect(cleared.canvas.intake).not.toHaveProperty("note");
   });
 
-  it("takes a merged idea out of its merge, leaving the demand where it went", () => {
+  it("is refused for a merged idea: taking it out of the merge gives its demand back", () => {
     const m = idea("pcanvas_1", "Two cards", { status: "merged", mergedInto: "pcanvas_2" });
-    const back = ok(withIdeaStatus(m, "assessing", undefined, LATER));
-    expect(back.canvas.intake).toEqual({
-      requesters: [],
-      source: "customer",
-      demand: 1,
-      status: "assessing",
+    expect(withIdeaStatus(m, "assessing", undefined, LATER)).toMatchObject({
+      ok: false,
+      reason: "merged",
     });
   });
 
@@ -303,6 +301,79 @@ describe("merging ideas", () => {
     });
     const lost = idea("pcanvas_lost", "Lost", { status: "merged", mergedInto: "pcanvas_gone" });
     expect(rootOf("pcanvas_lost", [lost])).toBeNull();
+  });
+
+  it("takes an idea out of its merge, giving its demand back, so merging it again counts it once", () => {
+    const root = idea("pcanvas_r", "Split a bill", { demand: 4, requesters: ["Support"] });
+    const dup = idea("pcanvas_d", "Two cards", { demand: 2, requesters: ["Sales"] });
+    const m1 = ok(mergeIdeas(dup, root, [root, dup], LATER));
+    expect(m1.root.intake?.demand).toBe(6);
+    const out = ok(
+      unmergeIdea(m1.duplicate, "assessing", undefined, [m1.root, m1.duplicate], LATER)
+    );
+    expect(out.duplicate.intake).toEqual({
+      requesters: ["Sales"],
+      source: "customer",
+      demand: 2,
+      status: "assessing",
+    });
+    expect(out.carriers.map((c) => c.id)).toEqual(["pcanvas_r"]);
+    // Its demand comes off; who asked stays (a name may have asked for both).
+    expect(out.carriers[0].intake).toMatchObject({ demand: 4, requesters: ["Support", "Sales"] });
+    expect(out.carriers[0].updatedAt).toBe(LATER);
+    const m2 = ok(
+      mergeIdeas(out.duplicate, out.carriers[0], [out.carriers[0], out.duplicate], LATER)
+    );
+    expect(m2.root.intake?.demand).toBe(6);
+    expect(m2.root.intake?.requesters).toEqual(["Support", "Sales"]);
+  });
+
+  it("gives the demand back along a chain of merges, and never below one", () => {
+    const c = idea("pcanvas_c", "Root", { demand: 1 });
+    const b = idea("pcanvas_b", "Mid", { demand: 1 });
+    const a = idea("pcanvas_a", "Leaf", { demand: 3 });
+    const ab = ok(mergeIdeas(a, b, [a, b, c], LATER)); // b: 4
+    const bc = ok(mergeIdeas(ab.root, c, [ab.duplicate, ab.root, c], LATER)); // c: 5
+    const all = [ab.duplicate, bc.duplicate, bc.root];
+    const out = ok(unmergeIdea(ab.duplicate, "new", undefined, all, LATER));
+    expect(out.carriers.map((x) => [x.id, x.intake?.demand])).toEqual([
+      ["pcanvas_b", 1],
+      ["pcanvas_c", 2],
+    ]);
+    // The middle one, taken out after, gives back only its own asks.
+    const after = [out.duplicate, ...out.carriers];
+    const mid = ok(unmergeIdea(out.carriers[0], "new", undefined, after, LATER));
+    expect(mid.carriers.map((x) => [x.id, x.intake?.demand])).toEqual([["pcanvas_c", 1]]);
+    // A root counted lower than the duplicate (a hand-edited row) stays at one.
+    const low = idea("pcanvas_low", "Low", { demand: 1 });
+    const gone = idea("pcanvas_x", "X", { demand: 5, status: "merged", mergedInto: "pcanvas_low" });
+    const floor = ok(unmergeIdea(gone, "new", undefined, [low, gone], LATER));
+    expect(floor.carriers[0].intake?.demand).toBe(1);
+  });
+
+  it("takes an idea out of a merge whose idea is gone, and only triages one that isn't merged", () => {
+    const lost = idea("pcanvas_lost", "Lost", { status: "merged", mergedInto: "pcanvas_gone" });
+    const out = ok(unmergeIdea(lost, "assessing", undefined, [lost], LATER));
+    expect(out.carriers).toEqual([]);
+    expect(out.duplicate.intake).not.toHaveProperty("mergedInto");
+    const loop = [
+      idea("pcanvas_a", "A", { status: "merged", mergedInto: "pcanvas_b", demand: 2 }),
+      idea("pcanvas_b", "B", { status: "merged", mergedInto: "pcanvas_a", demand: 3 }),
+    ];
+    expect(ok(unmergeIdea(loop[0], "new", undefined, loop, LATER)).carriers).toHaveLength(1);
+    const plain = idea("pcanvas_p", "Plain");
+    expect(ok(unmergeIdea(plain, "accepted", undefined, [plain], LATER))).toMatchObject({
+      carriers: [],
+      duplicate: { intake: { status: "accepted" } },
+    });
+    expect(unmergeIdea(lost, "declined", undefined, [lost], LATER)).toMatchObject({
+      ok: false,
+      reason: "needs_note",
+    });
+    expect(unmergeIdea({ ...plain, format: "pr-faq" }, "new", undefined, [], LATER)).toMatchObject({
+      ok: false,
+      reason: "wrong_format",
+    });
   });
 
   it("keeps the joined requesters under the cap", () => {

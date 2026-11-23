@@ -11,7 +11,8 @@
  *   Opportunity Tree, with its problem as the description and never who
  *   asked.
  * - Merge into another idea, with Undo: the demand and who asked move to
- *   the idea it repeats (following that one's merges to the root).
+ *   the idea it repeats (following that one's merges to the root). Taking
+ *   it out of the merge, with Undo, gives that demand back.
  *
  * Example ideas are never sent, merge only with other example ideas, and
  * aren't logged.
@@ -32,7 +33,7 @@ import {
   NOTE_MAX,
   REQUESTER_MAX,
 } from "@/lib/product-canvas/fields";
-import { ideasOf, isOpenIdea, mergeIdeas, rootOf } from "@/lib/product-canvas/intake";
+import { ideasOf, isOpenIdea, mergeIdeas, rootOf, unmergeIdea } from "@/lib/product-canvas/intake";
 import {
   withAskedAgain,
   withCanvasSentTo,
@@ -111,6 +112,28 @@ export function IntakePanel({ handle }: { handle: CanvasHandle }) {
     setMergeInto("");
   };
 
+  /** Out of its merge, back to assessing: the ideas it went into give its asks back. */
+  const unmerge = () => {
+    const all = world();
+    const me = all.find((c) => c.id === canvas.id);
+    if (!me) return;
+    const u = unmergeIdea(me, "assessing", undefined, all, new Date().toISOString());
+    if (!u.ok) {
+      setProblem(u.message);
+      return;
+    }
+    setProblem(null);
+    const saved = [me, ...u.carriers.map((c) => all.find((x) => x.id === c.id) ?? c)];
+    undoable({
+      label: `Took “${shortText(canvas.title)}” out of the merge`,
+      apply: () => {
+        put([u.duplicate, ...u.carriers]);
+        log(PRODUCT_CANVAS_ACTIONS.IDEA_TRIAGED, { canvasId: canvas.id, status: "assessing" });
+      },
+      revert: () => put(saved),
+    });
+  };
+
   const setLinks = (change: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) => {
     let before: readonly HandoffLink[] | undefined;
     const w = write((c, now) => {
@@ -160,7 +183,7 @@ export function IntakePanel({ handle }: { handle: CanvasHandle }) {
               "Merged into an idea that isn't here any more."
             )}
           </p>
-          <Button type="button" size="sm" variant="outline" onClick={() => triage("assessing")}>
+          <Button type="button" size="sm" variant="outline" onClick={unmerge}>
             Take it out of the merge
           </Button>
         </div>

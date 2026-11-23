@@ -967,9 +967,10 @@ export type TriageStatus = Exclude<ProductIdeaStatus, "merged">;
 /**
  * An idea's status set by triage: new, assessing, accepted or declined
  * (with a note saying why). A note left out stays as it was; a blank one
- * clears it, but a declined idea keeps its reason. Setting a merged idea's
- * status takes it out of the idea it went into (its demand stays counted
- * there). Nothing is sent: acceptance hands the idea on from the page.
+ * clears it, but a declined idea keeps its reason. Refused for a merged
+ * idea: taking it out of its merge also gives its demand back, a write
+ * over several ideas (intake.ts's `unmergeIdea`). Nothing is sent:
+ * acceptance hands the idea on from the page.
  */
 export function withIdeaStatus(
   canvas: ProductCanvas,
@@ -979,6 +980,12 @@ export function withIdeaStatus(
 ): CanvasWrite {
   if (canvas.format !== "idea") return wrongFormat("Only an idea in the inbox is triaged.");
   const intake = intakeOf(canvas);
+  if (intake.status === "merged") {
+    return refuse(
+      "merged",
+      "This idea was merged into another: take it out of the merge to triage it."
+    );
+  }
   const typed = note === undefined ? undefined : note.trim();
   if (typed !== undefined && typed.length > NOTE_MAX) {
     return refuse("too_long", `Keep the note to ${NOTE_MAX} characters.`);

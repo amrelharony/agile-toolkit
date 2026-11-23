@@ -401,6 +401,37 @@ describe("the idea inbox", () => {
     expect(byId("pcanvas_cards")!.intake?.status).toBe("new");
   });
 
+  it("takes an idea out of its merge, giving its demand back, with Undo", async () => {
+    seed(
+      idea("pcanvas_split", "Split a bill", { demand: 3, requesters: ["Support", "Sales"] }),
+      idea("pcanvas_cards", "Pay with two cards", {
+        demand: 1,
+        requesters: ["Sales"],
+        status: "merged",
+        mergedInto: "pcanvas_split",
+      })
+    );
+    useProductCanvasPrefs.setState({ lastFormat: "idea", inboxFilter: "merged" });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Take it out of the merge" }));
+    expect(byId("pcanvas_split")!.intake).toMatchObject({
+      demand: 2,
+      requesters: ["Support", "Sales"],
+    });
+    expect(byId("pcanvas_cards")!.intake).toMatchObject({ status: "assessing", demand: 1 });
+    expect(byId("pcanvas_cards")!.intake).not.toHaveProperty("mergedInto");
+    expect(logs.at(-1)).toEqual({
+      action: PRODUCT_CANVAS_ACTIONS.IDEA_TRIAGED,
+      payload: { canvasId: "pcanvas_cards", status: "assessing" },
+    });
+    undoLast();
+    expect(byId("pcanvas_split")!.intake?.demand).toBe(3);
+    expect(byId("pcanvas_cards")!.intake).toMatchObject({
+      status: "merged",
+      mergedInto: "pcanvas_split",
+    });
+  });
+
   it("finds ideas that look alike, and merges one into the one asked for more", async () => {
     seed(
       idea("pcanvas_split", "Split a bill between two cards", { demand: 3 }),

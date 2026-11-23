@@ -66,7 +66,7 @@ import {
   cycleEnd,
   likelyDuplicates,
 } from "@/lib/product-canvas/fields";
-import { ideasOf, inboxCounts, mergeIdeas, rootOf } from "@/lib/product-canvas/intake";
+import { ideasOf, inboxCounts, mergeIdeas, rootOf, unmergeIdea } from "@/lib/product-canvas/intake";
 import { HYPOTHESIS_TRACKER_ID, linkedTest } from "@/lib/hypotheses/model";
 import { activeGoal } from "@/lib/product-goal/model";
 import { PRODUCT_GOAL_STORE_KEY, visionFromBlob } from "@/lib/product-goal/prefs";
@@ -732,6 +732,15 @@ async function triageIdea(store: Store, p: z.infer<typeof TriageParams>) {
       demand: m.root.intake?.demand ?? 1,
     };
   }
+  if (idea.intake?.status === "merged") {
+    // Out of its merge: the ideas it went into give its demand back.
+    const u = unmergeIdea(idea, p.status, p.note, sameWorld(idea, rows), now);
+    if (!u.ok) return { triaged: false as const, ...refused(u) };
+    for (const c of u.carriers) await store.put(c);
+    await store.put(u.duplicate);
+    const root = u.carriers.at(-1);
+    return { triaged: true as const, status: p.status, ...(root ? { outOf: root.id } : {}) };
+  }
   const w = withIdeaStatus(idea, p.status, p.note, now);
   if (!w.ok) return { triaged: false as const, ...refused(w) };
   await store.put(w.canvas);
@@ -746,7 +755,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Set an idea's status in the inbox: assessing, accepted, declined (with a note saying why) or merged into the idea it repeats (mergeInto; its demand and who asked move to that idea's root). It sets the status only and sends nothing: an accepted idea goes to the backlog or the Opportunity Tree from the page. Returns {triaged: true, status, into?, demand?}, or {triaged: false, reason: 'not_found' | 'wrong_format' | 'needs_target' | 'needs_note' | 'merged' | 'self_merge' | 'too_long' | 'too_big', message}.",
+    "Set an idea's status in the inbox: assessing, accepted, declined (with a note saying why) or merged into the idea it repeats (mergeInto; its demand and who asked move to that idea's root). Any other status on a merged idea takes it out of its merge: the ideas it went into give its demand back (who asked stays listed there), and outOf names the root it left. It sets the status only and sends nothing: an accepted idea goes to the backlog or the Opportunity Tree from the page. Returns {triaged: true, status, into?, demand?, outOf?}, or {triaged: false, reason: 'not_found' | 'wrong_format' | 'needs_target' | 'needs_note' | 'merged' | 'self_merge' | 'too_long' | 'too_big', message}.",
   paramsSchema: TriageParams,
   handler: (params) => triageIdea(browserStore, params),
   mcpHandler: (params, ctx) => triageIdea(serverStore(ctx.userId), params),
