@@ -153,11 +153,11 @@ export function momentCards(cards: readonly RetroCard[]): Moment[] {
   }
   /** The card that charts for each group, by its top card's id. */
   const lead = new Map<string, string>();
-  for (const [top, members] of groups) {
+  groups.forEach((members, top) => {
     const own = members.find((m) => m.id === top && isMomentCard(m));
     const first = own ?? members.find(isMomentCard);
     if (first) lead.set(top, first.id);
-  }
+  });
   const out: Moment[] = [];
   cards.forEach((c, index) => {
     const top = groupOf.get(c.id) as string;
