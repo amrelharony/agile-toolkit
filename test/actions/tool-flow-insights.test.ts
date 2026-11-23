@@ -206,6 +206,15 @@ describe("list_unsorted", () => {
     });
     expect(one.items).toHaveLength(1);
   });
+
+  it("counts every unsorted item in total, past the limit", async () => {
+    useWorkspaceStore.setState({ stories: STORIES, sprints: [sprint(1), sprint(2)] });
+    const out = await run<{ total: number; items: unknown[] }>("tool.flow_insights.list_unsorted", {
+      limit: 1,
+    });
+    expect(out.items).toHaveLength(1);
+    expect(out.total).toBe(2);
+  });
 });
 
 describe("set_work_type", () => {

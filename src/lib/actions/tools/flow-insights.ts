@@ -235,7 +235,7 @@ async function listUnsorted(store: FlowStore, p: z.infer<typeof UnsortedParams>)
   const boards: FlowBoard[] = p.board ? [p.board] : ["sprint", "flow"];
   const storyById = new Map(data.stories.map((s) => [s.id, s]));
   const cardById = new Map(cards.map((c) => [c.id, c]));
-  const items = boards
+  const all = boards
     .flatMap((b) =>
       unsortedItems(
         mixByPeriod({
@@ -247,10 +247,11 @@ async function listUnsorted(store: FlowStore, p: z.infer<typeof UnsortedParams>)
         })
       )
     )
-    .sort((a, b) => b.doneOn.localeCompare(a.doneOn))
-    .slice(0, p.limit ?? 50);
+    .sort((a, b) => b.doneOn.localeCompare(a.doneOn));
+  const items = all.slice(0, p.limit ?? 50);
   return {
-    total: items.length,
+    // Every unsorted item, not only those returned.
+    total: all.length,
     items: items.map((it) => {
       const row = it.kind === "story" ? storyById.get(it.id) : cardById.get(it.id);
       const rule = row ? guessWorkType(row) : null;
@@ -276,7 +277,7 @@ registry.register({
   name: "list_unsorted",
   category: "read",
   description:
-    "The finished items with no type set on them, newest first: {total, items: {kind: story|card, id, title, doneOn, guess: feature|defect|debt|risk, guessedBy: kind|tag|source|keywords, failure, reopened}[]}. Sort them with set_work_type. Stories count per finished sprint, cards per week; example rows are left out.",
+    "The finished items with no type set on them, newest first: {total (how many are unsorted, `limit` aside), items (at most `limit`): {kind: story|card, id, title, doneOn, guess: feature|defect|debt|risk, guessedBy: kind|tag|source|keywords, failure, reopened}[]}. Sort them with set_work_type. Stories count per finished sprint, cards per week; example rows are left out.",
   paramsSchema: UnsortedParams,
   handler: async (p) => listUnsorted(browserStore, p),
   mcpHandler: async (p, ctx) => listUnsorted(serverStore(ctx.userId), p),
