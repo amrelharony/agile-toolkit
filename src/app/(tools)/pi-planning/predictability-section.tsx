@@ -19,7 +19,9 @@ import {
   DEFAULT_BAND,
   HISTORY_MAX,
   PI_NAME_MAX,
+  appendCapped,
   localDayOf,
+  removeAppended,
   type PiBand,
   type PiObjective,
   type PiRecord,
@@ -320,14 +322,23 @@ export function PredictabilitySection({
     });
     if (!record) return;
     const pct = recordPct(record);
+    // The closed PIs the cap drops to make room come back on Undo.
+    let dropped: PiRecord[] = [];
     undoable({
       label: `Closed ${record.name}`,
       description: pct === null ? undefined : `${pct}% predictability kept in the history`,
       kind: "success",
       apply: () =>
-        update((s) => ({ ...s, history: [...(s.history ?? []), record].slice(-HISTORY_MAX) })),
+        update((s) => {
+          const next = appendCapped(s.history ?? [], record, HISTORY_MAX);
+          dropped = next.dropped;
+          return { ...s, history: next.list };
+        }),
       revert: () =>
-        update((s) => ({ ...s, history: (s.history ?? []).filter((r) => r.id !== record.id) })),
+        update((s) => ({
+          ...s,
+          history: removeAppended(s.history ?? [], record.id, dropped, HISTORY_MAX),
+        })),
     });
     log(PI_PLANNING_ACTIONS.PI_CLOSED, {
       recordId: record.id,

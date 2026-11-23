@@ -360,6 +360,38 @@ export function normalizePiState(raw: unknown): PiState {
   return state;
 }
 
+/**
+ * `list` with `row` added last, kept to the latest `max` (lists are kept
+ * oldest first), and the rows the cap dropped to make room, so an Undo can
+ * put them back.
+ */
+export function appendCapped<T>(
+  list: readonly T[],
+  row: T,
+  max: number
+): { list: T[]; dropped: T[] } {
+  const all = [...list, row];
+  const cut = Math.max(0, all.length - max);
+  return { list: all.slice(cut), dropped: all.slice(0, cut) };
+}
+
+/**
+ * The Undo of `appendCapped`: `list` without the added row, with the rows
+ * the cap dropped back in front (any already there skipped), kept to the
+ * latest `max`.
+ */
+export function removeAppended<T extends { id: string }>(
+  list: readonly T[],
+  addedId: string,
+  dropped: readonly T[],
+  max: number
+): T[] {
+  const ids = new Set(list.map((x) => x.id));
+  return [...dropped.filter((x) => !ids.has(x.id)), ...list.filter((x) => x.id !== addedId)].slice(
+    -max
+  );
+}
+
 /** The PI board's team names, for other tools' team pickers (Scrum of Scrums). */
 export const piTeamNames = (state: PiState): string[] =>
   state.teams.map((t) => t.name).filter((n) => n.trim());

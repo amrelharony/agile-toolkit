@@ -346,6 +346,28 @@ describe("Confidence vote", () => {
     expect(stored().confidence).toEqual([]);
   });
 
+  it("saves a 21st vote over the cap, and Undo brings back the one the cap dropped", async () => {
+    const kept = Array.from({ length: 20 }, (_, i) => ({
+      id: `v${i + 1}`,
+      at: `2026-11-${String(i + 1).padStart(2, "0")}T09:00:00.000Z`,
+      scope: "train",
+      scopeName: "Whole train",
+      counts: [0, 0, 1, 2, 1],
+      ballots: 4,
+      source: "facilitator" as const,
+    }));
+    seedBoard(board({ confidence: kept }));
+    renderBoard();
+    fireEvent.click(await screen.findByRole("button", { name: "Save counted round" }));
+    const after = stored().confidence ?? [];
+    expect(after).toHaveLength(20);
+    expect(after[0].id).toBe("v2");
+    expect(after[19].counts).toEqual([0, 1, 3, 5, 2]);
+
+    act(() => panel.undo?.());
+    expect(stored().confidence?.map((v) => v.id)).toEqual(kept.map((v) => v.id));
+  });
+
   it("stores nothing for a withheld round, and says why", async () => {
     seedBoard(board());
     renderBoard();
@@ -500,6 +522,32 @@ describe("Predictability", () => {
 
     undoLast();
     expect(stored().history).toEqual([]);
+  });
+
+  it("closes a 13th PI over the cap, and Undo brings back the one the cap dropped", () => {
+    const twelve = Array.from({ length: 12 }, (_, i) => ({
+      id: `h${i + 1}`,
+      name: `PI h${i + 1}`,
+      closedAt: "2026-06-01",
+      teams: [{ teamId: "t1", name: "Checkout", plannedBv: 10, actualBv: 8 }],
+    }));
+    const s = { ...scoredBoard(), history: twelve };
+    s.objectives![0].actualBusinessValue = 9;
+    seedBoard(s);
+    renderBoard();
+    fireEvent.click(
+      within(section("Predictability")).getByRole("button", { name: "Close this PI" })
+    );
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Close this PI" })
+    );
+    const after = stored().history ?? [];
+    expect(after).toHaveLength(12);
+    expect(after[0].id).toBe("h2");
+    expect(after[11].name).toBe("PI 2026.4");
+
+    undoLast();
+    expect(stored().history?.map((r) => r.id)).toEqual(twelve.map((r) => r.id));
   });
 
   it("saves the PI's name and the train's own band, and refuses a band the wrong way round", () => {

@@ -36,7 +36,9 @@ import {
 } from "@/lib/pi-planning/confidence";
 import {
   CONFIDENCE_MAX,
+  appendCapped,
   localDayOf,
+  removeAppended,
   type PiConfidenceVote,
   type PiState,
 } from "@/lib/pi-planning/model";
@@ -167,7 +169,13 @@ export function ConfidenceVote({
       ),
       source: result.source,
     };
-    update((s) => ({ ...s, confidence: [...(s.confidence ?? []), vote].slice(-CONFIDENCE_MAX) }));
+    // The votes the cap drops to make room come back on Undo.
+    let dropped: PiConfidenceVote[] = [];
+    update((s) => {
+      const next = appendCapped(s.confidence ?? [], vote, CONFIDENCE_MAX);
+      dropped = next.dropped;
+      return { ...s, confidence: next.list };
+    });
     setNote("");
     log(PI_PLANNING_ACTIONS.CONFIDENCE_SAVED, {
       voteId: vote.id,
@@ -176,7 +184,10 @@ export function ConfidenceVote({
       average: round1(voteAverage(counts)),
     });
     return () =>
-      update((s) => ({ ...s, confidence: (s.confidence ?? []).filter((v) => v.id !== vote.id) }));
+      update((s) => ({
+        ...s,
+        confidence: removeAppended(s.confidence ?? [], vote.id, dropped, CONFIDENCE_MAX),
+      }));
   };
 
   const remove = (vote: PiConfidenceVote) => {

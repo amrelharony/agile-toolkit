@@ -15,10 +15,12 @@ import {
   PI_STORAGE_KEY,
   ROAM_NOTE_MAX,
   ROAM_OWNER_MAX,
+  appendCapped,
   cleanBand,
   localDayOf,
   normalizePiState,
   piTeamNames,
+  removeAppended,
 } from "@/lib/pi-planning/model";
 
 const base = {
@@ -240,6 +242,27 @@ describe("helpers", () => {
     const at = new Date(2026, 10, 23, 23, 30).toISOString();
     expect(localDayOf(at)).toBe("2026-11-23");
     expect(localDayOf("soon")).toBe("soon");
+  });
+
+  it("adds a row under a cap, and its Undo puts back the rows the cap dropped", () => {
+    const row = (id: string) => ({ id });
+    const added = appendCapped(["a", "b", "c"].map(row), row("d"), 3);
+    expect(added.list.map((r) => r.id)).toEqual(["b", "c", "d"]);
+    expect(added.dropped.map((r) => r.id)).toEqual(["a"]);
+    expect(removeAppended(added.list, "d", added.dropped, 3).map((r) => r.id)).toEqual([
+      "a",
+      "b",
+      "c",
+    ]);
+    // Under the cap nothing is dropped.
+    expect(appendCapped([row("a")], row("b"), 3)).toEqual({
+      list: [row("a"), row("b")],
+      dropped: [],
+    });
+    // A dropped row already back isn't doubled, and the cap still holds.
+    expect(
+      removeAppended([row("a"), row("c"), row("d"), row("e")], "d", [row("a")], 3).map((r) => r.id)
+    ).toEqual(["a", "c", "e"]);
   });
 
   it("is what the page's store re-exports", async () => {
