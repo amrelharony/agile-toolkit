@@ -131,6 +131,8 @@ const UPGRADED_TOOLS = [
   "product-canvas",
   "impact-map",
   "persona-library",
+  "product-metrics",
+  "ebm-dashboard",
   // Book readers: the Squad Session Kit. Meet the Cast and Which Colleague hold no
   // team data, so there's nothing to load, export or undo in them.
   "squad-session",
@@ -140,7 +142,12 @@ const UPGRADED_TOOLS = [
  * Shelved tools (the More tools shelf) held to the whole contract anyway:
  * the tools plan's new tools meet it whether shelved or not.
  */
-const SHELVED_UPGRADED_TOOLS = ["meeting-audit", "relative-sizing", "strategy-tree"];
+const SHELVED_UPGRADED_TOOLS = [
+  "meeting-audit",
+  "relative-sizing",
+  "strategy-tree",
+  "ab-calculator",
+];
 
 /**
  * Tools whose phase row limits the upgrade to named features ("no other
