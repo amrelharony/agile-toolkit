@@ -471,6 +471,21 @@ describe("deleting, with Undo", () => {
     lastToast().undo();
     expect(stored()).toEqual(lvt());
   });
+
+  it("deletes a tree with no parts (an agent can make one) from its heading, with Undo", async () => {
+    const empty = tree("dibb", [], { title: "No root yet" });
+    seed([empty]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete the tree No root yet" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(trees()).toEqual([]);
+    expect(logged(STRATEGY_TREE_ACTIONS.TREE_REMOVED)[0].payload).toEqual({
+      treeId: "strategyMap_t",
+      format: "dibb",
+    });
+    lastToast().undo();
+    expect(stored()).toEqual(empty);
+  });
 });
 
 describe("drafting branches", () => {

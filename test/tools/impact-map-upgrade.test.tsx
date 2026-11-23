@@ -468,6 +468,21 @@ describe("deleting, with Undo", () => {
     lastToast().undo();
     expect(stored()).toEqual(map());
   });
+
+  it("deletes a map with no parts (an agent can make one) from its heading, with Undo", async () => {
+    const empty = map({ title: "No goal yet", nodes: [] });
+    seed([empty]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Delete the map No goal yet" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(maps()).toEqual([]);
+    expect(logged(IMPACT_MAP_ACTIONS.MAP_REMOVED)[0].payload).toEqual({
+      mapId: "strategyMap_1",
+      nodes: 0,
+    });
+    lastToast().undo();
+    expect(stored()).toEqual(empty);
+  });
 });
 
 describe("the focus impact", () => {

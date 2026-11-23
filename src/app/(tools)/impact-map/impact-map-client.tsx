@@ -805,7 +805,12 @@ export function ImpactMapClient() {
                         label={`Delete the map ${open.title}`}
                         icon={<Trash2 className="h-4 w-4" />}
                         className="text-sub hover:text-danger"
-                        onClick={() => askDelete(open, rootOf(open) ?? open.nodes[0])}
+                        onClick={() => {
+                          // A map with no parts (an agent can make one) has no goal to ask about.
+                          const root = rootOf(open);
+                          if (root) askDelete(open, root);
+                          else removeMap(open);
+                        }}
                       />
                     </div>
                   </div>
