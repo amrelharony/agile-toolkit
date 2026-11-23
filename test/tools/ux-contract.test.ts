@@ -136,6 +136,7 @@ const UPGRADED_TOOLS = [
   "flow-insights",
   "kickoff",
   "improve",
+  "team-time",
   // Book readers: the Squad Session Kit. Meet the Cast and Which Colleague hold no
   // team data, so there's nothing to load, export or undo in them.
   "squad-session",
