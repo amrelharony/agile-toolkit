@@ -414,15 +414,25 @@ export interface SkippedSlot {
   ruleId: string;
 }
 
+/** A rule of another template reworded to follow this one, such as focus time naming the ladder's levels. */
+export interface AlsoUpdated {
+  ruleId: string;
+  template: CharterTemplateId;
+  /** Its new text. */
+  text: string;
+}
+
 export interface ApplyResult {
   doc: WorkingAgreement;
-  /** Rule ids, as written. */
+  /** Rule ids, as written. `updated` includes the `also` rules. */
   added: string[];
   updated: string[];
   removed: string[];
   skipped: SkippedSlot[];
   /** Every rule the template has in the charter now, in charter order. */
   ruleIds: string[];
+  /** Rules of other templates this apply rewords (their ids are in `updated` too, so Undo puts them back). */
+  also: AlsoUpdated[];
 }
 
 /** The template's rules in the charter, in charter order. */
@@ -442,6 +452,8 @@ const sameRule = (a: CharterRule, b: TemplateRule) =>
  * rules matched by slot (updated in place, keeping their id and consent),
  * added (new ids from `newId`) or removed. A slot whose text another rule
  * already says (case, spacing and a closing full stop aside) is skipped.
+ * The urgency ladder also rewords focus time's rule, which names its top
+ * levels (`also`).
  */
 export function applyTemplate<Id extends CharterTemplateId>(
   doc: WorkingAgreement,
@@ -504,18 +516,47 @@ export function applyTemplate<Id extends CharterTemplateId>(
     }
   }
 
+  // Focus time names the ladder's top two levels: a new ladder rewords focus
+  // time's rule too, while it is still the template's own (a rule edited by
+  // hand is the team's and stays). It keeps its id and consent, and Undo
+  // puts it back with the ladder's own rules.
+  const also: AlsoUpdated[] = [];
+  const focus = doc.templates?.focusTime;
+  if (id === "urgency-ladder" && focus) {
+    const current = rules.find(
+      (r) => r.template?.id === "focus-time" && r.template.slot === "focus"
+    );
+    const [w] = templateRules("focus-time", focus, { ladder: values as UrgencyLadderValues });
+    if (current && w && !sameRule(current, w) && !sayer(w.text, current.id, rules)) {
+      const next: CharterRule = { ...current, category: w.category, text: w.text };
+      if (w.description) next.description = w.description;
+      else delete next.description;
+      rules = rules.map((r) => (r.id === current.id ? next : r));
+      updated.push(current.id);
+      also.push({ ruleId: current.id, template: "focus-time", text: w.text });
+    }
+  }
+
   const templates: CharterTemplates = {
     ...(doc.templates ?? {}),
     [TEMPLATE_KEY[id]]: { ...values, appliedAt: now },
   };
   const next: WorkingAgreement = { ...doc, rules, templates };
-  return { doc: next, added, updated, removed, skipped, ruleIds: templateRuleIds(next, id) };
+  return {
+    doc: next,
+    added,
+    updated,
+    removed,
+    skipped,
+    ruleIds: templateRuleIds(next, id),
+    also,
+  };
 }
 
 /**
  * What applying would do, for the form's preview: the rules it writes, and
- * which would be added, updated, removed or skipped (applyTemplate on a
- * copy; nothing is written).
+ * which would be added, updated, removed or skipped, and the other
+ * templates' rules it rewords (applyTemplate on a copy; nothing is written).
  */
 export function previewTemplate<Id extends CharterTemplateId>(
   doc: WorkingAgreement,

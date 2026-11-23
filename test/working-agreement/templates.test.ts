@@ -437,6 +437,47 @@ describe("applyTemplate", () => {
     );
   });
 
+  it("rewords focus time's rule when the ladder changes, and its Undo puts it back", () => {
+    const focusValues = templateDefaults("focus-time");
+    const focused = applyTemplate(doc(), "focus-time", focusValues, () => "f1", NOW);
+    expect(focused.doc.rules[0].text).toContain("unless they are urgent.");
+    const consented = {
+      ...focused.doc,
+      rules: [withConsent(focused.doc.rules[0], "Ann", "consent", NOW)],
+    };
+    // The ladder comes later: focus time now names its top two levels.
+    const laddered = applyTemplate(consented, "urgency-ladder", ladder(), ids(), NOW);
+    const f1 = laddered.doc.rules.find((r) => r.id === "f1");
+    expect(f1?.text).toContain("unless they are Emergency or Urgent today");
+    expect(f1?.template).toEqual({ id: "focus-time", slot: "focus" });
+    expect(f1?.agreedBy).toEqual(["Ann"]);
+    expect(laddered.updated).toEqual(["f1"]);
+    expect(laddered.also).toEqual([{ ruleId: "f1", template: "focus-time", text: f1?.text }]);
+    expect(laddered.ruleIds).toEqual(["r1", "r2"]);
+    // Renamed levels follow too, and the preview says so.
+    const renamed = ladder();
+    renamed.levels[0] = { ...renamed.levels[0], label: "P1" };
+    renamed.levels[1] = { ...renamed.levels[1], label: "P2" };
+    const p = previewTemplate(laddered.doc, "urgency-ladder", renamed);
+    expect(p.also.map((a) => a.text)).toEqual([
+      expect.stringContaining("unless they are P1 or P2"),
+    ]);
+    const again = applyTemplate(laddered.doc, "urgency-ladder", renamed, ids(), NOW);
+    expect(again.doc.rules.find((r) => r.id === "f1")?.text).toContain("unless they are P1 or P2");
+    expect(again.updated).toEqual(["r1", "r2", "f1"]);
+    // Undo of the first ladder: focus time says "urgent" again.
+    const back = revertTemplate(laddered.doc, consented, "urgency-ladder", laddered);
+    expect(back.rules).toEqual(consented.rules);
+    // A focus rule edited by hand is the team's own: the ladder leaves it.
+    const own = {
+      ...consented,
+      rules: [withRuleText(consented.rules[0], "Mornings are quiet", undefined)],
+    };
+    const left = applyTemplate(own, "urgency-ladder", ladder(), ids(), NOW);
+    expect(left.also).toEqual([]);
+    expect(left.doc.rules[0].text).toBe("Mornings are quiet");
+  });
+
   it("previews without writing, and its Undo puts the charter back", () => {
     const start = doc([rule("x", "Kept")]);
     const p = previewTemplate(start, "core-hours", core());

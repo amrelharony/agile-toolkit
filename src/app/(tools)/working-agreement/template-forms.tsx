@@ -238,6 +238,14 @@ function TemplatePreview<Id extends CharterTemplateId>({
           );
         })}
       </ul>
+      {p.also.map((a) => (
+        <p key={a.ruleId} className="break-words text-xs text-sub">
+          <Badge variant="outline" className={cn("mr-2 text-xs", STATUS_CLASS.Changed)}>
+            Changed
+          </Badge>
+          The {templateName(a.template)} rule follows: “{a.text}”
+        </p>
+      ))}
       {removed.length > 0 && (
         <p className="text-xs text-sub">
           Comes out: {removed.map((r) => `“${r.text}”`).join("; ")}

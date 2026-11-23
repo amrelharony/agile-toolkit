@@ -193,6 +193,28 @@ describe("the Templates row", () => {
     expect(stored().templates?.urgencyLadder?.afterHours).toBe(true);
   });
 
+  it("shows that a ladder applied after focus time rewords its rule, and Undo puts it back", () => {
+    let n = 0;
+    seed(
+      applyTemplate(
+        emptyAgreement(),
+        "focus-time",
+        templateDefaults("focus-time"),
+        () => `f${++n}`,
+        NOW
+      ).doc
+    );
+    renderPage();
+    fireEvent.click(templateButton(/^Urgency ladder/));
+    expect(
+      within(preview()).getByText(/The Focus time rule follows: “.*Emergency or Urgent today/)
+    ).toBeInTheDocument();
+    fireEvent.click(within(form()).getByRole("button", { name: "Add 2 rules" }));
+    expect(stored().rules[0].text).toContain("unless they are Emergency or Urgent today");
+    undoLast();
+    expect(stored().rules[0].text).toContain("unless they are urgent.");
+  });
+
   it("refuses a level with no name and saves nothing", () => {
     renderPage();
     fireEvent.click(templateButton(/^Urgency ladder/));
