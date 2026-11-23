@@ -447,6 +447,9 @@ export function ExampleMappingClient() {
     // The map records when it was sent: checked first, so a refusal sends nothing.
     if (rowTooBig(touched(map, { sentAt: nowIso() }, nowIso()), map)) return say(MAP_TOO_BIG);
     if (plan.unchanged) {
+      // Nothing to add, but the story is up to date: record it, as Amr's
+      // send_to_story does, so the next step moves on to sizing the story.
+      if (!map.sentAt) patchMap(map.id, (m) => touched(m, { sentAt: nowIso() }, nowIso()));
       return say(
         `“${shortText(target.title)}” already has these rules and examples${plan.notSent.length > 0 ? `; ${plural(plan.notSent.length, "example", "examples")} didn't fit its 20 scenarios` : ""}.`
       );

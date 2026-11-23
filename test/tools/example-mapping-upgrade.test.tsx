@@ -68,6 +68,7 @@ vi.mock("@/lib/auth/auth-provider", () => ({ useAuthOptional: () => null }));
 import { ExampleMappingClient } from "@/app/(tools)/example-mapping/example-mapping-client";
 import { EXAMPLE_MAPPING_ACTIONS } from "@/lib/history/event-actions";
 import { fallbackRules } from "@/lib/ai/tasks/example-mapping.lite";
+import { exampleMappingSteps } from "@/lib/example-mapping/next-steps";
 
 const ws = () => useWorkspaceStore.getState();
 const maps = () => ws().exampleMaps ?? [];
@@ -456,6 +457,35 @@ describe("sending", () => {
     expect(back.gwt).toBeUndefined();
     expect(back.refinedAt).toBe("2026-11-01T00:00:00.000Z");
     expect(stored()!.sentAt).toBeUndefined();
+  });
+
+  it("records a send when the story already has everything, so the next step moves on", () => {
+    // Rules that came from the story's own criteria, and one-line examples only.
+    useWorkspaceStore.setState({
+      stories: [story({ acceptanceCriteria: "- An expired card is refused" })],
+      exampleMaps: [
+        map({
+          storyId: "st1",
+          verdict: "ready",
+          rules: [{ id: "r1", text: "An expired card is refused" }],
+          examples: [{ id: "e1", ruleId: "r1", text: "Maria's card expired" }],
+        }),
+      ],
+    });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Send to the story" }));
+    expect(
+      screen
+        .getAllByRole("status")
+        .some((el) => /already has these rules/.test(el.textContent ?? ""))
+    ).toBe(true);
+    expect(storyById("st1")!.acceptanceCriteria).toBe("- An expired card is refused");
+    expect(stored()!.sentAt).toBeTruthy();
+    // Nothing was sent: no Undo, no history.
+    expect(undo.all).toEqual([]);
+    expect(actions()).not.toContain(EXAMPLE_MAPPING_ACTIONS.SENT_TO_STORY);
+    const steps = exampleMappingSteps({ maps: maps(), stories: ws().stories });
+    expect(steps.map((s) => s.id)).toEqual(["example-mapping-size-story"]);
   });
 
   it("adds a typed story to the backlog and links the map; Undo unlinks it", () => {
