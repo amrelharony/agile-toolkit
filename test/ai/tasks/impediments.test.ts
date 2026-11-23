@@ -74,6 +74,22 @@ describe("impediments.cluster", () => {
     ]);
   });
 
+  it("keeps a repeated id once, and joins two clusters of one name", () => {
+    const out = cleanClusters(
+      [
+        { name: "Another team", side: "external", ids: ["b1", "b1", "b2"] },
+        { name: "Other", side: "internal", ids: ["b3"] },
+        { name: "another  TEAM", side: "internal", ids: ["b4", "b2"] },
+        { name: "Other", side: "internal", ids: ["b5", "b5"] },
+      ],
+      new Set(["b1", "b2", "b3", "b4", "b5"])
+    );
+    expect(out).toEqual([
+      { name: "Another team", side: "external", ids: ["b1", "b2", "b4"] },
+      { name: "Other", side: "internal", ids: ["b3", "b5"] },
+    ]);
+  });
+
   it("falls back to the keyword rules, then shared words, then Other, with a valid answer", () => {
     const out = task.fallback(task.input.parse(task.sample));
     expect(task.output.safeParse(out).success).toBe(true);

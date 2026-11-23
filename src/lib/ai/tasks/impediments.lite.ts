@@ -11,7 +11,7 @@ import { cleanThemes } from "./audience-wall.lite";
 import { cutText } from "@/lib/utils/cut-text";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 import { keywordGroups } from "@/lib/audience-wall/words";
-import { clusterFor, defaultClusterSide } from "@/lib/impediments/clusters";
+import { clusterFor, clusterKey, defaultClusterSide } from "@/lib/impediments/clusters";
 import { BLOCKER_CLUSTER_MAX, type BlockSide } from "@/lib/stores/workspace-types";
 import type { ClusterBlockersInput, ClusterBlockersOutput, BlockerCluster } from "./impediments";
 export type { ClusterBlockersInput, ClusterBlockersOutput, BlockerCluster } from "./impediments";
@@ -81,7 +81,9 @@ export const impedimentsClusterTask = lazyAiTask<ClusterBlockersInput, ClusterBl
 /**
  * An answer's clusters against the blockers sent (the Audience Wall's
  * `cleanThemes`, with `ids` for its `postIds`): unknown ids dropped, each id
- * in its first cluster only, empty clusters gone.
+ * once, in its first cluster only, empty clusters gone. Two clusters with
+ * one name (case and spacing aside) are one: the later one's ids join the
+ * first, which keeps its name and side.
  */
 export function cleanClusters(
   clusters: readonly BlockerCluster[],
@@ -89,13 +91,22 @@ export function cleanClusters(
 ): BlockerCluster[] {
   const taken = new Set<string>();
   const out: BlockerCluster[] = [];
+  const byKey = new Map<string, BlockerCluster>();
   for (const c of clusters) {
     // One cluster at a time, against the ids no earlier cluster took, so each keeps its side.
     const open = new Set(Array.from(sent).filter((id) => !taken.has(id)));
-    const [theme] = cleanThemes([{ name: c.name, postIds: [...c.ids] }], open);
+    const [theme] = cleanThemes([{ name: c.name, postIds: Array.from(new Set(c.ids)) }], open);
     if (!theme) continue;
     theme.postIds.forEach((id) => taken.add(id));
-    out.push({ name: c.name, side: c.side, ids: theme.postIds });
+    const key = clusterKey(c.name);
+    const same = key ? byKey.get(key) : undefined;
+    if (same) {
+      same.ids.push(...theme.postIds);
+      continue;
+    }
+    const kept: BlockerCluster = { name: c.name, side: c.side, ids: theme.postIds };
+    if (key) byKey.set(key, kept);
+    out.push(kept);
   }
   return out;
 }
