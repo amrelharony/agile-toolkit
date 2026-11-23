@@ -158,6 +158,7 @@ import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import { targetClashes } from "@/lib/opportunity-tree/model";
 import { isDay } from "@/lib/notebook/model";
 import { CATEGORY_MAX, CAUSE_COUNT_MAX } from "@/lib/root-cause/model";
+import { kickoffCatalogProblem } from "@/lib/kickoff/model";
 import { productCanvasWriteProblems } from "@/lib/product-canvas/model";
 import { sourceProblem } from "@/lib/ebm/model";
 import {
@@ -5855,7 +5856,13 @@ defineCrudActions<Kickoff>({
   upsert: (x) => ws().upsertKickoff(x),
   remove: (id) => ws().removeKickoff(id),
   generateId: () => `kickoff_${nanoid(8)}`,
-  prepare: (next, current) => stampedTimes(next, current),
+  prepare: (next, current) => {
+    // What the kickoff's format doesn't take, the page's reader drops, and
+    // the next page or verb write would delete it: refused, not saved.
+    const problem = kickoffCatalogProblem(next);
+    if (problem) throw new Error(`${problem} Nothing was saved.`);
+    return stampedTimes(next, current);
+  },
 });
 
 /* P2.9 — Team Time: people, meeting-time polls and rotations. The rules a

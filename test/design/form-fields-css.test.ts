@@ -119,6 +119,7 @@ describe("native selects styled to match <Input>", () => {
     "src/app/(tools)/epic-roadmap/horizons-board.tsx",
     "src/app/(tools)/jtbd-mapper/job-form.tsx",
     "src/app/(tools)/kanban/workflow/fields.tsx",
+    "src/app/(tools)/kickoff/collect-room.tsx",
     "src/app/(tools)/planning-poker/three-point-check.tsx",
     "src/app/(tools)/premortem/components/premortem-form.tsx",
     "src/app/(tools)/premortem/premortem-client.tsx",

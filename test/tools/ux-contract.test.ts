@@ -134,6 +134,7 @@ const UPGRADED_TOOLS = [
   "product-metrics",
   "ebm-dashboard",
   "flow-insights",
+  "kickoff",
   // Book readers: the Squad Session Kit. Meet the Cast and Which Colleague hold no
   // team data, so there's nothing to load, export or undo in them.
   "squad-session",
