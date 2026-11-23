@@ -14,12 +14,11 @@ import { AiButton, AiSuggestions } from "@/components/ai";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { IconButton } from "@/components/ui/icon-button";
-import {
-  METRIC_SOURCE_IDS,
-  type EbmValueArea,
-  type Hypothesis,
-  type MetricSourceId,
-  type ProductMetric,
+import type {
+  EbmValueArea,
+  Hypothesis,
+  MetricSourceId,
+  ProductMetric,
 } from "@/lib/stores/workspace-types";
 import { formatMetric } from "@/lib/hypotheses/model";
 import { testFixHref } from "@/lib/product-metrics/next-steps";
@@ -29,7 +28,14 @@ import {
   latestReading,
   type MetricValues,
 } from "@/lib/product-metrics/model";
-import { AREA_LABEL, AREA_MEANING, areaProgress, scoreText, weakestMeasure } from "@/lib/ebm/model";
+import {
+  AREA_LABEL,
+  AREA_MEANING,
+  areaProgress,
+  scoreText,
+  sourcesFor,
+  weakestMeasure,
+} from "@/lib/ebm/model";
 import { MEASURE_IDEAS, type MeasureIdea } from "@/lib/ebm/ideas";
 import { SOURCE_INFO } from "@/lib/ebm/source-info";
 import type { SourceReading } from "@/lib/ebm/sources";
@@ -86,6 +92,7 @@ export function AreaPanel({
   const ideas = MEASURE_IDEAS[area].filter((i) => !names.has(nameKey(i.name)));
   const suggestions = answer ? answer.items.filter((s) => !names.has(nameKey(s.name))) : [];
   const weakest = weakestMeasure(measures);
+  const sources = sourcesFor(area);
   const headingId = `ebm-area-${area}`;
 
   return (
@@ -184,6 +191,7 @@ export function AreaPanel({
           id="metric_new"
           all={allMetrics}
           views={false}
+          directionLockedBy={source ? SOURCE_INFO[source].label : undefined}
           submitLabel={`Add to ${AREA_LABEL[area]}`}
           onSave={(values) => {
             const why = onAdd(values, source || undefined);
@@ -194,28 +202,41 @@ export function AreaPanel({
               setSource("");
             }
           }}
-          onCancel={() => setAdding(false)}
+          onCancel={() => {
+            setAdding(false);
+            setSource("");
+          }}
         >
-          <Field
-            label="Read it from the toolkit"
-            hint="Optional. The page offers that tool's number as a reading."
-          >
-            {(props) => (
-              <select
-                {...props}
-                className={SELECT_CLASS}
-                value={source}
-                onChange={(e) => setSource(e.target.value as MetricSourceId | "")}
-              >
-                <option value="">No, I&apos;ll type the readings</option>
-                {METRIC_SOURCE_IDS.map((id) => (
-                  <option key={id} value={id}>
-                    {SOURCE_INFO[id].label}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
+          {sources.length > 0
+            ? ({ draft, update }) => (
+                <Field
+                  label="Read it from the toolkit"
+                  hint="Optional. The page offers that tool's number as a reading, and it sets which way is better."
+                >
+                  {(props) => (
+                    <select
+                      {...props}
+                      className={SELECT_CLASS}
+                      value={source}
+                      onChange={(e) => {
+                        const id = e.target.value as MetricSourceId | "";
+                        setSource(id);
+                        if (!id) return;
+                        const info = SOURCE_INFO[id];
+                        update({ direction: info.direction, unit: info.unit ?? draft.unit });
+                      }}
+                    >
+                      <option value="">No, I&apos;ll type the readings</option>
+                      {sources.map((id) => (
+                        <option key={id} value={id}>
+                          {SOURCE_INFO[id].label}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </Field>
+              )
+            : null}
         </MetricForm>
       ) : (
         <div ref={askRef} className="flex flex-wrap items-center gap-2">

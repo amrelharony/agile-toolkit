@@ -177,6 +177,56 @@ describe("add_measure", () => {
     ).toThrow();
   });
 
+  it("takes the direction and unit from a source, and refuses one from another area or against it", async () => {
+    const r = await run<{ metricId: string }>("tool.ebm_dashboard.add_measure", {
+      area: "time-to-market",
+      name: "Cycle time",
+      source: "cycle-time-median",
+    });
+    expect(metrics().find((m) => m.id === r.metricId)).toMatchObject({
+      direction: "decrease",
+      unit: "days",
+      source: "cycle-time-median",
+    });
+    await expect(
+      run("tool.ebm_dashboard.add_measure", {
+        area: "time-to-market",
+        name: "Cycle time, the wrong way",
+        direction: "increase",
+        source: "cycle-time-median",
+      })
+    ).rejects.toThrow(/“Lower is better” number.*Nothing was saved/);
+    await expect(
+      run("tool.ebm_dashboard.add_measure", {
+        area: "unrealized-value",
+        name: "NPS",
+        source: "nps-90d",
+      })
+    ).rejects.toThrow(/is a Current Value number, not Unrealized Value/);
+    useWorkspaceStore.setState({
+      productMetrics: [
+        ...metrics(),
+        {
+          id: "metric_up",
+          name: "Up",
+          direction: "increase",
+          readings: [],
+          createdAt: NOW,
+          updatedAt: NOW,
+        },
+      ],
+    });
+    await expect(
+      run("tool.ebm_dashboard.add_measure", {
+        area: "ability-to-innovate",
+        metricId: "metric_up",
+        source: "open-tech-debt",
+      })
+    ).rejects.toThrow(/“Lower is better” number/);
+    expect(metrics().find((m) => m.id === "metric_up")?.kva).toBeUndefined();
+    expect(metrics()).toHaveLength(2);
+  });
+
   it("writes on the server", async () => {
     await mcp("tool.ebm_dashboard.add_measure", {
       area: "unrealized-value",

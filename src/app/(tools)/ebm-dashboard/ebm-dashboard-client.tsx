@@ -82,11 +82,12 @@ import {
   reviewsNewestFirst,
   ruleReview,
   scoreText,
+  sourceProblem,
   withReview,
   withStrategicGoal,
   type ReviewValues,
 } from "@/lib/ebm/model";
-import { readSource, type SourceReading } from "@/lib/ebm/sources";
+import { SOURCE_INFO, readSource, type SourceReading } from "@/lib/ebm/sources";
 import { MetricForm } from "@/app/(tools)/product-metrics/metric-form";
 import { ReadingPanel } from "@/app/(tools)/product-metrics/reading-panel";
 import { AreaPanel } from "./area-panel";
@@ -169,6 +170,8 @@ export function EbmDashboardClient() {
 
   const writeProblem = (row: ProductMetric): string | null => {
     const problems = metricRuleProblems(row, currentMetrics());
+    const source = row.source && row.kva ? sourceProblem(row.kva, row.source, row.direction) : null;
+    if (source) problems.push(source);
     if (problems.length > 0) return problems.join(" ");
     return jsonBytes(row) > ENTITY_ROW_MAX_BYTES ? TOO_BIG : null;
   };
@@ -513,6 +516,9 @@ export function EbmDashboardClient() {
             id={editingMetric.id}
             all={currentMetrics()}
             views={false}
+            directionLockedBy={
+              editingMetric.source ? SOURCE_INFO[editingMetric.source]?.label : undefined
+            }
             submitLabel="Save the measure"
             onSave={saveEdit}
             onCancel={() => setEditingId(null)}

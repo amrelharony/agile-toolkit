@@ -15,6 +15,7 @@
 import {
   EBM_BOARD_ID,
   EBM_VALUE_AREAS,
+  METRIC_SOURCE_IDS,
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
   type EbmBoard,
@@ -22,6 +23,8 @@ import {
   type EbmValueArea,
   type Hypothesis,
   type HypothesisTracker,
+  type MetricDirection,
+  type MetricSourceId,
   type ProductGoal,
   type ProductMetric,
   type Sprint,
@@ -32,11 +35,13 @@ import { isDay } from "@/lib/hypotheses/model";
 import { isExampleId } from "@/lib/utils/example-id";
 import type { FormErrors, Validation } from "@/lib/utils/form";
 import {
+  DIRECTION_LABEL,
   daysBetween,
   isEbmExample,
   metricProgress,
   usableMetrics,
 } from "@/lib/product-metrics/model";
+import { SOURCE_INFO } from "./source-info";
 
 /* ── Words ──────────────────────────────────────────────────────────── */
 
@@ -184,6 +189,34 @@ export function measuresByArea(
   for (const a of EBM_VALUE_AREAS) out[a] = [];
   for (const m of measuresOf(metrics, opts)) out[m.kva as EbmValueArea].push(m);
   return out;
+}
+
+/* ── Toolkit sources ────────────────────────────────────────────────── */
+
+/** The toolkit numbers a measure in `area` can read (none for Unrealized Value). */
+export function sourcesFor(area: EbmValueArea): MetricSourceId[] {
+  return METRIC_SOURCE_IDS.filter((id) => SOURCE_INFO[id]?.area === area);
+}
+
+/**
+ * Why a measure in `area` can't read `source` with `direction`, or null:
+ * a source belongs to one area, and its numbers run one way, so the
+ * measure's progress reads the right way.
+ */
+export function sourceProblem(
+  area: EbmValueArea,
+  source: MetricSourceId,
+  direction: MetricDirection
+): string | null {
+  const info = SOURCE_INFO[source];
+  if (!info) return "Pick a number the toolkit gives.";
+  if (info.area !== area) {
+    return `“${info.label}” is a ${AREA_LABEL[info.area]} number, not ${AREA_LABEL[area]}.`;
+  }
+  if (info.direction !== direction) {
+    return `“${info.label}” is a “${DIRECTION_LABEL[info.direction]}” number, so the measure must be too.`;
+  }
+  return null;
 }
 
 /** An area's progress: the mean of its measures' non-null progress; null when none has one. */

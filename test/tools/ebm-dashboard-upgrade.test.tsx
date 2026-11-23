@@ -261,6 +261,38 @@ describe("measures", () => {
     expect(screen.getByRole("region", { name: "Readings for Cycle time" })).toBeInTheDocument();
   });
 
+  it("takes a source's direction and unit, and offers only the area's own sources", async () => {
+    renderPage();
+    const ttm = await screen.findByRole("region", { name: "Time to Market" });
+    fireEvent.click(within(ttm).getByRole("button", { name: "Add a measure" }));
+    const direction = within(ttm).getByLabelText(/^Which way is better/) as HTMLSelectElement;
+    expect(direction.value).toBe("increase");
+    const pick = within(ttm).getByLabelText(/^Read it from the toolkit/) as HTMLSelectElement;
+    expect(Array.from(pick.options).map((o) => o.value)).toEqual([
+      "",
+      "cycle-time-median",
+      "dora-lead-time",
+      "dora-deploys",
+    ]);
+    fireEvent.change(within(ttm).getByLabelText(/^Name/), { target: { value: "Cycle time" } });
+    fireEvent.change(within(ttm).getByLabelText(/^Target/), { target: { value: "3" } });
+    fireEvent.change(pick, { target: { value: "cycle-time-median" } });
+    expect(direction.value).toBe("decrease");
+    expect(direction).toBeDisabled();
+    expect((within(ttm).getByLabelText(/^Unit/) as HTMLInputElement).value).toBe("days");
+    fireEvent.click(within(ttm).getByRole("button", { name: "Add to Time to Market" }));
+    expect(metrics()[0]).toMatchObject({
+      direction: "decrease",
+      unit: "days",
+      target: 3,
+      source: "cycle-time-median",
+    });
+
+    const uv = screen.getByRole("region", { name: "Unrealized Value" });
+    fireEvent.click(within(uv).getByRole("button", { name: "Add a measure" }));
+    expect(within(uv).queryByLabelText(/^Read it from the toolkit/)).toBeNull();
+  });
+
   it("adds an idea with Undo", async () => {
     renderPage();
     const ai = await screen.findByRole("region", { name: "Ability to Innovate" });

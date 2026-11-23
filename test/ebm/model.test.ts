@@ -29,6 +29,8 @@ import {
   newReview,
   readBoard,
   ruleReview,
+  sourceProblem,
+  sourcesFor,
   validateReview,
   validateStrategicGoal,
   weakestArea,
@@ -223,5 +225,39 @@ describe("the forms", () => {
     expect(validateStrategicGoal({ goal: "x".repeat(1001), why: "" }).ok).toBe(false);
     expect(validateStrategicGoal({ goal: "", why: "Because" }).ok).toBe(false);
     expect(validateStrategicGoal({ goal: "", why: "" })).toEqual({ ok: true, values: {} });
+  });
+});
+
+describe("toolkit sources", () => {
+  it("offers an area only its own sources, and Unrealized Value none", () => {
+    expect(sourcesFor("time-to-market")).toEqual([
+      "cycle-time-median",
+      "dora-lead-time",
+      "dora-deploys",
+    ]);
+    expect(sourcesFor("current-value")).toEqual(["nps-90d"]);
+    expect(sourcesFor("ability-to-innovate")).toEqual(["dora-change-fail", "open-tech-debt"]);
+    expect(sourcesFor("unrealized-value")).toEqual([]);
+  });
+
+  it("refuses a source from another area, or a direction against the source's", () => {
+    expect(sourceProblem("time-to-market", "cycle-time-median", "decrease")).toBeNull();
+    expect(sourceProblem("time-to-market", "cycle-time-median", "increase")).toBe(
+      "“Median cycle time, last 90 days” is a “Lower is better” number, so the measure must be too."
+    );
+    expect(sourceProblem("unrealized-value", "nps-90d", "increase")).toBe(
+      "“NPS, last 90 days” is a Current Value number, not Unrealized Value."
+    );
+  });
+
+  it("is why: a cycle time read the wrong way would score 100% while it falls", () => {
+    const wrong = measure({
+      kva: "time-to-market",
+      source: "cycle-time-median",
+      target: 3,
+      readings: [reading(6.5, "2026-10-01"), reading(4.9, "2026-11-01")],
+    });
+    expect(areaProgress([wrong])).toBe(1);
+    expect(areaProgress([{ ...wrong, direction: "decrease" }])).toBeCloseTo(1.6 / 3.5);
   });
 });

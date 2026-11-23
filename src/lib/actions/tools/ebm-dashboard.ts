@@ -88,6 +88,7 @@ import {
   normalizeBoard,
   reviewsNewestFirst,
   ruleReview,
+  sourceProblem,
   validateReview,
   validateStrategicGoal,
   weakestArea,
@@ -251,16 +252,22 @@ const AddMeasureParams = z
     name: z.string().trim().min(1).max(METRIC_NAME_MAX).optional(),
     definition: z.string().trim().max(METRIC_DEFINITION_MAX).optional(),
     unit: z.string().trim().max(METRIC_UNIT_MAX).optional(),
-    direction: z.enum(["increase", "decrease"]).optional(),
+    direction: z
+      .enum(["increase", "decrease"])
+      .optional()
+      .describe("Which way is better. With a source, the source's own (see read_sources)."),
     baseline: z.number().finite().optional(),
     target: z.number().finite().optional(),
     source: z
       .enum(METRIC_SOURCE_IDS)
       .optional()
-      .describe("Read its readings from the toolkit (see read_sources)."),
+      .describe(
+        "Read its readings from the toolkit: one of the area's own sources (see read_sources)."
+      ),
   })
-  .refine((p) => p.metricId || (p.name && p.direction), {
-    message: "Give metricId to tag a metric, or a name and a direction for a new measure.",
+  .refine((p) => p.metricId || (p.name && (p.direction || p.source)), {
+    message:
+      "Give metricId to tag a metric, or a name and a direction (or a source) for a new measure.",
   });
 
 async function addMeasure(store: EbmStore, p: z.infer<typeof AddMeasureParams>) {
@@ -269,6 +276,9 @@ async function addMeasure(store: EbmStore, p: z.infer<typeof AddMeasureParams>) 
   if (p.metricId) {
     const m = all.find((x) => x.id === p.metricId);
     if (!m) return { added: false as const, reason: "not_found" as const };
+    const source = p.source ?? m.source;
+    const wrong = source ? sourceProblem(p.area, source, m.direction) : null;
+    if (wrong) throw new Error(`${wrong} Nothing was saved.`);
     const next = compactMetric({
       ...m,
       kva: p.area,
@@ -278,12 +288,16 @@ async function addMeasure(store: EbmStore, p: z.infer<typeof AddMeasureParams>) 
     await store.putMetric(next);
     return { added: true as const, metricId: m.id, created: false };
   }
+  const info = p.source ? SOURCE_INFO[p.source] : undefined;
+  const direction = p.direction ?? info?.direction ?? "increase";
+  const wrong = p.source ? sourceProblem(p.area, p.source, direction) : null;
+  if (wrong) throw new Error(`${wrong} Nothing was saved.`);
   const checked = validateMetric({
     ...EMPTY_METRIC_DRAFT,
     name: p.name ?? "",
     definition: p.definition ?? "",
-    unit: p.unit ?? "",
-    direction: p.direction ?? "increase",
+    unit: p.unit ?? info?.unit ?? "",
+    direction,
     baseline: p.baseline !== undefined ? String(p.baseline) : "",
     target: p.target !== undefined ? String(p.target) : "",
   });
@@ -305,7 +319,7 @@ registry.register({
   name: "add_measure",
   category: "write",
   description:
-    "Add a measure to a key value area: a new product metric {area, name, direction (increase | decrease), unit?, definition?, baseline?, target? (beyond the baseline in its direction), source? (a toolkit number it reads)}, or {area, metricId} to tag an existing metric (it keeps its other views). Returns {added: true, metricId, created} or {added: false, reason: not_found}. Add readings with tool.product_metrics.add_reading or accept_source_reading.",
+    "Add a measure to a key value area: a new product metric {area, name, direction (increase | decrease), unit?, definition?, baseline?, target? (beyond the baseline in its direction), source? (a toolkit number it reads)}, or {area, metricId} to tag an existing metric (it keeps its other views). A source must be one of the area's own (read_sources gives each source's area; Unrealized Value has none) and sets the direction and the unit: a direction that contradicts it is refused. Returns {added: true, metricId, created} or {added: false, reason: not_found}. Add readings with tool.product_metrics.add_reading or accept_source_reading.",
   paramsSchema: AddMeasureParams,
   handler: async (p) => addMeasure(browserStore, p),
   mcpHandler: async (p, ctx) => addMeasure(serverStore(ctx.userId), p),

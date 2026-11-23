@@ -51,6 +51,7 @@ import { productGoalLine } from "@/lib/product-goal/model";
 import { formatMetric } from "@/lib/hypotheses/model";
 import { generateProductMetricsPrompts } from "@/lib/ai-prompts/product-metrics";
 import { metricTemplates } from "@/lib/product-metrics/templates";
+import { SOURCE_INFO } from "@/lib/ebm/source-info";
 import {
   AARRR_LABEL,
   EMPTY_METRIC_DRAFT,
@@ -504,6 +505,9 @@ export function ProductMetricsClient() {
                 }
                 id={editingMetric?.id ?? "metric_new"}
                 all={current()}
+                directionLockedBy={
+                  editingMetric?.source ? SOURCE_INFO[editingMetric.source]?.label : undefined
+                }
                 submitLabel={editingMetric ? "Save the metric" : "Add the metric"}
                 onSave={saveMetric}
                 onCancel={() => setEditing(null)}

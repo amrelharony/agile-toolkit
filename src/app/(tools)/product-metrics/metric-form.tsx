@@ -65,6 +65,12 @@ export function checkMetricDraft(
   return Object.keys(errors).length > 0 ? { ok: false, errors } : checked;
 }
 
+/** What a render-prop child of the form can read and change. */
+export interface MetricFormChild {
+  draft: MetricDraft;
+  update: (patch: Partial<MetricDraft>) => void;
+}
+
 export function MetricForm({
   initial,
   id,
@@ -73,6 +79,7 @@ export function MetricForm({
   onSave,
   onCancel,
   views = true,
+  directionLockedBy,
   children,
 }: {
   initial: MetricDraft;
@@ -84,7 +91,9 @@ export function MetricForm({
   onCancel: () => void;
   /** Show the North Star, HEART and funnel fields. */
   views?: boolean;
-  children?: React.ReactNode;
+  /** The toolkit number that sets "Which way is better"; the field is then fixed. */
+  directionLockedBy?: string;
+  children?: React.ReactNode | ((form: MetricFormChild) => React.ReactNode);
 }) {
   const form = useItemForm<MetricDraft, MetricValues, MetricField>({
     initial,
@@ -123,11 +132,16 @@ export function MetricForm({
             />
           )}
         </Field>
-        <Field label="Which way is better" error={errors.direction}>
+        <Field
+          label="Which way is better"
+          hint={directionLockedBy ? `Set by “${directionLockedBy}”.` : undefined}
+          error={errors.direction}
+        >
           {(props) => (
             <select
               {...props}
               className={SELECT_CLASS}
+              disabled={Boolean(directionLockedBy)}
               value={draft.direction}
               onChange={(e) => update({ direction: e.target.value as MetricDirection })}
             >
@@ -178,7 +192,7 @@ export function MetricForm({
           className="md:col-span-2"
         />
       </div>
-      {children}
+      {typeof children === "function" ? children({ draft, update }) : children}
       {views && (
         <fieldset className="min-w-0 space-y-3 rounded-md border border-border p-3">
           <legend className="px-1 text-sm text-text">Where it shows (optional)</legend>
