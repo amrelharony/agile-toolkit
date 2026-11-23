@@ -32,6 +32,7 @@ import {
   withQuestionPatch,
   withRule,
   withRuleRestored,
+  withVerdict,
   withoutRule,
 } from "@/lib/example-mapping/model";
 import { STORY_CRITERIA_MAX, STORY_GWT_MAX } from "@/lib/stories/fields";
@@ -252,6 +253,20 @@ describe("readMap", () => {
     })!;
     expect(m.rules).toHaveLength(RULES_MAX);
     expect(readMaps([m, m, null])).toHaveLength(1);
+  });
+
+  it("keeps every example the CRUD took, however many a rule has; adding one still keeps the cap", () => {
+    const examples = Array.from({ length: 12 }, (_, i) => ({
+      id: `e${i}`,
+      ruleId: "r1",
+      text: `Example ${i + 1}`,
+    }));
+    const m = readMap({ ...withRules(3), examples })!;
+    expect(m.examples).toHaveLength(12);
+    // The next write starts from this copy, so nothing is lost when it saves.
+    expect(withVerdict(m, "ready", NOW).examples).toHaveLength(12);
+    expect(withExample(m, { ruleId: "r1", text: "Thirteen" }, "e12", NOW)).toBeNull();
+    expect(withExample(m, { ruleId: "r2", text: "Under another rule" }, "e12", NOW)).not.toBeNull();
   });
 });
 

@@ -306,6 +306,27 @@ describe("tool.example_mapping.send_to_story", () => {
   });
 });
 
+describe("a map the CRUD took with more than ten examples under a rule", () => {
+  it("keeps them all through a verb's write, and lists them", async () => {
+    const examples = Array.from({ length: 12 }, (_, i) => ({
+      id: `e${i}`,
+      ruleId: "r1",
+      text: `Example ${i + 1}`,
+    }));
+    ws().upsertExampleMap(map({ examples }));
+    await run("tool.example_mapping.set_verdict", { mapId: "exmap_a", verdict: "split" });
+    expect(stored()!.examples).toHaveLength(12);
+    const listed = await run<{ maps: { rules: { examples: unknown[] }[] }[] }>(
+      "tool.example_mapping.list_state"
+    );
+    expect(listed.maps[0].rules[0].examples).toHaveLength(12);
+    // A thirteenth under that rule is still refused.
+    expect(
+      await run("tool.example_mapping.add_example", { mapId: "exmap_a", ruleId: "r1", text: "13" })
+    ).toMatchObject({ added: false, reason: "refused" });
+  });
+});
+
 describe("one synced row", () => {
   // 3-byte text (CJK): a map at its caps passes one row.
   const cjk = (n: number) => "漢".repeat(n);

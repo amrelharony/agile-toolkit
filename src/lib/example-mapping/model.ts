@@ -152,7 +152,8 @@ function readGwt(o: Record<string, unknown>): Pick<StoryGwt, "given" | "when" | 
 /**
  * A stored map made safe to read: every field rebuilt from what it should
  * be, text capped, lists cut to their caps, an example kept only under a
- * rule the map has (at most EXAMPLES_PER_RULE_MAX each), Given/When/Then
+ * rule the map has (however many it has: the per-rule cap is for adding
+ * one), Given/When/Then
  * all three or none, a question's rule dropped when the rule is gone, and
  * links rebuilt. A synced row can hold anything; this keeps the page from
  * drawing what the CRUD would refuse, or crashing on it. Null for
@@ -178,23 +179,23 @@ export function readMap(raw: unknown): ExampleMap | null {
     ruleIds.add(o.id);
   }
 
+  // Every valid example is kept up to the map's cap, however many its rule
+  // has: the CRUD caps only the map's total, and every write starts from
+  // what this returns, so dropping one here would delete it for good on the
+  // next save. EXAMPLES_PER_RULE_MAX holds for adding one (exampleRoomProblem).
   const examples: ExampleMapExample[] = [];
   const exampleIds = new Set<string>();
-  const perRule = new Map<string, number>();
   for (const x of Array.isArray(r.examples) ? r.examples : []) {
     if (examples.length >= EXAMPLES_MAX) break;
     const o = x as Record<string, unknown> | null;
     if (!o || typeof o !== "object" || !isId(o.id) || exampleIds.has(o.id)) continue;
     if (!isId(o.ruleId) || !ruleIds.has(o.ruleId)) continue;
-    const n = perRule.get(o.ruleId) ?? 0;
-    if (n >= EXAMPLES_PER_RULE_MAX) continue;
     const gwt = readGwt(o);
     const text =
       cleanLine(o.text, CARD_TEXT_MAX) || (gwt ? cleanLine(gwtSentence(gwt), CARD_TEXT_MAX) : "");
     if (!text) continue;
     examples.push({ id: o.id, ruleId: o.ruleId, text, ...(gwt ?? {}) });
     exampleIds.add(o.id);
-    perRule.set(o.ruleId, n + 1);
   }
 
   const questions: ExampleMapQuestion[] = [];
