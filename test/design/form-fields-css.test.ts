@@ -107,6 +107,7 @@ describe("native selects styled to match <Input>", () => {
     "src/app/(tools)/feature-flag-tracker/flag-fields.tsx",
     "src/app/(tools)/hypothesis-tracker/hypothesis-fields.tsx",
     "src/app/(tools)/impediments/components/impediment-fields.tsx",
+    "src/app/(tools)/improve/fields.tsx",
     "src/app/(tools)/riskiest-assumption/assumption-card.tsx",
     "src/app/(tools)/user-interviews/quote-card.tsx",
     "src/app/(tools)/epic-roadmap/epic-stories.tsx",
