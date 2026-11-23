@@ -11,6 +11,7 @@ import { backlogHealthReviewTask } from "./backlog-health";
 import { cardForMoodTask, generateCardsTask } from "./card-decks";
 import { agendaTask } from "./facilitator-timers";
 import { interruptClassifyTask } from "./interrupt-buffer";
+import { kickoffDraftTask } from "./kickoff";
 import { meetingAuditSuggestTask } from "./meeting-audit";
 import { parkingRouteTask } from "./parking-lot";
 import { themeNamesTask } from "./picker";
@@ -34,6 +35,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   cardForMoodTask,
   agendaTask,
   interruptClassifyTask,
+  kickoffDraftTask,
   meetingAuditSuggestTask,
   parkingRouteTask,
   themeNamesTask,
