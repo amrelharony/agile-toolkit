@@ -195,6 +195,12 @@ describe("retro-topic and retro-action", () => {
       retroFormats.map((f) => [f.id, expect.not.stringMatching(/^(?:stop|mad|drop|anchor|rocks)$/)])
     );
     expect(column("lean-coffee")).toBe("to-discuss");
+    // An Emotional Seismograph board: a concern is a low, an appreciation a
+    // high and a question a steady stretch, never the first column, Highs.
+    const seismo = retroFormats.find((f) => f.id === "seismograph");
+    expect(column("seismograph")).toBe("steady");
+    expect(retroColumnFor(seismo, "concern")).toBe("lows");
+    expect(retroColumnFor(seismo, "appreciation")).toBe("highs");
     ws().upsertRetroBoard(boardWith("4ls"));
     sendHandoff("retro-topic", src({ tone: "question", title: "What can wait?" }), linkStore());
     expect(board()!.cards.map((c) => c.columnKey)).toEqual(["learned"]);

@@ -33,9 +33,20 @@ export { RETRO_CARD_MAX };
  * Mad or Drop; on Mad, Sad, Glad it takes Glad.
  */
 const COLUMN_PREFERENCE: Record<NonNullable<HandoffSource["tone"]>, readonly string[]> = {
-  concern: ["to-discuss", "lacked", "anchor", "sad", "improve", "less-of", "stop", "mad", "rocks"],
-  appreciation: ["glad", "liked", "keep", "continue", "wind", "more-of", "to-discuss"],
-  question: ["to-discuss", "learned", "island", "improve", "start", "glad"],
+  concern: [
+    "to-discuss",
+    "lacked",
+    "anchor",
+    "sad",
+    "improve",
+    "less-of",
+    "stop",
+    "mad",
+    "rocks",
+    "lows",
+  ],
+  appreciation: ["glad", "liked", "keep", "continue", "wind", "more-of", "to-discuss", "highs"],
+  question: ["to-discuss", "learned", "island", "improve", "start", "glad", "steady"],
 };
 
 /** The column a card of `tone` goes in on a board of `format`. */
