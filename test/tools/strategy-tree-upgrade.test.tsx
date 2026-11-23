@@ -14,6 +14,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+import { WORKSPACE_LOADING_RESERVE } from "@/components/shared/workspace-loading";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { HypothesisTracker, StrategyMap, StrategyMapNode } from "@/lib/stores/workspace-types";
@@ -164,6 +165,33 @@ afterEach(() => {
 });
 
 describe("empty state and examples", () => {
+  it("shows a loading card, and no New button, until the workspace has loaded", () => {
+    let finish = () => {};
+    const hasHydrated = vi.spyOn(useWorkspaceStore.persist, "hasHydrated").mockReturnValue(false);
+    const onFinish = vi
+      .spyOn(useWorkspaceStore.persist, "onFinishHydration")
+      .mockImplementation((fn) => {
+        finish = () => fn(useWorkspaceStore.getState());
+        return () => {};
+      });
+    try {
+      renderPage();
+      const loading = screen.getByRole("status");
+      expect(loading).toHaveTextContent("Loading the trees…");
+      // It holds the page's room on a phone, so the swap doesn't push what's below.
+      expect(loading).toHaveClass(WORKSPACE_LOADING_RESERVE);
+      expect(screen.queryByRole("button", { name: "New tree" })).toBeNull();
+      expect(screen.queryByText(/No strategy trees yet/)).toBeNull();
+      act(() => finish());
+      expect(screen.getByText(/No strategy trees yet/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "New tree" })).toBeEnabled();
+      expect(screen.queryByText("Loading the trees…")).toBeNull();
+    } finally {
+      hasHydrated.mockRestore();
+      onFinish.mockRestore();
+    }
+  });
+
   it("loads a tree of each shape without logging, and clears exactly them", async () => {
     const own: StrategyMap = {
       ...tree("impact-map", [{ id: "g", parentId: null, level: 0, text: "Goal" }]),

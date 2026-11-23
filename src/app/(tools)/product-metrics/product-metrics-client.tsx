@@ -24,6 +24,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { SectionCard } from "@/components/shared/section-card";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { WallViewButton } from "@/components/presentation/wall-view";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
@@ -449,9 +450,7 @@ export function ProductMetricsClient() {
   const deletingMetric = deleting ? metrics.find((m) => m.id === deleting) : undefined;
 
   const content = !hydrated ? (
-    <p className="text-sm text-sub" role="status">
-      Loading your metrics…
-    </p>
+    <WorkspaceLoading>Loading your metrics…</WorkspaceLoading>
   ) : (
     <div className="space-y-6">
       <p role="status" aria-live="polite" className="sr-only">

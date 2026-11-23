@@ -24,6 +24,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { ChecksList } from "@/components/strategy-map/checks-list";
 import { DeleteNodeDialog } from "@/components/strategy-map/delete-dialog";
 import { LevelTree } from "@/components/strategy-map/level-tree";
@@ -746,7 +747,7 @@ export function ImpactMapClient() {
               />
             </>
           )}
-          {!creating && (
+          {hydrated && !creating && (
             <Button
               ref={newMapRef}
               variant="toolkit"
@@ -779,199 +780,199 @@ export function ImpactMapClient() {
           </p>
         )}
 
-        {maps.length === 0
-          ? hydrated &&
-            !creating && (
-              <EmptyState icon={Waypoints} action={<LoadExampleButton onLoad={loadExample} />}>
-                No impact maps yet. Start from a goal, or from your Product Goal, then add who can
-                move it, how they would act differently, and what you could build. Or load an
-                example.
-              </EmptyState>
-            )
-          : open && (
-              <>
-                {maps.length > 1 && (
-                  <nav aria-label="Your impact maps">
-                    <ul className="flex flex-wrap gap-2">
-                      {maps.map((m) => (
-                        <li key={m.id}>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant={m.id === open.id ? "toolkit" : "outline"}
-                            aria-current={m.id === open.id ? "true" : undefined}
-                            className="max-w-[16rem] truncate text-xs"
-                            onClick={() => {
-                              setOpenId(m.id);
-                              setSuggested(null);
-                            }}
-                          >
-                            {m.title}
-                          </Button>
-                        </li>
-                      ))}
-                    </ul>
-                  </nav>
+        {!hydrated ? (
+          <WorkspaceLoading>Loading the impact maps…</WorkspaceLoading>
+        ) : maps.length === 0 ? (
+          !creating && (
+            <EmptyState icon={Waypoints} action={<LoadExampleButton onLoad={loadExample} />}>
+              No impact maps yet. Start from a goal, or from your Product Goal, then add who can
+              move it, how they would act differently, and what you could build. Or load an example.
+            </EmptyState>
+          )
+        ) : (
+          open && (
+            <>
+              {maps.length > 1 && (
+                <nav aria-label="Your impact maps">
+                  <ul className="flex flex-wrap gap-2">
+                    {maps.map((m) => (
+                      <li key={m.id}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant={m.id === open.id ? "toolkit" : "outline"}
+                          aria-current={m.id === open.id ? "true" : undefined}
+                          className="max-w-[16rem] truncate text-xs"
+                          onClick={() => {
+                            setOpenId(m.id);
+                            setSuggested(null);
+                          }}
+                        >
+                          {m.title}
+                        </Button>
+                      </li>
+                    ))}
+                  </ul>
+                </nav>
+              )}
+
+              <section aria-labelledby="map-heading" className="space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h2 id="map-heading" className="break-words text-lg font-semibold text-text">
+                      {open.title}
+                    </h2>
+                    <p className="text-xs text-sub">
+                      {counts[1]} {counts[1] === 1 ? "actor" : "actors"}, {counts[2]}{" "}
+                      {counts[2] === 1 ? "impact" : "impacts"}, {counts[3]}{" "}
+                      {counts[3] === 1 ? "deliverable" : "deliverables"}
+                      {open.targetDate ? ` · due ${open.targetDate}` : ""}
+                      {focus ? ` · working on “${nodeTitle(focus, FORMAT)}” first` : ""}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <IconButton
+                      ref={detailsRef}
+                      label={`Edit the map's name and date: ${open.title}`}
+                      icon={<Settings2 className="h-4 w-4" />}
+                      className="text-sub hover:text-text"
+                      aria-expanded={editingDetails}
+                      onClick={() => setEditingDetails((v) => !v)}
+                    />
+                    <IconButton
+                      label={`Delete the map ${open.title}`}
+                      icon={<Trash2 className="h-4 w-4" />}
+                      className="text-sub hover:text-danger"
+                      onClick={() => {
+                        // A map with no parts (an agent can make one) has no goal to ask about.
+                        const root = rootOf(open);
+                        if (root) askDelete(open, root);
+                        else removeMap(open);
+                      }}
+                    />
+                  </div>
+                </div>
+
+                {editingDetails && (
+                  <MapDetailsForm
+                    key={open.id}
+                    map={open}
+                    onSave={(t, d) => {
+                      saveDetails(open, t, d);
+                      closeDetails();
+                    }}
+                    onCancel={closeDetails}
+                  />
                 )}
 
-                <section aria-labelledby="map-heading" className="space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h2 id="map-heading" className="break-words text-lg font-semibold text-text">
-                        {open.title}
-                      </h2>
-                      <p className="text-xs text-sub">
-                        {counts[1]} {counts[1] === 1 ? "actor" : "actors"}, {counts[2]}{" "}
-                        {counts[2] === 1 ? "impact" : "impacts"}, {counts[3]}{" "}
-                        {counts[3] === 1 ? "deliverable" : "deliverables"}
-                        {open.targetDate ? ` · due ${open.targetDate}` : ""}
-                        {focus ? ` · working on “${nodeTitle(focus, FORMAT)}” first` : ""}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <IconButton
-                        ref={detailsRef}
-                        label={`Edit the map's name and date: ${open.title}`}
-                        icon={<Settings2 className="h-4 w-4" />}
-                        className="text-sub hover:text-text"
-                        aria-expanded={editingDetails}
-                        onClick={() => setEditingDetails((v) => !v)}
-                      />
-                      <IconButton
-                        label={`Delete the map ${open.title}`}
-                        icon={<Trash2 className="h-4 w-4" />}
-                        className="text-sub hover:text-danger"
-                        onClick={() => {
-                          // A map with no parts (an agent can make one) has no goal to ask about.
-                          const root = rootOf(open);
-                          if (root) askDelete(open, root);
-                          else removeMap(open);
-                        }}
-                      />
-                    </div>
-                  </div>
+                {linkedGoal && (
+                  <ProductGoalLine goal={linkedGoal}>
+                    {closedLine && <p className="text-xs text-sub">{closedLine}</p>}
+                  </ProductGoalLine>
+                )}
 
-                  {editingDetails && (
-                    <MapDetailsForm
-                      key={open.id}
-                      map={open}
-                      onSave={(t, d) => {
-                        saveDetails(open, t, d);
-                        closeDetails();
+                <div className="space-y-2 rounded-lg border border-border bg-card p-3">
+                  <h3 className="text-sm font-semibold text-text">Draft with Amr</h3>
+                  <label className="block space-y-1.5 text-sm text-text">
+                    <span>Anything Amr should know</span>
+                    <Textarea
+                      rows={2}
+                      maxLength={1000}
+                      value={context}
+                      onChange={(e) => setContext(e.target.value)}
+                      aria-describedby="impact-context-hint"
+                    />
+                  </label>
+                  <p id="impact-context-hint" className="text-xs text-sub">
+                    Optional, and not saved. Amr drafts actors and impacts for you to accept one by
+                    one; without AI you get a template to rewrite.
+                  </p>
+                  <div ref={askRef}>
+                    <AiButton
+                      task={impactMapDraftTask}
+                      label="Ask Amr to draft the map"
+                      fallbackLabel="Start from a template"
+                      disabledReason={rootOf(open) ? null : "The map needs its goal first."}
+                      input={() => {
+                        const root = rootOf(open);
+                        const why = (linkedGoal?.why ?? "").trim().slice(0, 1000);
+                        return {
+                          goal: cleanText(root?.text, IMPACT_DRAFT_TEXT_MAX),
+                          ...(root?.measure
+                            ? { measure: cleanText(root.measure, IMPACT_DRAFT_TEXT_MAX) }
+                            : {}),
+                          context: [why, context.trim().slice(0, 1000)]
+                            .filter(Boolean)
+                            .join("\n")
+                            .slice(0, IMPACT_DRAFT_CONTEXT_MAX),
+                          personas: draftPersonas.slice(0, IMPACT_DRAFT_PERSONAS_MAX).map((p) => ({
+                            name: cleanText(p.name, IMPACT_DRAFT_TEXT_MAX),
+                            role: cleanText(p.role, IMPACT_DRAFT_TEXT_MAX),
+                          })),
+                          actors: childrenOf(open, root?.id ?? "")
+                            .map((a) => cleanText(a.text, IMPACT_DRAFT_TEXT_MAX))
+                            .filter(Boolean)
+                            .slice(0, IMPACT_DRAFT_EXISTING_MAX),
+                        };
                       }}
-                      onCancel={closeDetails}
+                      onResult={(data, meta) => {
+                        setSuggested({ actors: data.actors, source: meta.source });
+                        announce(
+                          `${data.actors.length} suggested ${data.actors.length === 1 ? "actor" : "actors"} below.`
+                        );
+                      }}
                     />
-                  )}
-
-                  {linkedGoal && (
-                    <ProductGoalLine goal={linkedGoal}>
-                      {closedLine && <p className="text-xs text-sub">{closedLine}</p>}
-                    </ProductGoalLine>
-                  )}
-
-                  <div className="space-y-2 rounded-lg border border-border bg-card p-3">
-                    <h3 className="text-sm font-semibold text-text">Draft with Amr</h3>
-                    <label className="block space-y-1.5 text-sm text-text">
-                      <span>Anything Amr should know</span>
-                      <Textarea
-                        rows={2}
-                        maxLength={1000}
-                        value={context}
-                        onChange={(e) => setContext(e.target.value)}
-                        aria-describedby="impact-context-hint"
-                      />
-                    </label>
-                    <p id="impact-context-hint" className="text-xs text-sub">
-                      Optional, and not saved. Amr drafts actors and impacts for you to accept one
-                      by one; without AI you get a template to rewrite.
-                    </p>
-                    <div ref={askRef}>
-                      <AiButton
-                        task={impactMapDraftTask}
-                        label="Ask Amr to draft the map"
-                        fallbackLabel="Start from a template"
-                        disabledReason={rootOf(open) ? null : "The map needs its goal first."}
-                        input={() => {
-                          const root = rootOf(open);
-                          const why = (linkedGoal?.why ?? "").trim().slice(0, 1000);
-                          return {
-                            goal: cleanText(root?.text, IMPACT_DRAFT_TEXT_MAX),
-                            ...(root?.measure
-                              ? { measure: cleanText(root.measure, IMPACT_DRAFT_TEXT_MAX) }
-                              : {}),
-                            context: [why, context.trim().slice(0, 1000)]
-                              .filter(Boolean)
-                              .join("\n")
-                              .slice(0, IMPACT_DRAFT_CONTEXT_MAX),
-                            personas: draftPersonas
-                              .slice(0, IMPACT_DRAFT_PERSONAS_MAX)
-                              .map((p) => ({
-                                name: cleanText(p.name, IMPACT_DRAFT_TEXT_MAX),
-                                role: cleanText(p.role, IMPACT_DRAFT_TEXT_MAX),
-                              })),
-                            actors: childrenOf(open, root?.id ?? "")
-                              .map((a) => cleanText(a.text, IMPACT_DRAFT_TEXT_MAX))
-                              .filter(Boolean)
-                              .slice(0, IMPACT_DRAFT_EXISTING_MAX),
-                          };
-                        }}
-                        onResult={(data, meta) => {
-                          setSuggested({ actors: data.actors, source: meta.source });
-                          announce(
-                            `${data.actors.length} suggested ${data.actors.length === 1 ? "actor" : "actors"} below.`
-                          );
-                        }}
-                      />
-                    </div>
-                    {suggested && (
-                      <AiSuggestions
-                        items={suggested.actors}
-                        source={suggested.source}
-                        title="Suggested actors and impacts"
-                        render={(a) => ({
-                          title: a.name,
-                          detail: a.impacts
-                            .map((i) =>
-                              i.deliverables.length > 0
-                                ? `${i.text}: ${i.deliverables.join(", ")}`
-                                : i.text
-                            )
-                            .join(" · "),
-                        })}
-                        onAccept={(a) => acceptDrafts(open, [a], suggested.source)}
-                        onAcceptAll={(list) => acceptDrafts(open, list, suggested.source)}
-                        onDismiss={() => setSuggested(null)}
-                        returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
-                      />
-                    )}
                   </div>
-
-                  <ChecksList checks={checks} />
-
-                  <ToggleGroup
-                    label="View"
-                    size="sm"
-                    options={[
-                      { value: "tree", label: "Tree" },
-                      { value: "paths", label: "Paths" },
-                    ]}
-                    value={view}
-                    onValueChange={setView}
-                  />
-
-                  {view === "tree" ? (
-                    <LevelTree
-                      map={open}
-                      label="Impact map"
-                      order={focusFirst(open)}
-                      renderNode={(n) => renderNode(open, n)}
+                  {suggested && (
+                    <AiSuggestions
+                      items={suggested.actors}
+                      source={suggested.source}
+                      title="Suggested actors and impacts"
+                      render={(a) => ({
+                        title: a.name,
+                        detail: a.impacts
+                          .map((i) =>
+                            i.deliverables.length > 0
+                              ? `${i.text}: ${i.deliverables.join(", ")}`
+                              : i.text
+                          )
+                          .join(" · "),
+                      })}
+                      onAccept={(a) => acceptDrafts(open, [a], suggested.source)}
+                      onAcceptAll={(list) => acceptDrafts(open, list, suggested.source)}
+                      onDismiss={() => setSuggested(null)}
+                      returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
                     />
-                  ) : (
-                    <PathsView map={open} />
                   )}
-                </section>
-              </>
-            )}
+                </div>
+
+                <ChecksList checks={checks} />
+
+                <ToggleGroup
+                  label="View"
+                  size="sm"
+                  options={[
+                    { value: "tree", label: "Tree" },
+                    { value: "paths", label: "Paths" },
+                  ]}
+                  value={view}
+                  onValueChange={setView}
+                />
+
+                {view === "tree" ? (
+                  <LevelTree
+                    map={open}
+                    label="Impact map"
+                    order={focusFirst(open)}
+                    renderNode={(n) => renderNode(open, n)}
+                  />
+                ) : (
+                  <PathsView map={open} />
+                )}
+              </section>
+            </>
+          )
+        )}
       </div>
 
       <DeleteNodeDialog

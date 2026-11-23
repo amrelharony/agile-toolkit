@@ -13,6 +13,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+import { WORKSPACE_LOADING_RESERVE } from "@/components/shared/workspace-loading";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { ProductMetric } from "@/lib/stores/workspace-types";
@@ -105,6 +106,30 @@ beforeEach(() => {
 });
 
 describe("empty state and the example", () => {
+  it("holds the page's room with the loading card until the workspace has loaded", () => {
+    let finish = () => {};
+    const hasHydrated = vi.spyOn(useWorkspaceStore.persist, "hasHydrated").mockReturnValue(false);
+    const onFinish = vi
+      .spyOn(useWorkspaceStore.persist, "onFinishHydration")
+      .mockImplementation((fn) => {
+        finish = () => fn(useWorkspaceStore.getState());
+        return () => {};
+      });
+    try {
+      renderPage();
+      const loading = screen.getByText("Loading your metrics…").closest("[role=status]");
+      expect(loading).toHaveClass(WORKSPACE_LOADING_RESERVE);
+      act(() => finish());
+      expect(screen.queryByText("Loading your metrics…")).toBeNull();
+      expect(
+        screen.getAllByText(/No metrics yet\. Start with the North Star/).length
+      ).toBeGreaterThan(0);
+    } finally {
+      hasHydrated.mockRestore();
+      onFinish.mockRestore();
+    }
+  });
+
   it("offers to add the North Star or look at an example", async () => {
     renderPage();
     expect(

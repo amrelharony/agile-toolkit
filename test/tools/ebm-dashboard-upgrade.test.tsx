@@ -12,6 +12,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+import { WORKSPACE_LOADING_RESERVE } from "@/components/shared/workspace-loading";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
@@ -114,6 +115,28 @@ beforeEach(() => {
 });
 
 describe("empty state, example and credit", () => {
+  it("holds the page's room with the loading card until the workspace has loaded", () => {
+    let finish = () => {};
+    const hasHydrated = vi.spyOn(useWorkspaceStore.persist, "hasHydrated").mockReturnValue(false);
+    const onFinish = vi
+      .spyOn(useWorkspaceStore.persist, "onFinishHydration")
+      .mockImplementation((fn) => {
+        finish = () => fn(useWorkspaceStore.getState());
+        return () => {};
+      });
+    try {
+      renderPage();
+      const loading = screen.getByText("Loading your evidence…").closest("[role=status]");
+      expect(loading).toHaveClass(WORKSPACE_LOADING_RESERVE);
+      act(() => finish());
+      expect(screen.queryByText("Loading your evidence…")).toBeNull();
+      expect(screen.getAllByText(/No evidence yet/).length).toBeGreaterThan(0);
+    } finally {
+      hasHydrated.mockRestore();
+      onFinish.mockRestore();
+    }
+  });
+
   it("offers an example, and credits Scrum.org without claiming its endorsement", async () => {
     renderPage();
     expect((await screen.findAllByText(/No evidence yet/)).length).toBeGreaterThan(0);

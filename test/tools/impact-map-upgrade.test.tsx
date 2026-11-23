@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { SearchParamsContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+import { WORKSPACE_LOADING_RESERVE } from "@/components/shared/workspace-loading";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
@@ -180,6 +181,33 @@ afterEach(() => {
 });
 
 describe("empty state and example", () => {
+  it("shows a loading card, and no New button, until the workspace has loaded", () => {
+    let finish = () => {};
+    const hasHydrated = vi.spyOn(useWorkspaceStore.persist, "hasHydrated").mockReturnValue(false);
+    const onFinish = vi
+      .spyOn(useWorkspaceStore.persist, "onFinishHydration")
+      .mockImplementation((fn) => {
+        finish = () => fn(useWorkspaceStore.getState());
+        return () => {};
+      });
+    try {
+      renderPage();
+      const loading = screen.getByRole("status");
+      expect(loading).toHaveTextContent("Loading the impact maps…");
+      // It holds the page's room on a phone, so the swap doesn't push what's below.
+      expect(loading).toHaveClass(WORKSPACE_LOADING_RESERVE);
+      expect(screen.queryByRole("button", { name: "New impact map" })).toBeNull();
+      expect(screen.queryByText(/No impact maps yet/)).toBeNull();
+      act(() => finish());
+      expect(screen.getByText(/No impact maps yet/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "New impact map" })).toBeEnabled();
+      expect(screen.queryByText("Loading the impact maps…")).toBeNull();
+    } finally {
+      hasHydrated.mockRestore();
+      onFinish.mockRestore();
+    }
+  });
+
   it("says how to start, loads the example without logging it, and clears exactly it", async () => {
     seed([map({ id: "strategyMap_own" })]);
     ws().removeStrategyMap("strategyMap_own");
