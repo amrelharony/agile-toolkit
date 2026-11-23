@@ -280,7 +280,12 @@ export function BlockersSection({
         : `Clustered ${changes.length} blockers`
     );
     if (n === 0) return;
-    log(IMPEDIMENT_ACTIONS.BLOCKERS_CLUSTERED, { blockers: n, clusters: list.length, source });
+    // "rules" for the no-AI suggestions, as the other tools' AI moments log it.
+    log(IMPEDIMENT_ACTIONS.BLOCKERS_CLUSTERED, {
+      blockers: n,
+      clusters: list.length,
+      source: source === "ai" ? "ai" : "rules",
+    });
     setStatus(`Clustered ${n} ${n === 1 ? "blocker" : "blockers"}.`);
   }
 

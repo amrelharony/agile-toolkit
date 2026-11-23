@@ -49,7 +49,7 @@ export const IMPEDIMENT_ACTIONS = {
   IMPEDIMENT_RESOLVED: "impediment_resolved", // milestone
   IMPEDIMENT_REMOVED: "impediment_removed",
   IMPEDIMENT_STATUS_CHANGED: "impediment_status_changed",
-  /** Payload: how many blockers, how many clusters and the source (ai or rules). */
+  /** Payload: how many blockers, how many clusters and the source (ai, rules, or manual for one blocker's cluster set by hand). */
   BLOCKERS_CLUSTERED: "blockers_clustered",
   /** A cluster of blockers was raised as one impediment. Payload: impedimentId and the cluster's size. */
   CLUSTER_RAISED: "cluster_raised",
