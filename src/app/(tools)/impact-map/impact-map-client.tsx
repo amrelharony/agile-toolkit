@@ -377,6 +377,13 @@ export function ImpactMapClient() {
     );
   }
 
+  /** Whether the map's row can hold one more link, asked before a send makes anything. */
+  const canHoldLink = (map: StrategyMap) => {
+    const ok = holdsLink(freshMap(map.id) ?? map);
+    if (!ok) setNotice(TOO_BIG);
+    return ok;
+  };
+
   const linkStore = (map: StrategyMap, node: StrategyMapNode) => ({
     getLinks: () => freshMap(map.id)?.nodes.find((n) => n.id === node.id)?.sentTo,
     setLinks: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) => {
@@ -385,9 +392,10 @@ export function ImpactMapClient() {
       const saved = write(map.id, (m) =>
         withNodePatch(m, node.id, { sentTo: next.length > 0 ? next : undefined })
       );
-      // The row refused the link (it says so inline): Send to… had already made the
-      // story or epic, which is taken back at once rather than left with no link
-      // back for a second send to duplicate. Nothing was sent, so nothing is logged.
+      // A backstop: canLink refuses a send the row can't hold before anything is
+      // made. Should the write still refuse the link (it says so inline), the story
+      // or epic is taken back at once rather than left with no link back for a
+      // second send to duplicate. Nothing was sent, so nothing is logged.
       if (!saved) {
         for (const link of addedLinks(before, next)) {
           getHandoffRoute(link.route).remove(link.targetId);
@@ -694,6 +702,7 @@ export function ImpactMapClient() {
               disabled={example}
               getLinks={linkStore(map, node).getLinks}
               onLinksChange={linkStore(map, node).setLinks}
+              canLink={() => canHoldLink(map)}
             />
           ) : null
         }

@@ -767,13 +767,14 @@ describe("sends, each with Undo", () => {
     expect(hypotheses()).toEqual([]);
     expect(screen.getByText(TOO_BIG)).toBeInTheDocument();
     expect(toastSpy).not.toHaveBeenCalled();
-    // Send to… makes the story before the page can refuse its link: it is taken back at once.
+    // Send to… asks the page first (canLink): nothing is made, and no "Added" toast shows.
     openSendTo(/^Send to… Pause instead of cancel/);
     fireEvent.click(screen.getByRole("menuitem", { name: "Backlog story" }));
     expect(ws().stories).toEqual([]);
     openSendTo(/^Send to… Pause instead of cancel/);
     fireEvent.click(screen.getByRole("menuitem", { name: "Epic on the roadmap" }));
     expect((ws().epicRoadmaps ?? []).flatMap((d) => d.epics)).toEqual([]);
+    expect(toastSpy).not.toHaveBeenCalled();
     expect(screen.getByText(TOO_BIG)).toBeInTheDocument();
     expect(logged(IMPACT_MAP_ACTIONS.IMPACT_TESTED)).toEqual([]);
     expect(logged(IMPACT_MAP_ACTIONS.DELIVERABLE_SENT)).toEqual([]);
