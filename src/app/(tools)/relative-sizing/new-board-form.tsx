@@ -195,7 +195,8 @@ export function NewBoardForm({
       </div>
       {draft.bucketSet === "tshirt" && (
         <p className="text-xs text-sub">
-          T-shirt sizes have no points: Save sizes skips them until each bucket is given its points.
+          T-shirt sizes have no points yet. Give each bucket its points under Map sizes to points,
+          on the board, before you save sizes.
         </p>
       )}
       {errors.custom && draft.bucketSet !== "custom" && (

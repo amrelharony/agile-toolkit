@@ -360,6 +360,41 @@ describe("more of the board", () => {
     expect(storyById("a")?.points).toBeUndefined();
   });
 
+  it("maps T-shirt sizes to points on the board, then saves them", async () => {
+    useWorkspaceStore.setState({ stories: [story("a"), story("b")] });
+    seedBoard(board({ bucketSet: "tshirt", buckets: bucketsFor("tshirt") }));
+    renderPage();
+    await screen.findByRole("heading", { name: "Checkout" });
+    // No bucket has points yet, so the mapping is open.
+    const map = screen.getByRole("button", { name: /^Map sizes to points/ });
+    expect(map).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(screen.getByRole("region", { name: "Bucket M" })).getByText(/No points yet/)
+    ).toBeInTheDocument();
+    const m = screen.getByRole("spinbutton", { name: "Points for M" });
+    fireEvent.change(m, { target: { value: "5" } });
+    fireEvent.blur(m);
+    expect(theBoard().buckets.find((b) => b.label === "M")?.points).toBe(5);
+    await announced("M is 5 points now.");
+    expect(
+      within(screen.getByRole("region", { name: "Bucket M" })).getByText(/5 points/)
+    ).toBeInTheDocument();
+    // Points past 1,000 are refused, and nothing changes.
+    const xl = screen.getByRole("spinbutton", { name: "Points for XL" });
+    fireEvent.change(xl, { target: { value: "5000" } });
+    fireEvent.keyDown(xl, { key: "Enter" });
+    expect(screen.getByText("Points go from 0 to 1000.")).toBeInTheDocument();
+    expect(theBoard().buckets.find((b) => b.label === "XL")?.points).toBeUndefined();
+    moveTo("Story a", "M");
+    fireEvent.click(screen.getByRole("button", { name: "Save sizes" }));
+    expect(storyById("a")?.points).toBe(5);
+    statusSays(/Saved sizes for 1 story\./);
+    // An emptied field clears the bucket's points again.
+    fireEvent.change(m, { target: { value: "" } });
+    fireEvent.blur(m);
+    expect(theBoard().buckets.find((b) => b.label === "M")?.points).toBeUndefined();
+  });
+
   it("opens a board from ?board=", async () => {
     useRelativeSizing.setState({
       ...RELATIVE_SIZING_INITIAL,

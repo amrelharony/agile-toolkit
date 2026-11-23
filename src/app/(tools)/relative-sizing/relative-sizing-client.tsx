@@ -44,6 +44,7 @@ import {
   skippedLine,
   unsizedItems,
   withAnchor,
+  withBucketPoints,
   withMode,
   withNewItems,
   withoutItems,
@@ -70,6 +71,7 @@ import type { Story } from "@/lib/stores/workspace-types";
 import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { undoable } from "@/lib/utils/undoable";
 import { DockTimebox } from "../example-mapping/timebox";
+import { BucketPoints } from "./bucket-points";
 import { buildExample } from "./example";
 import { LiveRound } from "./live-round";
 import { toMarkdown } from "./markdown";
@@ -273,6 +275,23 @@ export function RelativeSizingClient() {
 
   const setMode = (b: SizingBoard, mode: SizingMode) => {
     writeBoard(b.id, (cur) => withMode(cur, mode, nowIso()));
+  };
+
+  /** Map sizes to points: what Save sizes writes for one bucket (undefined: none). */
+  const setBucketPoints = (b: SizingBoard, bucketId: string, points: number | undefined) => {
+    let changed = false;
+    writeBoard(b.id, (cur) => {
+      const next = withBucketPoints(cur, bucketId, points, nowIso());
+      changed = next !== null && next !== cur;
+      return changed ? next : null;
+    });
+    const label = b.buckets.find((x) => x.id === bucketId)?.label ?? "";
+    if (!changed) return;
+    announce(
+      points === undefined
+        ? `${label} has no points now: Save sizes skips it.`
+        : `${label} is ${plural(points, "point", "points")} now.`
+    );
   };
 
   const setAnchor = (b: SizingBoard, itemId: string) => {
@@ -610,6 +629,7 @@ export function RelativeSizingClient() {
               actions={{
                 move: (itemId, lane, focus) => move(board, itemId, lane, focus),
                 setMode: (m) => setMode(board, m),
+                setBucketPoints: (id, points) => setBucketPoints(board, id, points),
                 setAnchor: (id) => setAnchor(board, id),
                 deal: () => deal(board),
                 saveRound: saveRound(board),
@@ -640,6 +660,7 @@ export function RelativeSizingClient() {
 interface BoardActions {
   move: (itemId: string, lane: Lane, focus: () => void) => void;
   setMode: (mode: SizingMode) => void;
+  setBucketPoints: (bucketId: string, points: number | undefined) => void;
   setAnchor: (itemId: string) => void;
   deal: () => void;
   saveRound: (result: VoteRoundResult) => false | (() => void);
@@ -811,6 +832,7 @@ function BoardView({
               Save sizes writes each bucket&apos;s points to its backlog stories, with one Undo.
               Cards still to talk about, and buckets with no points, are skipped.
             </p>
+            <BucketPoints board={board} onSet={a.setBucketPoints} />
           </>
         )}
       </SectionCard>

@@ -13,6 +13,7 @@ import {
   dealItems,
   moveItem,
   newBoard,
+  planBucketPoints,
   planCreateBoard,
   planPlace,
   sizesToWrite,
@@ -20,6 +21,7 @@ import {
   splitLabels,
   unsizedItems,
   withAnchor,
+  withBucketPoints,
   middleBucket,
 } from "@/lib/relative-sizing/model";
 import {
@@ -279,6 +281,32 @@ describe("Save sizes", () => {
     expect(sizesToWrite(ex, [story({ id: "example-st" })]).skipped[0].why).toBe("example");
   });
 
+  it("maps a T-shirt bucket to points, then writes it; clearing the points skips it again", () => {
+    let b = board(1, { bucketSet: "tshirt", buckets: bucketsFor("tshirt") });
+    b = moveItem(b, "c1", { kind: "bucket", bucketId: bucket(b, "M") }, NOW).board;
+    const later = "2026-11-23T11:00:00.000Z";
+    const mapped = withBucketPoints(b, bucket(b, "M"), 5, later)!;
+    expect(mapped.buckets.find((x) => x.label === "M")).toEqual({
+      id: "b3",
+      label: "M",
+      points: 5,
+    });
+    expect(mapped.updatedAt).toBe(later);
+    expect(sizesToWrite(mapped, [story()]).writes).toEqual([
+      { itemId: "c1", storyId: "st1", title: "Story 1", points: 5, before: undefined },
+    ]);
+    // The same points again: the board itself, unchanged.
+    expect(withBucketPoints(mapped, bucket(b, "M"), 5, NOW)).toBe(mapped);
+    const cleared = withBucketPoints(mapped, bucket(b, "M"), undefined, NOW)!;
+    expect("points" in cleared.buckets[2]).toBe(false);
+    expect(sizesToWrite(cleared, [story()]).skipped[0].why).toBe("no-points");
+    // A bucket not on the board, or points past 0 to 1,000: refused.
+    expect(withBucketPoints(b, "b99", 5, NOW)).toBeNull();
+    expect(withBucketPoints(b, bucket(b, "M"), -1, NOW)).toBeNull();
+    expect(withBucketPoints(b, bucket(b, "M"), 1001, NOW)).toBeNull();
+    expect(withBucketPoints(b, bucket(b, "M"), Number.NaN, NOW)).toBeNull();
+  });
+
   it("starts from the backlog's unsized stories only", () => {
     const items = unsizedItems([
       story(),
@@ -332,6 +360,30 @@ describe("the planners Amr and the page share", () => {
     expect(r.ok && r.state.boards[0].items[0].bucketId).toBe("b6");
     const wrong = planPlace(state, { boardId: "sizing_a", itemId: "c1", bucket: "XL" }, NOW);
     expect(wrong.ok ? "" : wrong.reason).toMatch(/1, 2, 3, 5, 8, 13, 21/);
+  });
+
+  it("maps a size to points by its label, any case, and refuses a bad label or points", () => {
+    const state = {
+      ...RELATIVE_SIZING_INITIAL,
+      boards: [board(1, { bucketSet: "tshirt", buckets: bucketsFor("tshirt") })],
+    };
+    const r = planBucketPoints(state, { boardId: "sizing_a", bucket: "xl", points: 13 }, NOW);
+    expect(r).toMatchObject({ ok: true, changed: true });
+    expect(r.ok && r.state.boards[0].buckets.find((x) => x.label === "XL")?.points).toBe(13);
+    const same = planBucketPoints(
+      r.ok ? r.state : state,
+      { boardId: "sizing_a", bucket: "XL", points: 13 },
+      NOW
+    );
+    expect(same).toMatchObject({ ok: true, changed: false });
+    const wrong = planBucketPoints(state, { boardId: "sizing_a", bucket: "5", points: 5 }, NOW);
+    expect(wrong.ok ? "" : wrong.reason).toMatch(/XS, S, M, L, XL, XXL/);
+    expect(planBucketPoints(state, { boardId: "nope", bucket: "M", points: 5 }, NOW)).toMatchObject(
+      { ok: false }
+    );
+    expect(
+      planBucketPoints(state, { boardId: "sizing_a", bucket: "M", points: 5000 }, NOW)
+    ).toMatchObject({ ok: false });
   });
 });
 

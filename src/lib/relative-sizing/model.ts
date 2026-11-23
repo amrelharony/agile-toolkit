@@ -7,8 +7,9 @@
  * A board holds the stories being sized and its buckets. A card moved
  * between buckets counts a move; at the board's move limit it goes to "Talk
  * about it". The planners at the end (`planCreateBoard`, `planPlace`,
- * `planSizes`) are what the page's verbs and Amr's MCP handlers both run,
- * so a board an agent wrote is one the page would have written.
+ * `planBucketPoints`, `planApplied`) are what the page's verbs and Amr's
+ * MCP handlers both run, so a board an agent wrote is one the page would
+ * have written.
  */
 
 import { cardsOf } from "@/lib/estimation/decks";
@@ -341,6 +342,33 @@ export function withMode(board: SizingBoard, mode: SizingMode, now: string): Siz
   return touched(board, { mode }, now);
 }
 
+/**
+ * A bucket given the points Save sizes writes for it (undefined clears
+ * them): how a T-shirt or letter set gets mapped to points. Null when the
+ * bucket isn't on the board or the points aren't 0 to 1,000; the board
+ * itself when they are already its points.
+ */
+export function withBucketPoints(
+  board: SizingBoard,
+  bucketId: string,
+  points: number | undefined,
+  now: string
+): SizingBoard | null {
+  const bucket = board.buckets.find((b) => b.id === bucketId);
+  if (!bucket) return null;
+  const clean = points === undefined ? undefined : cleanPoints(points);
+  if (points !== undefined && clean === undefined) return null;
+  if (bucket.points === clean) return board;
+  const buckets = board.buckets.map((b) => {
+    if (b.id !== bucketId) return b;
+    const out: SizingBucket = { ...b };
+    if (clean === undefined) delete out.points;
+    else out.points = clean;
+    return out;
+  });
+  return touched(board, { buckets }, now);
+}
+
 /** New items at the end (an accepted split), unplaced, within the board's cap. */
 export function withNewItems(
   board: SizingBoard,
@@ -567,6 +595,31 @@ export function planPlace(
     toTalk: r.toTalk,
     moves,
     state: { ...state, boards: state.boards.map((b) => (b.id === board.id ? r.board : b)) },
+  };
+}
+
+/** A bucket, by its label, given points (null clears them), as the page maps sizes to points. */
+export function planBucketPoints(
+  state: RelativeSizingState,
+  input: { boardId: string; bucket: string; points: number | null },
+  now: string
+): Planned<{ changed: boolean }> {
+  const board = state.boards.find((b) => b.id === input.boardId);
+  if (!board) return { ok: false, reason: "No board has that id." };
+  const key = input.bucket.trim().toLowerCase();
+  const bucket = board.buckets.find((b) => b.label.toLowerCase() === key);
+  if (!bucket) {
+    return {
+      ok: false,
+      reason: `No bucket is labelled “${input.bucket}”: use ${board.buckets.map((b) => b.label).join(", ")}.`,
+    };
+  }
+  const next = withBucketPoints(board, bucket.id, input.points ?? undefined, now);
+  if (!next) return { ok: false, reason: `Points go from 0 to ${SIZING_LIMITS.pointsMax}.` };
+  return {
+    ok: true,
+    changed: next !== board,
+    state: { ...state, boards: state.boards.map((b) => (b.id === board.id ? next : b)) },
   };
 }
 
