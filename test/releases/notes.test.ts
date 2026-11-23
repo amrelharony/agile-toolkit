@@ -236,13 +236,49 @@ describe("after a reopen", () => {
     expect(
       notesOutdatedFor({ releaseNotes: notes, previousShips: [{ shippedDate: "2026-11-03" }] })
     ).toBe("2026-11-03");
+    expect(notesOutdatedFor({ releaseNotes: notes })).toBeNull();
+  });
+
+  it("flags notes written after the earlier ship, the usual order, until it ships again", () => {
+    // Shipped on the 10th, notes saved on the 12th, reopened on the 15th.
+    const notes = { audience: "customers" as const, text: "Notes", updatedAt: at("2026-11-12") };
+    const reopened = { releaseNotes: notes, previousShips: [{ shippedDate: "2026-11-10" }] };
+    expect(notesOutdatedFor(reopened)).toBe("2026-11-10");
+    // Shipped again on the 20th: notes saved before then are still the 10th's.
+    expect(notesOutdatedFor({ ...reopened, shippedDate: "2026-11-20" })).toBe("2026-11-10");
+    // Saved on or after the new ship's day, they are its own.
+    for (const day of ["2026-11-20", "2026-11-22"]) {
+      expect(
+        notesOutdatedFor({
+          ...reopened,
+          shippedDate: "2026-11-20",
+          releaseNotes: { ...notes, updatedAt: at(day) },
+        })
+      ).toBeNull();
+    }
+  });
+
+  it("reads the day the notes were saved as a local day, not the UTC one", () => {
+    // Saved on the 20th here, at a time whose UTC day differs wherever the
+    // zone allows: late in the evening west of UTC (the 21st in UTC), just
+    // after midnight east of it (the 19th in UTC).
+    const west = new Date(2026, 10, 20).getTimezoneOffset() >= 0;
+    const saved = west ? new Date(2026, 10, 20, 23, 30) : new Date(2026, 10, 20, 0, 30);
+    const notes = { audience: "customers" as const, text: "Notes", updatedAt: saved.toISOString() };
     expect(
       notesOutdatedFor({
-        releaseNotes: { ...notes, updatedAt: at("2026-11-10") },
-        previousShips: [{ shippedDate: "2026-11-03" }],
+        releaseNotes: notes,
+        previousShips: [{ shippedDate: "2026-11-10" }],
+        shippedDate: "2026-11-21",
+      })
+    ).toBe("2026-11-10");
+    expect(
+      notesOutdatedFor({
+        releaseNotes: notes,
+        previousShips: [{ shippedDate: "2026-11-10" }],
+        shippedDate: "2026-11-20",
       })
     ).toBeNull();
-    expect(notesOutdatedFor({ releaseNotes: notes })).toBeNull();
   });
 });
 

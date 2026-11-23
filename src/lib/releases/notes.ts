@@ -338,17 +338,23 @@ export function draftText(draft: ReleaseNotesDraft): string {
 }
 
 /**
- * The day notes were written for, when the release has shipped again
- * since (a reopen and a new ship): the earlier ship's day; else null.
+ * The day notes were written for, when the release was reopened after
+ * they were saved: the latest earlier ship's day; else null. A release
+ * keeps no time for its reopen, so notes on a reopened release count as
+ * the earlier ship's until they are saved on or after the day it shipped
+ * again. Days are local, as ship days are.
  */
 export function notesOutdatedFor(
-  release: Pick<Release, "releaseNotes" | "previousShips">
+  release: Pick<Release, "releaseNotes" | "previousShips" | "shippedDate">
 ): string | null {
   const notes = release.releaseNotes;
   const ships = release.previousShips ?? [];
   if (!notes || ships.length === 0) return null;
   const last = ships.map((s) => s.shippedDate.slice(0, 10)).reduce((a, b) => (b > a ? b : a));
-  return notes.updatedAt.slice(0, 10) <= last ? last : null;
+  const current = release.shippedDate?.slice(0, 10);
+  const written = localDay(notes.updatedAt);
+  if (current && current >= last && written && written >= current) return null;
+  return last;
 }
 
 /** One release's saved notes as a Markdown section. */
