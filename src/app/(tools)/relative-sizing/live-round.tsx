@@ -39,6 +39,10 @@ export function LiveRound({
   const candidates = liveCandidates(board);
   const [picked, setPicked] = useState<string[] | null>(null);
   const [optional, setOptional] = useState(true);
+  // A room stays open until the host ends it, even once its save (or a
+  // card dragged on the board) leaves no story to ask about: the panel
+  // keeps the round the room opened with.
+  const [hosting, setHosting] = useState(false);
   const chosen = (picked ?? liveBatch(board)).filter((id) => candidates.some((c) => c.id === id));
   const questionnaire = useMemo(
     () => (chosen.length > 0 ? sizingQuestionnaire(board, chosen, optional) : null),
@@ -51,55 +55,59 @@ export function LiveRound({
       return on ? [...base.filter((x) => x !== id), id] : base.filter((x) => x !== id);
     });
 
-  if (candidates.length === 0) {
-    return (
-      <p className="text-sm text-sub">
-        Every story is placed. A live round asks about the ones not placed or still to talk about.
-      </p>
-    );
-  }
+  const allPlaced = (
+    <p className="text-sm text-sub">
+      Every story is placed. A live round asks about the ones not placed or still to talk about.
+    </p>
+  );
+  if (candidates.length === 0 && !hosting) return allPlaced;
 
   return (
     <div className="space-y-3">
-      <fieldset className="space-y-2">
-        <legend className="text-sm font-semibold text-text">
-          Stories to ask about ({chosen.length} of {LIVE_BATCH_MAX} at most)
-        </legend>
-        <ul className="max-h-64 space-y-1 overflow-y-auto">
-          {candidates.map((c) => {
-            const on = chosen.includes(c.id);
-            return (
-              <li key={c.id}>
-                <label className="inline-flex min-h-8 items-center gap-2 text-sm text-text">
-                  <input
-                    type="checkbox"
-                    checked={on}
-                    disabled={!on && chosen.length >= LIVE_BATCH_MAX}
-                    onChange={(e) => toggle(c.id, e.target.checked)}
-                    className="h-4 w-4 accent-[var(--accent)]"
-                  />
-                  {c.title}
-                </label>
-              </li>
-            );
-          })}
-        </ul>
-        <label className="inline-flex min-h-8 items-center gap-2 text-sm text-text">
-          <input
-            type="checkbox"
-            checked={optional}
-            onChange={(e) => setOptional(e.target.checked)}
-            className="h-4 w-4 accent-[var(--accent)]"
-          />
-          Let people skip stories they don&apos;t know
-        </label>
-      </fieldset>
+      {candidates.length === 0 ? (
+        allPlaced
+      ) : (
+        <fieldset className="space-y-2">
+          <legend className="text-sm font-semibold text-text">
+            Stories to ask about ({chosen.length} of {LIVE_BATCH_MAX} at most)
+          </legend>
+          <ul className="max-h-64 space-y-1 overflow-y-auto">
+            {candidates.map((c) => {
+              const on = chosen.includes(c.id);
+              return (
+                <li key={c.id}>
+                  <label className="inline-flex min-h-8 items-center gap-2 text-sm text-text">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      disabled={!on && chosen.length >= LIVE_BATCH_MAX}
+                      onChange={(e) => toggle(c.id, e.target.checked)}
+                      className="h-4 w-4 accent-[var(--accent)]"
+                    />
+                    {c.title}
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
+          <label className="inline-flex min-h-8 items-center gap-2 text-sm text-text">
+            <input
+              type="checkbox"
+              checked={optional}
+              onChange={(e) => setOptional(e.target.checked)}
+              className="h-4 w-4 accent-[var(--accent)]"
+            />
+            Let people skip stories they don&apos;t know
+          </label>
+        </fieldset>
+      )}
       <VoteRoundPanel
         tool="relative-sizing"
         toolName="Relative Sizing"
         questionnaire={questionnaire}
         onSave={onSave}
         onLiveChange={(room) => {
+          setHosting(room !== null);
           if (room) onStart?.(questionnaire?.questions.length ?? 0);
         }}
         renderResults={(result) => <SizingResults result={result} board={board} />}

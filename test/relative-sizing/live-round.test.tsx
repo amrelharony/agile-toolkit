@@ -73,11 +73,12 @@ const onStart = vi.fn();
 async function startRound(onSave: (r: VoteRoundResult) => void | false | (() => void)) {
   onStart.mockClear();
   const crypto = fakeVoteCrypto();
-  render(
+  const view = (b: SizingBoard) => (
     <LiveAnnouncerProvider>
-      <LiveRound board={board()} onSave={onSave} onStart={onStart} crypto={crypto} />
+      <LiveRound board={b} onSave={onSave} onStart={onStart} crypto={crypto} />
     </LiveAnnouncerProvider>
   );
+  const { rerender } = render(view(board()));
   fireEvent.click(await screen.findByRole("button", { name: "Run a live round" }));
   const dialog = screen.getByRole("dialog", { name: "Start a live Relative Sizing room" });
   fireEvent.change(within(dialog).getByLabelText(/your name/i), { target: { value: "Hana" } });
@@ -95,7 +96,13 @@ async function startRound(onSave: (r: VoteRoundResult) => void | false | (() => 
     ch.setPresence([{ id: hostId, name: "Hana", joinedAt: "2026-10-26T09:00:00Z" }, A, B, C]);
   });
   await waitFor(() => expect(ch.sent(VOTE_ROOM_EVENTS.state).length).toBeGreaterThan(0));
-  return { ch, crypto };
+  return { ch, crypto, rerender: (b: SizingBoard) => rerender(view(b)) };
+}
+
+/** The test board with every story placed in a bucket. */
+function allPlaced(): SizingBoard {
+  const b = board();
+  return { ...b, items: b.items.map((i) => ({ ...i, bucketId: i.bucketId ?? "b3" })) };
 }
 
 async function answer(
@@ -160,5 +167,25 @@ describe("Relative Sizing's live round", () => {
     expect([r.placed, r.outliers, r.withheld]).toEqual([1, 1, 1]);
     expect(r.board.items.find((i) => i.id === "c2")?.bucketId).toBe("b5");
     expect(r.board.items.find((i) => i.id === "c4")?.contested).toBe(true);
+  });
+
+  it("keeps an open room until the host ends it, even once every story is placed", async () => {
+    const { rerender } = await startRound(() => () => {});
+    expect(screen.getByRole("region", { name: "Live Relative Sizing round" })).toBeInTheDocument();
+    // Save round (or the last card dragged into a bucket) leaves nothing to ask about.
+    rerender(allPlaced());
+    expect(screen.getByRole("region", { name: "Live Relative Sizing round" })).toBeInTheDocument();
+    expect(screen.getByText(/Every story is placed\./)).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /Stories to ask about/ })).not.toBeInTheDocument();
+  });
+
+  it("says every story is placed, with no room to run, when none is open", () => {
+    render(
+      <LiveAnnouncerProvider>
+        <LiveRound board={allPlaced()} onSave={() => undefined} crypto={fakeVoteCrypto()} />
+      </LiveAnnouncerProvider>
+    );
+    expect(screen.getByText(/Every story is placed\./)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run a live round" })).not.toBeInTheDocument();
   });
 });
