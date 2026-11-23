@@ -76,13 +76,13 @@ export function LiveRound({
               const on = chosen.includes(c.id);
               return (
                 <li key={c.id}>
-                  <label className="inline-flex min-h-8 items-center gap-2 text-sm text-text">
+                  <label className="flex min-h-11 items-center gap-2 pointer-fine:md:min-h-9 text-sm text-text">
                     <input
                       type="checkbox"
                       checked={on}
                       disabled={!on && chosen.length >= LIVE_BATCH_MAX}
                       onChange={(e) => toggle(c.id, e.target.checked)}
-                      className="h-4 w-4 accent-[var(--accent)]"
+                      className="h-4 w-4 shrink-0 accent-[var(--accent)]"
                     />
                     {c.title}
                   </label>
@@ -90,12 +90,12 @@ export function LiveRound({
               );
             })}
           </ul>
-          <label className="inline-flex min-h-8 items-center gap-2 text-sm text-text">
+          <label className="flex min-h-11 items-center gap-2 pointer-fine:md:min-h-9 text-sm text-text">
             <input
               type="checkbox"
               checked={optional}
               onChange={(e) => setOptional(e.target.checked)}
-              className="h-4 w-4 accent-[var(--accent)]"
+              className="h-4 w-4 shrink-0 accent-[var(--accent)]"
             />
             Let people skip stories they don&apos;t know
           </label>

@@ -515,7 +515,10 @@ describe("sending", () => {
       ],
     });
     renderPage();
-    fireEvent.click(screen.getByRole("checkbox", { name: "An expired card is refused" }));
+    const pick = screen.getByRole("checkbox", { name: "An expired card is refused" });
+    // A 44 px row on touch screens, not just the 16 px box.
+    expect(pick.closest("label")).toHaveClass("flex", "min-h-11");
+    fireEvent.click(pick);
     fireEvent.click(screen.getByRole("checkbox", { name: "Only the holder saves a card" }));
     fireEvent.click(screen.getByRole("button", { name: "Split 2 rules into stories" }));
     const made = ws().stories;

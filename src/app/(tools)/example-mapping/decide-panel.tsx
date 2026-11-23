@@ -135,12 +135,12 @@ export function DecidePanel({
                           </Link>
                         </span>
                       ) : (
-                        <label className="inline-flex min-h-8 items-center gap-2 text-text">
+                        <label className="flex min-h-11 items-center gap-2 pointer-fine:md:min-h-9 text-text">
                           <input
                             type="checkbox"
                             checked={pickedLive.includes(r.id)}
                             onChange={(e) => toggle(r.id, e.target.checked)}
-                            className="h-4 w-4 accent-[var(--accent)]"
+                            className="h-4 w-4 shrink-0 accent-[var(--accent)]"
                           />
                           {r.text}
                         </label>

@@ -179,6 +179,22 @@ describe("Relative Sizing's live round", () => {
     expect(screen.queryByRole("group", { name: /Stories to ask about/ })).not.toBeInTheDocument();
   });
 
+  it("makes each story row and the skip toggle a 44 px target on touch screens", () => {
+    render(
+      <LiveAnnouncerProvider>
+        <LiveRound board={board()} onSave={() => undefined} crypto={fakeVoteCrypto()} />
+      </LiveAnnouncerProvider>
+    );
+    const rows = [
+      screen.getByRole("checkbox", { name: "Refund a payment" }),
+      screen.getByRole("checkbox", { name: /Let people skip/ }),
+    ];
+    for (const box of rows) {
+      expect(box.closest("label")).toHaveClass("flex", "min-h-11");
+      expect(box).toHaveClass("shrink-0");
+    }
+  });
+
   it("says every story is placed, with no room to run, when none is open", () => {
     render(
       <LiveAnnouncerProvider>
