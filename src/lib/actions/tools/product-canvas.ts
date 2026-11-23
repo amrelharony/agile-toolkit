@@ -406,7 +406,13 @@ registry.register({
 const UpdateItemParams = z.object({
   canvasId: CanvasId,
   itemId: z.string().min(1).max(64).describe("The line's id (list_state with the canvas's id)."),
-  text: z.string().trim().min(1).max(LONG_MAX).optional().describe("The line's new words."),
+  text: z
+    .string()
+    .trim()
+    .min(1)
+    .max(LONG_MAX)
+    .optional()
+    .describe("A list line's new words (a one-line or paragraph box takes set_field)."),
   detail: z
     .string()
     .trim()
@@ -455,7 +461,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Change one line on a product canvas: its words, a question's answer, its fact-or-guess mark, or the lines it links to (checked against the boxes it may link to). Fields left out stay. Returns {updated: true}, or {updated: false, reason: 'not_found' | 'blank' | 'too_long' | 'bad_field' | 'too_big', message}.",
+    "Change one line on a product canvas: its words, a question's answer, its fact-or-guess mark, or the lines it links to (checked against the boxes it may link to). Fields left out stay. New words go only on a list box's line: a one-line or paragraph box (the launch date among them) is set with set_field, and its words here are refused as 'not_a_list'. Returns {updated: true}, or {updated: false, reason: 'not_found' | 'not_a_list' | 'blank' | 'too_long' | 'bad_field' | 'too_big', message}.",
   paramsSchema: UpdateItemParams,
   handler: (params) => updateItem(browserStore, params),
   mcpHandler: (params, ctx) => updateItem(serverStore(ctx.userId), params),

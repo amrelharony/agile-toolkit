@@ -484,6 +484,28 @@ describe("writes", () => {
     });
   });
 
+  it("leaves a one-line or paragraph box's words to withText, where a launch date is checked", () => {
+    const c = canvas("pr-faq", {
+      "launch-date": [item("d1", "2099-01-01")],
+      summary: [item("s1", "Tapline takes cards.")],
+      headline: [item("h1", "Tapline launches")],
+    });
+    for (const [id, text] of [
+      ["d1", "next spring"],
+      ["d1", "2020-01-01"],
+      ["s1", "Another\nsummary"],
+      ["h1", "Another headline"],
+    ]) {
+      expect(withItemPatch(c, id, { text }, NOW)).toMatchObject({
+        ok: false,
+        reason: "not_a_list",
+      });
+    }
+    expect(
+      ok(withText(c, "launch-date", "2099-02-01", NOW)).canvas.sections["launch-date"]
+    ).toEqual([item("d1", "2099-02-01")]);
+  });
+
   it("sets and clears a one-line or paragraph box, keeping its line's id", () => {
     const c = canvas("lean-ux");
     const set = ok(withText(c, "problem", "Sales lost\r\nwith no signal", NOW, () => "p1"));

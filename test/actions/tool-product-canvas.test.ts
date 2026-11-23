@@ -456,6 +456,44 @@ describe("tool.product_canvas writes", () => {
       })
     ).toEqual({ set: true, cleared: false });
   });
+
+  it("never rewrites a one-line or paragraph box's words through update_item", async () => {
+    await run("tool.product_canvas.set_field", {
+      canvasId: "pcanvas_pr",
+      field: "launch-date",
+      text: "2099-01-01",
+    });
+    await run("tool.product_canvas.set_field", {
+      canvasId: "pcanvas_pr",
+      field: "summary",
+      text: "Tapline takes cards.",
+    });
+    const date = stored("pcanvas_pr")!.sections["launch-date"][0];
+    const summary = stored("pcanvas_pr")!.sections.summary[0];
+    for (const text of ["next spring", "2020-01-01"]) {
+      expect(
+        await run("tool.product_canvas.update_item", {
+          canvasId: "pcanvas_pr",
+          itemId: date.id,
+          text,
+        })
+      ).toMatchObject({ updated: false, reason: "not_a_list" });
+    }
+    expect(
+      await run("tool.product_canvas.update_item", {
+        canvasId: "pcanvas_pr",
+        itemId: summary.id,
+        text: "Something else",
+      })
+    ).toMatchObject({
+      updated: false,
+      reason: "not_a_list",
+      message: expect.stringMatching(/Summary/),
+    });
+    expect(stored("pcanvas_pr")!.sections["launch-date"][0].text).toBe("2099-01-01");
+    expect(stored("pcanvas_pr")!.sections.summary[0].text).toBe("Tapline takes cards.");
+    expect(registry.get("tool.product_canvas.update_item")!.description).toMatch(/set_field/);
+  });
 });
 
 describe("tool.product_canvas over MCP", () => {

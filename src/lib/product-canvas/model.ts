@@ -572,7 +572,8 @@ export interface ItemPatch {
 
 /**
  * One line changed. Refused when the line isn't there, the new text is
- * blank or too long, or a field doesn't belong to its box: a fact or guess
+ * blank or too long or for a one-line or paragraph box (`not_a_list`: set
+ * those with `withText`), or a field doesn't belong to its box: a fact or guess
  * mark outside an evidence box, an answer outside a question list, links
  * from a box that has none or to lines that aren't in the boxes it links
  * to.
@@ -588,7 +589,15 @@ export function withItemPatch(
   const { def, item } = found;
   const next: ProductCanvasItem = { ...item };
   if (patch.text !== undefined) {
-    const text = def.kind === "long" ? cleanPara(patch.text, Infinity) : oneLine(patch.text);
+    // A one-line or paragraph box's words are set as the box (withText,
+    // set_field), where its own checks run: a launch date must be a day.
+    if (def.kind !== "list") {
+      return refuse(
+        "not_a_list",
+        `"${def.label}" holds one answer, not a list of lines: set the box itself.`
+      );
+    }
+    const text = oneLine(patch.text);
     if (!text) return refuse("blank", "Write the line first.");
     if (text.length > textMaxOf(def)) {
       return refuse("too_long", `Keep it to ${textMaxOf(def)} characters.`);
