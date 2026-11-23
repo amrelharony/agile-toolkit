@@ -71,23 +71,23 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "kanban",
     summary:
-      "Two boards. The Sprint board shows the selected sprint's stories by status and saves every move on the story, so the Sprint Cockpit, the standup and the Sprint Review read it. The Flow board holds free cards with WIP limits, classes of service, cycle time and throughput.",
+      "Two boards. The Sprint board shows the selected sprint's stories by status and saves every move on the story, so the Sprint Cockpit, the standup and the Sprint Review read it. The Flow board holds free cards with WIP limits, classes of service, cycle time and throughput. Under both, How we work holds your Definition of Workflow.",
     whenToUse: [
       "During the sprint, to move stories as work starts and finishes.",
       "When work seems stuck: each card shows its days in the column, and a column over its WIP limit is flagged.",
-      "For work outside a sprint, or a team that doesn't run sprints, on the Flow board.",
+      "When the team wants to agree, and write down, how work moves on its board.",
     ],
     steps: [
       "Pick Sprint board or Flow board at the top. It opens on the Sprint board while a sprint is active, otherwise on the Flow board, and remembers your choice in this browser.",
-      "On the Sprint board, pick the sprint under Sprint. Drag a story by its grip, or use Move to… on the card, to put it in To do, In progress, Review or Done. Each move offers Undo.",
-      "Click No owner (Unassigned on the Flow board) to pick who has the card, then Save. Click Flag blocked when it's stuck and Unblock once it moves again.",
-      "Type WIP limits in the column headers. A column over its limit shows a warning but never blocks a move: finish something there before pulling more.",
-      "On the Flow board, type a New card title and click Add; paste several lines to add one card per line. Retro actions sent with Send to… land in Backlog too.",
-      "Above the Flow board, Cycle avg needs three finished cards and 85% within needs five; the Weekly throughput chart and Advanced analysis follow as history builds. Export gives the board on screen as Markdown, CSV or JSON.",
+      "Drag a card by its grip, or use Move to… on it. Each move offers Undo. Click Flag blocked when it's stuck, then Add why to say what blocks it, group it in a blocker cluster or log it as an impediment.",
+      "Type WIP limits in the column headers. A column over its limit shows a warning but never blocks a move.",
+      "On the Flow board, type a New card title and click Add; paste several lines to add one card per line. Pick each card's type (it reads No type until set) for Flow Insights.",
+      "Under How we work, write the Definition of Workflow: what one item is, when work enters and leaves each column, the pull and blocker policies and an SLE. Draft policies asks Amr, and Start from a template works without AI. Its policies fold under the columns of the board it describes.",
+      "Design it (STATIK) walks seven steps; Versions saves the workflow and compares cycle time and throughput before and after.",
     ],
     tips: [
       "The two boards share their WIP limits: the Sprint board's To do uses the Flow board's Ready limit.",
-      "A completed or cancelled sprint's board is read-only. Pick an open sprint to keep moving stories.",
+      "A completed or cancelled sprint's board is read-only.",
     ],
     scales: [
       {
