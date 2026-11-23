@@ -214,9 +214,10 @@ export function personaFromValues(
  * A draft from notes or interviews put into the form, losing nothing typed:
  * the name, role, summary, quote and context fill only blank fields; the
  * goals, frustrations, habits and tags are added to what is there (each
- * once, within the caps); interviews drafted from are linked, and a
- * persona still marked as a guess becomes "Some evidence" when it was
- * drafted from interviews. `added` counts the points it added.
+ * once, within the caps); interviews drafted from are linked. The tier and
+ * the evidence stay as the person set them: how researched a persona is
+ * is their call, and a draft may use only some of the interviews picked.
+ * `added` counts the points it added.
  */
 export function withDraft(
   fields: PersonaFields,
@@ -253,7 +254,6 @@ export function withDraft(
       0,
       PERSONA_INTERVIEWS_MAX
     );
-    if (next.evidence === "assumed") next.evidence = "some";
   }
   return { fields: next, added };
 }

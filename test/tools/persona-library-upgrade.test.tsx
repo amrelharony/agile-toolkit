@@ -594,16 +594,16 @@ describe("drafting a persona", () => {
     for (const leak of ["Dana", "Sam", "2026-11", "q1", "i1"]) expect(notes).not.toContain(leak);
 
     await screen.findByText(/Drafted without AI\./);
-    // A persona drafted from interviews has some evidence.
+    // How researched it is stays the person's call: a draft never changes it.
     const evidence = screen.getByRole("radiogroup", { name: "Evidence" });
-    expect(within(evidence).getByRole("radio", { name: "Some evidence" })).toHaveAttribute(
+    expect(within(evidence).getByRole("radio", { name: "Our guess" })).toHaveAttribute(
       "aria-checked",
       "true"
     );
     expect(logged("persona_drafted")).toEqual([{ source: "rules", interviews: 2 }]);
     fireEvent.click(screen.getByRole("button", { name: "Add persona" }));
     expect(stored()[0].interviewIds).toEqual(["i1", "i2"]);
-    expect(stored()[0].evidence).toBe("some");
+    expect(stored()[0].evidence).toBe("assumed");
   });
 
   it("never calls a draft by an interviewee's real name", async () => {
