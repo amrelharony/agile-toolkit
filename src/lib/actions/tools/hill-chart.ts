@@ -48,6 +48,7 @@ import {
   hasRoomForScope,
   isStuck,
   lastCheckIn,
+  localDay,
   moveScope,
   newScope,
   readHillChart,
@@ -309,6 +310,9 @@ async function doCheckIn(store: HillStore, params: z.infer<typeof CheckInParams>
     return { checkedIn: false, reason: "empty", message: "Add a scope before checking in." };
   }
   const now = new Date();
+  // Known before the write: at 52 a new day's check-in drops the oldest,
+  // so the count after it can't tell a replacement from a new one.
+  const replacedToday = found.chart.checkIns.some((c) => localDay(c.at) === localDay(now));
   const next = checkIn(found.chart, now, params.note, `${HILL_CHECK_IN_ID_PREFIX}${nanoid(8)}`);
   await store.put(stamped(next, now.toISOString()));
   const entry = lastCheckIn(next);
@@ -317,7 +321,7 @@ async function doCheckIn(store: HillStore, params: z.infer<typeof CheckInParams>
     checkInId: entry?.id ?? null,
     at: entry?.at ?? now.toISOString(),
     scopes: entry?.positions.length ?? 0,
-    replacedToday: next.checkIns.length === found.chart.checkIns.length,
+    replacedToday,
   };
 }
 

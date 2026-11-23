@@ -182,6 +182,24 @@ describe("check_in", () => {
     expect(stored()?.checkIns).toHaveLength(2);
   });
 
+  it("says a new day's check-in is new at the cap of 52, though the oldest goes", async () => {
+    const weeks = Array.from({ length: 52 }, (_, i) => ({
+      id: `c${i}`,
+      at: ago(7 * (52 - i)),
+      positions: [{ scopeId: "s1", position: 30 }],
+    }));
+    useWorkspaceStore.setState({ hillCharts: [chart({ checkIns: weeks })] });
+    const out = await run<{ replacedToday: boolean; checkInId: string }>(
+      "tool.hill_chart.check_in",
+      { chartId: "hill_a" }
+    );
+    expect(out.replacedToday).toBe(false);
+    const ids = stored()?.checkIns.map((c) => c.id) ?? [];
+    expect(ids).toHaveLength(52);
+    expect(ids).not.toContain("c0");
+    expect(ids).toContain(out.checkInId);
+  });
+
   it("refuses an empty chart", async () => {
     useWorkspaceStore.setState({ hillCharts: [chart({ scopes: [] })] });
     expect(await run("tool.hill_chart.check_in", { chartId: "hill_a" })).toMatchObject({
