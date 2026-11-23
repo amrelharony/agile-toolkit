@@ -16,6 +16,7 @@ import {
   busiestNode,
   describeLoop,
   findLoops,
+  loopKeyDrawn,
   loopLayout,
   loopPath,
   readLoop,
@@ -388,6 +389,80 @@ describe("the changers", () => {
     const a = analysis({ ...loopOf(["a", "b"], ["a>b", "b>a"]), names: leftovers });
     const named = withLoopName(a, "a>b", "New", NOW);
     expect(named.ok && named.analysis.loop?.names).toEqual([{ key: "a>b", name: "New" }]);
+  });
+
+  /** A five-thing loop p1…p5, and a hub h with an arrow to and from each spoke: one short loop each. */
+  const P_KEY = "p1>p2>p3>p4>p5";
+  const pArrows = ["p1>p2", "p2>p3", "p3>p4", "p4>p5", "p5>p1"];
+  const spokes = Array.from(
+    { length: LOOPS_SHOWN + 1 },
+    (_, i) => `s${String(i).padStart(2, "0")}`
+  );
+  const busy = () =>
+    loopOf(
+      ["p1", "p2", "p3", "p4", "p5", "h", ...spokes],
+      [...pArrows, ...spokes.flatMap((s) => [`h>${s}`, `${s}>h`])]
+    );
+
+  it("keeps the name of a loop still drawn but past the loops shown when another is named", () => {
+    const first = withLoopName(
+      analysis(loopOf(["p1", "p2", "p3", "p4", "p5"], pArrows)),
+      P_KEY,
+      "Firefighting crowds out the fix",
+      NOW
+    );
+    if (!first.ok) throw new Error("not named");
+    const crowded = busy();
+    expect(crowded.nodes.length).toBeLessThanOrEqual(TOOL_LIST_MAX.loopNodes);
+    expect(crowded.links.length).toBeLessThanOrEqual(TOOL_LIST_MAX.loopLinks);
+    const found = findLoops(crowded);
+    expect(found.truncated).toBe(true);
+    expect(found.loops.some((l) => l.key === P_KEY)).toBe(false);
+    const a = analysis({ ...crowded, names: first.analysis.loop?.names });
+    const other = withLoopName(a, "h>s00", "Hub and spoke", NOW);
+    expect(other.ok && other.analysis.loop?.names).toEqual([
+      { key: P_KEY, name: "Firefighting crowds out the fix" },
+      { key: "h>s00", name: "Hub and spoke" },
+    ]);
+    if (!other.ok) return;
+    const cleared = withLoopName(other.analysis, "h>s00", "", NOW);
+    expect(cleared.ok && cleared.analysis.loop?.names).toEqual([
+      { key: P_KEY, name: "Firefighting crowds out the fix" },
+    ]);
+    // Once the short loops go, the five-thing loop shows with its name again.
+    if (!cleared.ok) return;
+    const loop = cleared.analysis.loop!;
+    const calm = { ...loop, links: loop.links.filter((l) => l.from !== "h" && l.to !== "h") };
+    expect(findLoops(calm).loops.map((l) => l.key)).toEqual([P_KEY]);
+    expect(calm.names).toEqual([{ key: P_KEY, name: "Firefighting crowds out the fix" }]);
+  });
+
+  it("at the cap, lets the oldest name of a loop not shown make room, never one shown", () => {
+    const shown = findLoops(busy()).loops.map((l) => l.key);
+    expect(shown).toHaveLength(LOOPS_SHOWN);
+    expect(shown).not.toContain("h>s20");
+    const names = [
+      { key: P_KEY, name: "Hidden and old" },
+      ...shown.slice(1).map((key, i) => ({ key, name: `Shown ${i}` })),
+    ];
+    expect(names).toHaveLength(TOOL_LIST_MAX.loopNames);
+    const named = withLoopName(analysis({ ...busy(), names }), shown[0], "New", NOW);
+    expect(named.ok && named.analysis.loop?.names).toEqual([
+      ...names.slice(1),
+      { key: shown[0], name: "New" },
+    ]);
+  });
+
+  it("reads whether a named loop is still drawn from its arrows", () => {
+    const loop = loopOf(["a", "b", "c"], ["a>b", "b>c", "c>a"]);
+    expect(loopKeyDrawn(loop, "a>b>c")).toBe(true);
+    // Another start or the other way round is a key findLoops never gives.
+    expect(loopKeyDrawn(loop, "b>c>a")).toBe(false);
+    expect(loopKeyDrawn(loop, "a>c>b")).toBe(false);
+    expect(loopKeyDrawn({ ...loop, links: loop.links.slice(1) }, "a>b>c")).toBe(false);
+    expect(loopKeyDrawn({ ...loop, nodes: loop.nodes.slice(0, 2) }, "a>b>c")).toBe(false);
+    expect(loopKeyDrawn(loop, "a")).toBe(false);
+    expect(loopKeyDrawn(loop, "a>b>a")).toBe(false);
   });
 
   it("refuses a change that would make the analysis too big for its row", () => {

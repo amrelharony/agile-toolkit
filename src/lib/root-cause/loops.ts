@@ -625,8 +625,30 @@ export function withLoopLinkPatch(
 }
 
 /**
- * A loop named (blank clears its name). Names of loops that are gone are
- * dropped first, so leftovers never block a new name at the cap.
+ * Whether the loop `key` names is still drawn, read from the arrows rather
+ * than the loops shown: two to LOOP_LENGTH_MAX different things, the
+ * smallest id first (as findLoops keys it), each still on the loop with an
+ * arrow to the next and from the last back to the first. A loop past the
+ * LOOPS_SHOWN shortest, or past the search's budget, is still drawn.
+ */
+export function loopKeyDrawn(loop: RootCauseLoop, key: string): boolean {
+  const ids = key.split(">");
+  if (ids.length < 2 || ids.length > LOOP_LENGTH_MAX || new Set(ids).size !== ids.length)
+    return false;
+  if (ids.some((id) => byId(id, ids[0]) < 0)) return false;
+  const nodes = new Set(loop.nodes.map((n) => n.id));
+  const arrows = new Set(loop.links.map((l) => `${l.from}\u0000${l.to}`));
+  return ids.every(
+    (id, i) => nodes.has(id) && arrows.has(`${id}\u0000${ids[(i + 1) % ids.length]}`)
+  );
+}
+
+/**
+ * A loop named (blank clears its name). Names of loops that are gone (no
+ * longer drawn, `loopKeyDrawn`) are dropped first, so leftovers never
+ * block a new name at the cap. A name whose loop is still drawn is kept,
+ * even when it's past the loops shown; only at the cap do the names of
+ * loops not shown make room for a new one, the oldest first.
  */
 export function withLoopName(
   a: RootCauseAnalysis,
@@ -637,10 +659,16 @@ export function withLoopName(
   const loop = loopOf(a);
   const found = findLoops(loop);
   if (!found.loops.some((l) => l.key === key)) return { ok: false, reason: "unknown_loop" };
-  const live = new Set(found.loops.map((l) => l.key));
-  const rest = (loop.names ?? []).filter((n) => live.has(n.key) && n.key !== key);
+  const rest = (loop.names ?? []).filter((n) => n.key !== key && loopKeyDrawn(loop, n.key));
   const clean = loopLine(name, LOOP_TEXT_MAX.name);
-  if (clean && rest.length >= TOOL_LIST_MAX.loopNames) return { ok: false, reason: "names_full" };
+  if (clean) {
+    const shown = new Set(found.loops.map((l) => l.key));
+    while (rest.length >= TOOL_LIST_MAX.loopNames) {
+      const hidden = rest.findIndex((n) => !shown.has(n.key));
+      if (hidden < 0) return { ok: false, reason: "names_full" };
+      rest.splice(hidden, 1);
+    }
+  }
   const names = clean ? [...rest, { key, name: clean }] : rest;
   return checked(touched(a, { ...loop, names }, now));
 }
