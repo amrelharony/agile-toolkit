@@ -65,6 +65,8 @@ export interface AreaPanelProps {
   onReading: (m: ProductMetric) => void;
   onEdit: (m: ProductMetric) => void;
   onRemove: (m: ProductMetric) => void;
+  /** What removing `m` would break (hypotheses or A/B tests linked to it), or null. */
+  removeWarning: (m: ProductMetric) => string | null;
   onAcceptSource: (m: ProductMetric, reading: SourceReading) => void;
 }
 
@@ -80,9 +82,12 @@ export function AreaPanel({
   onReading,
   onEdit,
   onRemove,
+  removeWarning,
   onAcceptSource,
 }: AreaPanelProps) {
   const [adding, setAdding] = useState(false);
+  const [confirming, setConfirming] = useState<string | null>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const [source, setSource] = useState<MetricSourceId | "">("");
   const [problem, setProblem] = useState("");
   const [answer, setAnswer] = useState<{ items: Suggested[]; source: AiSource } | null>(null);
@@ -94,6 +99,19 @@ export function AreaPanel({
   const weakest = weakestMeasure(measures);
   const sources = sourcesFor(area);
   const headingId = `ebm-area-${area}`;
+  const removeId = (id: string) => `${headingId}-remove-${id}`;
+
+  /** Remove `m`; its row goes, so focus moves to the area's heading. */
+  const remove = (m: ProductMetric) => {
+    setConfirming(null);
+    onRemove(m);
+    requestAnimationFrame(() => headingRef.current?.focus());
+  };
+  const askRemove = (m: ProductMetric) => (removeWarning(m) ? setConfirming(m.id) : remove(m));
+  const keep = (m: ProductMetric) => {
+    setConfirming(null);
+    requestAnimationFrame(() => document.getElementById(removeId(m.id))?.focus());
+  };
 
   return (
     <section
@@ -102,7 +120,12 @@ export function AreaPanel({
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
-          <h3 id={headingId} className="font-display text-base font-semibold text-text">
+          <h3
+            id={headingId}
+            ref={headingRef}
+            tabIndex={-1}
+            className="font-display text-base font-semibold text-text focus:outline-none"
+          >
             {AREA_LABEL[area]}
           </h3>
           <p className="text-xs text-sub">{AREA_MEANING[area]}</p>
@@ -144,9 +167,10 @@ export function AreaPanel({
                       onClick={() => onEdit(m)}
                     />
                     <IconButton
+                      id={removeId(m.id)}
                       label={`Remove “${m.name}” from ${AREA_LABEL[area]}`}
                       icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
-                      onClick={() => onRemove(m)}
+                      onClick={() => askRemove(m)}
                     />
                   </div>
                 </div>
@@ -172,6 +196,22 @@ export function AreaPanel({
                       </Button>
                     )}
                   </p>
+                )}
+                {confirming === m.id && (
+                  <div
+                    role="alert"
+                    className="mt-2 space-y-2 rounded-md border border-warning/20 bg-warning/10 p-2 text-sm"
+                  >
+                    <p>{removeWarning(m)}</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" size="sm" variant="outline" onClick={() => remove(m)}>
+                        Delete it
+                      </Button>
+                      <Button type="button" size="sm" variant="ghost" onClick={() => keep(m)}>
+                        Keep it
+                      </Button>
+                    </div>
+                  </div>
                 )}
               </li>
             );

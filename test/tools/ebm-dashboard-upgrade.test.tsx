@@ -8,7 +8,7 @@
  * recorded review; Ask Amr's answer without AI; the export; and history.
  */
 
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -354,6 +354,51 @@ describe("measures", () => {
         .map((m) => m.id)
         .sort()
     ).toEqual(["metric_gap", "metric_ns"]);
+  });
+
+  it("warns before deleting a measure a hypothesis is measured by, and keeps focus", async () => {
+    useWorkspaceStore.setState({
+      productMetrics: [metric({ id: "metric_cv", name: "Renewals", kva: "current-value" })],
+      hypothesisTrackers: [
+        {
+          id: "hypothesisTracker:current",
+          hypotheses: [
+            {
+              id: "h1",
+              believe: "Reminders keep teams",
+              willDo: "w",
+              toLearn: "t",
+              successMetric: "s",
+              status: "running",
+              raisedAt: "2026-10-01",
+              measuredBy: { kind: "metric", metricId: "metric_cv" },
+            },
+          ],
+        },
+      ],
+    });
+    renderPage();
+    const cv = await screen.findByRole("region", { name: "Current Value" });
+    const trash = within(cv).getByRole("button", { name: "Remove “Renewals” from Current Value" });
+    fireEvent.click(trash);
+    const alert = within(cv).getByRole("alert");
+    expect(alert).toHaveTextContent(
+      "“Renewals” is linked elsewhere: 1 hypothesis is measured by it. Those links will read “metric removed”; Undo brings them back."
+    );
+    expect(metrics()).toHaveLength(1);
+    fireEvent.click(within(alert).getByRole("button", { name: "Keep it" }));
+    expect(within(cv).queryByRole("alert")).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(trash));
+    fireEvent.click(trash);
+    fireEvent.click(
+      within(within(cv).getByRole("alert")).getByRole("button", { name: "Delete it" })
+    );
+    expect(metrics()).toEqual([]);
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(cv).getByRole("heading", { name: "Current Value" })
+      )
+    );
   });
 
   it("lists the experiments measured by an area, with a Run an experiment link", async () => {

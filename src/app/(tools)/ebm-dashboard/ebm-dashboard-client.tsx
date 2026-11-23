@@ -57,6 +57,7 @@ import {
   latestText,
   metricDraftFor,
   metricFromValues,
+  metricLinks,
   metricRuleProblems,
   usableMetrics,
   withReading,
@@ -128,6 +129,7 @@ export function EbmDashboardClient() {
   const goals = useWorkspaceStore((s) => s.productGoals);
   const sprints = useWorkspaceStore((s) => s.sprints);
   const trackers = useWorkspaceStore((s) => s.hypothesisTrackers);
+  const abTests = useWorkspaceStore((s) => s.abTests);
   const stories = useWorkspaceStore((s) => s.stories);
   const kanbanBoards = useWorkspaceStore((s) => s.kanbanBoards);
   const dora = useWorkspaceStore((s) => s.doraScorecards);
@@ -251,10 +253,31 @@ export function EbmDashboardClient() {
     return rows.length;
   };
 
+  const storedRow = (m: ProductMetric) => currentMetrics().find((x) => x.id === m.id) ?? m;
+  const sitsElsewhere = (m: ProductMetric) => Boolean(m.role || m.heart || m.aarrr);
+
+  /**
+   * What deleting `m` would break, as Product Metrics says it: null when it
+   * only leaves EBM (it sits in another view) or nothing links to it.
+   */
+  const removeWarning = (m: ProductMetric): string | null => {
+    const before = storedRow(m);
+    if (sitsElsewhere(before)) return null;
+    const l = metricLinks(m.id, hypotheses, abTests ?? []);
+    const parts = [
+      l.hypotheses > 0
+        ? `${l.hypotheses} ${l.hypotheses === 1 ? "hypothesis is" : "hypotheses are"} measured by it`
+        : "",
+      l.abTests > 0 ? `${l.abTests} A/B ${l.abTests === 1 ? "test moves" : "tests move"} it` : "",
+    ].filter(Boolean);
+    if (parts.length === 0) return null;
+    return `“${m.name}” is linked elsewhere: ${parts.join(" and ")}. Those links will read “metric removed”; Undo brings them back.`;
+  };
+
   /** A measure that also sits in another view keeps its row and loses only its area; else it goes. */
   const removeMeasure = (m: ProductMetric) => {
-    const before = currentMetrics().find((x) => x.id === m.id) ?? m;
-    const keep = Boolean(before.role || before.heart || before.aarrr);
+    const before = storedRow(m);
+    const keep = sitsElsewhere(before);
     undoable({
       label: keep ? `Removed “${m.name}” from EBM` : `Deleted “${m.name}”`,
       apply: () =>
@@ -590,6 +613,7 @@ export function EbmDashboardClient() {
                 setEditingId(m.id);
               }}
               onRemove={removeMeasure}
+              removeWarning={removeWarning}
               onAcceptSource={(m, reading) =>
                 addReading(m, { date: reading.date, value: reading.value }, m.source)
               }
