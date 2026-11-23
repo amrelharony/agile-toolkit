@@ -49,7 +49,6 @@ import {
   CARD_ID_PREFIX,
   CARD_TEXT_MAX,
   EXAMPLE_MAPPING_PATH,
-  EXAMPLE_MAPPING_TOOL,
   EXAMPLE_MAP_ID_PREFIX,
   TIMEBOX_DEFAULT,
   VERDICT_LABEL,
@@ -120,7 +119,7 @@ import { toMarkdown } from "./markdown";
 import { currentMaps, findMap, findStory, patchMap, removeMap, saveMap } from "./store";
 import { DockTimebox } from "./timebox";
 
-export const TOOL_ID = EXAMPLE_MAPPING_TOOL;
+export const TOOL_ID = "example-mapping";
 
 const nowIso = () => new Date().toISOString();
 const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
