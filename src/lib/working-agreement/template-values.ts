@@ -13,6 +13,7 @@ import {
   CHARTER_TEMPLATE_IDS,
   CHARTER_TEMPLATE_MAX,
   CORE_HOURS_PURPOSES,
+  TEAM_TIME_MAX,
   type AiUseNeverIn,
   type AiUseReview,
   type AiUseTemplate,
@@ -120,9 +121,26 @@ function readAnchorDays(raw: unknown): { site: string; days: number[] }[] {
     .slice(0, M.anchorDays);
 }
 
+/** An IANA-style zone name: "Europe/London", "America/Argentina/Buenos_Aires", "UTC", "Etc/GMT+3". */
+const ZONE_NAME = /^[A-Za-z][A-Za-z0-9_+-]*(?:\/[A-Za-z0-9_+-]+)*$/;
+
+/**
+ * A stored zone: its canonical spelling, or the name as stored when this
+ * runtime doesn't know it (a zone a newer browser wrote), so reading and
+ * saving the charter again never drops the template. The clock maths skip
+ * a zone they can't read, and applying again asks for one from the list.
+ * Null for anything that isn't a zone's name.
+ */
+function storedZone(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const zone = v.trim();
+  if (!zone || zone.length > TEAM_TIME_MAX.zone) return null;
+  return canonicalZone(zone) ?? (ZONE_NAME.test(zone) ? zone : null);
+}
+
 function readCore(raw: unknown): CoreHoursTemplate | null {
   if (!isRow(raw) || !isTime(raw.start) || !isTime(raw.end) || raw.start === raw.end) return null;
-  const timeZone = typeof raw.timeZone === "string" ? canonicalZone(raw.timeZone) : null;
+  const timeZone = storedZone(raw.timeZone);
   const days = weekdaysOf(raw.days);
   const purposes = (Array.isArray(raw.purposes) ? raw.purposes : []).filter(
     (p): p is CoreHoursPurpose => oneOf(CORE_HOURS_PURPOSES, p)
@@ -149,7 +167,7 @@ function readFocus(raw: unknown): FocusTimeTemplate | null {
   if (days.length === 0) return null;
   let timeZone: string | null = null;
   if (raw.timeZone !== null && raw.timeZone !== undefined) {
-    timeZone = typeof raw.timeZone === "string" ? canonicalZone(raw.timeZone) : null;
+    timeZone = storedZone(raw.timeZone);
     if (!timeZone) return null;
   }
   return {
@@ -198,8 +216,9 @@ function cleanTools(raw: unknown): string[] {
 /**
  * The templates an agreement has applied, read back from whatever was
  * stored: a template that can't be used (a ladder with one level, core
- * hours in a zone this runtime doesn't know) is left out, text is cut to
- * its caps. Undefined when none is left.
+ * hours with no days) is left out, text is cut to its caps. A zone this
+ * runtime doesn't know is kept as stored (storedZone), so a whole-document
+ * save never erases the answers. Undefined when none is left.
  */
 export function normalizeTemplates(raw: unknown): CharterTemplates | undefined {
   if (!isRow(raw)) return undefined;

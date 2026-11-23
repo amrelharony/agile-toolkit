@@ -518,8 +518,8 @@ describe("reading templates back", () => {
       coreHours: {
         start: "13:00",
         end: "15:00",
-        timeZone: "Mars/Base",
-        days: [1],
+        timeZone: "Europe/London",
+        days: [9],
         purposes: ["meetings"],
       },
       focusTime: { days: [9, 2], start: "09:00", end: "12:00", timeZone: null, weeklyMinHours: 99 },
@@ -552,6 +552,55 @@ describe("reading templates back", () => {
     });
     expect(normalizeTemplates({ urgencyLadder: { levels: [] } })).toBeUndefined();
     expect(normalizeTemplates("nope")).toBeUndefined();
+  });
+
+  it("keeps a zone this runtime doesn't know, so a later save never erases the answers", () => {
+    // A zone a newer browser knows and this one doesn't: kept as stored.
+    const stored = {
+      ...emptyAgreement(),
+      rules: [rule("c1", "Our core hours are …", { template: { id: "core-hours", slot: "core" } })],
+      templates: {
+        coreHours: {
+          start: "13:00",
+          end: "15:00",
+          timeZone: "Mars/Base",
+          days: [1],
+          purposes: ["meetings"],
+          appliedAt: NOW,
+        },
+        focusTime: {
+          days: [2],
+          start: "09:00",
+          end: "12:00",
+          timeZone: "Mars/Base",
+          appliedAt: NOW,
+        },
+      },
+    } as unknown as WorkingAgreement;
+    const read = normalizeAgreement(stored);
+    expect(read.templates?.coreHours).toMatchObject({ timeZone: "Mars/Base", appliedAt: NOW });
+    expect(read.templates?.focusTime?.timeZone).toBe("Mars/Base");
+    // Another edit writes the whole document: the answers are still there.
+    const edited = normalizeAgreement({
+      ...read,
+      rules: [withConsent(read.rules[0], "Ann", "consent", NOW)],
+    });
+    expect(edited.templates?.coreHours?.timeZone).toBe("Mars/Base");
+    expect(templatesSummary(edited).find((t) => t.id === "core-hours")?.applied).toBe(true);
+    // Only the live clock maths skip it, and applying again asks for a zone from the list.
+    expect(coreHoursFor(read.templates!.coreHours!, [london], Date.parse(AT))).toEqual({
+      day: null,
+      people: [],
+      outside: [],
+    });
+    expect(validateTemplate("core-hours", read.templates?.coreHours).ok).toBe(false);
+    // Anything that isn't a zone's name still goes.
+    expect(
+      normalizeTemplates({ coreHours: { ...stored.templates!.coreHours!, timeZone: "no zone!" } })
+    ).toBeUndefined();
+    expect(
+      normalizeTemplates({ coreHours: { ...stored.templates!.coreHours!, timeZone: "  " } })
+    ).toBeUndefined();
   });
 
   it("goes through normalizeAgreement, which keeps a rule's good template mark and drops a bad one", () => {
