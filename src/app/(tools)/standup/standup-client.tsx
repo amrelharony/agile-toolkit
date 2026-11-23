@@ -23,11 +23,21 @@ import {
   allStandupEntries,
   entryFor,
   hasBlocker,
+  nextPlace,
   notPostedYet,
   previousEntry,
+  shiftChain,
 } from "@/lib/standup/entries";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { AsyncUpdate, StandupEntry, StandupMode } from "@/lib/stores/workspace-types";
+import type {
+  AsyncUpdate,
+  StandupEntry,
+  StandupFormat,
+  StandupMode,
+  TeamTimePerson,
+} from "@/lib/stores/workspace-types";
+import { nameKey } from "@/lib/team/names";
+import { standupPlaces } from "@/lib/team-time/sun";
 import { findRosterMember, useTeamRoster } from "@/lib/team/use-team-roster";
 import { copyToClipboard } from "@/lib/utils/export";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -38,6 +48,8 @@ import { BoardWalk } from "./board-walk";
 import { type EntryCardActions, type LinksUpdate } from "./entry-card";
 import { EntryForm, useEntryForm, type YesterdaySuggestion } from "./entry-form";
 import { EXAMPLE_MEMBERS, buildExample, buildExampleBoard } from "./example";
+import { HandoversPanel, handoverRows } from "./handovers";
+import type { SummarySource } from "./digest-summary";
 import { toMarkdown, weeklyMarkdown } from "./markdown";
 import {
   CSV_HEADERS,
@@ -70,9 +82,12 @@ import { publishTurn, useStandupWalk } from "./walk";
 export const AWAY_KEY = "agile-toolkit:standup:away";
 /** Whether today's speaking order is shuffled, per browser (see model.ShuffleDay). */
 export const SHUFFLE_KEY = "agile-toolkit:standup:shuffle";
+/** The written standup's format this browser posts in: classic or Progress/Plans/Problems. */
+export const FORMAT_KEY = "agile-toolkit:standup:format";
 
 const NO_ENTRIES: StandupEntry[] = [];
 const NO_UPDATES: AsyncUpdate[] = [];
+const NO_PEOPLE: TeamTimePerson[] = [];
 
 /** A name short enough for a one-line toast. */
 function shortName(name: string, max = 40): string {
@@ -111,7 +126,7 @@ const PAGE: Record<StandupMode, { toolId: string; title: string; description: st
     toolId: "async-standup",
     title: "Async Standup Digest",
     description:
-      "Written standup updates, one per person per day: see who hasn't posted, and copy the daily digest with blockers first.",
+      "Written standup updates, one per person per day, classic or Progress/Plans/Problems, with who can clear each blocker and hand-overs between time zones: see who hasn't posted, and copy the daily digest with blockers first.",
   },
 };
 
@@ -133,6 +148,17 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
   const upsertStandupEntry = useWorkspaceStore((s) => s.upsertStandupEntry);
   const { log } = useHistoryLogger(page.toolId);
   const announce = useAnnounce();
+
+  // Where each poster works, from Team Time (never its example rows; the
+  // Standup's own example gets the example's places). The digest, the
+  // Hand-overs panel and Amr's digest all read this same map.
+  const teamTimePeople = useWorkspaceStore((s) => s.teamTimePeople ?? NO_PEOPLE);
+  const places = useMemo(
+    () => standupPlaces(teamTimePeople, roster, entries),
+    [teamTimePeople, roster, entries]
+  );
+  const [format, setFormat] = usePersistedLocal<StandupFormat>(FORMAT_KEY, "classic");
+  const postFormat: StandupFormat = isAsync && format === "ppp" ? "ppp" : "classic";
 
   // Re-render every minute so "today" rolls over at midnight without a reload.
   const [, setTick] = useState(0);
@@ -300,7 +326,14 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
     // "Alice" stay one person. Typing a new name never adds them to the
     // team; the picker offers that as its own click.
     const member = findRosterMember(roster, values.member)?.name.trim() ?? values.member;
-    const clean = { ...values, member };
+    // The format this browser posts in (async mode); a classic post stores none.
+    const clean: EntryValues = { ...values, member };
+    if (postFormat === "ppp") clean.format = "ppp";
+    else delete clean.format;
+    if (!isAsync) {
+      delete clean.dri;
+      delete clean.handoff;
+    }
     if (entryFor(currentEntries(), member, clean.date)) {
       // One entry per person per day: ask before replacing. The form keeps
       // its values if the user backs out.
@@ -483,6 +516,8 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
           today: e.today,
           blockers: e.blockers || undefined,
           description: e.description,
+          ...(e.format === "ppp" ? { format: "ppp" as const } : {}),
+          ...(e.blockerDri ? { blockerDri: e.blockerDri } : {}),
         }));
       return {
         toolName: "Async Standup Digest",
@@ -543,6 +578,29 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
     personKey(form.draft.member) !== personKey(wanted)
   );
 
+  // A hand-over is offered when Team Time knows two places or more and where
+  // the poster works; it goes to the next place east to west.
+  const chain = useMemo(() => shiftChain(places, today), [places, today]);
+  const posterPlace = places.get(nameKey(form.draft.member));
+  const handoffOffer = {
+    show: chain.length >= 2 && Boolean(posterPlace),
+    to: nextPlace(chain, posterPlace)?.label ?? null,
+  };
+  const handovers = isAsync
+    ? handoverRows({ entries, places, roster: rosterNames, today, now: new Date() })
+    : null;
+
+  /** A digest summary was made: the day, where it came from and the counts, never the text. */
+  const logSummary = (source: SummarySource) => {
+    const day = entries.filter((e) => e.date === today);
+    log(ASYNC_STANDUP_ACTIONS.DIGEST_SUMMARISED, {
+      date: today,
+      source,
+      updateCount: day.length,
+      blockerCount: day.filter(hasBlocker).length,
+    });
+  };
+
   const entryForm = (
     <>
       {otherNotes && wanted && (
@@ -572,6 +630,17 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
         today={today}
         submitLabel={isAsync ? "Post update" : "Submit Standup"}
         suggestion={suggestion}
+        asyncMode={isAsync}
+        format={postFormat}
+        onFormatChange={(next) => {
+          setFormat(next);
+          announce(
+            next === "ppp"
+              ? "Posting as Progress, Plans and Problems"
+              : "Posting as Yesterday, Today and Blockers"
+          );
+        }}
+        handoff={handoffOffer}
         onMemberChange={(name) => {
           // Picking someone by hand is an answer to "Post for" too.
           setPostingFor(null);
@@ -659,6 +728,11 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
               onAway={markAway}
               onBack={markBack}
             />
+            {handovers && (
+              <div className="min-w-0 lg:col-span-3">
+                <HandoversPanel rows={handovers} today={today} />
+              </div>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-5">
@@ -722,6 +796,8 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
               actions={actions}
               onLoadExample={loadExample}
               onCopyDigest={copyDigest}
+              places={places}
+              onSummarised={logSummary}
             />
           </TabsContent>
           <TabsContent value="history" className="mt-4">
@@ -731,6 +807,7 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
               teamSize={expected.length}
               editingId={editingId}
               actions={actions}
+              places={places}
             />
           </TabsContent>
           <TabsContent value="blockers" className="mt-4">

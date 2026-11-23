@@ -1,6 +1,6 @@
 import type { StandupEntry } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
-import { hasBlocker } from "@/lib/standup/entries";
+import { FORMAT_LABELS, formatOf, hasBlocker } from "@/lib/standup/entries";
 import { addDays } from "@/lib/impediments/model";
 import { ageLabel, blockerAgeDays, openBlockers } from "./model";
 
@@ -27,6 +27,12 @@ function listAnd(names: readonly string[]): string {
 
 const heading = (e: StandupEntry) =>
   `### ${oneLine(e.member)}${e.mode === "async" ? " (async)" : ""}`;
+
+/** " (DRI: Bo)" after a blocker that names who can clear it. */
+const dri = (e: StandupEntry) => (oneLine(e.blockerDri) ? ` (DRI: ${oneLine(e.blockerDri)})` : "");
+
+/** The words for an entry's parts: Yesterday/Today, or Progress/Plans. */
+const words = (e: StandupEntry) => FORMAT_LABELS[formatOf(e)];
 
 /**
  * Today's standup (the entries dated `now`'s local day), blockers first so
@@ -61,7 +67,7 @@ export function toMarkdown(
   if (waiting) lines.push("", waiting);
   lines.push("", "## Blockers", "");
   if (withBlocker.length === 0) lines.push("No blockers.");
-  for (const e of open) lines.push(`- **${oneLine(e.member)}:** ${oneLine(e.blockers)}`);
+  for (const e of open) lines.push(`- **${oneLine(e.member)}:** ${oneLine(e.blockers)}${dri(e)}`);
   for (const e of resolved) {
     lines.push(`- **${oneLine(e.member)}:** ~~${oneLine(e.blockers)}~~ (resolved)`);
   }
@@ -72,9 +78,10 @@ export function toMarkdown(
       "",
       heading(e),
       "",
-      `- **Yesterday:** ${oneLine(e.yesterday) || "—"}`,
-      `- **Today:** ${oneLine(e.today) || "—"}`
+      `- **${words(e).done}:** ${oneLine(e.yesterday) || "—"}`,
+      `- **${words(e).next}:** ${oneLine(e.today) || "—"}`
     );
+    if (oneLine(e.handoff)) lines.push(`- **Hand-over:** ${oneLine(e.handoff)}`);
     if (oneLine(e.description)) lines.push(`- **Notes:** ${oneLine(e.description)}`);
   }
 
@@ -119,7 +126,7 @@ export function weeklyMarkdown(
     for (const e of open) {
       const age = blockerAgeDays(e, end);
       lines.push(
-        `- **${oneLine(e.member)}** (${age === 0 ? "raised today" : `${ageLabel(age)} old`}): ${oneLine(e.blockers)}`
+        `- **${oneLine(e.member)}** (${age === 0 ? "raised today" : `${ageLabel(age)} old`}): ${oneLine(e.blockers)}${dri(e)}`
       );
     }
   }
@@ -127,11 +134,14 @@ export function weeklyMarkdown(
     lines.push("", `## ${person}`);
     for (const e of inRange.filter((x) => oneLine(x.member) === person)) {
       lines.push("", `**${mdDate(localDay(e.date))}**${e.mode === "async" ? " (async)" : ""}`);
-      lines.push(`- Yesterday: ${oneLine(e.yesterday) || "—"}`);
-      lines.push(`- Today: ${oneLine(e.today) || "—"}`);
+      lines.push(`- ${words(e).done}: ${oneLine(e.yesterday) || "—"}`);
+      lines.push(`- ${words(e).next}: ${oneLine(e.today) || "—"}`);
       if (hasBlocker(e)) {
-        lines.push(`- Blockers: ${oneLine(e.blockers)}${e.blockerResolved ? " (resolved)" : ""}`);
+        lines.push(
+          `- ${words(e).problem}: ${oneLine(e.blockers)}${dri(e)}${e.blockerResolved ? " (resolved)" : ""}`
+        );
       }
+      if (oneLine(e.handoff)) lines.push(`- Hand-over: ${oneLine(e.handoff)}`);
       if (oneLine(e.description)) lines.push(`- Notes: ${oneLine(e.description)}`);
     }
   }

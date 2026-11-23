@@ -17,9 +17,10 @@ import { useFlash } from "@/hooks/use-flash";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { LoadExampleButton } from "@/components/tool-frame/example-data";
-import { standupDigest } from "@/lib/standup/entries";
+import { standupDigest, type StandupPlaces } from "@/lib/standup/entries";
 import type { StandupEntry, StandupMode } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
+import { DigestSummary, type SummarySource } from "./digest-summary";
 import { AGE_BOX, BlockerAge, BlockerSendTo, EntryCard, type EntryCardActions } from "./entry-card";
 import { byFocusKey, focusSoon } from "./focus";
 import { weeklyMarkdown } from "./markdown";
@@ -82,6 +83,8 @@ export function TodayView({
   actions,
   onLoadExample,
   onCopyDigest,
+  places,
+  onSummarised,
 }: {
   mode: StandupMode;
   /** Every entry (the first-run state needs to know there are none at all). */
@@ -93,6 +96,10 @@ export function TodayView({
   onLoadExample: () => void;
   /** Resolves true once the digest is on the clipboard. */
   onCopyDigest: (digest: string) => Promise<boolean>;
+  /** Where each poster works (Team Time), as the agent's digest reads it too. */
+  places?: StandupPlaces;
+  /** A summary was made (async mode): for the history log. */
+  onSummarised?: (source: SummarySource) => void;
 }) {
   const { flash, isFlashing } = useFlash();
   const digestCopied = isFlashing();
@@ -105,7 +112,7 @@ export function TodayView({
   const postedCount = new Set(todays.map((e) => personKey(e.member))).size;
   // Every open blocker, as the verdict and the Blockers tab count them.
   const openCount = useMemo(() => openBlockers(entries).length, [entries]);
-  const digest = useMemo(() => standupDigest(entries, today), [entries, today]);
+  const digest = useMemo(() => standupDigest(entries, today, { places }), [entries, today, places]);
   const isAsync = mode === "async";
   const digestHeadingId = useId();
 
@@ -154,6 +161,18 @@ export function TodayView({
         </div>
       )}
 
+      {isAsync && todays.length > 0 && (
+        <DigestSummary
+          entries={entries}
+          today={today}
+          notYet={notYet}
+          places={places}
+          digest={digest}
+          onCopy={onCopyDigest}
+          onSummarised={onSummarised}
+        />
+      )}
+
       {todays.length === 0 ? (
         <EmptyState
           icon={isAsync ? Mail : Mic}
@@ -195,12 +214,15 @@ export function HistoryView({
   teamSize,
   editingId,
   actions,
+  places,
 }: {
   entries: readonly StandupEntry[];
   today: string;
   teamSize: number;
   editingId: string | null;
   actions: EntryCardActions;
+  /** The same places as Today's digest, so any day's digest reads the same. */
+  places?: StandupPlaces;
 }) {
   const dates = useMemo(
     () =>
@@ -223,7 +245,7 @@ export function HistoryView({
       (e) => e.date === day && (person === "all" || personKey(e.member) === personKey(person))
     )
     .sort((a, b) => a.timestamp - b.timestamp);
-  const digest = useMemo(() => standupDigest(entries, day), [entries, day]);
+  const digest = useMemo(() => standupDigest(entries, day, { places }), [entries, day, places]);
   const weekly = useMemo(() => weeklyMarkdown(entries), [entries]);
   const dayExportId = useId();
   const weekExportId = useId();

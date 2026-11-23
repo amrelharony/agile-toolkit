@@ -17,7 +17,7 @@ import { IconButton } from "@/components/ui/icon-button";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import type { StandupEntry } from "@/lib/stores/workspace-types";
-import { hasBlocker } from "@/lib/standup/entries";
+import { FORMAT_LABELS, formatOf, hasBlocker } from "@/lib/standup/entries";
 import { cn } from "@/lib/utils";
 import { EntryEditor } from "./entry-form";
 import { focusSoon } from "./focus";
@@ -73,6 +73,8 @@ export function BlockerSendTo({
       item={{
         title: entry.blockers,
         raisedBy: entry.member,
+        // The DRI owns clearing it: the impediment keeps them as its owner.
+        ...(entry.blockerDri?.trim() ? { owner: entry.blockerDri.trim() } : {}),
         description: `Raised at the standup on ${shortDay(entry.date)}${
           entry.today.trim() ? `. Working on: ${entry.today.trim()}` : ""
         }`,
@@ -110,6 +112,8 @@ export function EntryCard({
   const blocked = hasBlocker(entry);
   const resolved = blocked && Boolean(entry.blockerResolved);
   const who = entry.member;
+  const words = FORMAT_LABELS[formatOf(entry)];
+  const ppp = formatOf(entry) === "ppp";
 
   // Each of these removes the control pressed; focus goes where the user
   // carries on instead of falling to the page (see focus.ts).
@@ -206,14 +210,20 @@ export function EntryCard({
         <>
           {entry.yesterday.trim() && (
             <div>
-              <p className="mb-1 text-xs uppercase tracking-wider text-sub">Yesterday</p>
+              <p className="mb-1 text-xs uppercase tracking-wider text-sub">{words.done}</p>
               <p className="whitespace-pre-wrap break-words text-sm text-text">{entry.yesterday}</p>
             </div>
           )}
           {entry.today.trim() && (
             <div>
-              <p className="mb-1 text-xs uppercase tracking-wider text-sub">Today</p>
+              <p className="mb-1 text-xs uppercase tracking-wider text-sub">{words.next}</p>
               <p className="whitespace-pre-wrap break-words text-sm text-text">{entry.today}</p>
+            </div>
+          )}
+          {entry.handoff?.trim() && (
+            <div>
+              <p className="mb-1 text-xs uppercase tracking-wider text-sub">Hand-over</p>
+              <p className="whitespace-pre-wrap break-words text-sm text-text">{entry.handoff}</p>
             </div>
           )}
           {(entry.description ?? "").trim() && (
@@ -232,7 +242,9 @@ export function EntryCard({
               )}
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-xs uppercase tracking-wider text-sub">Blocker</p>
+                <p className="text-xs uppercase tracking-wider text-sub">
+                  {ppp ? "Problem" : "Blocker"}
+                </p>
                 {!resolved && <BlockerAge entry={entry} today={today} />}
               </div>
               <p
@@ -243,6 +255,11 @@ export function EntryCard({
               >
                 {entry.blockers}
               </p>
+              {entry.blockerDri?.trim() && (
+                <p className="text-xs text-sub">
+                  <span className="font-medium text-text">DRI:</span> {entry.blockerDri}
+                </p>
+              )}
               <div className="flex flex-wrap items-center gap-2">
                 {resolved ? (
                   <Button
