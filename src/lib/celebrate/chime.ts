@@ -93,7 +93,7 @@ export interface TimesUpOptions {
 /**
  * The one time's-up alarm every timer rings when it reaches zero: the room
  * countdowns, the Retro board's timer, the step timer and the docked timer
- * (the Ceremony Timer rings the same three signals itself, with its own
+ * (the Ceremony Timer calls it too, at a segment's end, with its own
  * switch). The tab title flashes; three beeps and a buzz follow only when
  * sound is on, which it isn't unless the person turned it on. The page
  * still shows and announces time's up itself, then counts the overtime up
