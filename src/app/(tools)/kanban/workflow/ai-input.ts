@@ -20,6 +20,7 @@ import {
   POLICY_NOTE_MAX,
   POLICY_STAGES_MAX,
   POLICY_TEXT_MAX,
+  POLICY_WIP_MAX,
   type PoliciesInput,
 } from "@/lib/ai/tasks/kanban.lite";
 import { CLASSES, draftKeys, type WorkflowDraft } from "./form";
@@ -70,7 +71,11 @@ export function policiesInput({
       return {
         stage: s.id,
         label: cutText(s.label, POLICY_LABEL_MAX),
-        wip: typeof limit === "number" && limit > 0 ? Math.round(limit) : null,
+        // A synced or agent-written limit can be any number: the task takes up to 999.
+        wip:
+          typeof limit === "number" && limit > 0
+            ? Math.min(POLICY_WIP_MAX, Math.round(limit))
+            : null,
       };
     }),
     notes,

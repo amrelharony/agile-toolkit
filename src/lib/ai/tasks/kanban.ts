@@ -17,6 +17,7 @@ import {
   POLICY_STAGE_MAX,
   POLICY_STAGES_MAX,
   POLICY_TEXT_MAX,
+  POLICY_WIP_MAX,
   kanbanPoliciesFallback,
 } from "./kanban.lite";
 
@@ -27,6 +28,7 @@ export {
   POLICY_STAGE_MAX,
   POLICY_STAGES_MAX,
   POLICY_TEXT_MAX,
+  POLICY_WIP_MAX,
   cleanPoliciesAnswer,
   kanbanPoliciesFallback,
 } from "./kanban.lite";
@@ -45,7 +47,7 @@ const input = z.object({
         stage: z.string().trim().min(1).max(POLICY_STAGE_MAX),
         label: z.string().trim().min(1).max(POLICY_LABEL_MAX),
         /** The column's WIP limit; null for none. */
-        wip: z.number().int().min(0).max(999).nullable(),
+        wip: z.number().int().min(0).max(POLICY_WIP_MAX).nullable(),
       })
     )
     .min(1)

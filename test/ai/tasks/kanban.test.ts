@@ -187,5 +187,16 @@ describe("kanban.policies", () => {
     // To do shares Ready's limit; stories have no classes of service.
     expect(sprint.stages[0]).toEqual({ stage: "todo", label: "To do", wip: 4 });
     expect(sprint.classes).toEqual([]);
+    // A synced or agent-written limit over the task's cap is sent at the cap.
+    const huge = policiesInput({
+      board: "flow",
+      draft: draftFromWorkflow(null, "flow"),
+      statik: undefined,
+      wipLimits: { backlog: 0, ready: 5, in_progress: 3, review: 5000, done: 0 },
+      cards: [],
+    });
+    expect(task.input.safeParse(huge).success).toBe(true);
+    expect(huge.stages.find((s) => s.stage === "review")?.wip).toBe(999);
+    expect(task.fallback(huge).policies.length).toBeGreaterThan(0);
   });
 });

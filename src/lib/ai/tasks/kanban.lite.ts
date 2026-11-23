@@ -19,6 +19,8 @@ export const POLICY_STAGES_MAX = 6;
 /** A stage id, as the boards name them ("in_progress"). */
 export const POLICY_STAGE_MAX = 20;
 export const POLICY_LABEL_MAX = 40;
+/** A stage's WIP limit sent along (the board's input clamps there too). */
+export const POLICY_WIP_MAX = 999;
 /** One policy, a start or finish point, the blocker policy, a question. */
 export const POLICY_TEXT_MAX = 200;
 /** One STATIK note sent along. */
