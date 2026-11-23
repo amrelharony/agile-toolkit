@@ -18,12 +18,14 @@
  * open, so a panel left open by the crash is closed (that also denies a card
  * that was waiting, as any close does).
  *
- * Small on purpose: the app shell ships it on every page. amr-geometry has
- * no imports, and the agent store is there already (the header's opener).
+ * Small on purpose: the app shell ships it on every page. It takes his
+ * button's place from amr-corner, which has no imports (never amr-geometry,
+ * whose panel and dock maths would ride along), and the agent store is there
+ * already (the header's opener).
  */
 
 import { useEffect, type ReactNode } from "react";
-import { BUTTON_INSET, BUTTON_SIDE, LAUNCHER_PLATE } from "@/components/agent/mascot/amr-geometry";
+import { BUTTON_INSET, BUTTON_SIDE, LAUNCHER_PLATE } from "@/components/agent/mascot/amr-corner";
 import { useAgentStore } from "@/lib/agent/store";
 import { ErrorBoundary } from "./error-boundary";
 

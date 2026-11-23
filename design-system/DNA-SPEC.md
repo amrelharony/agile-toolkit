@@ -147,8 +147,8 @@ The pictures are drawn the way the comic is: with a pen. Spot art is hand-inked 
 | Hand-drawn highlight | A perfect-freehand outline revealed by a mask along its pen path; seeded, so server and browser agree | The home hero's tool count, the sprint goal, the 404 |
 | Watercolour wash | A seeded blob with a darker rim; the three big scenes bleed theirs through `ink-bleed` | Behind spot art, tool-card icons, under Amr in empty states |
 | Line boil | Three displacement filters stepped about eight times a second | Header and scene art, while a mouse hovers the `.ink-host` |
-| Scribble | A pen writing, resting and lifting off, on a loop | Loading placeholders |
-| Ink moments | A small mark drawn once, in place, when something gets finished (`InkMoment`, `InkTick`, a circle `InkHighlight`): a Done stamp, a heart, a flourish, a star, a tick | Sprint closed, retro at its actions, poker consensus, ceremony timer finished, kudos sent, an OKR at 100%, sprint start steps, achievement chips |
+| Scribble | A pen writing, resting and lifting off, on a loop | Loading placeholders, Amr's thinking balloon, a chat step while it runs |
+| Ink moments | A small mark drawn once, in place, when something gets finished (`InkMoment`, `InkTick`, a circle `InkHighlight`): a Done stamp, a heart, a flourish, a star, a tick | Sprint closed, retro at its actions, poker consensus, ceremony timer finished, kudos sent, an OKR at 100%, sprint start steps, achievement chips, a change Amr made in the chat (a tick in its step's slot, inked once a turn, live only) |
 
 Rules:
 

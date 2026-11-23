@@ -345,6 +345,32 @@ describe("useAgentStore – the reply the live turn writes to", () => {
   });
 });
 
+describe("useAgentStore – where a picked-up thread left off", () => {
+  beforeEach(fresh);
+
+  it("is the last message of a thread opened with its messages, and nothing for a fresh chat", () => {
+    const s = useAgentStore.getState();
+    expect(useAgentStore.getState().resumedAfter).toBeNull();
+    s.setActiveConversation(meta("c1"), [msg("u1", "user"), msg("a1")]);
+    expect(useAgentStore.getState().resumedAfter).toBe("a1");
+    // Messages asked since stay after it.
+    s.appendMessage(msg("u2", "user"));
+    expect(useAgentStore.getState().resumedAfter).toBe("a1");
+    // The same thread reloaded is no new pick-up.
+    s.setActiveConversation(meta("c1"), [msg("u1", "user"), msg("a1"), msg("u2", "user")]);
+    expect(useAgentStore.getState().resumedAfter).toBe("a1");
+
+    s.setActiveConversation(meta("c2"), []);
+    expect(useAgentStore.getState().resumedAfter).toBeNull();
+    s.setActiveConversation(meta("c1"), [msg("a1")]);
+    s.reset();
+    expect(useAgentStore.getState().resumedAfter).toBeNull();
+    s.setActiveConversation(meta("c1"), [msg("a1")]);
+    s.setActiveConversation(null, []);
+    expect(useAgentStore.getState().resumedAfter).toBeNull();
+  });
+});
+
 describe("useAgentStore – notices", () => {
   beforeEach(fresh);
 

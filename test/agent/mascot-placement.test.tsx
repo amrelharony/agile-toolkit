@@ -19,6 +19,10 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
  *   carried; a short screen gets the panel down one side beside him; the page
  *   behind the sheet holds still; he never leaves the page while a field has
  *   the keyboard.
+ * - Beside the app's rail (end-to-end check after PR 12): from md the rail
+ *   (layout/sidebar) painted over him and his panel in a left corner. Now
+ *   everything on his left counts from its right edge (--app-rail), which
+ *   takes the left safe area's place; his right corners are as they were.
  */
 
 vi.mock("@/lib/auth/auth-provider", () => ({
@@ -69,15 +73,24 @@ import {
   MASCOT_BOX,
   MASCOT_BOX_PHONE,
   PANEL_GAP,
+  PANEL_SIDE,
   PANEL_SIZE,
   SIDE_PANEL_MAX_W,
+  SIDE_TOAST_MIN_W,
+  TOAST_GAP,
   dockInsets,
   type AmrCorner,
   type PanelSizeName,
 } from "@/components/agent/mascot/amr-geometry";
 import { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "@/components/agent/mascot/engine/figure-metrics";
 import { DOCK_END_FULL } from "@/components/agent/mascot/panel-context";
+import {
+  VISITOR_AI_CONSENT_KEY,
+  VISITOR_AI_CONSENT_VERSION,
+} from "@/components/agent/mascot/visitor-ai-consent";
 import { VISIBLE_GAP } from "@/lib/layout/use-visible-area";
+import { APP_RAIL_EVENT, APP_RAIL_VAR } from "@/lib/layout/amr-sheet";
+import { momentChipPosition } from "@/components/notify/moment-chip";
 import { useAgentStore } from "@/lib/agent/store";
 import { useBubbleStore } from "@/lib/agent/mascot/bubble";
 import { useMascotStore } from "@/lib/agent/mascot/store";
@@ -104,6 +117,60 @@ function cssPx(expr: string, screenH: number, insetBottom = 0): number {
   if (!/^[\d\s.e+\-*/(),]*$/.test(js.replace(/Math\.m(in|ax)\(/g, "(")))
     throw new Error(`can't evaluate: ${expr}`);
   return Number(new Function(`return ${js};`)());
+}
+
+/**
+ * A side offset or a width as the browser works it out on a screen `width`
+ * wide: var(--app-rail, …) is the rail's right edge where the sidebar keeps one
+ * (`rail`), else its fallback; the side safe areas as given; 100% and vw the
+ * screen's width (a fixed box's containing block).
+ */
+function inlinePx(
+  expr: string,
+  s: { width: number; rail?: number; left?: number; right?: number }
+): number {
+  const js = expr
+    .replace(/var\(--app-rail,\s*(env\([^)]*\)|[^()]*)\)/g, (_, fallback: string) =>
+      s.rail === undefined ? fallback : `${s.rail}px`
+    )
+    .replace(/env\(\s*safe-area-inset-left[^)]*\)/g, `${s.left ?? 0}px`)
+    .replace(/env\(\s*safe-area-inset-right[^)]*\)/g, `${s.right ?? 0}px`)
+    .replace(/100%/g, `${s.width}px`)
+    .replace(/(\d+(?:\.\d+)?)vw/g, (_, n: string) => `${(Number(n) * s.width) / 100}px`)
+    .replace(/(\d+(?:\.\d+)?(?:e-?\d+)?)px/g, "$1")
+    .replace(/calc\(/g, "(")
+    .replace(/min\(/g, "Math.min(")
+    .replace(/max\(/g, "Math.max(");
+  if (!/^[\d\s.e+\-*/(),]*$/.test(js.replace(/Math\.m(in|ax)\(/g, "(")))
+    throw new Error(`can't evaluate: ${expr}`);
+  return Number(new Function(`return ${js};`)());
+}
+
+/**
+ * What a `var(--name, fallback)` style holds before usePanelViewport's first
+ * reading writes `--name`: its fallback.
+ */
+function beforeReading(expr: string, name: string): string {
+  const head = `var(${name},`;
+  if (!expr.startsWith(head) || !expr.endsWith(")"))
+    throw new Error(`no ${name} fallback: ${expr}`);
+  return expr.slice(head.length, -1).trim();
+}
+
+/**
+ * His offset on the right as it always was, `px` past the notch's inset, read
+ * back the way jsdom reads a style it has set (it garbles env()).
+ */
+function rightAsItWas(px: number): string {
+  const el = document.createElement("div");
+  el.style.right = `calc(${px}px + env(safe-area-inset-right, 0px))`;
+  return el.style.right;
+}
+
+/** The sidebar keeping its right edge on <html> (layout/sidebar), or taking it off. */
+function setRail(px: number | null) {
+  if (px === null) document.documentElement.style.removeProperty(APP_RAIL_VAR);
+  else document.documentElement.style.setProperty(APP_RAIL_VAR, `${px}px`);
 }
 
 /**
@@ -177,6 +244,7 @@ afterEach(() => {
   setSaveData(undefined);
   useMascotStore.setState({ ready: false });
   document.documentElement.style.removeProperty("--amr-band-bottom");
+  setRail(null);
   window.localStorage.removeItem(PANEL_SIZE_KEY);
 });
 
@@ -330,9 +398,12 @@ describe("stepping aside", () => {
   const OFFSETS = ["offsetLeft", "offsetTop", "offsetWidth", "offsetHeight"] as const;
   /** The screen's side safe areas, as his probe reads them (jsdom can't resolve env()). */
   let insets = { left: 0, right: 0 };
+  /** The app's rail's right edge, where the sidebar keeps one (md and up). */
+  let rail: number | null = null;
 
   beforeEach(() => {
     insets = { left: 0, right: 0 };
+    rail = null;
     vi.stubGlobal("innerWidth", VW);
     vi.stubGlobal("innerHeight", VH);
     // jsdom has no layout: give Amr's button (96×104) and his hit box (42×89,
@@ -363,7 +434,8 @@ describe("stepping aside", () => {
         used = {
           top: "auto",
           bottom: `${parseFloat(el.style.bottom.replace(/^calc\(/, ""))}px`,
-          left: el.style.left ? `${8 + insets.left}px` : "auto",
+          // On his left the rail stands in for the inset (it covers it).
+          left: el.style.left ? `${8 + (rail ?? insets.left)}px` : "auto",
           right: el.style.right ? `${8 + insets.right}px` : "auto",
         };
       } else return cs;
@@ -561,6 +633,66 @@ describe("stepping aside", () => {
     expect(asked).toContain(68);
     // Start is still at home, so he stays on the left.
     expect(amrButton().style.left).toContain("safe-area-inset-left");
+  });
+
+  it("on a touch tablet beside the app's rail, steps aside to the left past it, and finds his way home", async () => {
+    // 1024 wide at md: the rail's right edge at 64 px.
+    vi.stubGlobal("innerWidth", 1024);
+    stubScreen({ phone: false, coarse: true });
+    rail = 64;
+    setRail(64);
+    // A tall control down the right edge covers his home and every step up
+    // (his hit box at home is 947-989: 1024 - 8 - 96 + 27), so he crosses over.
+    const start = document.createElement("button");
+    start.setAttribute("data-test-control", "");
+    const box = { left: 930, top: 100, width: 80, height: 540 };
+    vi.spyOn(start, "getBoundingClientRect").mockReturnValue({
+      ...box,
+      x: box.left,
+      y: box.top,
+      right: box.left + box.width,
+      bottom: box.top + box.height,
+      toJSON: () => ({}),
+    } as DOMRect);
+    document.body.appendChild(start);
+    const asked: number[] = [];
+    Object.defineProperty(document, "elementsFromPoint", {
+      configurable: true,
+      value: (x: number, y: number) => {
+        asked.push(Math.round(x));
+        return x >= box.left &&
+          x <= box.left + box.width &&
+          y >= box.top &&
+          y <= box.top + box.height
+          ? [start, document.body]
+          : [document.body];
+      },
+    });
+
+    render(<MascotAssistant />);
+    act(() => {
+      window.dispatchEvent(new Event("pointerdown"));
+    });
+    await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
+    await waitFor(() => expect(amrButton().style.left).toContain("--app-rail"), {
+      timeout: 2000,
+    });
+    // It looked at the left past the rail (his hit box from 99: 8 + 64 + 27),
+    // never under it (from 35).
+    expect(asked).toContain(102);
+    expect(asked).not.toContain(38);
+
+    // He looks again (a resize): home is where it really is, not the rail's
+    // width off (883), and the left is where he really stands.
+    asked.length = 0;
+    act(() => {
+      window.dispatchEvent(new Event("resize"));
+    });
+    await waitFor(() => expect(asked.length).toBeGreaterThan(0), { timeout: 2000 });
+    expect(asked).toContain(950);
+    expect(asked).not.toContain(886);
+    expect(asked).toContain(102);
+    expect(amrButton().style.left).toContain("--app-rail");
   });
 
   it("doesn't step aside for his own bubble's answers or the moment chip beside him", async () => {
@@ -1000,6 +1132,9 @@ describe("Enlarge", () => {
   const dialog = () => screen.getByRole("dialog", { name: "Amr" });
   /** The size the panel's style gives it (its w-/h- classes read these). */
   const size = (side: "width" | "height") => dialog().style.getPropertyValue(`--amr-panel-${side}`);
+  /** Its width: PANEL_SIZE's, never so wide it runs under the app's rail or off the far edge. */
+  const width = (name: PanelSizeName) =>
+    `min(${PANEL_SIZE[name].width}, calc(100% - ${2 * PANEL_SIDE}px - var(--app-rail, 0px)))`;
 
   beforeEach(() => {
     useAgentStore.setState({ open: true });
@@ -1014,14 +1149,14 @@ describe("Enlarge", () => {
     render(<MascotAssistant />);
     // The usual card, its size set by the style from PANEL_SIZE, not written in a class.
     expect(dialog()).toHaveClass("w-[var(--amr-panel-width)]", "h-[var(--amr-panel-height)]");
-    expect(size("width")).toBe(PANEL_SIZE.normal.width);
+    expect(size("width")).toBe(width("normal"));
     expect(size("height")).toBe(PANEL_SIZE.normal.height);
     expect(enlarge()).toHaveAttribute("aria-pressed", "false");
     expect(enlarge()).toHaveClass("hidden", "md:inline-flex");
 
     fireEvent.click(enlarge());
     expect(enlarge()).toHaveAttribute("aria-pressed", "true");
-    expect(size("width")).toBe(PANEL_SIZE.large.width);
+    expect(size("width")).toBe(width("large"));
     expect(size("height")).toBe(PANEL_SIZE.large.height);
     // Its room is worked out for the larger height.
     expect(dialog().style.bottom).toContain(PANEL_SIZE.large.height);
@@ -1067,6 +1202,132 @@ describe("Enlarge", () => {
   });
 });
 
+describe("beside the app's rail, md and up (end-to-end check after PR 12)", () => {
+  /** The narrowest md screen: a pinned rail leaves it 512 px. */
+  const W = 768;
+  const H = 1024;
+  // The sidebar's right edge as it keeps it: the rail, pinned open, and pinned
+  // open beside a 47 px notch (the rail's width holds the inset).
+  const RAILS = [
+    { name: "the 64 px rail", rail: 64, notch: 0 },
+    { name: "the rail pinned open", rail: 256, notch: 0 },
+    { name: "the rail pinned open beside a notch", rail: 256 + 47, notch: 47 },
+  ];
+  /** His four corners in turn, by the arrow keys on his button (as Move Amr moves him). */
+  const TOUR: { key: string | null; corner: Corner }[] = [
+    { key: null, corner: "bottomRight" },
+    { key: "ArrowLeft", corner: "bottomLeft" },
+    { key: "ArrowUp", corner: "topLeft" },
+    { key: "ArrowRight", corner: "topRight" },
+  ];
+  const dialog = () => screen.getByRole("dialog", { name: "Amr" });
+  const enlarge = () => screen.getByRole("button", { name: "Enlarge chat" });
+
+  beforeEach(() => {
+    vi.stubGlobal("innerWidth", W);
+    vi.stubGlobal("innerHeight", H);
+    stubScreen({ phone: false, coarse: false, wide: true });
+  });
+
+  afterEach(() => {
+    act(() => useAgentStore.setState({ open: false }));
+    useMascotStore.getState().setCorner("bottomRight");
+  });
+
+  async function render768(figure: boolean) {
+    if (!figure) useMascotStore.setState({ ready: false });
+    render(<MascotAssistant />);
+    if (!figure) return;
+    act(() => {
+      window.dispatchEvent(new Event("pointerdown"));
+    });
+    await screen.findByTestId("mascot-sprite", {}, { timeout: 2000 });
+  }
+
+  for (const r of RAILS) {
+    for (const figure of [true, false]) {
+      it(`${r.name}, ${figure ? "his figure" : "the launcher plate"}: his left corners and their panel start past it, his right ones are as they were`, async () => {
+        setRail(r.rail);
+        await render768(figure);
+        const at = { width: W, rail: r.rail, left: r.notch };
+        // Where the rail ends, and his side gaps past it: never the notch on top.
+        const edge = r.rail;
+        for (const step of TOUR) {
+          if (step.key) fireEvent.keyDown(amrButton(), { key: step.key });
+          expect(useMascotStore.getState().corner).toBe(step.corner);
+          const left = step.corner.endsWith("Left");
+          const button = amrButton();
+          expect(button.hasAttribute("data-launcher")).toBe(!figure);
+
+          if (left) {
+            expect(button.style.right, step.corner).toBe("");
+            const buttonLeft = inlinePx(button.style.left, at);
+            expect(buttonLeft, step.corner).toBe(edge + BUTTON_SIDE);
+            // His figure (the hit span) and the plate both stand clear of the rail.
+            if (figure) expect(buttonLeft + MASCOT_BOX.w * HIT_SIDE).toBeGreaterThan(edge);
+            // His bubble and the moment chip keep their place beside him.
+            const chip = momentChipPosition(step.corner, false);
+            expect(inlinePx(String(chip.left), at) - buttonLeft).toBe(156 - BUTTON_SIDE);
+          } else {
+            expect(button.style.left, step.corner).toBe("");
+            expect(button.style.right, step.corner).toBe(rightAsItWas(BUTTON_SIDE));
+          }
+
+          act(() => useAgentStore.setState({ open: true }));
+          for (const size of ["normal", "large"] as const) {
+            const panel = dialog();
+            if (size === "large") fireEvent.click(enlarge());
+            expect(enlarge()).toHaveAttribute("aria-pressed", String(size === "large"));
+            const width = inlinePx(panel.style.getPropertyValue("--amr-panel-width"), at);
+            const where = `${step.corner} ${size}`;
+            if (left) {
+              const panelLeft = inlinePx(panel.style.left, at);
+              expect(panelLeft, where).toBe(edge + PANEL_SIDE);
+              // Its tail still points at him: both count from the rail.
+              expect(panelLeft - inlinePx(button.style.left, at), where).toBe(
+                PANEL_SIDE - BUTTON_SIDE
+              );
+              // Never pushed off the far edge, Enlarge or not.
+              expect(panelLeft + width, where).toBeLessThanOrEqual(W - PANEL_SIDE);
+            } else {
+              expect(panel.style.left, where).toBe("");
+              expect(panel.style.right, where).toBe(rightAsItWas(PANEL_SIDE));
+              // And never wide enough to run under the rail from the right.
+              expect(W - PANEL_SIDE - width, where).toBeGreaterThanOrEqual(edge + PANEL_SIDE);
+            }
+            if (size === "large") fireEvent.click(enlarge());
+          }
+          act(() => useAgentStore.setState({ open: false }));
+        }
+      });
+    }
+  }
+
+  it("with the rail at 64 px, his usual panel and Enlarge keep their own widths", async () => {
+    setRail(64);
+    await render768(true);
+    act(() => useAgentStore.setState({ open: true }));
+    const at = { width: W, rail: 64 };
+    expect(inlinePx(dialog().style.getPropertyValue("--amr-panel-width"), at)).toBe(380);
+    fireEvent.click(enlarge());
+    expect(inlinePx(dialog().style.getPropertyValue("--amr-panel-width"), at)).toBe(640);
+  });
+
+  it("with no rail (below md, or a page without it) is as it was: the screen's edge past a notch", async () => {
+    vi.stubGlobal("innerWidth", 700);
+    stubScreen({ phone: false, coarse: false, wide: false });
+    await render768(true);
+    fireEvent.keyDown(amrButton(), { key: "ArrowLeft" });
+    const at = { width: 700, left: 30 };
+    expect(inlinePx(amrButton().style.left, at)).toBe(BUTTON_SIDE + 30);
+    expect(amrButton().style.left).toContain("safe-area-inset-left");
+    act(() => useAgentStore.setState({ open: true }));
+    expect(inlinePx(dialog().style.left, at)).toBe(PANEL_SIDE + 30);
+    expect(inlinePx(dialog().style.getPropertyValue("--amr-panel-width"), at)).toBe(380);
+    expect(inlinePx(String(momentChipPosition("bottomLeft", false).left), at)).toBe(156);
+  });
+});
+
 describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)", () => {
   /** The visual viewport, as a phone reports it: resize events as a keyboard moves. */
   class StubViewport extends EventTarget {
@@ -1077,8 +1338,8 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
     scale = 1;
   }
   let vv: StubViewport;
-  /** The top and bottom safe areas his probe reads (jsdom can't resolve env()). */
-  let safe = { top: 0, bottom: 0 };
+  /** The top, bottom and left safe areas his probe reads (jsdom can't resolve env()). */
+  let safe = { top: 0, bottom: 0, left: 0 };
 
   const dialog = () => screen.getByRole("dialog", { name: "Amr" });
   /** A CSS variable the shell wrote on an element, in px. */
@@ -1095,7 +1356,13 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
   function screenAt(
     w: number,
     h: number,
-    opts: { insetTop?: number; insetBottom?: number; header?: number; phone?: boolean } = {}
+    opts: {
+      insetTop?: number;
+      insetBottom?: number;
+      insetLeft?: number;
+      header?: number;
+      phone?: boolean;
+    } = {}
   ) {
     vi.stubGlobal("innerWidth", w);
     vi.stubGlobal("innerHeight", h);
@@ -1103,7 +1370,7 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
     vv.width = w;
     vv.height = h;
     vi.stubGlobal("visualViewport", vv);
-    safe = { top: opts.insetTop ?? 0, bottom: opts.insetBottom ?? 0 };
+    safe = { top: opts.insetTop ?? 0, bottom: opts.insetBottom ?? 0, left: opts.insetLeft ?? 0 };
     const header = document.createElement("header");
     header.setAttribute("data-chrome", "header");
     header.setAttribute("data-test-control", "");
@@ -1181,7 +1448,7 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
       const used: Record<string, string> = {
         paddingTop: `${safe.top}px`,
         paddingBottom: `${safe.bottom}px`,
-        paddingLeft: "0px",
+        paddingLeft: `${safe.left}px`,
         paddingRight: "0px",
       };
       return new Proxy(cs, {
@@ -1327,6 +1594,84 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
           expect(finderBottom).toBeLessThanOrEqual(top + 1e-6);
         });
       }
+    }
+  }
+
+  for (const w of [320, 360, 375]) {
+    for (const inset of [0, 34]) {
+      it(`${w}x812${inset ? ", home indicator" : ""}, his figure docked: the chat's Latest button stands above the composer's row, so it is never his`, async () => {
+        vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+        window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
+        try {
+          screenAt(w, 812, { insetTop: inset ? 44 : 0, insetBottom: inset, header: HEADER_H });
+          render(<MascotAssistant />);
+          await withFigure();
+          const panel = openPanel();
+          await guide();
+          fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
+          const log = await screen.findByRole("log", { name: "Conversation" });
+          act(() => {
+            useAgentStore.setState({
+              chatProfile: "visitor",
+              messages: [
+                {
+                  id: "u1",
+                  role: "user",
+                  content: [{ type: "text", text: "How do I run a retro?" }],
+                  createdAt: "2026-11-16T09:00:00Z",
+                },
+                {
+                  id: "a1",
+                  role: "assistant",
+                  content: [{ type: "text", text: "Start with what went well." }],
+                  createdAt: "2026-11-16T09:00:01Z",
+                },
+              ],
+            });
+          });
+          // The visitor's runtime brings the parts that draw messages: the
+          // reader scrolls a log that shows them, not one they arrive in later.
+          await screen.findByText("Start with what went well.");
+          // The reader goes up the log (jsdom lays nothing out: its scroll is stubbed).
+          Object.defineProperty(log, "scrollHeight", { configurable: true, get: () => 900 });
+          Object.defineProperty(log, "clientHeight", { configurable: true, get: () => 300 });
+          Object.defineProperty(log, "scrollTop", { configurable: true, get: () => 120, set() {} });
+          fireEvent.wheel(log, { deltaY: -120 });
+          const latest = await screen.findByRole("button", { name: "Latest" });
+          await frames();
+          const button = amrButton();
+          expect(button).toHaveAttribute("data-amr-docked");
+
+          // In the chat's flow, after the log and before the composer's row:
+          // never over the log, and never in the footer, whose gutter he stands in.
+          const frame = log.parentElement!;
+          const footer = frame.querySelector<HTMLElement>("[data-chat-footer]")!;
+          expect(latest.closest("[data-chat-frame]")).toBe(frame);
+          expect(log.contains(latest)).toBe(false);
+          expect(footer.contains(latest)).toBe(false);
+          expect(
+            log.compareDocumentPosition(latest) & Node.DOCUMENT_POSITION_FOLLOWING
+          ).toBeTruthy();
+          expect(
+            latest.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING
+          ).toBeTruthy();
+          // The footer is at least as tall as his room while he is docked...
+          expect(footer.className).toContain(
+            "group-data-[amr-dock]/amr:min-h-[var(--amr-dock-footer)]"
+          );
+          // ...so the 44 px Latest, 8 px above it, has its centre above his figure's top.
+          const dockBottom = px(button, "--amr-dock-bottom");
+          const hitTop = 812 - dockBottom - MASCOT_BOX_PHONE.h + FIGURE_TOP * scale;
+          const sheetBottom = 812 - px(panel, "--amr-vv-bottom");
+          const footerTop = sheetBottom - dockRoom(panel, "--amr-dock-footer");
+          const latestCentre = footerTop - 8 - 22;
+          expect(latestCentre).toBeLessThan(hitTop);
+        } finally {
+          window.localStorage.removeItem(VISITOR_AI_CONSENT_KEY);
+          vi.unstubAllEnvs();
+          act(() => useAgentStore.getState().reset());
+        }
+      });
     }
   }
 
@@ -1515,6 +1860,122 @@ describe("on a phone: the sheet, the side panel and his dock (chat revamp PR 8)"
       expect(main).not.toHaveAttribute("inert");
     });
   }
+
+  for (const r of [
+    { w: 844, h: 390, rail: 64, notch: 0 },
+    { w: 844, h: 390, rail: 256 + 47, notch: 47 },
+    { w: 768, h: 400, rail: 256, notch: 0 },
+  ]) {
+    it(`${r.w}x${r.h} beside a ${r.rail} px rail${r.notch ? " that holds a notch" : ""}: the side panel on his left starts past it; on his right it only stops short of it`, async () => {
+      screenAt(r.w, r.h, { phone: false, insetLeft: r.notch });
+      setRail(r.rail);
+      render(<MascotAssistant />);
+      await withFigure();
+      const reach = MASCOT_BOX.w * (1 - HIT_SIDE);
+      // His box starts BUTTON_SIDE past the rail's edge (the notch is inside the rail).
+      const edge = r.rail + BUTTON_SIDE;
+      const at = { width: r.w, rail: r.rail, left: r.notch };
+
+      // Bottom left: he and the panel beside him stand past the rail.
+      fireEvent.keyDown(amrButton(), { key: "ArrowLeft" });
+      expect(inlinePx(amrButton().style.left, at)).toBe(edge);
+      let panel = openPanel();
+      expect(panel).toHaveAttribute("data-amr-layout", "side");
+      expect(panel.style.left).toContain("--amr-vv-inline");
+      let inline = px(panel, "--amr-vv-inline");
+      let width = px(panel, "--amr-vv-width");
+      expect(inline).toBeCloseTo(edge + reach + PANEL_GAP, 1);
+      expect(width).toBeCloseTo(
+        Math.min(SIDE_PANEL_MAX_W, r.w - edge - BUTTON_SIDE - reach - PANEL_GAP),
+        1
+      );
+      expect(inline + width).toBeLessThanOrEqual(r.w - BUTTON_SIDE + 0.01);
+      // Before its first reading, too: past the rail, and its far edge on the screen.
+      expect(panel.style.left).toContain("--app-rail");
+      const fallbackWidth = () =>
+        inlinePx(
+          beforeReading(panel.style.getPropertyValue("--amr-panel-width"), "--amr-vv-width"),
+          at
+        );
+      const fallbackLeft = inlinePx(beforeReading(panel.style.left, "--amr-vv-inline"), at);
+      expect(fallbackLeft).toBeCloseTo(edge + reach + PANEL_GAP, 1);
+      expect(fallbackLeft + fallbackWidth()).toBeLessThanOrEqual(r.w - BUTTON_SIDE + 0.01);
+      act(() => useAgentStore.setState({ open: false }));
+
+      // Bottom right: where it always stands, and never under the rail.
+      fireEvent.keyDown(amrButton(), { key: "ArrowRight" });
+      expect(amrButton().style.right).toBe(rightAsItWas(BUTTON_SIDE));
+      panel = openPanel();
+      expect(panel.style.right).toContain("--amr-vv-inline");
+      inline = px(panel, "--amr-vv-inline");
+      width = px(panel, "--amr-vv-width");
+      expect(inline).toBeCloseTo(BUTTON_SIDE + reach + PANEL_GAP, 1);
+      expect(r.w - inline - width).toBeGreaterThanOrEqual(edge - 0.01);
+      // Before its first reading, too: its far edge stops short of the rail.
+      const fallbackRight = inlinePx(beforeReading(panel.style.right, "--amr-vv-inline"), at);
+      expect(fallbackRight).toBeCloseTo(BUTTON_SIDE + reach + PANEL_GAP, 1);
+      expect(r.w - fallbackRight - fallbackWidth()).toBeGreaterThanOrEqual(edge - 0.01);
+      // The toasts go across from him, at the screen's own edge over the rail:
+      // their room is the screen's, as it was without one.
+      const room = r.w - inline - width - (BUTTON_SIDE + r.notch) - TOAST_GAP;
+      const html = document.documentElement;
+      if (room >= SIDE_TOAST_MIN_W) expect(px(html, "--amr-toast-room")).toBeCloseTo(room, 1);
+      else expect(html).toHaveAttribute("data-amr-toasts-held");
+      // (At 844 beside the 64 px rail that is 299 px: room for a toast, held if the rail were counted.)
+      if (r.rail === 64) expect(room).toBeGreaterThan(SIDE_TOAST_MIN_W);
+    });
+  }
+
+  it("follows the rail while the side panel is open: pinned beside him, the panel moves with him", async () => {
+    screenAt(844, 390, { phone: false });
+    setRail(64);
+    render(<MascotAssistant />);
+    await withFigure();
+    fireEvent.keyDown(amrButton(), { key: "ArrowLeft" });
+    const panel = openPanel();
+    const reach = MASCOT_BOX.w * (1 - HIT_SIDE);
+    expect(px(panel, "--amr-vv-inline")).toBeCloseTo(64 + BUTTON_SIDE + reach + PANEL_GAP, 1);
+    // Pinned open (or widening under a mouse): the sidebar says so on the document.
+    setRail(256);
+    act(() => {
+      document.dispatchEvent(new Event(APP_RAIL_EVENT));
+    });
+    await frames();
+    expect(px(panel, "--amr-vv-inline")).toBeCloseTo(256 + BUTTON_SIDE + reach + PANEL_GAP, 1);
+    expect(inlinePx(amrButton().style.left, { width: 844, rail: 256 })).toBe(256 + BUTTON_SIDE);
+    // Gone (presentation mode): the screen's edge again.
+    setRail(null);
+    act(() => {
+      document.dispatchEvent(new Event(APP_RAIL_EVENT));
+    });
+    await frames();
+    expect(px(panel, "--amr-vv-inline")).toBeCloseTo(BUTTON_SIDE + reach + PANEL_GAP, 1);
+  });
+
+  it("is carried past the rail, never under it, and dropped by the room past it", async () => {
+    // A 1024x768 tablet with the rail pinned open: the room past it runs from
+    // 264 to 1016, its middle at 640, not the screen's 512.
+    screenAt(1024, 768, { phone: false });
+    setRail(256);
+    render(<MascotAssistant />);
+    await withFigure();
+    carry(100, 300, false);
+    expect(amrButton().style.left).toBe("256px");
+    expect(amrButton().style.top).toBe("300px");
+    act(() => {
+      fireEvent.pointerMove(document, { clientX: 600, clientY: 300 });
+    });
+    act(() => {
+      fireEvent.pointerUp(document, { clientX: 600, clientY: 300 });
+    });
+    expect(useMascotStore.getState().corner).toBe("topLeft");
+    expect(inlinePx(amrButton().style.left, { width: 1024, rail: 256 })).toBe(256 + BUTTON_SIDE);
+
+    // With no rail the same drop is on the right of the middle.
+    setRail(null);
+    carry(600, 300);
+    expect(useMascotStore.getState().corner).toBe("topRight");
+  });
 
   it("keeps the sheet through a Firefox-style shrink while a panel field has focus, and lays out again once none has", async () => {
     screenAt(360, 640);

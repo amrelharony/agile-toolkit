@@ -40,8 +40,8 @@ vi.mock("@/lib/agent/client", () => ({
   canRetryLastTurn: vi.fn(() => false),
 }));
 vi.mock("@/lib/agent/persist", () => ({
-  listConversations: vi.fn(async () => []),
-  loadMessages: vi.fn(async () => []),
+  listConversations: vi.fn(async () => ({ ok: true, data: [] })),
+  loadMessages: vi.fn(async () => ({ ok: true, data: [] })),
   deleteConversation: vi.fn(async () => {}),
   renameConversation: vi.fn(async () => {}),
   createConversation: vi.fn(async () => null),
@@ -440,16 +440,17 @@ describe("compact mode", () => {
   it("keeps History's way back in reach while its search has the keyboard", async () => {
     const { listConversations } = await import("@/lib/agent/persist");
     const stamp = new Date(0).toISOString();
-    vi.mocked(listConversations).mockResolvedValueOnce(
-      [1, 2, 3, 4].map((n) => ({
+    vi.mocked(listConversations).mockResolvedValueOnce({
+      ok: true,
+      data: [1, 2, 3, 4].map((n) => ({
         id: `c${n}`,
         title: `Thread ${n}`,
         toolId: null,
         createdAt: stamp,
         updatedAt: stamp,
         lastMessageAt: stamp,
-      }))
-    );
+      })),
+    });
     screenAt(375, 667);
     await openChat();
     fireEvent.click(within(dialog()).getByRole("button", { name: "Conversation history" }));
@@ -722,7 +723,7 @@ describe("docked Amr and the keyboard", () => {
   for (const w of [320, 375]) {
     for (const side of ["right", "left"] as const) {
       it(`at ${w} px wide, docked ${side}: History's list ends above him, so no row's action is his`, async () => {
-        vi.mocked(listConversations).mockImplementation(async () => threads);
+        vi.mocked(listConversations).mockImplementation(async () => ({ ok: true, data: threads }));
         try {
           screenAt(w, 667);
           await openChat();
@@ -733,7 +734,7 @@ describe("docked Amr and the keyboard", () => {
           }
           fireEvent.click(within(dialog()).getByRole("button", { name: "Conversation history" }));
           const deletes = await within(dialog()).findAllByRole("button", {
-            name: "Delete conversation",
+            name: /^Delete “/,
           });
           expect(deletes).toHaveLength(threads.length);
           const panel = dialog();
@@ -789,7 +790,7 @@ describe("docked Amr and the keyboard", () => {
             delete (document as { elementFromPoint?: unknown }).elementFromPoint;
           }
         } finally {
-          vi.mocked(listConversations).mockImplementation(async () => []);
+          vi.mocked(listConversations).mockImplementation(async () => ({ ok: true, data: [] }));
         }
       });
     }
@@ -866,6 +867,35 @@ describe("under 360 px wide", () => {
     expect(items[0]).toHaveTextContent("New chat");
     const subtitle = panel.querySelector('[data-panel-slot="subtitle"]')!.parentElement!;
     expect(subtitle).toHaveClass("truncate");
+  });
+
+  it("New chat from More puts focus in the fresh chat's box, even on a touch screen, from the chat or from History", async () => {
+    screenAt(320, 568);
+    await openChat();
+    // A touch screen: opening the chat raised no keyboard.
+    expect(composer()).not.toHaveFocus();
+    act(() => useAgentStore.getState().setDraft("owner", "half"));
+    const newChatFromMore = async () => {
+      fireEvent.keyDown(within(dialog()).getByRole("button", { name: "More" }), { key: "Enter" });
+      fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "New chat" }));
+      // Radix hands focus on a tick after the menu goes.
+      await frames();
+    };
+    await newChatFromMore();
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(composer()).toHaveFocus();
+    // A fresh chat, from an empty box.
+    expect(useAgentStore.getState().messages).toHaveLength(0);
+    expect(composer()).toHaveValue("");
+
+    // From History: the chat comes back, and its box takes focus.
+    fireEvent.click(within(dialog()).getByRole("button", { name: "Conversation history" }));
+    expect(screen.queryByLabelText("Message")).toBeNull();
+    await newChatFromMore();
+    expect(composer()).toHaveFocus();
+    expect(
+      within(dialog()).getByRole("button", { name: "Conversation history" })
+    ).toBeInTheDocument();
   });
 
   it("keeps New chat beside History from 360 px", async () => {
