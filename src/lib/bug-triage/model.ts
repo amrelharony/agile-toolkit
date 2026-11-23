@@ -40,7 +40,7 @@ import { isExampleId } from "@/lib/utils/example-id";
 import type { Validation } from "@/lib/utils/form";
 
 /** Every bug's id starts with this (the CRUD's and the "bug" route's). */
-export const BUG_ID_PREFIX = "bug_";
+export { BUG_ID_PREFIX } from "./ids";
 
 /* ── Labels ──────────────────────────────────────────────────────────── */
 

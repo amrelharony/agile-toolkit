@@ -11,7 +11,7 @@
 import { nanoid } from "nanoid";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { TOOL_TEXT_MAX, type BugReport } from "@/lib/stores/workspace-types";
-import { BUG_ID_PREFIX } from "@/lib/bug-triage/model";
+import { BUG_ID_PREFIX } from "@/lib/bug-triage/ids";
 import type { HandoffRoute, HandoffSource } from "../types";
 
 /** A new bug id, as the workspace CRUD makes them. */
