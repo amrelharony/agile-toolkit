@@ -528,7 +528,7 @@ describe("the library", () => {
     const md = (await screen.findByTestId("export-markdown")).textContent ?? "";
     expect(md).toMatch(/^# Personas — /);
     expect(md).toContain("## Maya, Shift nurse");
-    expect(md).toContain("Main persona · Some evidence");
+    expect(md).toContain("Tier: Main · Evidence: Some evidence");
     expect(md).toContain("**Goals**\n\n- Dinner in 30 minutes");
     expect(md).toContain("**Frustrations**\n\n- Late deliveries");
     expect(md).toContain("> Toast again.");
@@ -545,7 +545,9 @@ describe("the library", () => {
     );
     expect(md).toContain("# Personas — 23 Nov 2026");
     expect(md).toContain("## Riley, Deal hunter who cancels after the first discount");
-    expect(md).toContain("Not for us persona · Some evidence");
+    expect(md).toContain("Tier: Not for us · Evidence: Some evidence");
+    expect(md).toContain("Tier: Also served · Evidence: Our guess");
+    expect(md).not.toMatch(/ persona · /);
     expect(personasMarkdown([])).toContain("No personas yet.");
   });
 });

@@ -31,7 +31,7 @@ export function personasMarkdown(
   const lines: string[] = [title];
   for (const p of personas) {
     lines.push("", `## ${oneLine(p.name)}, ${oneLine(p.role) || "role to confirm"}`, "");
-    lines.push(`${TIER_LABEL[p.tier]} persona · ${EVIDENCE_LABEL[p.evidence]}`);
+    lines.push(`Tier: ${TIER_LABEL[p.tier]} · Evidence: ${EVIDENCE_LABEL[p.evidence]}`);
     if (p.summary) lines.push("", oneLine(p.summary));
     for (const list of PERSONA_LISTS) {
       if (p[list].length === 0) continue;
