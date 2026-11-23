@@ -375,6 +375,7 @@ describe("the empty state and the example", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Load an example" }));
     const select = within(sortList()).getAllByRole("combobox")[0];
     fireEvent.change(select, { target: { value: "debt" } });
+    fireEvent.click(within(sortList()).getAllByRole("button", { name: /^Set the type of/ })[0]);
     expect(screen.getByText(/as debt\./)).toBeInTheDocument();
     expect(ws().stories).toEqual([]);
     expect(logs).toEqual([]);
@@ -484,9 +485,14 @@ describe("sorting the work", () => {
     seed();
     renderPage();
     const row = within(await screen.findByRole("list", { name: "Items to sort" }));
+    const set = row.getByRole("button", { name: "Set the type of Pay with a saved card" });
+    expect(set).toBeDisabled();
     fireEvent.change(row.getByRole("combobox", { name: "Type of Pay with a saved card" }), {
       target: { value: "feature" },
     });
+    // Choosing writes nothing (an arrow key on a closed select changes it): Set does.
+    expect(story("d")).not.toHaveProperty("workType");
+    fireEvent.click(set);
     expect(story("d")?.workType).toBe("feature");
     expect(screen.getByText("Sorted “Pay with a saved card” as feature.")).toBeInTheDocument();
     expect(logs.at(-1)).toEqual({
@@ -495,6 +501,26 @@ describe("sorting the work", () => {
     });
     undoLast();
     expect(story("d")).not.toHaveProperty("workType");
+  });
+
+  it("moves focus to the next item once one is sorted, then to the list's last line", async () => {
+    seed();
+    renderPage();
+    await screen.findByRole("list", { name: "Items to sort" });
+    const sortOne = async () => {
+      const first = within(sortList()).getAllByRole("combobox")[0];
+      fireEvent.change(first, { target: { value: "feature" } });
+      fireEvent.click(within(sortList()).getAllByRole("button", { name: /^Set the type of/ })[0]);
+    };
+    const count = within(sortList()).getAllByRole("combobox").length;
+    for (let n = 1; n < count; n++) {
+      await sortOne();
+      await waitFor(() => expect(within(sortList()).getAllByRole("combobox")[0]).toHaveFocus());
+    }
+    await sortOne();
+    await waitFor(() =>
+      expect(screen.getByText(/^Every finished item in the window has a type/)).toHaveFocus()
+    );
   });
 
   it("marks repeat work, and takes it back", async () => {

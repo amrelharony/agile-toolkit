@@ -32,6 +32,11 @@ const SELECT_CLASS =
 /** Rows shown before "Show all". */
 export const SORT_ROWS_SHOWN = 12;
 
+/** Focus what `find` returns once React has re-rendered (the sorted row has gone). */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+
 /** One of Amr's suggestions, mapped back to its row. */
 export interface SortSuggestion extends RowRef {
   title: string;
@@ -80,6 +85,19 @@ export function SortSection({
   const leftRef = useRef(0);
   const guessed = items.filter((it) => it.type !== null);
   const shown = all ? items : items.slice(0, SORT_ROWS_SHOWN);
+  const listRef = useRef<HTMLUListElement>(null);
+  const doneRef = useRef<HTMLParagraphElement>(null);
+
+  /** One row's type; the row leaves the list, so focus goes to the one that took its place. */
+  const setType = (item: MixItem, type: WorkType) => {
+    const at = shown.findIndex((it) => it.kind === item.kind && it.id === item.id);
+    onSetType(item, type);
+    focusSoon(() => {
+      const selects = listRef.current?.querySelectorAll<HTMLElement>("select");
+      if (!selects || selects.length === 0) return doneRef.current;
+      return selects[Math.min(Math.max(at, 0), selects.length - 1)];
+    });
+  };
 
   const buildInput = () => {
     const plan = classifyPlan(items, data.stories, data.board?.cards ?? []);
@@ -148,7 +166,8 @@ export function SortSection({
         {status}
       </p>
       {items.length === 0 ? (
-        <p className="text-sm text-sub">
+        // Focus lands here once the last item to sort has gone.
+        <p ref={doneRef} tabIndex={-1} className="text-sm text-sub outline-none">
           Every finished item in the window has a type. New ones show here to sort.
         </p>
       ) : (
@@ -183,6 +202,7 @@ export function SortSection({
             </p>
           )}
           <ul
+            ref={listRef}
             className="divide-y divide-border rounded-lg border border-border"
             aria-label="Items to sort"
           >
@@ -190,7 +210,7 @@ export function SortSection({
               <SortRow
                 key={`${it.kind}-${it.id}`}
                 item={it}
-                onSetType={onSetType}
+                onSetType={setType}
                 onToggleRepeat={onToggleRepeat}
               />
             ))}
@@ -215,35 +235,52 @@ function SortRow({
   onSetType: (item: MixItem, type: WorkType) => void;
   onToggleRepeat: (item: MixItem) => void;
 }) {
+  // Choosing is apart from writing: on Windows a closed select changes on
+  // each arrow key, and a write on change would take the row away mid-way.
+  const [choice, setChoice] = useState<WorkType | "">("");
+  const title = item.title || "this item";
   const guess = item.type
     ? `Guess: ${WORK_TYPE_LABEL[item.type]}, ${TYPE_BY_LABEL[item.typeBy ?? "keywords"]}`
     : "Not sorted: no guess";
   return (
-    <li className="grid gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_12rem_auto] sm:items-end">
+    <li className="grid gap-2 px-3 py-2 sm:grid-cols-[minmax(0,1fr)_16rem_auto] sm:items-end">
       <div className="min-w-0">
         <p className="break-words text-sm text-text">{item.title || "Untitled"}</p>
         <p className="text-xs text-sub">
           {item.kind === "story" ? "Story" : "Card"} · done {item.doneOn} · {guess}
         </p>
       </div>
-      <select
-        aria-label={`Type of ${item.title || "this item"}`}
-        className={SELECT_CLASS}
-        value=""
-        onChange={(e) => {
-          const v = e.target.value as WorkType;
-          if ((WORK_TYPES as readonly string[]).includes(v)) onSetType(item, v);
-        }}
-      >
-        <option value="">
-          {item.type ? `Pick (guess: ${WORK_TYPE_LABEL[item.type]})` : "Pick a type"}
-        </option>
-        {WORK_TYPES.map((t) => (
-          <option key={t} value={t}>
-            {WORK_TYPE_LABEL[t]}
+      <div className="flex min-w-0 items-center gap-2">
+        <select
+          aria-label={`Type of ${title}`}
+          className={`${SELECT_CLASS} min-w-0 flex-1`}
+          value={choice}
+          onChange={(e) => {
+            const v = e.target.value;
+            setChoice((WORK_TYPES as readonly string[]).includes(v) ? (v as WorkType) : "");
+          }}
+        >
+          <option value="">
+            {item.type ? `Pick (guess: ${WORK_TYPE_LABEL[item.type]})` : "Pick a type"}
           </option>
-        ))}
-      </select>
+          {WORK_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {WORK_TYPE_LABEL[t]}
+            </option>
+          ))}
+        </select>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="shrink-0"
+          disabled={!choice}
+          aria-label={`Set the type of ${title}`}
+          onClick={() => choice && onSetType(item, choice)}
+        >
+          Set
+        </Button>
+      </div>
       <Button
         type="button"
         size="sm"
