@@ -55,15 +55,22 @@ export const FAILURE_FLAGS = [
   "ok",
   "success",
   "added",
+  "applied",
   "archived",
   "assigned",
   "cancelled",
+  "checkedIn",
+  "chosen",
   "closed",
+  "computed",
   "created",
   "dealt",
   "decided",
   "deleted",
   "derived",
+  "drafted",
+  "ended",
+  "forgotten",
   "logged",
   "mixed",
   "moved",
@@ -88,6 +95,7 @@ export const FAILURE_FLAGS = [
   "superseded",
   "tagged",
   "taken",
+  "triaged",
   "updated",
   "voted",
 ] as const;
@@ -96,10 +104,12 @@ export const FAILURE_FLAGS = [
  * Flags that mean a refusal only with a `reason` beside them, as they are
  * also plain facts a result can answer false: Planning Poker's get_round
  * reads `revealed: false` before a reveal, Plan Sprint's dry run answers
- * `committed: false`, a task row has `done: false`, and Skills Matrix's
- * reopen answers `{done: false, reopened: true}`.
+ * `committed: false`, a task row has `done: false`, Skills Matrix's
+ * reopen answers `{done: false, reopened: true}`, and Value/Effort Matrix's
+ * set_position answers `placed: false` for a row it took off the matrix
+ * (Relative Sizing's and Product Canvas's place refuse with a reason).
  */
-export const REFUSAL_FLAGS = ["committed", "done", "revealed"] as const;
+export const REFUSAL_FLAGS = ["committed", "done", "placed", "revealed"] as const;
 
 /** Fields that name a thing plainly, in the order they are tried. */
 const NAME_FIELDS = ["title", "name", "text", "label"] as const;
