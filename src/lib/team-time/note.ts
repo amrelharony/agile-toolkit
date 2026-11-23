@@ -200,7 +200,7 @@ export function scheduleTips(input: ScheduleNoteInput): ScheduleNote {
       : shared > 0
         ? `Everyone shares ${minutesText(shared)} on the best day.`
         : input.mostOverlapMinutes > 0
-          ? `No hour covers everyone; all but one share ${minutesText(input.mostOverlapMinutes)}.`
+          ? `No hour covers everyone; all but one share ${minutesText(input.mostOverlapMinutes)} on the best day.`
           : "No hour covers everyone.";
   const tips: string[] = [];
   if (shared >= 180) {

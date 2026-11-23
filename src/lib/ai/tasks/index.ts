@@ -20,6 +20,7 @@ import { retroActionsThemesTask } from "./retro-actions";
 import { categoriesTask, countermeasureTask, nextWhyTask } from "./root-cause";
 import { notebookTagTask, notebookWeeklySummaryTask } from "./sm-notebook";
 import { sprintRiskNoteTask } from "./sprint";
+import { teamTimeScheduleNoteTask } from "./team-time";
 
 // `any` here only erases each task's own input/output types for the list; the
 // routes check every input and output against the task's schemas at run time.
@@ -47,4 +48,5 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   notebookWeeklySummaryTask,
   notebookTagTask,
   sprintRiskNoteTask,
+  teamTimeScheduleNoteTask,
 ];

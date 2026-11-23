@@ -20,6 +20,7 @@ import { retroActionsThemesPrompt } from "./retro-actions.server";
 import { categoriesPrompt, countermeasurePrompt, nextWhyPrompt } from "./root-cause.server";
 import { notebookTagPrompt, notebookWeeklySummaryPrompt } from "./sm-notebook.server";
 import { sprintRiskNotePrompt } from "./sprint.server";
+import { teamTimeScheduleNotePrompt } from "./team-time.server";
 
 // See index.ts on `any`: each prompt's input is checked by its task's schema first.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -46,4 +47,5 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   notebookWeeklySummaryPrompt,
   notebookTagPrompt,
   sprintRiskNotePrompt,
+  teamTimeScheduleNotePrompt,
 ];
