@@ -108,6 +108,15 @@ const short = (text: string, max = 40) =>
   text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+/** Focus the element `find` returns once React has re-rendered. */
+function focusSoon(find: () => HTMLElement | null | undefined) {
+  requestAnimationFrame(() => find()?.focus());
+}
+const byData = (attr: string, id: string) =>
+  Array.from(document.querySelectorAll<HTMLElement>(`[${attr}]`)).find(
+    (e) => e.getAttribute(attr) === id
+  );
+
 /** Whether the item a send made still exists there. */
 const linkLive = (l: HandoffLink) =>
   isNoteRoute(l.route) && getHandoffRoute(l.route).exists(l.targetId);
@@ -364,6 +373,8 @@ export function NotesToActionsClient() {
     });
     if (found?.noteId === n.id) setFound(null);
     announce("Forgot the pasted notes. The items you kept stay.");
+    // "Forget the notes" goes with the text: focus stays on this note's card.
+    focusSoon(() => byData("data-note-heading", n.id));
   };
 
   const removeWholeNote = (n: MeetingNote) => {
@@ -379,9 +390,16 @@ export function NotesToActionsClient() {
         if (removed) saveNote(removed);
       },
     });
+    // The next note opens in its place: focus its button in Past notes, or the paste box.
+    const after = notes.find((x) => x.id !== n.id);
     setSelectedId(null);
     setFound(null);
     announce(label);
+    focusSoon(() =>
+      after
+        ? byData("data-past-note", after.id)
+        : document.querySelector<HTMLElement>("[data-paste-notes] textarea")
+    );
   };
 
   const loadExample = () => {
@@ -469,7 +487,7 @@ export function NotesToActionsClient() {
           </p>
         </div>
 
-        <section aria-label="Paste notes">
+        <section aria-label="Paste notes" data-paste-notes>
           <SectionCard title="Paste notes" icon={ClipboardPaste}>
             <ItemForm form={pasteForm} submitLabel="Save the notes">
               <Field
@@ -575,6 +593,7 @@ export function NotesToActionsClient() {
                     <li key={n.id}>
                       <button
                         type="button"
+                        data-past-note={n.id}
                         aria-current={current ? "true" : undefined}
                         className={cn(
                           "flex min-h-11 w-full flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-md border px-3 py-2 text-left text-sm",
@@ -660,7 +679,12 @@ function NoteView({
   return (
     <section aria-label={`${note.meeting || "Meeting"} notes, ${note.date}`} className="space-y-4">
       <SectionCard
-        title={`${note.meeting || "Meeting"} · ${note.date}`}
+        title={
+          // Focus lands here once "Forget the notes" (in the card's header) is gone.
+          <span tabIndex={-1} data-note-heading={note.id}>
+            {`${note.meeting || "Meeting"} · ${note.date}`}
+          </span>
+        }
         icon={ListTodo}
         titleSize="lg"
         actions={

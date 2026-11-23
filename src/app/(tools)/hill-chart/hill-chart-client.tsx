@@ -108,6 +108,13 @@ const byData = (attr: string, id: string) =>
   Array.from(document.querySelectorAll<HTMLElement>(`[${attr}]`)).find(
     (e) => e.getAttribute(attr) === id
   );
+/** Once the chart in view goes: the chart picker, or the example button when none is left. */
+const focusChartPicker = () =>
+  focusSoon(
+    () =>
+      document.querySelector<HTMLElement>("[data-hill-chart-picker]") ??
+      document.querySelector<HTMLElement>("[data-hill-empty] button")
+  );
 
 /**
  * Hill Chart: each piece of work (a scope) on a hill, uphill while the team
@@ -256,7 +263,10 @@ export function HillChartClient() {
       else delete next.archived;
       return next;
     });
-    if (archiving && !showArchived) setSelectedId(null);
+    if (archiving && !showArchived) {
+      setSelectedId(null);
+      focusChartPicker();
+    }
   };
 
   const removeWholeChart = (c: HillChart) => {
@@ -274,6 +284,7 @@ export function HillChartClient() {
     });
     setSelectedId(null);
     announce(label);
+    focusChartPicker();
   };
 
   const addScope = (c: HillChart, values: ScopeValues) => {
@@ -509,11 +520,13 @@ export function HillChartClient() {
         {charts.length === 0 ? (
           <>
             {newChartCard}
-            <EmptyState icon={Mountain} action={<LoadExampleButton onLoad={loadExample} />}>
-              No hill charts yet. Start one for a sprint or an epic above, add its pieces of work,
-              and place each on the hill: uphill while you are still working it out, downhill once
-              it only needs doing.
-            </EmptyState>
+            <div data-hill-empty>
+              <EmptyState icon={Mountain} action={<LoadExampleButton onLoad={loadExample} />}>
+                No hill charts yet. Start one for a sprint or an epic above, add its pieces of work,
+                and place each on the hill: uphill while you are still working it out, downhill once
+                it only needs doing.
+              </EmptyState>
+            </div>
           </>
         ) : (
           <>
@@ -522,6 +535,7 @@ export function HillChartClient() {
                 {(props) => (
                   <select
                     {...props}
+                    data-hill-chart-picker=""
                     className={SELECT_CLASS}
                     value={chart?.id ?? ""}
                     onChange={(e) => {

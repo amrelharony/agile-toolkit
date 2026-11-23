@@ -469,6 +469,29 @@ describe("charts", () => {
     expect(stored()).toBeTruthy();
   });
 
+  it("keeps focus on the page once the chart in view is archived or deleted", async () => {
+    seed([chart(), chart({ id: "hill_b", title: "Search", createdAt: ago(30) })]);
+    renderPage();
+    const archive = screen.getByRole("button", { name: "Archive" });
+    archive.focus();
+    fireEvent.click(archive);
+    await waitFor(() => expect(screen.getByLabelText("Chart")).toHaveFocus());
+    const remove = screen.getByRole("button", { name: "Delete the hill chart Search" });
+    remove.focus();
+    fireEvent.click(remove);
+    // Only the archived chart is left: the picker stays, showing none in use.
+    await waitFor(() => expect(screen.getByLabelText("Chart")).toHaveFocus());
+  });
+
+  it("focuses Load an example once the last chart is deleted", async () => {
+    seed([chart()]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete the hill chart Refunds" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Load an example" })).toHaveFocus()
+    );
+  });
+
   it("opens the chart a ?chart= link names", async () => {
     seed([chart(), chart({ id: "hill_b", title: "Search", createdAt: ago(30) })]);
     window.history.replaceState(null, "", "/hill-chart?chart=hill_b");

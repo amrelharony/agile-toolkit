@@ -504,6 +504,27 @@ describe("forgetting, deleting and exporting", () => {
     expect(stored()).toBeTruthy();
   });
 
+  it("keeps focus on the note's card once Forget the notes is gone", async () => {
+    renderPage();
+    const forgetButton = screen.getByRole("button", { name: "Forget the notes" });
+    forgetButton.focus();
+    fireEvent.click(forgetButton);
+    const card = within(screen.getByRole("region", { name: "Sprint Review notes, 2026-11-20" }));
+    await waitFor(() => expect(card.getByText("Sprint Review · 2026-11-20")).toHaveFocus());
+  });
+
+  it("focuses the next note in Past notes after a delete, and the paste box after the last", async () => {
+    // The newest day opens first: the Daily Scrum's notes.
+    seed([note(), note({ id: "mnote_b", meeting: "Daily Scrum", date: "2026-11-21" })]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Delete the notes from Daily Scrum" }));
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^Sprint Review · 2026-11-20/ })).toHaveFocus()
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete the notes from Sprint Review" }));
+    await waitFor(() => expect(paste().getByLabelText(/Meeting notes/)).toHaveFocus());
+  });
+
   it("exports the items by kind, never the pasted text or a quote", () => {
     renderPage();
     const md = screen.getByTestId("export-markdown").textContent ?? "";
