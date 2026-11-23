@@ -317,6 +317,21 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     open: ["tree"],
     actions: { node_added: ["tree.grow"], bet_sent: ["tree.share"] },
   },
+  {
+    toolId: "product-metrics",
+    open: ["okr"],
+    actions: { reading_added: ["okr.checkin"], north_star_set: ["goal.hit"] },
+  },
+  {
+    toolId: "ab-calculator",
+    open: ["lab"],
+    actions: { counts_recorded: ["lab.pour"] },
+  },
+  {
+    toolId: "ebm-dashboard",
+    open: ["compass"],
+    actions: { review_recorded: ["compass.think"] },
+  },
   // A test created hasn't run: X095 stops before its cart crosses. test_generated, logged in
   // the same handler, stays unbound, so the test created is what he answers.
   {
