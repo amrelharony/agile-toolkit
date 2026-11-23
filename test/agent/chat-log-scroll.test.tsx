@@ -4,8 +4,9 @@
  * growing reply only while the reader is at its end; a resize re-pins a
  * following log and is never taken for the reader going up; reading further
  * up, nothing moves it; the Latest button takes it back and hands focus to
- * the composer (not after a tap on a touch screen, where that would raise the
- * keyboard); scrolls wait for one frame and are instant under reduced
+ * the composer (after a tap on a touch screen, where that would raise the
+ * keyboard, to the newest item instead); scrolls wait for one frame and are
+ * instant under reduced
  * motion; a short panel brings the log back with root.scrollTo, never
  * scrollIntoView; a chat hidden under Amr's Scenes view writes nothing and
  * follows from its end once it shows again; and the focus safety net catches
@@ -20,6 +21,8 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { useRef, type ReactNode } from "react";
 import { ChatVisibleContext } from "@/components/agent/chat-visibility";
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import { ChatProvider } from "@/components/agent/chat/chat-context";
 import { ChatFrame } from "@/components/agent/chat/chat-frame";
 import { STICK_THRESHOLD, nearestTop } from "@/components/agent/chat/use-stick-to-bottom";
@@ -262,6 +265,34 @@ describe("the frame", () => {
     expect(log.scrollTo).toHaveBeenLastCalledWith({ top: 800, behavior: "instant" });
     expect(latest()).toBeNull();
   });
+
+  it("is a keyboard stop of its own, ringed inside its edge, that nothing focuses by itself", async () => {
+    // A visitor's chat once the messages have run out ends on the refused
+    // question: no reply end, nothing in the strip to Tab to. The keys can
+    // still reach the log and scroll it (axe scrollable-region-focusable).
+    const { log } = await settled([...CHAT, you("u3", "Who picks the cards?")]);
+    const el = theLog();
+    expect(el).toHaveAttribute("tabindex", "0");
+    expect(el.querySelector("button, a[href], [tabindex='0']")).toBeNull();
+    expect(el).not.toHaveFocus();
+    // Inside its edge, high contrast's !important outline-offset included, so
+    // the frame's scrolling never cuts the ring off.
+    expect(el).toHaveClass("focus-visible:!outline-offset-[-3px]");
+    expect(el.className).not.toMatch(/outline-none/);
+    // ... and over the strip: the log is its own stack with its content at
+    // the bottom of it, so a balloon scrolled under an edge (balloons are
+    // positioned) never paints over the line.
+    expect(el).toHaveClass("isolate");
+    expect(el.querySelector("[data-chat-content]")).toHaveClass("relative", "-z-10");
+    // Focused, the keys that go up still count as the reader leaving the end.
+    act(() => el.focus());
+    expect(el).toHaveFocus();
+    fireEvent.keyDown(el, { key: "PageUp" });
+    log.readTo(500);
+    await frames();
+    expect(log.top()).toBe(500);
+    expect(latest()).toBeInTheDocument();
+  });
 });
 
 describe("following the log", () => {
@@ -446,24 +477,60 @@ describe("the Latest button", () => {
     expect(log.top()).toBe(1000);
   });
 
-  it("leaves focus where the tap left it on a touch screen, so no keyboard rises over the newest lines", async () => {
+  it("hands focus to the newest item after a tap on a touch screen, so no keyboard rises over it and focus never falls to the page", async () => {
     touchScreen();
     const { log } = await settled();
     log.readTo(300);
     log.scrollTo.mockClear();
 
-    fireEvent.click(latest()!, { detail: 1 });
-    expect(composer()).not.toHaveFocus();
+    const button = latest()!;
+    button.focus();
+    fireEvent.click(button, { detail: 1 });
     expect(latest()).toBeNull();
-    // The removed button leaves focus on nothing, which the safety net keeps.
-    await act(async () => {});
+    // The newest item in the log, focusable from code just while it holds focus.
+    const items = theLog().querySelectorAll<HTMLElement>("[data-chat-item]");
+    const newest = items[items.length - 1];
+    expect(newest).toHaveFocus();
+    expect(newest).toHaveAttribute("tabindex", "-1");
     expect(composer()).not.toHaveFocus();
-    expect(document.activeElement).toBe(document.body);
+    await act(async () => {});
+    expect(newest).toHaveFocus();
+    expect(document.activeElement).not.toBe(document.body);
 
     // The log still goes to its end.
     await frames();
     expect(log.scrollTo).toHaveBeenCalledWith({ top: 800, behavior: "smooth" });
     expect(log.top()).toBe(log.end());
+
+    // A tap elsewhere takes focus on: the item is not a tab stop after it.
+    composer().focus();
+    expect(newest).not.toHaveAttribute("tabindex");
+  });
+
+  it("never hands a tap's focus to a wordless balloon: thinking, or a reply not yet begun", async () => {
+    touchScreen();
+    const view = render(
+      <Chat
+        messages={CHAT}
+        busy
+        extra={
+          <>
+            <div data-chat-item="balloon" data-held="" aria-hidden="true" />
+            <div data-chat-item="thinking" aria-hidden="true" />
+          </>
+        }
+      />
+    );
+    const log = layout(theLog(), { height: 1000, client: 200 });
+    await frames();
+    log.readTo(300);
+    fireEvent.click(latest()!, { detail: 1 });
+    const shown = theLog().querySelectorAll<HTMLElement>(
+      '[data-chat-item]:not([data-chat-item="thinking"]):not([data-held])'
+    );
+    expect(shown[shown.length - 1]).toHaveAttribute("data-message-id", "a2");
+    expect(shown[shown.length - 1]).toHaveFocus();
+    view.unmount();
   });
 
   it("still hands focus to the composer from a key press on a touch screen", async () => {

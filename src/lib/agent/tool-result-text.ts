@@ -45,34 +45,61 @@ export const TROUBLE_STATES: ReadonlySet<ToolStepState> = new Set<ToolStepState>
  * Flags a handler sets to false when it changed nothing it was asked to
  * (`{ added: false, reason: "no_retro" }`). `found`, `exists` and `changed`
  * are left out: a read that finds nothing, or a change already in place, did
- * its job.
+ * its job. So are `favorited` (Liberating Structures answers false when it
+ * took a favourite off, which worked) and `picked` (Retro's "Surprise me", a
+ * read). test/agent/tool-result-text.test.ts checks every `{flag: false` an
+ * action's description names against these lists, so a new tool's flag can't
+ * read as done unseen.
  */
-const FAILURE_FLAGS = [
+export const FAILURE_FLAGS = [
   "ok",
   "success",
   "added",
   "archived",
+  "assigned",
+  "cancelled",
+  "closed",
   "created",
+  "dealt",
+  "decided",
   "deleted",
   "derived",
   "logged",
+  "mixed",
   "moved",
   "persisted",
   "posted",
   "promoted",
+  "published",
   "raised",
   "recorded",
   "refunded",
   "removed",
+  "renamed",
+  "reopened",
   "retired",
   "saved",
   "sent",
   "set",
   "shipped",
+  "shuffled",
+  "split",
   "started",
+  "superseded",
+  "tagged",
   "taken",
   "updated",
+  "voted",
 ] as const;
+
+/**
+ * Flags that mean a refusal only with a `reason` beside them, as they are
+ * also plain facts a result can answer false: Planning Poker's get_round
+ * reads `revealed: false` before a reveal, Plan Sprint's dry run answers
+ * `committed: false`, a task row has `done: false`, and Skills Matrix's
+ * reopen answers `{done: false, reopened: true}`.
+ */
+export const REFUSAL_FLAGS = ["committed", "done", "revealed"] as const;
 
 /** Fields that name a thing plainly, in the order they are tried. */
 const NAME_FIELDS = ["title", "name", "text", "label"] as const;
@@ -104,12 +131,17 @@ function parseObject(text: string): Record<string, unknown> | null {
   }
 }
 
-/** The handler's JSON says it changed nothing: an `error`, or a flag such as `added: false`. */
+/**
+ * The handler's JSON says it changed nothing: an `error`, a flag such as
+ * `added: false`, or one such as `revealed: false` with its reason.
+ */
 function saysItFailed(value: Record<string, unknown> | null): boolean {
   if (!value) return false;
-  const { error } = value;
+  const { error, reason } = value;
   if (error === true || (typeof error === "string" && error.trim() !== "")) return true;
-  return FAILURE_FLAGS.some((flag) => value[flag] === false);
+  if (FAILURE_FLAGS.some((flag) => value[flag] === false)) return true;
+  const hasReason = typeof reason === "string" && reason.trim() !== "";
+  return hasReason && REFUSAL_FLAGS.some((flag) => value[flag] === false);
 }
 
 /** execute-tool.ts's own strings, matched whether or not is_error survived a reload; null for anything else. */

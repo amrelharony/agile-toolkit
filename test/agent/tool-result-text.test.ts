@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { registry } from "@/lib/actions/registry";
+import "@/lib/actions/register-all";
 import { executeToolUse } from "@/lib/agent/execute-tool";
 import {
+  FAILURE_FLAGS,
+  REFUSAL_FLAGS,
   STEP_WORDS,
   classifyResult,
   pairToolResults,
@@ -64,6 +67,56 @@ describe("classifyResult", () => {
     // A read that finds nothing, or a change already in place, did its job.
     expect(classifyResult(ok('{"found":false}'))).toBe("done");
     expect(classifyResult(ok('{"changed":false}'))).toBe("done");
+  });
+
+  it("reads the newer tools' refusals as failed, never as a finished change", () => {
+    // Card Decks, SM Notebook, Team Mixer, Product Goal and Backlog Health.
+    expect(classifyResult(ok('{"dealt":false,"reason":"x"}'))).toBe("failed");
+    expect(classifyResult(ok('{"shuffled":false,"reason":"x"}'))).toBe("failed");
+    expect(classifyResult(ok('{"tagged":false,"reason":"not_found"}'))).toBe("failed");
+    expect(classifyResult(ok('{"mixed":false,"reason":"x"}'))).toBe("failed");
+    expect(classifyResult(ok('{"closed":false}'))).toBe("failed");
+    expect(classifyResult(ok('{"split":false,"reason":"x"}'))).toBe("failed");
+    // Decision Log, Planning Poker, RACI and Working Agreement.
+    expect(classifyResult(ok('{"decided":false,"reason":"not_found"}'))).toBe("failed");
+    expect(classifyResult(ok('{"cancelled":false}'))).toBe("failed");
+    expect(classifyResult(ok('{"voted":false,"reason":"revealed"}'))).toBe("failed");
+    expect(classifyResult(ok('{"renamed":false,"reason":"duplicate"}'))).toBe("failed");
+    expect(classifyResult(ok('{"published":false,"reason":"no_rules"}'))).toBe("failed");
+  });
+
+  it("reads revealed, committed and done as a refusal only with a reason", () => {
+    expect(classifyResult(ok('{"revealed":false,"reason":"no_active_round"}'))).toBe("failed");
+    expect(classifyResult(ok('{"committed":false,"reason":"not_revealed"}'))).toBe("failed");
+    expect(classifyResult(ok('{"done":false,"reason":"not_found"}'))).toBe("failed");
+    // A round not yet revealed, a dry-run plan, a reopened training, an open task.
+    expect(classifyResult(ok('{"active":false,"revealed":false,"voteCount":0}'))).toBe("done");
+    expect(classifyResult(ok('{"selected":[],"committed":false}'))).toBe("done");
+    expect(classifyResult(ok('{"done":false,"reopened":true}'))).toBe("done");
+    expect(classifyResult(ok('{"id":"t1","text":"Map","done":false}'))).toBe("done");
+  });
+
+  it("knows every false flag a registered action's description names", () => {
+    // Flags whose false is no failure: a read that finds or picks nothing, a
+    // change already in place, a favourite taken off.
+    const NOT_FAILURE = ["changed", "exists", "favorited", "found", "picked"];
+    const known = new Set<string>([...FAILURE_FLAGS, ...REFUSAL_FLAGS, ...NOT_FAILURE]);
+    const unknown: string[] = [];
+    for (const action of registry.list()) {
+      const flag = /\{\s*([A-Za-z_]+)\s*:\s*false\b/g;
+      for (
+        let match = flag.exec(action.description);
+        match;
+        match = flag.exec(action.description)
+      ) {
+        if (!known.has(match[1])) unknown.push(`${action.id}: ${match[1]}`);
+      }
+    }
+    expect(registry.list().length).toBeGreaterThan(800);
+    expect(unknown).toEqual([]);
+    expect(
+      FAILURE_FLAGS.filter((flag) => (REFUSAL_FLAGS as readonly string[]).includes(flag))
+    ).toEqual([]);
   });
 
   it("reads content given as text blocks", () => {

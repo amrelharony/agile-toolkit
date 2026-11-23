@@ -1665,10 +1665,15 @@ async function handleVisitorResponse(
     /* not JSON: fall back to the status below */
   }
   if (signal?.aborted) return { stopReason: "end_turn", assistantId: null };
-  if (code && VISITOR_FALLBACK_CODES.has(code)) store.setVisitorFallback(code);
+  const fallback = !!code && VISITOR_FALLBACK_CODES.has(code);
+  if (fallback) store.setVisitorFallback(code);
   // A refusal with no code of the route's own: its status is for the console.
   if (!code) console.warn(`[visitor-ai] the request was refused (${response.status})`);
-  store.setNotice(visitorRefusalNotice(code, response.status));
+  // "No more AI for now" is said by what takes the composer's place (the
+  // read-only footer) or the guide's note, so the chat's announcer stays quiet.
+  // The notice stays, for Amr's look and for what clears it by its kind.
+  const notice = visitorRefusalNotice(code, response.status);
+  store.setNotice(fallback ? { ...notice, quiet: true } : notice);
   return { stopReason: "end_turn", assistantId: null };
 }
 

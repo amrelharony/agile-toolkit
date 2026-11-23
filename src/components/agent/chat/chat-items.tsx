@@ -45,6 +45,16 @@
  *
  * Nothing moves when an item arrives: it is simply there, in every mode.
  *
+ * Under the latest reply (latestReply, below), once its turn has settled, the
+ * log adds the reply's end (chat/reply-end: Copy reply, Try again and up to
+ * two follow-ups), which the chat's container hands it.
+ *
+ * The log reaches these through the strip kit (chat/strip-kit), never by an
+ * import of its own: the owner's chat brings the kit statically, a visitor's
+ * with the runtime on the first message, so a visitor's first paint doesn't
+ * carry them. The thinking balloon, which shows before any message, is
+ * apart (chat/thinking-item).
+ *
  * Runtime parts (the markdown renderer and its panel context), so this lives
  * in chat/, which every-page code may not reach
  * (test/agent/bundle-boundary.test.ts).
@@ -57,20 +67,21 @@ import { Markdown } from "../markdown";
 import {
   type BalloonItem,
   type ChatItem,
+  type ChatStep,
   type NoteItem,
   type SceneItem,
   type StepsItem,
   type YouItem,
 } from "@/lib/agent/chat-view";
 import { cn } from "@/lib/utils";
+import { AMR_SIDE } from "./thinking-item";
 import { ToolSteps } from "./tool-steps";
+
+/** The thinking balloon, drawn before any message, lives apart (chat/thinking-item). */
+export { ThinkingItemView } from "./thinking-item";
 
 /** The scene caption where a picked-up thread's last message was. */
 export const PICKED_UP = "Picking up where you left off";
-
-/** Amr's side of the log: a balloon stands there, mirrored when he moves, with room for its tail. */
-const AMR_SIDE =
-  "ml-3.5 mr-auto group-data-[amr-side=right]/amr:ml-auto group-data-[amr-side=right]/amr:mr-3.5";
 
 /** The reader's side: across from Amr. */
 const YOU_SIDE =
@@ -116,19 +127,6 @@ export const BalloonItemView = memo(function BalloonItemView({ item }: { item: B
   );
 });
 
-/**
- * Amr about to answer (a turn under way, no words or steps of its reply yet):
- * his balloon on his side with a pen scribbling in it and no words. Hidden
- * from assistive tech; the chat's status line says it in words.
- */
-export const ThinkingItemView = memo(function ThinkingItemView() {
-  return (
-    <div className="flex" data-chat-item="thinking">
-      <ThinkingBalloon className={AMR_SIDE} />
-    </div>
-  );
-});
-
 /** A run of tool calls with no words between them: one step caption (chat/tool-steps). */
 export const StepsItemView = memo(function StepsItemView({ item }: { item: StepsItem }) {
   return (
@@ -159,6 +157,40 @@ export const SceneItemView = memo(function SceneItemView({ item }: { item: Scene
     </div>
   );
 });
+
+// ── Where the reply's end goes ──────────────────────────────────────────
+
+/** The latest reply, with what its turn ran and asked: what its end (chat/reply-end) works from. */
+export interface ReplyTurn {
+  reply: BalloonItem;
+  /** The turn's tool calls, oldest first. */
+  steps: ChatStep[];
+  /** The reader's question the turn answers, or null. */
+  asked: string | null;
+}
+
+/**
+ * The latest reply, when it is the strip's last word: the last item but for
+ * scene captions (a picked-up thread's), a balloon that is done growing. Null
+ * when the strip ends on a question, steps or a note instead. The log draws
+ * the reply's end right under it once the turn has settled.
+ */
+export function latestReply(items: readonly ChatItem[]): ReplyTurn | null {
+  let at = items.length - 1;
+  while (at >= 0 && items[at].kind === "scene") at--;
+  const reply = items[at];
+  if (reply?.kind !== "balloon" || reply.streaming || reply.held) return null;
+  const turn: ReplyTurn = { reply, steps: [], asked: null };
+  while (--at >= 0) {
+    const item = items[at];
+    if (item.kind === "you") {
+      turn.asked = item.text;
+      break;
+    }
+    if (item.kind === "steps") turn.steps.unshift(...item.steps);
+  }
+  return turn;
+}
 
 /** One item of the strip, whatever its kind: what the log draws for each chatView item. */
 export function ChatItemView({ item }: { item: ChatItem }) {

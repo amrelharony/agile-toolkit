@@ -3,7 +3,7 @@
 /**
  * The top row of Amr's chat panel (DNA-SPEC §6 "Chat strip").
  *
- *   back slot   a view's way back (panel-chrome's <PanelBack>)
+ *   back slot   a view's way back (panel-fills' <PanelBack>)
  *   name plate  "Amr", lettered: the dialog's title, an h2 that can take focus
  *               (tabIndex -1) when a keyboard opens a view with no field to
  *               start in. Always his name, never a role or "assistant".
@@ -38,7 +38,7 @@
  * account menu already loads on every page.
  */
 
-import { useId, type ReactNode } from "react";
+import { useId, useRef, type ReactNode } from "react";
 import { Ellipsis, Maximize2, Minimize2, Plus, X } from "lucide-react";
 import {
   DropdownMenu,
@@ -134,20 +134,25 @@ export function PanelHeader({
   // item to land on. Amr's panel always offers Move Amr, so everyone has one.
   const hasMenu = tilt != null || move != null;
   return (
+    // flex-wrap: when the icons and the plate can't share one row (a large
+    // default font on a narrow panel), the icons wrap onto a second row, still
+    // at the end (ms-auto), instead of running out of the panel. The plate's
+    // column never gets narrower than the plate (min-w-min; the subtitle adds
+    // nothing to that, w-0 min-w-full), so the plate never lies over an icon.
     <div
       data-panel-header=""
-      className="flex min-h-[52px] shrink-0 items-center gap-1 border-b border-border px-3 py-1 group-data-[amr-compact]/amr:min-h-11 group-data-[amr-compact]/amr:py-0"
+      className="flex min-h-[52px] shrink-0 flex-wrap items-center gap-1 border-b border-border px-3 py-1 group-data-[amr-compact]/amr:min-h-11 group-data-[amr-compact]/amr:py-0"
     >
       <span
         ref={slots.ref("back")}
         data-panel-slot="back"
         className="flex shrink-0 items-center empty:hidden"
       />
-      <div className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
-        <h2 id={plateId} className="comic-name-plate" tabIndex={-1}>
+      <div className="flex min-w-min flex-1 flex-col items-start gap-0.5">
+        <h2 id={plateId} className="comic-name-plate max-w-full" tabIndex={-1}>
           Amr
         </h2>
-        <p className={cn("w-full truncate text-xs text-sub", COMPACT_HIDDEN)}>
+        <p className={cn("w-0 min-w-full truncate text-xs text-sub", COMPACT_HIDDEN)}>
           {!filled && subtitle}
           {/* dir=auto: a thread title in Arabic keeps its own direction. */}
           <span ref={slots.ref("subtitle")} data-panel-slot="subtitle" dir="auto" />
@@ -159,7 +164,7 @@ export function PanelHeader({
           )}
         </p>
       </div>
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="ms-auto flex shrink-0 items-center gap-0.5">
         <span
           ref={slots.ref("actions")}
           data-panel-slot="actions"
@@ -211,6 +216,18 @@ function PanelMore({
   onNewChat?: () => void;
 }) {
   const moveLabelId = useId();
+  // New chat means "let me type", even on a touch screen: as the menu closes,
+  // the fresh chat's box (emptied by New chat) takes focus in place of More.
+  // Found by its DOM mark, so no chat code ships here. With no box, More.
+  const newChatPicked = useRef(false);
+  const toBox = (e: Event) => {
+    const box = newChatPicked.current && document.querySelector<HTMLElement>("[data-amr-composer]");
+    newChatPicked.current = false;
+    if (box) {
+      e.preventDefault();
+      box.focus();
+    }
+  };
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -218,10 +235,15 @@ function PanelMore({
           <Ellipsis aria-hidden="true" />
         </PanelIconButton>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-64">
+      <DropdownMenuContent align="end" className="w-64" onCloseAutoFocus={toBox}>
         {onNewChat && (
           <>
-            <DropdownMenuItem onSelect={onNewChat}>
+            <DropdownMenuItem
+              onSelect={() => {
+                newChatPicked.current = true;
+                onNewChat();
+              }}
+            >
               <Plus aria-hidden="true" className="h-4 w-4" />
               New chat
             </DropdownMenuItem>

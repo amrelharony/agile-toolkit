@@ -21,9 +21,10 @@
  * never leaving it on a button that is about to go: after a key press to the
  * message box, caret at the end; after a tap on a touch screen to the latest
  * question's caption (made focusable just for that, chat-context
- * focusFromCode), since the box taking focus would raise the keyboard over
+ * focusBeforeTurn), since the box taking focus would raise the keyboard over
  * the answer just asked for. The turn keeps that question: Try again asks it
- * again, Go on adds one after it.
+ * again, Go on adds one after it. The Try again under the latest reply
+ * (chat/reply-end) is this one's, wired the same way.
  *
  * It reads the notice from the store itself, so the container around it
  * never re-renders for one.
@@ -38,7 +39,7 @@ import { noticeAction } from "@/lib/agent/notice-actions";
 import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
 import { Narration } from "../comic/comic-parts";
-import { focusFromCode, tapOnTouchScreen, useChat } from "./chat-context";
+import { focusBeforeTurn, useChat } from "./chat-context";
 
 export interface ChatNoticeProps {
   /** A button may show: no turn under way, and one can start (the owner is signed in). */
@@ -65,16 +66,8 @@ export function ChatNotice({ ready, canRetry, onTryAgain, onGoOn }: ChatNoticePr
       ? ["Go on", onGoOn]
       : null;
   const press = (e: MouseEvent<HTMLButtonElement>) => {
-    if (tapOnTouchScreen(e)) {
-      // The latest question, not the box (file comment).
-      const asked =
-        e.currentTarget
-          .closest('[role="log"]')
-          ?.querySelectorAll<HTMLElement>('[data-chat-item="you"]') ?? [];
-      focusFromCode(asked[asked.length - 1]);
-    } else {
-      focusComposer();
-    }
+    // The box, or after a tap the latest question (file comment).
+    focusBeforeTurn(e, focusComposer);
     offer?.[1]();
   };
 

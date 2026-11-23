@@ -105,6 +105,8 @@ describe("toolLabel", () => {
     expect(toolLabel("tool.picker.roll_dice").verb).toBe("Roll the dice");
     expect(toolLabel("tool.backlog_health.set_gwt").verb).toBe("Set acceptance criteria");
     expect(toolLabel("tool.audience_wall.scoring").verb).toBe("Run the scoring");
+    // No params on a step row: a verb that says both ways, never "Set open".
+    expect(toolLabel("tool.audience_wall.set_open").verb).toBe("Open or close the wall");
   });
 
   it("keeps the plainer verbs for verbs: an argument's words are said as written", () => {

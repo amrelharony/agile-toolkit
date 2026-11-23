@@ -17,6 +17,8 @@ import { Profiler, type ReactNode } from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import { ChatProvider, useChat } from "@/components/agent/chat/chat-context";
 import {
   AMR_THINKING,
@@ -28,8 +30,10 @@ import {
 } from "@/components/agent/chat/chat-status";
 import { ChatStrip, useAwaitingReply } from "@/components/agent/chat/chat-strip";
 import { ThinkingItemView } from "@/components/agent/chat/chat-items";
-import { NEEDS_OK, SPEAKER } from "@/components/agent/chat/use-turn-announcer";
+import { SPEAKER } from "@/components/agent/chat/spoken-text";
+import { NEEDS_OK } from "@/components/agent/chat/use-turn-announcer";
 import { useAgentStore } from "@/lib/agent/store";
+import { toolLabel } from "@/lib/agent/tool-label";
 import type { ChatMessage, ContentBlock, PendingToolUse } from "@/lib/agent/types";
 
 const AT = "2026-11-16T09:00:00Z";
@@ -112,8 +116,18 @@ describe("phaseText", () => {
 
   it("names the tool while a call is written or runs", () => {
     const calling = [...asked, amr("a1", [words("Adding it."), addCard("c1")])];
-    expect(phaseText(calling, true, false)).toBe("Amr is working in Retro Board…");
+    expect(phaseText(calling, true, false, toolLabel)).toBe("Amr is working in Retro Board…");
     expect(amrWorkingIn("Retro Board")).toBe("Amr is working in Retro Board…");
+  });
+
+  it("names no tool without the tools' names (the strip kit's), which a call never lacks", () => {
+    // A call exists only once the runtime, and the kit with it, is in.
+    const calling = [...asked, amr("a1", [words("Adding it."), addCard("c1")])];
+    expect(phaseText(calling, true, false)).toBe(AMR_WORKING);
+    expect(phaseText(calling, true, false, null)).toBe(AMR_WORKING);
+    // The other phases need no names.
+    expect(phaseText(asked, true, false, null)).toBe(AMR_THINKING);
+    expect(phaseText([...asked, amr("a1", [words("Added")])], true, false, null)).toBe(AMR_WRITING);
   });
 
   it("names no one tool for a round whose calls reach more than one", () => {
@@ -126,18 +140,18 @@ describe("phaseText", () => {
       input: {},
     };
     const mixed = [...asked, amr("a1", [words("On it."), addCard("c1"), createSprint])];
-    expect(phaseText(mixed, true, false)).toBe(AMR_WORKING);
-    expect(phaseText([...asked, amr("a1", [addCard("c1"), createSprint])], true, false)).toBe(
-      AMR_WORKING
-    );
+    expect(phaseText(mixed, true, false, toolLabel)).toBe(AMR_WORKING);
+    expect(
+      phaseText([...asked, amr("a1", [addCard("c1"), createSprint])], true, false, toolLabel)
+    ).toBe(AMR_WORKING);
     // Two calls to the same tool still name it.
     const twice = [...asked, amr("a1", [addCard("c1"), addCard("c2")])];
-    expect(phaseText(twice, true, false)).toBe("Amr is working in Retro Board…");
+    expect(phaseText(twice, true, false, toolLabel)).toBe("Amr is working in Retro Board…");
   });
 
   it("is empty while a card waits: the step and the card say it", () => {
     const calling = [...asked, amr("a1", [addCard("c1")])];
-    expect(phaseText(calling, true, true)).toBe("");
+    expect(phaseText(calling, true, true, toolLabel)).toBe("");
   });
 
   it("says Amr is thinking again between rounds, and writing as his words stream in", () => {

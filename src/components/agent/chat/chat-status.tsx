@@ -23,22 +23,25 @@
  * live region mounted with its words is often missed). Its text is the phase
  * alone: the reply itself is read once, when the turn settles
  * (use-turn-announcer). The picture is apart from it: the wordless,
- * aria-hidden thinking balloon in the log (chat-items ThinkingItemView).
+ * aria-hidden thinking balloon in the log (chat/thinking-item).
  * Compact (a phone's keyboard up), it leaves the screen but still speaks.
  *
  * It reads the store itself, as one string, so a streamed chunk that leaves
  * the phase as it was draws nothing, and the container around it never reads
- * the messages (test/agent/chat-stream-renders.test.tsx).
+ * the messages (test/agent/chat-stream-renders.test.tsx). A tool's name in
+ * words comes from the strip kit (chat/strip-kit, through its holder), which
+ * is in before any call is: a visitor's first paint doesn't carry the names.
  *
  * Runtime parts (the agent store), so this lives in chat/, which every-page
  * code may not reach (test/agent/bundle-boundary.test.ts).
  */
 
 import { useAgentStore } from "@/lib/agent/store";
-import { toolLabel } from "@/lib/agent/tool-label";
+import type { ToolLabel } from "@/lib/agent/tool-label";
 import type { ChatMessage } from "@/lib/agent/types";
 import { cn } from "@/lib/utils";
 import { noReplyYet } from "./chat-strip";
+import { useStripKit } from "./strip-kit-ref";
 
 /** While Amr is still to begin his reply, and between a turn's rounds. */
 export const AMR_THINKING = "Amr is thinking…";
@@ -51,13 +54,15 @@ export const AMR_WORKING = "Amr is working…";
 
 /**
  * The status line's words for the chat as it stands: `busy` is a turn under
- * way (or starting), `waiting` a confirm card showing. Empty when idle or
+ * way (or starting), `waiting` a confirm card showing, `label` a tool's name
+ * in words (lib/agent/tool-label, from the strip kit). Empty when idle or
  * while the card waits.
  */
 export function phaseText(
   messages: readonly ChatMessage[],
   busy: boolean,
-  waiting: boolean
+  waiting: boolean,
+  label?: ((name: string) => ToolLabel) | null
 ): string {
   if (!busy || waiting) return "";
   if (noReplyYet(messages)) return AMR_THINKING;
@@ -65,13 +70,16 @@ export function phaseText(
   const content = messages[messages.length - 1].content;
   const block = content.at(-1);
   if (block?.type === "tool_use") {
+    // No names to say them with: never so, since a call exists only once the
+    // runtime, and with it the kit, is in.
+    if (!label) return AMR_WORKING;
     // Every call in the message is this round's, and the client runs them
     // one at a time with no word of which, so name a tool only if it is the
     // one tool they all reach.
     const tools = new Set(
-      content.flatMap((c) => (c.type === "tool_use" ? [toolLabel(c.name).tool] : []))
+      content.flatMap((c) => (c.type === "tool_use" ? [label(c.name).tool] : []))
     );
-    return tools.size === 1 ? amrWorkingIn(toolLabel(block.name).tool) : AMR_WORKING;
+    return tools.size === 1 ? amrWorkingIn(label(block.name).tool) : AMR_WORKING;
   }
   if (block?.type === "text" && !block.note && block.text.trim()) return AMR_WRITING;
   return AMR_THINKING;
@@ -79,7 +87,8 @@ export function phaseText(
 
 /** The chat's status line, under the composer: the turn's phase in words (see the file comment). */
 export function ChatStatus({ busy }: { busy: boolean }) {
-  const text = useAgentStore((s) => phaseText(s.messages, busy, s.pendingToolUse !== null));
+  const label = useStripKit()?.toolLabel ?? null;
+  const text = useAgentStore((s) => phaseText(s.messages, busy, s.pendingToolUse !== null, label));
   return (
     <p
       role="status"

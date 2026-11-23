@@ -16,7 +16,7 @@ import type { ChatMessage, ConversationMeta } from "@/lib/agent/types";
 // The owner's chat, for its resume check: Supabase and the agent client are
 // stand-ins, and the thread list answers when the test says so.
 const h = vi.hoisted(() => ({
-  answerList: (() => {}) as (list: unknown[]) => void,
+  answerList: (() => {}) as (list: { ok: boolean; data: unknown[] }) => void,
   messages: [] as unknown[],
   sendUserMessage: vi.fn(async () => {}),
 }));
@@ -27,7 +27,7 @@ vi.mock("@/lib/agent/persist", () => ({
         h.answerList = resolve;
       })
   ),
-  loadMessages: vi.fn(async () => h.messages),
+  loadMessages: vi.fn(async () => ({ ok: true, data: h.messages })),
   createConversation: vi.fn(async () => null),
   deleteConversation: vi.fn(async () => {}),
   renameConversation: vi.fn(async () => {}),
@@ -148,6 +148,9 @@ function stubCoarsePointer(coarse: boolean) {
 beforeEach(() => {
   logHeight = 0;
   observers = [];
+  // A fine pointer by default. unstubAllGlobals below takes test/setup's
+  // matchMedia away too, and the composer reads one (its narrow width).
+  stubCoarsePointer(false);
   vi.stubGlobal("ResizeObserver", FakeResizeObserver);
   vi.spyOn(Element.prototype, "clientHeight", "get").mockImplementation(function (this: Element) {
     return this.getAttribute("role") === "log" ? logHeight : 0;
@@ -373,7 +376,9 @@ describe("the owner's empty chat", () => {
     toolId: null,
     createdAt: "2026-11-16T08:00:00Z",
     updatedAt: "2026-11-16T08:00:00Z",
-    lastMessageAt: "2026-11-16T08:01:00Z",
+    // Minutes ago, whenever the suite runs: a thread this recent is picked up
+    // (an older one is offered instead, test/agent/owner-resume.test.tsx).
+    lastMessageAt: new Date(Date.now() - 5 * 60_000).toISOString(),
   };
   const said = (id: string, role: "user" | "assistant", text: string): ChatMessage => ({
     id,
@@ -390,7 +395,7 @@ describe("the owner's empty chat", () => {
     expect(screen.queryByText(OWNER_EMPTY.line)).toBeNull();
     expect(screen.queryByRole("list", { name: "Ways to start" })).toBeNull();
 
-    await act(async () => h.answerList([meta]));
+    await act(async () => h.answerList({ ok: true, data: [meta] }));
     expect(await screen.findByText("Planned.")).toBeInTheDocument();
     const scenes = Array.from(document.querySelectorAll('[data-chat-item="scene"]'));
     expect(scenes.map((s) => s.textContent)).toEqual(["Today", PICKED_UP]);

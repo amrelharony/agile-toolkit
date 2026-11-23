@@ -37,8 +37,8 @@ vi.mock("@/lib/agent/client", () => ({
   canRetryLastTurn: vi.fn(() => false),
 }));
 vi.mock("@/lib/agent/persist", () => ({
-  listConversations: vi.fn(async () => h.conversations),
-  loadMessages: vi.fn(async () => []),
+  listConversations: vi.fn(async () => ({ ok: true, data: h.conversations })),
+  loadMessages: vi.fn(async () => ({ ok: true, data: [] })),
   deleteConversation: vi.fn(async () => {}),
   renameConversation: vi.fn(async () => {}),
   createConversation: vi.fn(async () => null),
@@ -305,7 +305,7 @@ describe("Back with a CloseWatcher", () => {
   it("leaves Escape in History to the panel: History goes, the sheet stays open", async () => {
     await openOwnerChat();
     await openHistory();
-    const row = await screen.findByRole("button", { name: /Sprint plan/ });
+    const row = await screen.findByRole("button", { name: /^Sprint plan/ });
     row.focus();
 
     // Prevented by the panel, so the watchers never hear it.

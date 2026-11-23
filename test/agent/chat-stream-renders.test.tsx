@@ -46,8 +46,8 @@ vi.mock("@/lib/agent/client", () => ({
   canRetryLastTurn: vi.fn(() => true),
 }));
 vi.mock("@/lib/agent/persist", () => ({
-  listConversations: vi.fn(async () => []),
-  loadMessages: vi.fn(async () => []),
+  listConversations: vi.fn(async () => ({ ok: true, data: [] })),
+  loadMessages: vi.fn(async () => ({ ok: true, data: [] })),
   deleteConversation: vi.fn(async () => {}),
   renameConversation: vi.fn(async () => {}),
   createConversation: vi.fn(async () => null),
@@ -170,6 +170,14 @@ describe("a streamed chunk", () => {
     // A build with Amr's AI on for visitors, the visitor already agreed.
     vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
     vi.stubGlobal("fetch", vi.fn());
+    // No media query matches. unstubAllGlobals below takes test/setup's
+    // matchMedia away too, and the composer reads one (its narrow width).
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: false,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
     window.localStorage.setItem(VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION);
     useMascotStore.setState({ ready: true });
     useAgentStore.setState({ open: true });
@@ -194,7 +202,7 @@ describe("a streamed chunk", () => {
     await screen.findByTestId("mascot-visitor-guide", undefined, { timeout: 5000 });
     await waitFor(() => expect(screen.queryByText(VISITOR_BODY_LOADING)).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Chat with Amr" }));
-    await screen.findByRole("button", { name: "Tool finder" });
+    await screen.findByRole("button", { name: "Back to tool finder" });
 
     streamingTurn("visitor");
     // His first words: he starts talking, a change the shell may show once.

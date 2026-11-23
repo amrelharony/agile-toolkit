@@ -44,6 +44,7 @@ import {
   type AmrLayout,
   type VisibleBox,
 } from "@/components/agent/mascot/amr-geometry";
+import * as corner from "@/components/agent/mascot/amr-corner";
 import * as metrics from "@/components/agent/mascot/engine/figure-metrics";
 import * as poses from "@/components/agent/mascot/engine/sprite-poses";
 import { PHONE_MAX_PX } from "@/lib/layout/breakpoints";
@@ -140,9 +141,20 @@ describe("figure-metrics", () => {
     expect(poses.FIGURE_BOTTOM).toBe(metrics.FIGURE_BOTTOM);
   });
 
-  it("imports nothing, and amr-geometry imports only it", () => {
+  it("imports nothing, and amr-geometry imports only it and amr-corner, which imports nothing", () => {
     expect(importsOf(path.join(MASCOT, "engine/figure-metrics.ts"))).toEqual([]);
-    expect(importsOf(path.join(MASCOT, "amr-geometry.ts"))).toEqual(["./engine/figure-metrics"]);
+    expect(importsOf(path.join(MASCOT, "amr-corner.ts"))).toEqual([]);
+    // amr-corner twice: imported for its own use, and re-exported.
+    expect(new Set(importsOf(path.join(MASCOT, "amr-geometry.ts")))).toEqual(
+      new Set(["./amr-corner", "./engine/figure-metrics"])
+    );
+  });
+
+  it("re-exports amr-corner's names as they are, so either path reads the same", () => {
+    expect(BUTTON_INSET).toBe(corner.BUTTON_INSET);
+    expect(BUTTON_SIDE).toBe(corner.BUTTON_SIDE);
+    expect(LAUNCHER_PLATE).toBe(corner.LAUNCHER_PLATE);
+    expect(cornerAt).toBe(corner.cornerAt);
   });
 
   it("the import reader sees type-only, multi-line and re-exporting imports", () => {
@@ -406,6 +418,14 @@ describe("panelLayout: height first (when wider than tall), then width", () => {
     expect(SIDE_LAYOUT_MAX_H).toBe(500);
     expect(SHEET_LAYOUT_MAX_W).toBe(PHONE_MAX_PX);
   });
+
+  it("never gives the sheet (where Amr docks) at md and up, where the app's rail stands", () => {
+    for (let height = 200; height <= 2000; height += 50) {
+      for (const width of [768, 820, 1024, 1440]) {
+        expect(panelLayout({ width, height }), `${width}x${height}`).not.toBe("sheet");
+      }
+    }
+  });
 });
 
 describe("visibleBox", () => {
@@ -440,6 +460,17 @@ describe("visibleBox", () => {
     expect(box.left).toBe(BUTTON_SIDE + 44);
     expect(box.right).toBe(BUTTON_SIDE);
     expect(box.width).toBe(812 - 52 - 8);
+  });
+
+  it("from md starts past the app's rail, passed as the left side: its right edge holds the notch, counted once", () => {
+    // The rail (64 px), pinned open (256), and pinned beside a 47 px notch
+    // (256 + 47: mascot-assistant passes the rail's edge in the inset's place).
+    for (const rail of [64, 256, 303]) {
+      const box = boxOf({ name: "", width: 844, height: 390, sides: { left: rail, right: 0 } });
+      expect(box.left).toBe(rail + BUTTON_SIDE);
+      expect(box.right).toBe(BUTTON_SIDE);
+      expect(box.width).toBe(844 - rail - 2 * BUTTON_SIDE);
+    }
   });
 
   it("is never negative in size", () => {
@@ -671,6 +702,21 @@ describe("sidePos", () => {
       expect(pos[side === "left" ? "right" : "left"]).toBeUndefined();
     });
   }
+
+  it("beside the app's rail pinned open on a 768x400 screen: past it on his left, short of it on his right", () => {
+    const box = boxOf({ name: "", width: 768, height: 400, sides: { left: 256, right: 0 } });
+    const top = { compact: isCompact(false, box), viewTop: 0 };
+    const reach = MASCOT_BOX.w * (1 - HIT_SIDE);
+    const left = sidePos("bottomLeft", box, { phone: false, figure: true }, top);
+    expect(left.left).toBeCloseTo(256 + BUTTON_SIDE + reach + PANEL_GAP, 6);
+    // 512 px past the rail: it gets narrower rather than run off the far edge.
+    expect(left.width).toBeCloseTo(768 - 256 - 2 * BUTTON_SIDE - reach - PANEL_GAP, 6);
+    expect(left.left! + left.width).toBeCloseTo(768 - BUTTON_SIDE, 6);
+    // On his right it stands where it always does, and stops short of the rail.
+    const right = sidePos("bottomRight", box, { phone: false, figure: true }, top);
+    expect(right.right).toBeCloseTo(BUTTON_SIDE + reach + PANEL_GAP, 6);
+    expect(768 - right.right! - right.width).toBeCloseTo(256 + BUTTON_SIDE, 6);
+  });
 
   it("568x320: beside his phone figure", () => {
     const box = boxOf(SMALL);
