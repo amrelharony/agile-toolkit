@@ -83,6 +83,8 @@ import {
   MEETING_MINUTES,
   QUICK_VOTE_SLOTS,
   SUGGEST_DAYS_MAX,
+  answerNames,
+  answerRowIndex,
   bestSlot,
   burden,
   rankSlots,
@@ -523,10 +525,20 @@ async function recordAnswers(
   if (unknown.length > 0) {
     return { recorded: false, reason: "unknown_slot", slotIds: Array.from(new Set(unknown)) };
   }
+  // A Team Time person answers under the name the page shows, and their
+  // answers recorded under the name their row keeps are theirs too.
+  const { people, name } = await team(store);
+  const known = answerNames(people, name);
+  const namesOf = (who: string): string[] => {
+    const key = nameKey(who);
+    const p = people.find((x) => known.get(x.id)?.some((n) => nameKey(n) === key));
+    return p ? (known.get(p.id) ?? [who]) : [who];
+  };
   const newNames = new Set(
     params.answers
-      .map((a) => nameKey(a.name))
-      .filter((k) => !poll.answers.some((x) => nameKey(x.name) === k))
+      .map((a) => namesOf(a.name))
+      .filter((all) => answerRowIndex(poll.answers, all) < 0)
+      .map((all) => nameKey(all[0]))
   );
   if (poll.answers.length + newNames.size > TEAM_TIME_MAX.answers) {
     return { recorded: false, reason: "too_many_people", max: TEAM_TIME_MAX.answers };
@@ -534,7 +546,8 @@ async function recordAnswers(
   const now = nowIso();
   let next = poll;
   for (const a of params.answers) {
-    for (const p of a.picks) next = withAnswer(next, a.name, p.slotId, p.answer, now);
+    const [first, ...aliases] = namesOf(a.name);
+    for (const p of a.picks) next = withAnswer(next, first, p.slotId, p.answer, now, aliases);
   }
   await store.putPoll(next);
   const t = tallies(next);
@@ -552,7 +565,7 @@ registry.register({
   name: "record_answers",
   category: "write",
   requiresConfirmation: false,
-  description: `Record who can make which time on an open Team Time poll, as the facilitator does on the page: for each person (by name), yes, maybe ("if needed") or no per slot id. Picks left out stay as they are. Refused on a closed poll. Params: pollId, answers: {name, picks: {slotId, answer}[]}[] (up to ${TEAM_TIME_MAX.answers} people). Returns {recorded: true, answeredBy, tallies: {slotId, label, yes, maybe, no}[], bestSlotId} or {recorded: false, reason: 'not_found' | 'closed' | 'unknown_slot' | 'too_many_people'}.`,
+  description: `Record who can make which time on an open Team Time poll, as the facilitator does on the page: for each person (by name), yes, maybe ("if needed") or no per slot id. A Team Time person's answers are kept under the name the page shows (the roster's), and found under the name their row keeps too. Picks left out stay as they are. Refused on a closed poll. Params: pollId, answers: {name, picks: {slotId, answer}[]}[] (up to ${TEAM_TIME_MAX.answers} people). Returns {recorded: true, answeredBy, tallies: {slotId, label, yes, maybe, no}[], bestSlotId} or {recorded: false, reason: 'not_found' | 'closed' | 'unknown_slot' | 'too_many_people'}.`,
   paramsSchema: RecordAnswersParams,
   handler: async (p) => recordAnswers(browserStore, p),
   mcpHandler: async (p, ctx) => recordAnswers(serverStore(ctx.userId), p),

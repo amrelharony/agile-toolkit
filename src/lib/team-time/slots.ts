@@ -185,21 +185,69 @@ export const ANSWER_LABEL: Record<TeamTimeAnswer, string> = {
 };
 
 /**
+ * Each person's names for matching their poll answers: the name the page
+ * shows (`shown`, the roster's name today) first, then the name their row
+ * keeps, unless that is someone else's shown name. A rename on the roster
+ * so keeps the answers recorded under the old name.
+ */
+export function answerNames(
+  people: readonly Pick<TeamTimePerson, "id" | "name">[],
+  shown: (personId: string) => string
+): Map<string, string[]> {
+  const today = new Map(people.map((p) => [p.id, shown(p.id).trim()]));
+  const owner = new Map<string, string>();
+  for (const [id, n] of Array.from(today)) if (nameKey(n)) owner.set(nameKey(n), id);
+  const out = new Map<string, string[]>();
+  for (const p of people) {
+    const first = today.get(p.id) ?? "";
+    const kept = p.name.trim();
+    const key = nameKey(kept);
+    const also = key && key !== nameKey(first) && (owner.get(key) ?? p.id) === p.id;
+    out.set(
+      p.id,
+      [first, ...(also ? [kept] : [])].filter((n) => n !== "")
+    );
+  }
+  return out;
+}
+
+/** The index of the answer row under the first of `names` that has one (-1 with none). */
+export function answerRowIndex(
+  answers: readonly Pick<TeamTimePollAnswer, "name">[],
+  names: readonly (string | null | undefined)[]
+): number {
+  for (const n of names) {
+    const key = nameKey(n);
+    if (!key) continue;
+    const at = answers.findIndex((a) => nameKey(a.name) === key);
+    if (at >= 0) return at;
+  }
+  return -1;
+}
+
+/**
  * The poll's answers with every person's missing picks filled from their
  * hours. Picks already recorded stay; people are matched by name. `names`
- * gives each person's name as the poll records it.
+ * gives each person's names (`answerNames`): the first is written, any
+ * other finds a row recorded under it, which then takes the first.
  */
 export function fillFromHours(
   poll: Pick<TeamTimePoll, "slots" | "answers" | "minutes">,
   people: readonly Hours[],
-  names: ReadonlyMap<string, string>
+  names: ReadonlyMap<string, string | readonly string[]>
 ): TeamTimePollAnswer[] {
   const answers = poll.answers.map((a) => ({ name: a.name, picks: { ...a.picks } }));
   const length = poll.minutes * MINUTE_MS;
   for (const p of people) {
-    const name = names.get(p.id)?.trim();
+    const given = names.get(p.id);
+    const all = (typeof given === "string" ? [given] : [...(given ?? [])])
+      .map((n) => n.trim())
+      .filter((n) => n !== "");
+    const name = all[0];
     if (!name) continue;
-    let row = answers.find((a) => nameKey(a.name) === nameKey(name));
+    const at = answerRowIndex(answers, all);
+    let row = at >= 0 ? answers[at] : null;
+    if (row && nameKey(row.name) !== nameKey(name)) row.name = name;
     if (!row) {
       row = { name, picks: {} };
       answers.push(row);

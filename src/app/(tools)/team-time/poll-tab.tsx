@@ -18,7 +18,6 @@ import {
   type TeamTimeAnswer,
   type TeamTimePoll,
 } from "@/lib/stores/workspace-types";
-import { nameKey } from "@/lib/team/names";
 import { localDateTimeText, minutesText, slotLabel } from "@/lib/team-time/format";
 import { inviteMarkdown, pollCalendarEntry } from "@/lib/team-time/invite";
 import {
@@ -35,6 +34,8 @@ import {
   ANSWER_LABEL,
   BURDEN_LABEL,
   QUICK_VOTE_SLOTS,
+  answerNames,
+  answerRowIndex,
   bestSlot,
   burden,
   fillFromHours,
@@ -317,18 +318,20 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
   const slots = sortedSlots(poll);
   const closed = poll.status === "closed";
   const chosen = poll.slots.find((s) => s.id === poll.chosenSlotId) ?? null;
-  const names = new Map(ctx.people.map((p) => [p.id, ctx.name(p.id)]));
-  const at = () => new Date().toISOString();
-  const pickOf = (personId: string, slotId: string): TeamTimeAnswer | "" => {
-    const key = nameKey(names.get(personId));
-    return poll.answers.find((a) => nameKey(a.name) === key)?.picks[slotId] ?? "";
-  };
-  const outsiders = poll.answers.filter(
-    (a) => !ctx.people.some((p) => nameKey(names.get(p.id)) === nameKey(a.name))
+  // Each person's answer row is under the roster's name today, or the name their row keeps.
+  const names = answerNames(ctx.people, ctx.name);
+  const rowOf = new Map(
+    ctx.people.map((p) => [p.id, answerRowIndex(poll.answers, names.get(p.id) ?? [])])
   );
+  const at = () => new Date().toISOString();
+  const pickOf = (personId: string, slotId: string): TeamTimeAnswer | "" =>
+    poll.answers[rowOf.get(personId) ?? -1]?.picks[slotId] ?? "";
+  const theirs = new Set(rowOf.values());
+  const outsiders = poll.answers.filter((_, i) => !theirs.has(i));
 
   const answer = (personId: string, slotId: string, value: TeamTimeAnswer | "") => {
-    const next = withAnswer(poll, names.get(personId) ?? "", slotId, value || null, at());
+    const [name = "", ...aliases] = names.get(personId) ?? [];
+    const next = withAnswer(poll, name, slotId, value || null, at(), aliases);
     if (next === poll) return;
     ctx.writer.put("polls", next);
     ctx.record(TEAM_TIME_ACTIONS.POLL_ANSWERED, { pollId: poll.id, answers: next.answers.length });
@@ -414,7 +417,7 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
     const entry = pollCalendarEntry(
       poll,
       ctx.people,
-      (id) => names.get(id) ?? id,
+      ctx.name,
       typeof window === "undefined" ? "" : window.location.origin
     );
     if (!entry) return;
@@ -484,7 +487,7 @@ function PollCard({ ctx, poll }: { ctx: TeamTimeCtx; poll: TeamTimePoll }) {
               Add to calendar
             </Button>
             <CopyButton
-              text={() => inviteMarkdown(poll, ctx.people, (id) => names.get(id) ?? id)}
+              text={() => inviteMarkdown(poll, ctx.people, ctx.name)}
               label="Copy invite"
             />
           </div>

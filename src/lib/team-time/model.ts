@@ -34,7 +34,7 @@ import {
 import { findRosterMember, nameKey } from "@/lib/team/names";
 import { readPerson, readPoll, readRotation, samePerson } from "./rows";
 import { MINUTE_MS } from "./overlap";
-import { burden, type Burden } from "./slots";
+import { answerRowIndex, burden, type Burden } from "./slots";
 import type { PersonValues, PollValues, RotationValues } from "./validate";
 import { canonicalZone, localClock, wallToUtc } from "./zones";
 
@@ -130,17 +130,23 @@ export function sortedSlots(poll: TeamTimePoll): TeamTimePoll["slots"] {
   return [...poll.slots].sort((a, b) => Date.parse(a.start) - Date.parse(b.start));
 }
 
-/** The poll with one person's answer to one slot set (or cleared with null). */
+/**
+ * The poll with one person's answer to one slot set (or cleared with null).
+ * `aliases` are the other names the person goes by (`answerNames`): a row
+ * recorded under one of them is theirs, and takes `name` now.
+ */
 export function withAnswer(
   poll: TeamTimePoll,
   name: string,
   slotId: string,
   answer: TeamTimeAnswer | null,
-  now: string
+  now: string,
+  aliases: readonly string[] = []
 ): TeamTimePoll {
-  const key = nameKey(name);
   const answers = poll.answers.map((a) => ({ name: a.name, picks: { ...a.picks } }));
-  let row = answers.find((a) => nameKey(a.name) === key);
+  const at = answerRowIndex(answers, [name, ...aliases]);
+  let row = at >= 0 ? answers[at] : undefined;
+  if (row && nameKey(row.name) !== nameKey(name)) row.name = name.trim();
   if (!row) {
     if (answer === null || answers.length >= TEAM_TIME_MAX.answers) return poll;
     row = { name: name.trim(), picks: {} };

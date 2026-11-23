@@ -10,6 +10,8 @@ import { VOTE_LIMITS } from "@/lib/realtime/vote-room/protocol";
 import {
   QUICK_VOTE_SLOTS,
   RANKED_SLOTS_MAX,
+  answerNames,
+  answerRowIndex,
   bestSlot,
   burden,
   fillFromHours,
@@ -104,6 +106,28 @@ describe("answers and tallies", () => {
       { name: "lou", picks: { a: "no", b: "yes" } },
       { name: "Noor", picks: { a: "no", b: "yes" } },
     ]);
+  });
+
+  it("finds a person's answers under the name their row keeps after a rename, once each", () => {
+    // The roster renamed Lou to Louise; the answer was recorded as "Lou".
+    const shown = (id: string) => (id === "london" ? "Louise" : "Noor");
+    const names = answerNames([london, newYork], shown);
+    expect(names.get("london")).toEqual(["Louise", "Lou"]);
+    const p = poll({ answers: [{ name: "Lou", picks: { a: "no" } }] });
+    expect(answerRowIndex(p.answers, names.get("london")!)).toBe(0);
+    const filled = fillFromHours(p, [london, newYork], names);
+    expect(filled).toEqual([
+      { name: "Louise", picks: { a: "no", b: "yes" } },
+      { name: "Noor", picks: { a: "no", b: "yes" } },
+    ]);
+    expect(tallies({ ...p, answers: filled }).a).toEqual({ yes: 0, maybe: 0, no: 2 });
+  });
+
+  it("never takes someone else's name today as another name of a person", () => {
+    const guest = person({ id: "guest", name: "Lou" });
+    const names = answerNames([london, guest], (id) => (id === "london" ? "Louise" : "Lou"));
+    expect(names.get("london")).toEqual(["Louise"]);
+    expect(names.get("guest")).toEqual(["Lou"]);
   });
 
   it("tallies yes, if needed and no, and picks the slot most can make", () => {

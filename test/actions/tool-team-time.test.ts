@@ -304,6 +304,24 @@ describe("polls", () => {
     ).toEqual({ recorded: false, reason: "closed" });
   });
 
+  it("records a renamed person's answers on their own row, under their name today", async () => {
+    useWorkspaceStore.setState({
+      teamMembers: [{ id: "m1", name: "Louise" }],
+      teamTimePeople: [{ ...london, teamMemberId: "m1" }],
+      teamTimePolls: [poll({ answers: [{ name: "Lou", picks: { a: "yes" } }] })],
+    });
+    for (const who of ["Lou", "Louise"]) {
+      const r = await run<{ recorded: boolean; answeredBy: string[] }>(
+        "tool.team_time.record_answers",
+        { pollId: "poll1", answers: [{ name: who, picks: [{ slotId: "b", answer: "no" }] }] }
+      );
+      expect(r).toMatchObject({ recorded: true, answeredBy: ["Louise"] });
+    }
+    expect(ws().teamTimePolls?.[0].answers).toEqual([
+      { name: "Louise", picks: { a: "yes", b: "no" } },
+    ]);
+  });
+
   it("closes a poll on the chosen time and gives each person's own time", async () => {
     useWorkspaceStore.setState({ teamTimePolls: [poll()], teamTimePeople: [london, newYork] });
     const r = await run<{ chosen: boolean; people: { name: string; localTime: string }[] }>(

@@ -502,6 +502,23 @@ describe("Find a time", () => {
     expect(ws().teamTimePolls?.[0].answers).toEqual([]);
   });
 
+  it("keeps a person's answers after the roster renames them, counting them once", async () => {
+    useWorkspaceStore.setState({
+      teamMembers: [{ id: "m1", name: "Louise" }],
+      teamTimePeople: [{ ...london, teamMemberId: "m1" }],
+      teamTimePolls: [poll({ answers: [{ name: "Lou", picks: { a: "maybe" } }] })],
+    });
+    await renderPage("find");
+    fireEvent.click(screen.getAllByRole("button", { name: "Answers" })[0]);
+    expect(screen.getByRole("combobox", { name: /^Louise, / })).toHaveValue("maybe");
+    expect(screen.queryByText(/Also answered/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Fill from hours" }));
+    expect(ws().teamTimePolls?.[0].answers).toEqual([
+      { name: "Louise", picks: { a: "maybe", b: "yes" } },
+    ]);
+    expect(screen.getByText("0 yes · 1 if needed · 0 no")).toBeInTheDocument();
+  });
+
   it("chooses a time with Amr's cheer, and Undo reopens the poll", async () => {
     useWorkspaceStore.setState({ teamTimePeople: [london], teamTimePolls: [poll()] });
     await renderPage("find");
