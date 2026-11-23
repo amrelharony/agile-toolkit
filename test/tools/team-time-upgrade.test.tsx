@@ -588,7 +588,10 @@ describe("Find a time", () => {
     useWorkspaceStore.setState({ teamTimePolls: [poll({ slots })] });
     await renderPage("find");
     const link = screen.getByRole("link", { name: "Vote on it in Quick Vote" });
-    const params = new URL(link.getAttribute("href")!, "https://x.test").searchParams;
+    const url = new URL(link.getAttribute("href")!, "https://x.test");
+    // The poll's title and times ride after the # sign, which never reaches a server.
+    expect(url.pathname + url.search).toBe("/quick-vote");
+    const params = new URLSearchParams(url.hash.slice(1));
     expect(params.get("preset")).toBe("poll");
     expect(params.get("question")).toBe("Review");
     const options = params.get("options")!.split("\n");

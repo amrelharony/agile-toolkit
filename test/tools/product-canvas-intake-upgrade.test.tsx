@@ -484,7 +484,7 @@ describe("the idea inbox", () => {
     useProductCanvasPrefs.setState({ lastFormat: "idea" });
     renderPage();
     const link = await screen.findByRole("link", { name: "Vote in Quick Vote" });
-    const poll = readPollLink(link.getAttribute("href")!.split("?")[1]);
+    const poll = readPollLink(link.getAttribute("href")!.split("#")[1]);
     expect(poll?.question).toBe("Which idea should we look at first?");
     expect(poll?.options).toHaveLength(2);
     expect(poll?.options[0].startsWith("1 ")).toBe(true);
@@ -858,7 +858,7 @@ describe("the betting table", () => {
     useProductCanvasPrefs.setState({ lastFormat: "shape-up" });
     renderPage();
     const link = await screen.findByRole("link", { name: "Straw poll in Quick Vote" });
-    const poll = readPollLink(link.getAttribute("href")!.split("?")[1]);
+    const poll = readPollLink(link.getAttribute("href")!.split("#")[1]);
     expect(poll?.question).toBe("Which pitch should we bet on?");
     expect(poll?.options).toHaveLength(2);
     const table = screen.getByRole("region", { name: /^On the table/ });

@@ -3,14 +3,14 @@
  * The straw polls in Quick Vote (P2.3b): each idea or pitch a numbered
  * option, so two titles that share their first 30 characters stay two
  * options once Quick Vote reads the link; at most 20 go in, and `left`
- * counts the rest. Built on Quick Vote's own link, which is unchanged.
+ * counts the rest. Built on Quick Vote's own link, which carries the poll after the # sign.
  */
 
 import { describe, expect, it } from "vitest";
 import { canvasPoll } from "@/lib/product-canvas/poll";
 import { LINK_OPTIONS_MAX, readPollLink } from "@/lib/quick-vote/link";
 
-const read = (href: string) => readPollLink(href.slice(href.indexOf("?")));
+const read = (href: string) => readPollLink(href.slice(href.indexOf("#")));
 
 describe("canvasPoll", () => {
   it("keeps two titles apart that share their first 30 characters", () => {
@@ -40,6 +40,10 @@ describe("canvasPoll", () => {
 
   it("opens a plain poll, and nothing else", () => {
     const poll = canvasPoll("Which pitch should we bet on?", [{ id: "a", title: "Refunds" }]);
-    expect(poll.href.startsWith("/quick-vote?preset=poll&")).toBe(true);
+    expect(poll.href.startsWith("/quick-vote#preset=poll&")).toBe(true);
+    // The titles ride after the # sign: the address a server sees holds none.
+    const url = new URL(poll.href, "https://x.test");
+    expect(url.pathname + url.search).toBe("/quick-vote");
+    expect(url.hash).toContain("Refunds");
   });
 });

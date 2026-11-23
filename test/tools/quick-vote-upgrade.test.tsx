@@ -442,7 +442,17 @@ describe("a poll from a link", () => {
     // A reload doesn't set it up again; nothing the host typed was lost.
     expect(window.location.pathname).toBe("/quick-vote");
     expect(window.location.search).toBe("");
+    expect(window.location.hash).toBe("");
     expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it("still opens an older link that carries the poll in its query", async () => {
+    open(
+      `/quick-vote?${new URLSearchParams({ preset: "poll", question: "Which?", options: "A\nB" })}`
+    );
+    await renderPage();
+    expect(qv().draft).toMatchObject({ presetId: "poll", question: "Which?", optionsText: "A\nB" });
+    expect(window.location.search).toBe("");
   });
 
   it("brings the round the host had typed back with Undo", async () => {
@@ -456,7 +466,7 @@ describe("a poll from a link", () => {
 
   it("keeps up to 20 names, and the form says how many a round takes", async () => {
     const names = Array.from({ length: 25 }, (_, i) => `Name ${i + 1}`);
-    open(`/quick-vote?${new URLSearchParams({ preset: "poll", options: names.join("\n") })}`);
+    open(`/quick-vote#${new URLSearchParams({ preset: "poll", options: names.join("\n") })}`);
     await renderPage();
     expect(qv().draft!.optionsText.split("\n")).toEqual(names.slice(0, 20));
     // No question in the link: the poll's own.
@@ -468,7 +478,7 @@ describe("a poll from a link", () => {
 
   it("caps each value and ignores the rest", async () => {
     open(
-      `/quick-vote?${new URLSearchParams({
+      `/quick-vote#${new URLSearchParams({
         preset: "poll",
         question: "Which?",
         options: `${"X".repeat(50)}\nNile\nnile`,
@@ -491,6 +501,13 @@ describe("a poll from a link", () => {
     expect(qv().draft).toBeNull();
     expect(format("Fist of five")).toHaveAttribute("aria-pressed", "true");
     expect(window.location.search).toBe("?preset=dots&options=A%0AB");
+  });
+
+  it("leaves a fragment that asks for another format where it is", async () => {
+    open("/quick-vote#preset=dots&options=A%0AB");
+    await renderPage();
+    expect(qv().draft).toBeNull();
+    expect(window.location.hash).toBe("#preset=dots&options=A%0AB");
   });
 });
 
