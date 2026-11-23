@@ -894,6 +894,35 @@ describe("P2.3 product canvases", () => {
     await expect(updateOverMcp(T, PRODUCT_CANVAS, { sections })).rejects.toThrow(/too big to save/);
     expect(upsertEntity).not.toHaveBeenCalled();
   });
+
+  it("refuse a write the page would drop on its next save, on both transports", async () => {
+    // productCanvasWriteProblems (lib/product-canvas/model): the format's own boxes and fields.
+    const vision = {
+      id: "pcanvas_vb",
+      format: "vision-board",
+      title: "Tapline",
+      sections: { who: [{ id: "w1", text: "Stall holders", evidence: "fact" }] },
+      createdAt: NOW,
+      updatedAt: NOW,
+    } as ProductCanvas;
+    for (const mcp of [false, true]) {
+      await expect(create(T, { ...vision, id: undefined }, mcp)).resolves.toBeDefined();
+      await expect(
+        create(T, { ...vision, id: undefined, sections: { nope: [item(1)] } }, mcp)
+      ).rejects.toThrow('A Vision Board has no box called "nope". Nothing was saved.');
+      await expect(
+        create(T, { ...vision, id: undefined, bet: { status: "bet" } }, mcp)
+      ).rejects.toThrow(/A Vision Board has no bet/);
+      await expect(
+        create(T, { ...vision, id: undefined, sections: { vision: [item(1), item(2)] } }, mcp)
+      ).rejects.toThrow(/holds one answer/);
+    }
+    await expect(updateOverMcp(T, vision, { format: "pr-faq" })).rejects.toThrow(
+      /keeps its format/
+    );
+    // A format the page doesn't offer yet (P2.3b's) is left as it is.
+    await expect(create(T, { ...PRODUCT_CANVAS, id: undefined }, true)).resolves.toBeDefined();
+  });
 });
 
 describe("P2.4 strategy maps", () => {

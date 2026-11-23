@@ -128,6 +128,7 @@ const UPGRADED_TOOLS = [
   "hill-chart",
   "test-sessions",
   "notes-to-actions",
+  "product-canvas",
   // Book readers: the Squad Session Kit. Meet the Cast and Which Colleague hold no
   // team data, so there's nothing to load, export or undo in them.
   "squad-session",

@@ -19,6 +19,7 @@ import { notesToActionsExtractPrompt } from "./notes-to-actions.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
 import { themeNamesPrompt } from "./picker.server";
 import { pokerSimilarPrompt } from "./planning-poker.server";
+import { productCanvasDraftPrompt, productCanvasGapsPrompt } from "./product-canvas.server";
 import { productGoalDraftPrompt } from "./product-goal.server";
 import { sizingDiscussPrompt, sizingSplitPrompt } from "./relative-sizing.server";
 import { releaseReadinessNotesPrompt } from "./release-readiness.server";
@@ -51,6 +52,8 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   parkingRoutePrompt,
   themeNamesPrompt,
   pokerSimilarPrompt,
+  productCanvasDraftPrompt,
+  productCanvasGapsPrompt,
   productGoalDraftPrompt,
   sizingDiscussPrompt,
   sizingSplitPrompt,
