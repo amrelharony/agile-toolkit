@@ -119,9 +119,9 @@ export function StatikSteps({
       </ol>
 
       <section aria-labelledby={`statik-${step.id}`} className="space-y-3">
-        <h4 id={`statik-${step.id}`} className="text-sm font-semibold text-text">
+        <h3 id={`statik-${step.id}`} className="text-sm font-semibold text-text">
           Step {step.n} of {progress.total}: {step.title}
-        </h4>
+        </h3>
         <p className="text-sm text-sub">{step.ask}</p>
         {step.id === "capability" && <Delivered board={board} items={items} />}
         {step.fields.map((f) => (
@@ -165,28 +165,31 @@ export function StatikSteps({
 /** Step 3: what the board already delivers, read live (never typed). */
 function Delivered({ board, items }: { board: WorkflowBoard; items: readonly FlowItem[] }) {
   const d = deliveryToday(items);
+  // The "From the …" line sits beside the list, not in it: a <dl> holds only dt/dd groups.
   return (
-    <dl className="grid grid-cols-1 gap-2 rounded-lg border border-border bg-surface p-3 text-sm xs:grid-cols-3">
-      <div>
-        <dt className="text-xs text-sub">Finished per week</dt>
-        <dd className="font-data text-text">
-          {d.perWeek === null ? "Not enough weeks yet" : `${d.perWeek} (last ${d.weeks} weeks)`}
-        </dd>
-      </div>
-      <div>
-        <dt className="text-xs text-sub">85% finish within</dt>
-        <dd className="font-data text-text">
-          {d.p85 === null
-            ? `Needs 5 finished items (${d.timed} so far)`
-            : `${d.p85} ${d.p85 === 1 ? "day" : "days"}`}
-        </dd>
-      </div>
-      <div>
-        <dt className="text-xs text-sub">Items finished</dt>
-        <dd className="font-data text-text">{d.finished}</dd>
-      </div>
-      <p className="text-xs text-sub xs:col-span-3">From the {BOARD_NAME[board]}.</p>
-    </dl>
+    <div className="space-y-2 rounded-lg border border-border bg-surface p-3 text-sm">
+      <dl className="grid grid-cols-1 gap-2 xs:grid-cols-3">
+        <div>
+          <dt className="text-xs text-sub">Finished per week</dt>
+          <dd className="font-data text-text">
+            {d.perWeek === null ? "Not enough weeks yet" : `${d.perWeek} (last ${d.weeks} weeks)`}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-sub">85% finish within</dt>
+          <dd className="font-data text-text">
+            {d.p85 === null
+              ? `Needs 5 finished items (${d.timed} so far)`
+              : `${d.p85} ${d.p85 === 1 ? "day" : "days"}`}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-sub">Items finished</dt>
+          <dd className="font-data text-text">{d.finished}</dd>
+        </div>
+      </dl>
+      <p className="text-xs text-sub">From the {BOARD_NAME[board]}.</p>
+    </div>
   );
 }
 
@@ -240,7 +243,7 @@ function Cadences({
 
   return (
     <div className="space-y-3 rounded-lg border border-border p-3">
-      <h5 className="text-sm font-medium text-text">Kanban cadences</h5>
+      <h4 className="text-sm font-medium text-text">Kanban cadences</h4>
       {cadences.length === 0 ? (
         <p className="text-sm text-sub">
           No cadences yet. A weekly replenishment and a daily look at the board are a common start.

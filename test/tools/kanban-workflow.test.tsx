@@ -509,7 +509,10 @@ describe("How we work: STATIK", () => {
     renderBoard();
     await openTab("Design it (STATIK)");
     expect(await screen.findByText("0 of 7")).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Step 1 of 7: What isn't working/ })).toBeTruthy();
+    // Under the card's h2, the step is an h3.
+    expect(
+      screen.getByRole("heading", { level: 3, name: /Step 1 of 7: What isn't working/ })
+    ).toBeTruthy();
     type("Inside the team", "Reviews wait for days");
     fireEvent.click(screen.getByRole("button", { name: "Save step 1" }));
     expect(def()?.statik).toEqual({ inside: "Reviews wait for days" });
@@ -520,6 +523,10 @@ describe("How we work: STATIK", () => {
     fireEvent.click(screen.getByRole("button", { name: /^3: What we deliver today/ }));
     expect(screen.getByText("Items finished")).toBeInTheDocument();
     expect(screen.getByText(/Needs 5 finished items \(1 so far\)/)).toBeInTheDocument();
+    // The list holds only its dt/dd groups; the board's line sits beside it.
+    const list = screen.getByText("Items finished").closest("dl")!;
+    expect(Array.from(list.children).every((el) => el.tagName === "DIV")).toBe(true);
+    expect(screen.getByText("From the Flow board.").closest("dl")).toBeNull();
     expect(
       screen.getByText("STATIK comes from Kanban University; the steps here are in our words.")
     ).toBeInTheDocument();
@@ -529,6 +536,7 @@ describe("How we work: STATIK", () => {
     renderBoard();
     await openTab("Design it (STATIK)");
     fireEvent.click(await screen.findByRole("button", { name: /^7: Cadences/ }));
+    expect(screen.getByRole("heading", { level: 4, name: "Kanban cadences" })).toBeTruthy();
     type("Meeting", "Replenishment");
     type("Minutes", "30");
     fireEvent.click(screen.getByRole("button", { name: "Add cadence" }));
