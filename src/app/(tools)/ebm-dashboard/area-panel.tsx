@@ -258,6 +258,12 @@ export function AreaPanel({
         </div>
       )}
 
+      {answer && suggestions.length === 0 && (
+        <p role="status" className="text-sm text-sub">
+          Every suggestion is already a measure here.
+        </p>
+      )}
+
       {answer && suggestions.length > 0 && (
         <AiSuggestions
           items={suggestions}

@@ -447,6 +447,24 @@ describe("Ask Amr, without AI", () => {
     expect(metrics().map((m) => m.name)).toEqual(["Median cycle time", "Deploys a week"]);
   });
 
+  it("says so when every suggestion is already a measure", async () => {
+    useWorkspaceStore.setState({
+      productMetrics: [
+        "Median cycle time",
+        "Lead time for changes",
+        "Deploys a week",
+        "Days from idea to first feedback",
+      ].map((name, i) => metric({ id: `metric_${i}`, name, kva: "time-to-market" })),
+    });
+    renderPage();
+    const ttm = await screen.findByRole("region", { name: "Time to Market" });
+    fireEvent.click(within(ttm).getByRole("button", { name: "Suggest measures" }));
+    expect(
+      await within(ttm).findByText("Every suggestion is already a measure here.")
+    ).toHaveAttribute("role", "status");
+    expect(within(ttm).queryByRole("region", { name: "Measures for Time to Market" })).toBeNull();
+  });
+
   it("keeps an idea's toolkit source when its suggestion is added", async () => {
     renderPage();
     const ttm = await screen.findByRole("region", { name: "Time to Market" });
