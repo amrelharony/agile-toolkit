@@ -64,6 +64,9 @@ import { impactMapMarkdown } from "@/app/(tools)/impact-map/markdown";
 import { focusFirst, goalClosedLine, impactPaths } from "@/app/(tools)/impact-map/view";
 import { validateNewMap } from "@/app/(tools)/impact-map/form";
 import { strategyMapProblems } from "@/lib/strategy-map/rules";
+import { TOO_BIG } from "@/lib/strategy-map/model";
+import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 const AT = "2026-11-20T09:00:00.000Z";
 const node = (
@@ -90,6 +93,25 @@ const map = (over: Partial<StrategyMap> = {}): StrategyMap => ({
   updatedAt: AT,
   ...over,
 });
+/**
+ * A map within `slack` bytes of its row's cap, under the node cap: actors
+ * with 3-byte text and detail at their caps, the last one's detail taking
+ * what is left.
+ */
+const nearlyFull = (slack = 120): StrategyMap => {
+  const actor = (i: number, text: string, detail: string) =>
+    node(`x${i}`, "g", 1, text, detail ? { detail } : {});
+  const nodes = [node("g", null, 0, "Grow repeat orders")];
+  const cap = ENTITY_ROW_MAX_BYTES - slack;
+  const size = (extra: StrategyMapNode) => jsonBytes(map({ nodes: [...nodes, extra] }));
+  const wide = () => actor(nodes.length, "語".repeat(200), "語".repeat(1000));
+  while (size(wide()) <= cap) nodes.push(wide());
+  const room = cap - size(actor(nodes.length, "Pad", "x"));
+  if (room > 0) {
+    nodes.push(actor(nodes.length, "Pad", "x" + "語".repeat(Math.min(999, Math.floor(room / 3)))));
+  }
+  return map({ nodes });
+};
 const goal = (over: Partial<ProductGoal> = {}): ProductGoal => ({
   id: "goal_1",
   statement: "Families eat well without planning",
@@ -805,6 +827,21 @@ describe("drafting the map", () => {
     expect(stored()!.nodes).toHaveLength(150);
     expect(screen.getByText("6 parts were left out: a map holds at most 150.")).toBeInTheDocument();
     expect(strategyMapProblems(stored()!, undefined)).toEqual([]);
+  });
+
+  it("adds nothing, says nothing was added and logs nothing when the draft won't fit the row", async () => {
+    const full = nearlyFull();
+    expect(jsonBytes(full)).toBeLessThanOrEqual(ENTITY_ROW_MAX_BYTES);
+    seed([full]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Start from a template" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    toastSpy.mockReset();
+    fireEvent.click(within(list).getByRole("button", { name: /^Add all/ }));
+    expect(stored()!.nodes).toHaveLength(full.nodes.length);
+    expect(screen.getByText(TOO_BIG)).toBeInTheDocument();
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(logged(IMPACT_MAP_ACTIONS.DRAFT_ACCEPTED)).toEqual([]);
   });
 
   it("shows Amr's draft as his, linking a persona only on its exact name", async () => {

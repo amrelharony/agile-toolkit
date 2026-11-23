@@ -420,6 +420,11 @@ export function ImpactMapClient() {
       setNotice(MAP_FULL);
       return;
     }
+    // Sized before anything is said: a refused write must not read as "Added", nor be logged.
+    if (!fitsRow({ ...withNodes(current, fit.nodes), updatedAt: new Date().toISOString() })) {
+      setNotice(TOO_BIG);
+      return;
+    }
     const ids = new Set(fit.nodes.map((n) => n.id));
     const actors = fit.nodes.filter((n) => n.level === 1).length;
     undoable({

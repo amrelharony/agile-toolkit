@@ -354,6 +354,11 @@ export function StrategyTreeClient() {
       setNotice(`A tree holds at most ${STRATEGY_NODES_MAX} parts. Remove some to add more.`);
       return;
     }
+    // Sized before anything is said: a refused write must not read as "Added", nor be logged.
+    if (!fitsRow({ ...withNodes(current, fit.nodes), updatedAt: new Date().toISOString() })) {
+      setNotice(TOO_BIG);
+      return;
+    }
     const ids = new Set(fit.nodes.map((n) => n.id));
     const tops = fit.nodes.filter((n) => n.level === 1).length;
     undoable({

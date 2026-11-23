@@ -54,6 +54,9 @@ import { StrategyTreeClient } from "@/app/(tools)/strategy-tree/strategy-tree-cl
 import { buildExamples } from "@/app/(tools)/strategy-tree/example";
 import { strategyTreeMarkdown } from "@/app/(tools)/strategy-tree/markdown";
 import { strategyMapProblems } from "@/lib/strategy-map/rules";
+import { TOO_BIG } from "@/lib/strategy-map/model";
+import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 const AT = "2026-11-20T09:00:00.000Z";
 const node = (
@@ -575,6 +578,35 @@ describe("drafting branches", () => {
       screen.getByText("5 parts were left out: a tree holds at most 150.")
     ).toBeInTheDocument();
     expect(strategyMapProblems(stored()!, undefined)).toEqual([]);
+  });
+
+  it("adds nothing, says nothing was added and logs nothing when the draft won't fit the row", async () => {
+    // Goals with 3-byte text and detail at their caps, the last one's detail taking what is left.
+    const goalNode = (i: number, text: string, detail: string) =>
+      node(`x${i}`, "v", 1, text, { detail });
+    const nodes = [node("v", null, 0, "Good dinners")];
+    const cap = ENTITY_ROW_MAX_BYTES - 120;
+    const size = (extra: StrategyMapNode) => jsonBytes(tree("lean-value-tree", [...nodes, extra]));
+    const wide = () => goalNode(nodes.length, "語".repeat(200), "語".repeat(1000));
+    while (size(wide()) <= cap) nodes.push(wide());
+    const room = cap - size(goalNode(nodes.length, "Pad", "x"));
+    if (room > 0) {
+      nodes.push(
+        goalNode(nodes.length, "Pad", "x" + "語".repeat(Math.min(999, Math.floor(room / 3))))
+      );
+    }
+    const full = tree("lean-value-tree", nodes);
+    expect(jsonBytes(full)).toBeLessThanOrEqual(ENTITY_ROW_MAX_BYTES);
+    seed([full]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Start from a template" }));
+    const list = await screen.findByTestId("ai-suggestions");
+    toastSpy.mockReset();
+    fireEvent.click(within(list).getByRole("button", { name: /^Add all/ }));
+    expect(stored()!.nodes).toHaveLength(nodes.length);
+    expect(screen.getByText(TOO_BIG)).toBeInTheDocument();
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(logged(STRATEGY_TREE_ACTIONS.DRAFT_ACCEPTED)).toEqual([]);
   });
 });
 
