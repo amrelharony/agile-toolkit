@@ -184,6 +184,13 @@ export function ProductCanvasClient() {
       if (known) setLastFormat(known);
       dropSearchParam("format");
     }
+    // The inbox's status filter, as a next step links to it ("inbox=new"):
+    // the filter this browser last kept could hide what the link is for.
+    const inboxParam = params.get("inbox");
+    if (inboxParam !== null) {
+      setInboxFilter(readInboxFilter(inboxParam));
+      dropSearchParam("inbox");
+    }
     if (id) {
       setSelectedId(id);
       // A canvas opened by link shows whatever the filter: it may be in

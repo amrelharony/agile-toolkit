@@ -87,7 +87,8 @@ export function productCanvasSteps(s: ProductCanvasStepsInput): NextStep[] {
       id: "product-canvas-inbox",
       label: `Triage ${plural(waiting, "waiting idea")}`,
       detail: `${waiting === 1 ? "It has" : "They have"} been new in the inbox for over ${INBOX_WAIT_DAYS} days. Assess, accept, decline or merge ${waiting === 1 ? "it" : "each one"}.`,
-      href: "/product-canvas?format=idea",
+      // The inbox on its New filter, whatever this browser last showed there.
+      href: "/product-canvas?format=idea&inbox=new",
     });
   }
   const late = outOfTime(canvases, today);

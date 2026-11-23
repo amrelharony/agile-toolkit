@@ -172,7 +172,7 @@ describe("product-canvas next steps", () => {
     expect(out.map((s) => s.id)).toEqual(["product-canvas-inbox"]);
     expect(out[0]).toMatchObject({
       label: "Triage 2 waiting ideas",
-      href: "/product-canvas?format=idea",
+      href: "/product-canvas?format=idea&inbox=new",
     });
     for (const s of out) seen.add(s.href);
     // Exactly 14 days is not yet over: the day before the cutoff is.

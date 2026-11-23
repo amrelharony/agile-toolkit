@@ -499,6 +499,24 @@ describe("the idea inbox", () => {
     expect(exported.markdown).toContain("asked by Market organiser");
   });
 
+  it("opens the inbox on New from the next step's link, whatever filter this browser kept", async () => {
+    seed(
+      idea("pcanvas_new", "Receipts by email"),
+      idea("pcanvas_ok", "Tips", { status: "accepted" })
+    );
+    useProductCanvasPrefs.setState({ lastFormat: "", inboxFilter: "accepted" });
+    window.history.replaceState(null, "", "/product-canvas?format=idea&inbox=new");
+    renderPage();
+    const list = await screen.findByRole("list", { name: "Ideas" });
+    expect(useProductCanvasPrefs.getState()).toMatchObject({
+      lastFormat: "idea",
+      inboxFilter: "new",
+    });
+    expect(within(list).getByRole("button", { name: /Receipts by email/ })).toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: /Tips/ })).toBeNull();
+    expect(window.location.search).toBe("");
+  });
+
   it("keeps ideas out of All, and opens one by link in the inbox", () => {
     seed(idea("pcanvas_a", "Tips"), pitch("pcanvas_p"));
     window.history.replaceState(null, "", "/product-canvas?canvas=pcanvas_a");
