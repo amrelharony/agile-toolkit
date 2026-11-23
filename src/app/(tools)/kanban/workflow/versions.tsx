@@ -9,14 +9,17 @@ import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import type { KanbanColumnId, WorkflowVersion } from "@/lib/stores/workspace-types";
 import {
+  BOARD_NAME,
   COMPARE_WEEKS,
   WORKFLOW_TEXT_MAX,
   WORKFLOW_VERSIONS_MAX,
+  compareBoard,
   compareVersion,
   versionChanges,
   withSavedVersion,
   type CompareSide,
   type CompareWeeks,
+  type WorkflowBoard,
 } from "@/lib/kanban/workflow";
 import type { FlowItem } from "@/lib/flow/types";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
@@ -57,19 +60,23 @@ const WEEK_OPTIONS = COMPARE_WEEKS.map((w) => ({
 
 /**
  * Versions: save the workflow as a numbered version (with what changed and
- * what the team expects), then compare the described board's flow before
- * and after any version was saved.
+ * what the team expects), then compare a board's flow before and after any
+ * version was saved: the board the version described, else the one the
+ * definition describes, else the one in view.
  */
 export function Versions({
   controller,
   wipLimits,
-  items,
+  itemsFor,
+  view,
   log,
 }: {
   controller: WorkflowController;
   wipLimits: Record<KanbanColumnId, number>;
-  /** The described board's items. */
-  items: readonly FlowItem[];
+  /** A board's items. */
+  itemsFor: (board: WorkflowBoard) => FlowItem[];
+  /** The board on screen. */
+  view: WorkflowBoard;
   log: (action: string, payload: Record<string, unknown>) => void;
 }) {
   const announce = useAnnounce();
@@ -144,7 +151,12 @@ export function Versions({
                   onToggle={() => setComparing((c) => (c === v.version ? null : v.version))}
                 />
                 {comparing === v.version && (
-                  <Compare controller={controller} version={v.version} items={items} />
+                  <Compare
+                    controller={controller}
+                    version={v.version}
+                    itemsFor={itemsFor}
+                    view={view}
+                  />
                 )}
               </li>
             );
@@ -196,16 +208,21 @@ const num = (n: number | null) => (n === null ? "—" : String(n));
 function Compare({
   controller,
   version,
-  items,
+  itemsFor,
+  view,
 }: {
   controller: WorkflowController;
   version: number;
-  items: readonly FlowItem[];
+  itemsFor: (board: WorkflowBoard) => FlowItem[];
+  view: WorkflowBoard;
 }) {
   const [weeks, setWeeks] = useState<CompareWeeks>(4);
+  // One board for the items and the WIP count, or WIP reads 0.
+  const board = compareBoard(controller.def, version) ?? view;
+  const items = useMemo(() => itemsFor(board), [itemsFor, board]);
   const result = useMemo(
-    () => compareVersion(controller.def, items, { version, weeks, today: todayIso() }),
-    [controller.def, items, version, weeks]
+    () => compareVersion(controller.def, items, { version, weeks, today: todayIso(), board }),
+    [controller.def, items, version, weeks, board]
   );
   if (!result) return null;
   const rows: [string, (s: CompareSide) => string][] = [
@@ -254,6 +271,7 @@ function Compare({
           </tbody>
         </table>
       </div>
+      <p className="text-xs text-sub">From the {BOARD_NAME[board]}.</p>
       {result.cutShort && (
         <p className="text-xs text-sub">
           The after window has {result.after.days} of {weeks * 7} days so far: it ends today.

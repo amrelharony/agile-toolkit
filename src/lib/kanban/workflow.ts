@@ -13,8 +13,8 @@
  *   - `mergeWorkflow` applies a partial change (null clears a field);
  *   - `sameWorkflowContent` tells whether a save changed anything;
  *   - `withSavedVersion` snapshots it with the board's WIP limits;
- *   - `compareVersion` reads the described board's items before and after
- *     a version was saved;
+ *   - `compareVersion` reads a board's items before and after a version was
+ *     saved (`compareBoard` says which board);
  *   - `sleFromHistory` suggests an SLE from the board's finished items.
  */
 
@@ -695,12 +695,41 @@ function side(
   };
 }
 
+/** The saved version numbered `version` (default: the latest), or null. */
+export function versionOf(
+  def: WorkflowDefinition | null | undefined,
+  version?: number
+): WorkflowVersion | null {
+  const versions = def?.versions ?? [];
+  const v =
+    version === undefined
+      ? versions[versions.length - 1]
+      : versions.find((x) => x.version === version);
+  return v ?? null;
+}
+
 /**
- * The described board's flow in the `weeks` before a version was saved
- * against the `weeks` from its save day: median and P85 cycle time over the
- * items finished in each window (shown from MIN_SAMPLE.distribution items a
- * side), throughput per week and average WIP. The after window stops at
- * today (`cutShort`). Null when the version isn't on the definition.
+ * The board a version's compare reads: the one the definition described
+ * when the version was saved, else the one it describes now. Null when
+ * neither names one (the page then reads the board in view). The caller
+ * takes its items from this board and passes it to `compareVersion`, so
+ * both read the same one.
+ */
+export function compareBoard(
+  def: WorkflowDefinition | null | undefined,
+  version?: number
+): WorkflowBoard | null {
+  return versionOf(def, version)?.snapshot.board ?? describedBoard(def);
+}
+
+/**
+ * A board's flow in the `weeks` before a version was saved against the
+ * `weeks` from its save day: median and P85 cycle time over the items
+ * finished in each window (shown from MIN_SAMPLE.distribution items a
+ * side), throughput per week and average WIP. `items` are the items of
+ * `board` (default: `compareBoard`, else the Flow board): WIP counts only
+ * items of the board it reads. The after window stops at today
+ * (`cutShort`). Null when the version isn't on the definition.
  */
 export function compareVersion(
   def: WorkflowDefinition | null | undefined,
@@ -709,17 +738,13 @@ export function compareVersion(
     version,
     weeks = 4,
     today = todayIso(),
-  }: { version?: number; weeks?: CompareWeeks; today?: string } = {}
+    board,
+  }: { version?: number; weeks?: CompareWeeks; today?: string; board?: WorkflowBoard } = {}
 ): VersionCompare | null {
-  const versions = def?.versions ?? [];
-  const v =
-    version === undefined
-      ? versions[versions.length - 1]
-      : versions.find((x) => x.version === version);
+  const v = versionOf(def, version);
   if (!v) return null;
   const saved = todayIso(new Date(v.savedAt));
-  const board: WorkflowBoard = v.snapshot.board ?? describedBoard(def) ?? "flow";
-  const workflow = boardWorkflow(board);
+  const workflow = boardWorkflow(board ?? compareBoard(def, v.version) ?? "flow");
   const span = weeks * 7;
   const beforeFrom = addDays(saved, -span) as string;
   const beforeTo = addDays(saved, -1) as string;

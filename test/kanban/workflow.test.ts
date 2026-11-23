@@ -21,6 +21,7 @@ import {
   WORKFLOW_TEXT_MAX,
   WORKFLOW_VERSIONS_MAX,
   blockNotedPayload,
+  compareBoard,
   compareVersion,
   deliveryToday,
   describedBoard,
@@ -296,6 +297,48 @@ describe("compareVersion", () => {
     expect(out.after.to).toBe("2026-10-20");
     expect(out.after.days).toBe(6);
     expect(out.after).toMatchObject({ enough: false, median: null, p85: null });
+  });
+
+  it("counts WIP on the board its items came from, the one the version described", () => {
+    // Saved while it described the Flow board; it describes the Sprint board now.
+    const moved: WorkflowDefinition = { ...saved, board: "sprint" };
+    expect(compareBoard(moved, 1)).toBe("flow");
+    const working = done("w", "2026-10-03", "2026-10-30");
+    const flowItems = items([...before, ...after, working]);
+    const out = compareVersion(moved, flowItems, {
+      weeks: 2,
+      today: "2026-11-20",
+      board: compareBoard(moved, 1)!,
+    })!;
+    expect(out.before.avgWip).toBeGreaterThan(0);
+    expect(out.after.avgWip).toBeGreaterThan(0);
+
+    // A version and a definition that name no board: the caller's board (the one in view).
+    const bare: WorkflowDefinition = {
+      ...saved,
+      board: undefined,
+      versions: saved.versions!.map((v) => ({
+        ...v,
+        snapshot: { ...v.snapshot, board: undefined },
+      })),
+    };
+    expect(compareBoard(bare, 1)).toBeNull();
+    const stories = workflowItems("sprint", {
+      stories: [
+        {
+          id: "s1",
+          title: "S1",
+          status: "in_progress",
+          startedAt: "2026-10-03T09:00:00.000Z",
+        },
+      ],
+    });
+    const sprint = compareVersion(bare, stories, {
+      weeks: 2,
+      today: "2026-11-20",
+      board: "sprint",
+    })!;
+    expect(sprint.before.avgWip).toBeGreaterThan(0);
   });
 
   it("is null for a version the definition doesn't have", () => {

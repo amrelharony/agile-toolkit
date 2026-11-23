@@ -60,6 +60,7 @@ import {
   STATIK_NOTE_MAX,
   WORKFLOW_TEXT_MAX,
   WORKFLOW_VERSIONS_MAX,
+  compareBoard,
   compareVersion,
   describedBoard,
   mergeWorkflow,
@@ -554,7 +555,8 @@ const CompareParams = z.object({
 });
 
 function planCompare(world: WorkflowWorld, params: z.infer<typeof CompareParams>) {
-  const board = describedBoard(world.def);
+  // The items and the WIP count read one board: the version's, else the described one.
+  const board = compareBoard(world.def, params.version);
   if (!world.def?.versions?.length || !board) {
     return fail(
       "no_version",
@@ -566,7 +568,7 @@ function planCompare(world: WorkflowWorld, params: z.infer<typeof CompareParams>
     boards: world.board ? [world.board] : [],
   });
   const weeks: CompareWeeks = params.weeks ?? 4;
-  const out = compareVersion(world.def, items, { version: params.version, weeks });
+  const out = compareVersion(world.def, items, { version: params.version, weeks, board });
   if (!out) return fail("no_version", `There is no version ${params.version}.`);
   return { ok: true as const, board, ...out };
 }

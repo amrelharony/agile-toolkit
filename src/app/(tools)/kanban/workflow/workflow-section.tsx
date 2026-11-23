@@ -116,7 +116,13 @@ export function WorkflowSection({
           <StatikSteps controller={controller} board={board} items={items} log={log} />
         </TabsContent>
         <TabsContent value="versions" className="mt-4" {...kept("versions")}>
-          <Versions controller={controller} wipLimits={wipLimits} items={items} log={log} />
+          <Versions
+            controller={controller}
+            wipLimits={wipLimits}
+            itemsFor={itemsFor}
+            view={view}
+            log={log}
+          />
         </TabsContent>
       </Tabs>
     </SectionCard>

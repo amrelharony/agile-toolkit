@@ -242,6 +242,26 @@ describe("versions", () => {
       error: "no_version",
     });
   });
+
+  it("compares on the board the version described, after the definition moved boards", async () => {
+    useWorkspaceStore.setState({
+      kanbanBoards: [
+        {
+          id: KANBAN_BOARD_ID,
+          wipLimits: LIMITS,
+          cards: [card("w", { startedAt: "2026-10-01T09:00:00.000Z" })],
+        },
+      ],
+    });
+    await run("tool.kanban.update_workflow", { board: "flow" });
+    await run("tool.kanban.save_workflow_version", {});
+    await run("tool.kanban.update_workflow", { board: "sprint" });
+    const out = await run<{ ok: boolean; board: string; after: { avgWip: number | null } }>(
+      "tool.kanban.compare_workflow_version"
+    );
+    expect(out).toMatchObject({ ok: true, board: "flow" });
+    expect(out.after.avgWip).toBeGreaterThan(0);
+  });
 });
 
 describe("set_blocked", () => {
