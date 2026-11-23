@@ -179,7 +179,7 @@ export function NewBoardForm({
           <Field
             label="Your buckets, smallest first"
             error={errors.custom}
-            hint="2 to 11 labels, apart by commas or spaces. Numbers become points."
+            hint="2 to 11 labels, separated by commas or spaces. Numbers become points; give other labels theirs on the board."
           >
             {(props) => (
               <Input

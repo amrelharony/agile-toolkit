@@ -793,7 +793,7 @@ function BoardView({
               )}
             </Field>
             <div className="flex flex-col gap-2">
-              <Field label="Deal the cards to" hint="Names, apart by commas.">
+              <Field label="Deal the cards to" hint="Names, separated by commas.">
                 {(props) => (
                   <Input
                     {...props}

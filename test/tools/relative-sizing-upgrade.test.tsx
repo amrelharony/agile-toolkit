@@ -239,6 +239,9 @@ describe("an empty page", () => {
     fireEvent.change(screen.getByRole("combobox", { name: "Buckets" }), {
       target: { value: "custom" },
     });
+    expect(screen.getByRole("textbox", { name: /Your buckets/ })).toHaveAccessibleDescription(
+      /^2 to 11 labels, separated by commas or spaces\./
+    );
     fireEvent.change(screen.getByRole("textbox", { name: /Your buckets/ }), {
       target: { value: "S, ?, L" },
     });
@@ -292,6 +295,9 @@ describe("sorting", () => {
     expect(theBoard()).toMatchObject({ anchorItemId: "c1" });
     expect(item("c1").bucketId).toBe("b4");
     expect(screen.getByRole("textbox", { name: "Deal the cards to" })).toHaveValue("Ana, Raj");
+    expect(screen.getByRole("textbox", { name: "Deal the cards to" })).toHaveAccessibleDescription(
+      "Names, separated by commas."
+    );
     fireEvent.click(screen.getByRole("button", { name: "Deal the cards" }));
     expect(item("c1").dealtTo).toBeUndefined();
     expect([item("c2").dealtTo, item("c3").dealtTo].sort()).toEqual(["Ana", "Raj"]);
