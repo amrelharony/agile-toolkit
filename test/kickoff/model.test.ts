@@ -542,6 +542,19 @@ describe("problem framing", () => {
     const some = framing({ ...k.sections, hmw: [item("h", starters[0])] });
     expect(hmwStarters(some)).toEqual(starters.slice(1));
   });
+
+  it("asks a question from what good looks like alone, as the hint says", () => {
+    const outcome = [item("d", "Buyers see their money the same day.")];
+    expect(hmwStarters(framing({ outcome }))).toEqual([
+      "How might we get to this: buyers see their money the same day?",
+    ]);
+    // With who too, the outcome goes into who's question instead.
+    expect(hmwStarters(framing({ outcome, who: [item("a", "Buyers")] }))).toEqual([
+      "How might we help buyers so that buyers see their money the same day?",
+    ]);
+    // A placeholder isn't an answer.
+    expect(hmwStarters(framing({ outcome: [item("d", "[What good looks like]")] }))).toEqual([]);
+  });
 });
 
 describe("drafted lines", () => {

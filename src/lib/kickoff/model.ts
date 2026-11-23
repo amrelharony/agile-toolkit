@@ -763,6 +763,8 @@ export function hmwStarters(k: Kickoff): string[] {
   const lines: string[] = [];
   if (who && outcome) lines.push(`How might we help ${who} so that ${outcome}?`);
   else if (who) lines.push(`How might we make things easier for ${who}?`);
+  // What good looks like asks its own question, as the page's hint promises.
+  else if (outcome) lines.push(`How might we get to this: ${outcome}?`);
   if (what) lines.push(`How might we change what happens today: ${what}?`);
   if (impact) lines.push(`How might we lower what it costs: ${impact}?`);
   const def = formatOf(k).sections.find((d) => d.id === "hmw");
