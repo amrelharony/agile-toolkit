@@ -14,8 +14,10 @@ import { cardForMoodTask, generateCardsTask } from "./card-decks";
 import { ebmMeasuresTask } from "./ebm-dashboard";
 import { mapExamplesTask, mapQuestionsTask, mapRulesTask } from "./example-mapping";
 import { agendaTask } from "./facilitator-timers";
+import { flowInsightsClassifyTask } from "./flow-insights";
 import { hillChartUpdateNoteTask } from "./hill-chart";
 import { impactMapDraftTask } from "./impact-map";
+import { impedimentsClusterTask } from "./impediments";
 import { interruptClassifyTask } from "./interrupt-buffer";
 import { kanbanPoliciesTask } from "./kanban";
 import { meetingAuditSuggestTask } from "./meeting-audit";
@@ -56,8 +58,10 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   mapExamplesTask,
   mapQuestionsTask,
   agendaTask,
+  flowInsightsClassifyTask,
   hillChartUpdateNoteTask,
   impactMapDraftTask,
+  impedimentsClusterTask,
   interruptClassifyTask,
   kanbanPoliciesTask,
   meetingAuditSuggestTask,
