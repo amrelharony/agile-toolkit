@@ -34,6 +34,7 @@ import {
 import { STORY_MAP_ID } from "@/lib/stores/workspace-types";
 import { RETRO_COLUMN_PALETTE } from "@/lib/constants/retro-formats";
 import { isRetroVotes } from "@/lib/retro/board";
+import { isCardDay } from "@/lib/retro/seismograph";
 import { themed } from "@/lib/utils/theme-color";
 import { latestCheckInDay, withCheckIn } from "@/lib/okrs/progress";
 import { isIsoDate } from "@/lib/sprints/calendar";
@@ -95,6 +96,8 @@ export function readRetro(state: unknown): RetroBoard | null {
       isActionItem: c.isActionItem === true,
       assignee: isStr(c.assignee, 200) ? c.assignee : "",
       discussing: false,
+      // An Emotional Seismograph card's sprint day: a whole number in range only.
+      ...(isCardDay(c.day) ? { day: c.day } : {}),
     });
   }
   return {

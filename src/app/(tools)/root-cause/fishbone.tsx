@@ -32,7 +32,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import { AiButton, AiSuggestions } from "@/components/ai";
-import { categoriesTask } from "@/lib/ai/tasks/root-cause.lite";
+import { categoriesTask, fitCategoriesInput } from "@/lib/ai/tasks/root-cause.lite";
 import type { AiSource } from "@/lib/ai/task-types";
 import {
   TOOL_LIST_MAX,
@@ -495,18 +495,21 @@ export function Fishbone({
           <div ref={askRef}>
             <AiButton
               task={categoriesTask}
-              input={() => ({
-                problem: [analysis.title, analysis.problem]
-                  .filter((s) => s.trim())
-                  .join(". ")
-                  .slice(0, 1000),
-                categories: categories.slice(0, 12),
-                causes: analysis.causes.slice(0, 100).map((c) => ({
-                  id: c.id.slice(0, 64),
-                  text: c.text.slice(0, 1000),
-                  category: c.category.slice(0, 60),
-                })),
-              })}
+              input={() =>
+                // A board of long causes is trimmed from its end to fit the request.
+                fitCategoriesInput({
+                  problem: [analysis.title, analysis.problem]
+                    .filter((s) => s.trim())
+                    .join(". ")
+                    .slice(0, 1000),
+                  categories: categories.slice(0, 12),
+                  causes: analysis.causes.slice(0, 100).map((c) => ({
+                    id: c.id.slice(0, 64),
+                    text: c.text.slice(0, 1000),
+                    category: c.category.slice(0, 60),
+                  })),
+                })
+              }
               label="Ask Amr to sort the causes"
               fallbackLabel="Sort without AI"
               onResult={(data, meta) => {

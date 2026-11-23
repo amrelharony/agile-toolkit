@@ -36,7 +36,12 @@ import { sizingDiscussPrompt, sizingSplitPrompt } from "./relative-sizing.server
 import { releaseReadinessNotesPrompt } from "./release-readiness.server";
 import { groupTopicsPrompt, surprisePlanPrompt } from "./retro.server";
 import { retroActionsThemesPrompt } from "./retro-actions.server";
-import { categoriesPrompt, countermeasurePrompt, nextWhyPrompt } from "./root-cause.server";
+import {
+  categoriesPrompt,
+  countermeasurePrompt,
+  loopLinksPrompt,
+  nextWhyPrompt,
+} from "./root-cause.server";
 import { notebookTagPrompt, notebookWeeklySummaryPrompt } from "./sm-notebook.server";
 import { sprintRiskNotePrompt } from "./sprint.server";
 import { strategyTreeDraftPrompt } from "./strategy-tree.server";
@@ -87,6 +92,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   nextWhyPrompt,
   categoriesPrompt,
   countermeasurePrompt,
+  loopLinksPrompt,
   notebookWeeklySummaryPrompt,
   notebookTagPrompt,
   sprintRiskNotePrompt,

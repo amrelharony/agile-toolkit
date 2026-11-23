@@ -4,8 +4,15 @@ import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { TOOL_LIST_MAX, TOOL_TEXT_MAX, type RootCauseAnalysis } from "@/lib/stores/workspace-types";
+import {
+  ENTITY_ROW_MAX_BYTES,
+  TOOL_LIST_MAX,
+  TOOL_TEXT_MAX,
+  type RootCauseAnalysis,
+  type RootCauseLoop,
+} from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/lib/utils/example-id";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 /**
  * Root Cause: a problem taken back to its causes with 5 Whys (a ladder
@@ -59,13 +66,21 @@ import { rootCauseToMarkdown } from "@/app/(tools)/root-cause/markdown";
 import { validateWhy } from "@/app/(tools)/root-cause/five-whys";
 import { validateCause } from "@/app/(tools)/root-cause/fishbone";
 import { validateAnalysisDraft } from "@/app/(tools)/root-cause/new-analysis-form";
-import { countermeasureText } from "@/app/(tools)/root-cause/outcome";
+import { countermeasureText, improvementsUsing } from "@/app/(tools)/root-cause/outcome";
+import {
+  newLinksFrom,
+  validateLoopLink,
+  validateLoopNode,
+} from "@/app/(tools)/root-cause/causal-loop";
+import { blankImprovement } from "@/lib/improve/model";
+import { findLoops } from "@/lib/root-cause/loops";
 import { paretoText } from "@/app/(tools)/root-cause/pareto";
 import { CHECKS_MAX, readChecks, useRootCauseChecks } from "@/app/(tools)/root-cause/checks-store";
 import { PM_ID } from "@/app/(tools)/post-mortem/constants";
 import {
   categoriesTask,
   fallbackCountermeasures,
+  fallbackLoopLinks,
   fallbackNextWhys,
 } from "@/lib/ai/tasks/root-cause";
 import { ROOT_CAUSE_ACTIONS } from "@/lib/history/event-actions";
@@ -128,7 +143,12 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/root-cause");
   vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "");
   vi.spyOn(useWorkspaceStore.persist, "hasHydrated").mockReturnValue(true);
-  useWorkspaceStore.setState({ rootCauseAnalyses: [], retroBoards: [], postMortemLogs: [] });
+  useWorkspaceStore.setState({
+    rootCauseAnalyses: [],
+    retroBoards: [],
+    postMortemLogs: [],
+    improvements: [],
+  });
   useRootCauseChecks.setState({ checks: {}, hiddenCategories: {} });
 });
 
@@ -1129,5 +1149,503 @@ describe("editing and deleting an analysis", () => {
       "> 1 analysis has a root cause but no countermeasure yet: agree what the team will change."
     );
     expect(exported.markdown).toContain("**Root cause:** No owner.");
+  });
+});
+
+/* ── The causal loop ─────────────────────────────────────────────────── */
+
+describe("Causal loop", () => {
+  /** The checkout example's loop under the team's own ids. */
+  const ownLoop = (): RootCauseLoop => {
+    const loop = buildExample()[1].loop!;
+    const own = (id: string) => id.replace(/^.*loop-/, "own-");
+    return {
+      nodes: loop.nodes.map((n) => ({ ...n, id: own(n.id) })),
+      links: loop.links.map((l) => ({ ...l, id: own(l.id), from: own(l.from), to: own(l.to) })),
+      names: (loop.names ?? []).map((n) => ({ ...n, key: n.key.split(">").map(own).join(">") })),
+    };
+  };
+  const loopAnalysis = (over: Partial<RootCauseAnalysis> = {}) =>
+    analysis({
+      id: "rca_1",
+      title: "Checkout errors noticed late",
+      method: "causal-loop",
+      ...over,
+    });
+  const openLoop = async () =>
+    screen.findByRole("heading", { name: "Causal loop" }, { timeout: 3000 });
+  const addThing = (text: string) => {
+    fireEvent.change(screen.getByPlaceholderText("Support tickets"), { target: { value: text } });
+    fireEvent.click(screen.getByRole("button", { name: /^Add thing/ }));
+  };
+  const draw = (from: string, to: string, opts?: { opposite?: boolean; delay?: boolean }) => {
+    const pick = (label: string, text: string) => {
+      const select = screen.getByLabelText(label) as HTMLSelectElement;
+      const option = Array.from(select.options).find((o) => o.text === text);
+      fireEvent.change(select, { target: { value: option?.value ?? text } });
+    };
+    pick("From", from);
+    pick("To", to);
+    if (opts?.opposite) fireEvent.click(screen.getByRole("radio", { name: "− opposite ways" }));
+    if (opts?.delay) fireEvent.click(screen.getByRole("checkbox", { name: "Takes time" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Add arrow/ }));
+  };
+  const loopNow = () => stored()[0].loop;
+
+  it("is a third view, with a count of loops, beside 5 Whys and Fishbone", async () => {
+    ws().upsertRootCauseAnalysis(loopAnalysis({ method: "five-whys", loop: ownLoop() }));
+    renderPage();
+    const group = screen.getByRole("group", { name: "Method" });
+    expect(within(group).getByRole("button", { name: /5 Whys/ })).toBeInTheDocument();
+    expect(within(group).getByRole("button", { name: /Fishbone/ })).toBeInTheDocument();
+    const loopButton = within(group).getByRole("button", { name: /Causal loop/ });
+    expect(loopButton).toHaveTextContent("2");
+    fireEvent.click(loopButton);
+    expect(loopButton).toHaveAttribute("aria-pressed", "true");
+    await openLoop();
+  });
+
+  it("starts an analysis on the loop and says to add the things that go up or down", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /Start the analysis/ }));
+    fireEvent.change(screen.getByLabelText(/The problem, in a few words/), {
+      target: { value: "Checkout errors noticed late" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Causal loop" }));
+    fireEvent.click(screen.getByRole("button", { name: /Start the analysis/ }));
+    expect(byTitle("Checkout errors noticed late")).toMatchObject({ method: "causal-loop" });
+    await openLoop();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Started “Checkout errors noticed late”. Add the things that go up or down."
+      )
+    );
+    expect(screen.getByTestId("live-polite")).not.toHaveTextContent("Add its causes.");
+  });
+
+  it("adds things with Enter, refusing blank and the same words in another case", async () => {
+    ws().upsertRootCauseAnalysis(loopAnalysis());
+    renderPage();
+    await openLoop();
+    expect(
+      screen.getByText("A loop closes when an arrow leads back to where it started.")
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /^Add thing/ }));
+    expect(screen.getByText("Write the thing that goes up or down.")).toBeInTheDocument();
+    addThing("Checkout errors");
+    const input = screen.getByPlaceholderText("Support tickets");
+    fireEvent.change(input, { target: { value: "Support tickets" } });
+    fireEvent.submit(input.closest("form")!);
+    addThing("CHECKOUT ERRORS");
+    expect(screen.getByText("That's on the loop already.")).toBeInTheDocument();
+    expect(loopNow()?.nodes.map((n) => n.text)).toEqual(["Checkout errors", "Support tickets"]);
+    expect(
+      logs.filter((l) => l.action === ROOT_CAUSE_ACTIONS.LOOP_NODE_ADDED).map((l) => l.payload)
+    ).toEqual([
+      { analysisId: "rca_1", count: 1 },
+      { analysisId: "rca_1", count: 2 },
+    ]);
+  });
+
+  it("shows under its row why a thing's new words weren't saved, until it's edited again", async () => {
+    ws().upsertRootCauseAnalysis(
+      loopAnalysis({
+        loop: {
+          nodes: [
+            { id: "t", text: "Support tickets" },
+            { id: "a", text: "Alerts" },
+          ],
+          links: [],
+        },
+      })
+    );
+    renderPage();
+    await openLoop();
+    fireEvent.click(screen.getByRole("button", { name: "Alerts. Edit" }));
+    const field = screen.getByLabelText("Thing that goes up or down");
+    fireEvent.change(field, { target: { value: "support tickets" } });
+    fireEvent.keyDown(field, { key: "Enter" });
+    expect(loopNow()?.nodes.map((n) => n.text)).toEqual(["Support tickets", "Alerts"]);
+    const row = screen.getByRole("button", { name: "Alerts. Edit" });
+    expect(screen.getByText("That's on the loop already.")).toBeVisible();
+    expect(row).toHaveAccessibleDescription("That's on the loop already.");
+    expect(logs.some((l) => l.action === ROOT_CAUSE_ACTIONS.ANALYSIS_UPDATED)).toBe(false);
+    // Editing again clears it; new words are saved.
+    fireEvent.click(row);
+    expect(screen.queryByText("That's on the loop already.")).not.toBeInTheDocument();
+    const again = screen.getByLabelText("Thing that goes up or down");
+    fireEvent.change(again, { target: { value: "Alert volume" } });
+    fireEvent.keyDown(again, { key: "Enter" });
+    expect(loopNow()?.nodes.map((n) => n.text)).toEqual(["Support tickets", "Alert volume"]);
+    expect(screen.queryByText("That's on the loop already.")).not.toBeInTheDocument();
+  });
+
+  it("shows under the field a thing the store refused as too big, keeping the words typed", async () => {
+    const base = loopAnalysis({
+      loop: { nodes: [{ id: "t", text: "Support tickets" }], links: [] },
+    });
+    const pad = "x".repeat(ENTITY_ROW_MAX_BYTES - jsonBytes({ ...base, pad: "" }) - 5);
+    ws().upsertRootCauseAnalysis({ ...base, pad } as RootCauseAnalysis);
+    renderPage();
+    await openLoop();
+    addThing("Alert volume");
+    expect(loopNow()?.nodes.map((n) => n.text)).toEqual(["Support tickets"]);
+    const input = screen.getByPlaceholderText("Support tickets");
+    expect(input).toHaveValue("Alert volume");
+    expect(input).toHaveAccessibleDescription(
+      "This analysis is too big to save. Shorten or remove some lines. Nothing was saved."
+    );
+  });
+
+  it("draws arrows, refusing a self-link and a duplicate, and names the loop they close", async () => {
+    ws().upsertRootCauseAnalysis(
+      loopAnalysis({
+        loop: {
+          nodes: [
+            { id: "e", text: "Errors" },
+            { id: "t", text: "Tickets" },
+          ],
+          links: [],
+        },
+      })
+    );
+    renderPage();
+    await openLoop();
+    draw("Errors", "Errors");
+    expect(screen.getByText("An arrow goes from one thing to another.")).toBeInTheDocument();
+    draw("Errors", "Tickets");
+    draw("Errors", "Tickets");
+    expect(screen.getByText(/That arrow is drawn already/)).toBeInTheDocument();
+    draw("Tickets", "Errors", { opposite: true, delay: true });
+    expect(loopNow()?.links.map((l) => [l.from, l.to, l.polarity, l.delay === true])).toEqual([
+      ["e", "t", "same", false],
+      ["t", "e", "opposite", true],
+    ]);
+    expect(
+      logs.filter((l) => l.action === ROOT_CAUSE_ACTIONS.LOOP_LINK_ADDED).map((l) => l.payload)
+    ).toEqual([
+      { analysisId: "rca_1", polarity: "same", delay: false },
+      { analysisId: "rca_1", polarity: "opposite", delay: true },
+    ]);
+    const loops = screen.getByRole("list", { name: "Loops" });
+    expect(within(loops).getByText("B1")).toBeInTheDocument();
+    expect(
+      within(loops).getByText(
+        /More errors → more tickets → less errors: each turn holds it back \(balancing\)\./
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("flips an arrow's sign, which turns its loop from B to R", async () => {
+    ws().upsertRootCauseAnalysis(
+      loopAnalysis({
+        loop: {
+          nodes: [
+            { id: "e", text: "Errors" },
+            { id: "t", text: "Tickets" },
+          ],
+          links: [
+            { id: "l1", from: "e", to: "t", polarity: "same" },
+            { id: "l2", from: "t", to: "e", polarity: "opposite" },
+          ],
+        },
+      })
+    );
+    renderPage();
+    await openLoop();
+    fireEvent.click(screen.getByRole("button", { name: "Flip the sign of Tickets → Errors" }));
+    expect(loopNow()?.links[1].polarity).toBe("same");
+    expect(within(screen.getByRole("list", { name: "Loops" })).getByText("R1")).toBeInTheDocument();
+  });
+
+  it("deletes a thing with Undo: its arrows and its loop's name come back too", async () => {
+    ws().upsertRootCauseAnalysis(loopAnalysis({ loop: ownLoop() }));
+    renderPage();
+    await openLoop();
+    const before = loopNow();
+    fireEvent.click(screen.getByRole("button", { name: "Delete “Alerts on checkout”" }));
+    expect(lastUndo().label).toBe("Deleted “Alerts on checkout”");
+    expect(loopNow()?.nodes).toHaveLength(4);
+    expect(loopNow()?.links).toHaveLength(3);
+    expect(loopNow()?.names ?? []).toEqual([]);
+    act(() => lastUndo().revert());
+    expect(loopNow()).toEqual(before);
+  });
+
+  it("deletes an arrow with Undo", async () => {
+    ws().upsertRootCauseAnalysis(loopAnalysis({ loop: ownLoop() }));
+    renderPage();
+    await openLoop();
+    const before = loopNow();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Delete the arrow Alerts on checkout → Checkout errors customers see",
+      })
+    );
+    expect(loopNow()?.links).toHaveLength(5);
+    act(() => lastUndo().revert());
+    expect(loopNow()).toEqual(before);
+  });
+
+  it("names a loop on blur, logged with its kind, and points at the busiest thing", async () => {
+    ws().upsertRootCauseAnalysis(loopAnalysis({ loop: ownLoop() }));
+    renderPage();
+    await openLoop();
+    expect(screen.getByLabelText("Name R1")).toHaveValue("Firefighting crowds out the fix");
+    commit(screen.getByLabelText("Name B1"), "Pressure fixes the alerts");
+    const b1 = findLoops(loopNow()).loops.find((l) => l.label === "B1")!;
+    expect(loopNow()?.names).toContainEqual({ key: b1.key, name: "Pressure fixes the alerts" });
+    expect(logs.find((l) => l.action === ROOT_CAUSE_ACTIONS.LOOP_NAMED)?.payload).toEqual({
+      analysisId: "rca_1",
+      kind: "balancing",
+    });
+    expect(
+      screen.getByText(
+        "“Alerts on checkout” sits in the most loops: acting there may change the most."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("marks a thing as the root cause, logged and cheered once", async () => {
+    ws().upsertRootCauseAnalysis(loopAnalysis({ loop: ownLoop() }));
+    renderPage();
+    await openLoop();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Mark the thing in the most loops, “Alerts on checkout”, as the root cause",
+      })
+    );
+    expect(stored()[0].rootCause).toBe("Alerts on checkout");
+    expect(actions()).toContain(ROOT_CAUSE_ACTIONS.ROOT_CAUSE_FOUND);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Mark “Support tickets” as the root cause" })
+    );
+    expect(stored()[0].rootCause).toBe("Support tickets");
+    expect(cheers).toEqual([["root-cause", "milestone"]]);
+  });
+
+  it("puts whys and causes on the loop in one tap each", async () => {
+    ws().upsertRootCauseAnalysis(
+      loopAnalysis({
+        whys: [{ id: "w1", text: "Alerts fire too late." }],
+        causes: [
+          { id: "c1", category: "Measurement", text: "No alert on the error rate", count: 2 },
+        ],
+        loop: { nodes: [{ id: "x", text: "alerts fire too late." }], links: [] },
+      })
+    );
+    renderPage();
+    await openLoop();
+    // The why is on the loop already (in another case): only the cause is offered.
+    expect(
+      screen.queryByRole("button", { name: "Add “Alerts fire too late.” to the loop" })
+    ).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add “No alert on the error rate” to the loop" })
+    );
+    expect(loopNow()?.nodes.map((n) => n.text)).toEqual([
+      "alerts fire too late.",
+      "No alert on the error rate",
+    ]);
+    expect(logs.find((l) => l.action === ROOT_CAUSE_ACTIONS.LOOP_NODE_ADDED)?.payload).toEqual({
+      analysisId: "rca_1",
+      count: 2,
+      from: "cause",
+    });
+    expect(screen.queryByText("Add from the whys and causes")).toBeNull();
+  });
+
+  it("suggests arrows without AI; each one added goes on the loop with Undo", async () => {
+    ws().upsertRootCauseAnalysis(
+      loopAnalysis({
+        loop: {
+          nodes: [
+            { id: "e", text: "Checkout errors" },
+            { id: "t", text: "Support tickets" },
+            { id: "a", text: "Fewer alerts" },
+          ],
+          links: [{ id: "l1", from: "e", to: "t", polarity: "same" }],
+        },
+      })
+    );
+    renderPage();
+    await openLoop();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest arrows without AI" }));
+    const [first] = fallbackLoopLinks(loopNow()!.nodes, loopNow()!.links);
+    expect(first).toMatchObject({ from: "t", to: "a", polarity: "opposite" });
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Add: Support tickets → Fewer alerts \(opposite ways/ })
+    );
+    expect(loopNow()?.links.map((l) => `${l.from}>${l.to}:${l.polarity}`)).toEqual([
+      "e>t:same",
+      "t>a:opposite",
+    ]);
+    expect(lastUndo().label).toBe("Added an arrow");
+    act(() => lastUndo().revert());
+    expect(loopNow()?.links).toHaveLength(1);
+  });
+
+  it("says when there's no new arrow to suggest", async () => {
+    ws().upsertRootCauseAnalysis(
+      loopAnalysis({
+        loop: {
+          nodes: [
+            { id: "e", text: "Errors" },
+            { id: "t", text: "Tickets" },
+          ],
+          links: [
+            { id: "l1", from: "e", to: "t", polarity: "same" },
+            { id: "l2", from: "t", to: "e", polarity: "same" },
+          ],
+        },
+      })
+    );
+    renderPage();
+    await openLoop();
+    fireEvent.click(screen.getByRole("button", { name: "Suggest arrows without AI" }));
+    expect(screen.getByText("No new arrows to suggest.")).toBeInTheDocument();
+  });
+
+  it("waits for two things before Ask Amr, and offers none on the example", async () => {
+    ws().upsertRootCauseAnalysis(
+      loopAnalysis({ loop: { nodes: [{ id: "e", text: "Errors" }], links: [] } })
+    );
+    renderPage();
+    await openLoop();
+    expect(screen.getByRole("button", { name: "Suggest arrows without AI" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
+    cleanup();
+    useWorkspaceStore.setState({ rootCauseAnalyses: buildExample() });
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /Causal loop/ }));
+    await openLoop();
+    expect(screen.queryByRole("button", { name: /Ask Amr|without AI/ })).toBeNull();
+  });
+
+  it("draws the loop with a summary and the arrows as a table", async () => {
+    ws().upsertRootCauseAnalysis(loopAnalysis({ loop: ownLoop() }));
+    renderPage();
+    await openLoop();
+    const figure = screen.getByRole("figure", { name: "Causal loop diagram" });
+    expect(
+      within(figure).getByText(
+        "5 things and 6 arrows: 1 reinforcing loop (R1) and 1 balancing loop (B1)."
+      )
+    ).toBeInTheDocument();
+    fireEvent.click(within(figure).getByRole("button", { name: /View as table/ }));
+    const table = within(figure).getByRole("table");
+    expect(
+      within(table)
+        .getAllByRole("columnheader")
+        .map((h) => h.textContent)
+    ).toEqual(["From", "To", "Moves", "Takes time"]);
+    expect(
+      within(table)
+        .getAllByRole("row")
+        .some((r) =>
+          /Time spent firefighting.*Alerts on checkout.*Opposite ways \(−\).*Yes/.test(
+            r.textContent ?? ""
+          )
+        )
+    ).toBe(true);
+  });
+
+  it("exports a Causal loop section only for an analysis with things on it", async () => {
+    ws().upsertRootCauseAnalysis(loopAnalysis({ loop: ownLoop() }));
+    ws().upsertRootCauseAnalysis(
+      analysis({ id: "rca_2", title: "No loop here", updatedAt: "2026-10-01T09:00:00.000Z" })
+    );
+    renderPage();
+    await waitFor(() => expect(exported.markdown).toContain("### Causal loop"));
+    expect(exported.markdown.match(/### Causal loop/g)).toHaveLength(1);
+    expect(exported.markdown).toContain(
+      "- Time spent firefighting → Alerts on checkout (opposite ways, takes time)"
+    );
+    expect(exported.markdown).toContain(
+      "- R1 “Firefighting crowds out the fix”: More checkout errors"
+    );
+    const md = rootCauseToMarkdown([analysis({ id: "rca_x" })]);
+    expect(md).not.toContain("Causal loop");
+  });
+
+  it("links to Improve once there's a root cause, and lists the improvements that use it", async () => {
+    const mine = blankImprovement(
+      { title: "Alert on errors", method: "a3", rootCauseId: "rca_1" },
+      "improve_mine",
+      "2026-11-02T09:00:00.000Z"
+    );
+    const origin = blankImprovement(
+      { title: "Where it came from", method: "kata", rootCauseId: "rca_1" },
+      "improve_origin",
+      "2026-11-03T09:00:00.000Z"
+    );
+    useWorkspaceStore.setState({ improvements: [mine, origin] });
+    ws().upsertRootCauseAnalysis(
+      loopAnalysis({ method: "five-whys", sourceRef: { tool: "improve", id: "improve_origin" } })
+    );
+    renderPage();
+    expect(screen.queryByRole("link", { name: /Plan and check it in Improve/ })).toBeNull();
+    commit(screen.getByLabelText("Root cause"), "No alert on the error rate");
+    expect(screen.getByRole("link", { name: /Plan and check it in Improve/ })).toHaveAttribute(
+      "href",
+      "/improve?from=rca_1"
+    );
+    // The one it came from is named above ("From improvement"), not again here.
+    expect(screen.getByText(/Used in Improve:/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Alert on errors" })).toHaveAttribute(
+      "href",
+      "/improve?item=improve_mine"
+    );
+    expect(screen.queryByRole("link", { name: "Where it came from" })).toBeNull();
+    expect(improvementsUsing({ id: "rca_1" }, [mine, origin]).map((i) => i.id)).toEqual([
+      "improve_origin",
+      "improve_mine",
+    ]);
+  });
+
+  it("shows neither Improve link on the example", () => {
+    const [, checkout] = buildExample();
+    useWorkspaceStore.setState({
+      rootCauseAnalyses: [checkout],
+      improvements: [
+        blankImprovement(
+          { title: "Ours", method: "a3", rootCauseId: checkout.id },
+          "improve_x",
+          "2026-11-02T09:00:00.000Z"
+        ),
+      ],
+    });
+    renderPage();
+    expect(screen.queryByRole("link", { name: /Plan and check it in Improve/ })).toBeNull();
+    expect(screen.queryByText(/Used in Improve/)).toBeNull();
+    expect(improvementsUsing(checkout, useWorkspaceStore.getState().improvements)).toEqual([]);
+  });
+
+  it("checks a new thing and a new arrow before they go in", () => {
+    const loop: RootCauseLoop = {
+      nodes: [
+        { id: "a", text: "Alerts" },
+        { id: "b", text: "Bugs" },
+      ],
+      links: [{ id: "l", from: "a", to: "b", polarity: "same" }],
+    };
+    expect(validateLoopNode(loop, " ")).toBe("Write the thing that goes up or down.");
+    expect(validateLoopNode(loop, "ALERTS")).toBe("That's on the loop already.");
+    expect(validateLoopNode(loop, "Tickets")).toBeNull();
+    const draft = { from: "a", to: "b", polarity: "same" as const, delay: false };
+    expect(validateLoopLink(loop, { ...draft, from: "" })).toBe("Pick where the arrow starts.");
+    expect(validateLoopLink(loop, { ...draft, to: "" })).toBe("Pick where the arrow goes.");
+    expect(validateLoopLink(loop, draft)).toMatch(/drawn already/);
+    expect(validateLoopLink(loop, { ...draft, from: "b", to: "a" })).toBeNull();
+    expect(
+      newLinksFrom(loop, [
+        { from: "a", to: "b", polarity: "same", why: "Drawn" },
+        { from: "b", to: "a", polarity: "same", why: "New" },
+        { from: "b", to: "a", polarity: "opposite", why: "Twice" },
+        { from: "b", to: "zz", polarity: "same", why: "Gone" },
+      ]).map((l) => l.why)
+    ).toEqual(["New"]);
   });
 });

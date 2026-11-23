@@ -1,15 +1,20 @@
 /**
  * Root Cause's AI tasks, the lite half pages import (no zod; the defs, with
- * their schemas, are `root-cause.ts` and load on first AI use): the three
+ * their schemas, are `root-cause.ts` and load on first AI use): the four
  * fallbacks, with their templates and keyword rules, and one ref per task.
  */
 
 import { lazyAiTask } from "../task-ref";
+import { TOOL_AI_BODY_BUDGET } from "../contract";
+import { LOOP_LENGTH_MAX } from "@/lib/root-cause/loops";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 import type {
   CategoriesInput,
   CategoriesOutput,
   CountermeasureInput,
   CountermeasureOutput,
+  LoopLinksInput,
+  LoopLinksOutput,
   NextWhyInput,
   NextWhyOutput,
 } from "./root-cause";
@@ -18,6 +23,8 @@ export type {
   CategoriesOutput,
   CountermeasureInput,
   CountermeasureOutput,
+  LoopLinksInput,
+  LoopLinksOutput,
   NextWhyInput,
   NextWhyOutput,
 } from "./root-cause";
@@ -62,6 +69,25 @@ export function fallbackNextWhys(problem: string, whys: readonly string[]): stri
 export const nextWhyFallback = ({ problem, whys }: NextWhyInput): NextWhyOutput => ({
   whys: fallbackNextWhys(problem, whys),
 });
+
+/**
+ * The next-why input, trimmed until its request (`{task, input}`) fits
+ * `budget` bytes: at its caps (20 whys of 1,000 characters) it can pass the
+ * body budget. The oldest whys go first; the problem and the last why,
+ * which the next one answers, always stay. The input as it is when it
+ * already fits.
+ */
+export function fitNextWhyInput(
+  input: NextWhyInput,
+  budget: number = TOOL_AI_BODY_BUDGET
+): NextWhyInput {
+  const size = (x: NextWhyInput) => jsonBytes({ task: "root-cause.next_why", input: x });
+  let next = input;
+  while (next.whys.length > 1 && size(next) > budget) {
+    next = { ...next, whys: next.whys.slice(1) };
+  }
+  return next;
+}
 
 export const nextWhyTask = lazyAiTask<NextWhyInput, NextWhyOutput>(
   { id: "root-cause.next_why", toolId: "root-cause", fallback: nextWhyFallback },
@@ -133,6 +159,26 @@ export const categoriesFallback = ({ categories, causes }: CategoriesInput): Cat
   moves: fallbackCategoryMoves(categories, causes),
 });
 
+/**
+ * The categories input, trimmed until its request fits `budget` bytes: at
+ * its caps (100 causes of 1,000 characters) it passes the body budget many
+ * times over. Causes go from the end of the board, keeping at least one,
+ * so the moves cover the causes sent. The input as it is when it fits.
+ */
+export function fitCategoriesInput(
+  input: CategoriesInput,
+  budget: number = TOOL_AI_BODY_BUDGET
+): CategoriesInput {
+  let bytes = jsonBytes({ task: "root-cause.categories", input });
+  let keep = input.causes.length;
+  // Measured once, then each cause taken off with the comma before it.
+  while (keep > 1 && bytes > budget) {
+    bytes -= jsonBytes(input.causes[keep - 1]) + 1;
+    keep--;
+  }
+  return keep === input.causes.length ? input : { ...input, causes: input.causes.slice(0, keep) };
+}
+
 export const categoriesTask = lazyAiTask<CategoriesInput, CategoriesOutput>(
   { id: "root-cause.categories", toolId: "root-cause", fallback: categoriesFallback },
   () => import("./root-cause").then((m) => m.categoriesTask)
@@ -173,4 +219,130 @@ export const countermeasureFallback = ({
 export const countermeasureTask = lazyAiTask<CountermeasureInput, CountermeasureOutput>(
   { id: "root-cause.countermeasure", toolId: "root-cause", fallback: countermeasureFallback },
   () => import("./root-cause").then((m) => m.countermeasureTask)
+);
+
+/* ── root-cause.loop_links ──────────────────────────────────────────── */
+
+/** The loop-links task's input caps (the def's schema holds the same numbers). */
+export const LOOP_LINKS_INPUT_MAX = {
+  problem: 1000,
+  id: 64,
+  node: 120,
+  nodes: 30,
+  links: 60,
+} as const;
+
+/** Arrows one ask suggests at most. */
+export const LOOP_LINKS_MAX = 10;
+/** The most words of each suggested arrow's why. */
+export const LOOP_LINK_WHY_MAX = 200;
+
+/** Things the fallback chains, in the loop's list order. */
+const LOOP_CHAIN_MAX = 10;
+
+/** Words that say a thing goes down: on exactly one end, the arrow reads "opposite". */
+const GOING_DOWN = /\b(less|fewer|lack\w*|no|low\w*|slow\w*|missing)\b/i;
+
+/** "same", unless exactly one of the two things says it goes down. */
+export function guessPolarity(fromText: string, toText: string): "same" | "opposite" {
+  return GOING_DOWN.test(fromText) !== GOING_DOWN.test(toText) ? "opposite" : "same";
+}
+
+type LoopNodeIn = LoopLinksInput["nodes"][number];
+type LoopLinkOut = LoopLinksOutput["links"][number];
+
+/**
+ * Whether the arrows lead from `from` to `to` through at most
+ * LOOP_LENGTH_MAX things, both ends counted: then an arrow from `to` back
+ * to `from` closes a loop findLoops follows.
+ */
+function leadsTo(
+  arrows: readonly { from: string; to: string }[],
+  from: string,
+  to: string
+): boolean {
+  const next = new Map<string, string[]>();
+  for (const l of arrows) {
+    if (l.from !== l.to) next.set(l.from, [...(next.get(l.from) ?? []), l.to]);
+  }
+  const seen = new Set([from]);
+  let frontier = [from];
+  for (let things = 1; things < LOOP_LENGTH_MAX && frontier.length > 0; things++) {
+    const reached: string[] = [];
+    for (const at of frontier) {
+      for (const n of next.get(at) ?? []) {
+        if (n === to) return true;
+        if (seen.has(n)) continue;
+        seen.add(n);
+        reached.push(n);
+      }
+    }
+    frontier = reached;
+  }
+  return false;
+}
+
+/**
+ * Arrows to check, without AI: the first ten things chained in list order,
+ * one arrow for each neighbouring pair not linked yet (either way), each
+ * signed by its words (`guessPolarity`) and asking the team to check the
+ * sign; then one arrow between the last of them and the first, unless
+ * those two are linked already. It runs back from the last to the first
+ * when the arrows drawn and suggested lead from the first to the last, so
+ * it closes a loop of at most ten; from the first to the last when they
+ * lead the other way (a chain drawn last to first); and when neither, back
+ * with a plain "check the sign" why, never claiming a loop it doesn't
+ * close. At most ten arrows, inside findLoops' length limit. A thing the
+ * schema refuses (no id, an id over 64 characters, no words) is left out,
+ * so the answer always fits the output schema.
+ */
+export function fallbackLoopLinks(
+  nodes: readonly LoopNodeIn[],
+  links: readonly { from: string; to: string }[]
+): LoopLinkOut[] {
+  const usable = nodes
+    .filter((n) => n.id.trim() && n.id.length <= LOOP_LINKS_INPUT_MAX.id && n.text.trim())
+    .slice(0, LOOP_CHAIN_MAX);
+  const linked = (a: string, b: string) =>
+    links.some((l) => (l.from === a && l.to === b) || (l.from === b && l.to === a));
+  const checkSign = (a: LoopNodeIn, b: LoopNodeIn): LoopLinkOut => {
+    const polarity = guessPolarity(a.text, b.text);
+    return {
+      from: a.id,
+      to: b.id,
+      polarity,
+      why: `Check the sign: does ${quoted(b.text, 70)} go ${polarity === "same" ? "up" : "down"} when ${quoted(a.text, 70)} goes up?`,
+    };
+  };
+  const closing = (a: LoopNodeIn, b: LoopNodeIn): LoopLinkOut => ({
+    from: a.id,
+    to: b.id,
+    polarity: guessPolarity(a.text, b.text),
+    why: "If this is true, it closes a loop: check it.",
+  });
+  const out: LoopLinkOut[] = [];
+  for (let i = 0; i + 1 < usable.length; i++) {
+    const [a, b] = [usable[i], usable[i + 1]];
+    if (!linked(a.id, b.id)) out.push(checkSign(a, b));
+  }
+  if (usable.length >= 2) {
+    const [first, last] = [usable[0], usable[usable.length - 1]];
+    if (!linked(last.id, first.id)) {
+      const arrows = [...links, ...out];
+      if (leadsTo(arrows, first.id, last.id)) out.push(closing(last, first));
+      else if (leadsTo(arrows, last.id, first.id)) out.push(closing(first, last));
+      else out.push(checkSign(last, first));
+    }
+  }
+  return out.slice(0, LOOP_LINKS_MAX);
+}
+
+/** The loop-links task's answer without AI. */
+export const loopLinksFallback = ({ nodes, links }: LoopLinksInput): LoopLinksOutput => ({
+  links: fallbackLoopLinks(nodes, links),
+});
+
+export const loopLinksTask = lazyAiTask<LoopLinksInput, LoopLinksOutput>(
+  { id: "root-cause.loop_links", toolId: "root-cause", fallback: loopLinksFallback },
+  () => import("./root-cause").then((m) => m.loopLinksTask)
 );

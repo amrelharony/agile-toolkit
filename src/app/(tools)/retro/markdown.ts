@@ -2,6 +2,15 @@ import type { BoardState, RetroCard } from "./types";
 import type { FactLine } from "./facts-text";
 import { themeCardTexts, type KeywordTheme } from "./themes";
 import { sortedByVotes } from "./helpers";
+import {
+  isSeismograph,
+  momentCards,
+  placedCards,
+  seismographDays,
+  seismographMarkdown,
+  type MoodPoint,
+  type SeismographDay,
+} from "@/lib/retro/seismograph";
 
 /** "18 Oct 2026" */
 function mdDate(d: Date): string {
@@ -29,6 +38,12 @@ export interface MarkdownExtra {
   facts?: readonly FactLine[];
   /** The board's common words (themes.ts). */
   themes?: readonly KeywordTheme[];
+  /**
+   * An Emotional Seismograph board's days and the team's mood on them (the
+   * host's page passes both). Without it the section shows only when a card
+   * has a day, on Day 0–9.
+   */
+  seismograph?: { days: readonly SeismographDay[]; mood?: readonly MoodPoint[] };
 }
 
 /** How many cards the summary names under "Most votes", and how many common words. */
@@ -100,8 +115,9 @@ function themesSection(themes: readonly KeywordTheme[], cards: readonly RetroCar
  * sprint in the title, a three-line summary (the most-voted cards, the
  * common words, the actions with their owners), the facts the retro opened
  * with (when the board has a sprint), one section per column (most-voted
- * first, grouped cards nested under their parent), the action items with
- * their owners, then the common words across the cards. The visitor room
+ * first, grouped cards nested under their parent), on an Emotional
+ * Seismograph board its cards day by day, the action items with their
+ * owners, then the common words across the cards. The visitor room
  * calls it with the board and its common words (no sprint or facts), and
  * gets the same summary.
  */
@@ -131,6 +147,16 @@ export function toMarkdown(
       for (const child of sortedByVotes(cards.filter((c) => c.groupedWith === card.id))) {
         lines.push(`  - ${withVotes(child)}`);
       }
+    }
+  }
+
+  if (isSeismograph(state)) {
+    const moments = momentCards(state.cards);
+    if (extra.seismograph || moments.some((m) => m.day !== undefined)) {
+      const days = extra.seismograph?.days ?? seismographDays(null);
+      lines.push(
+        ...seismographMarkdown(placedCards(moments, days), days, extra.seismograph?.mood ?? [])
+      );
     }
   }
 
