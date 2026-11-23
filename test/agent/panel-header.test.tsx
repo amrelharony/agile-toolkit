@@ -1,8 +1,9 @@
 /**
  * The header of Amr's chat panel (src/components/agent/mascot/panel-header.tsx),
- * the slots a view fills in it (panel-chrome.tsx) and the panel context a view
- * reads (panel-context.ts). These pin the lettered name plate (always "Amr",
- * the dialog's title, able to take focus), the subtitle that shows the step's
+ * the slots a view fills in it (panel-chrome.tsx, by name in panel-fills.tsx)
+ * and the panel context a view reads (panel-context.ts). These pin the
+ * lettered name plate (always "Amr", the dialog's title, able to take focus),
+ * the subtitle that shows the step's
  * default until the view fills it, the back and action slots, the More menu
  * (its keyboard, its Escape that leaves the panel open, the labelled tilt
  * switch and the shortcut), Enlarge as a toggle that only md and up see, the
@@ -23,14 +24,8 @@ import {
 } from "@/components/agent/mascot/panel-header";
 import type { AmrCorner } from "@/components/agent/mascot/amr-geometry";
 import { platformShortcut } from "@/components/agent/mascot/panel-ids";
-import {
-  PANEL_ICON,
-  PanelActions,
-  PanelBack,
-  PanelChrome,
-  PanelIconButton,
-  PanelSubtitle,
-} from "@/components/agent/mascot/panel-chrome";
+import { PANEL_ICON, PanelChrome, PanelIconButton } from "@/components/agent/mascot/panel-chrome";
+import { PanelActions, PanelBack, PanelSubtitle } from "@/components/agent/mascot/panel-fills";
 import {
   AmrPanelContext,
   NO_AMR_PANEL,
@@ -300,7 +295,7 @@ describe("the back and action slots", () => {
     expect(html).toContain("Find the right tool");
     expect(html).not.toContain("Your chats");
     expect(html).not.toContain("New chat");
-    expect(html).toMatch(/<h2[^>]*class="comic-name-plate"[^>]*>Amr<\/h2>/);
+    expect(html).toMatch(/<h2[^>]*class="comic-name-plate[^"]*"[^>]*>Amr<\/h2>/);
   });
 });
 
@@ -369,7 +364,12 @@ describe("the More menu", () => {
     expect(more).toHaveAttribute("aria-haspopup", "menu");
     expect(more).toHaveAttribute("aria-expanded", "false");
     expect(more).toHaveAttribute("title", "More");
-    expect(more).toHaveClass("h-9", "w-9", "pointer-coarse:min-h-11", "pointer-coarse:min-w-11");
+    expect(more).toHaveClass(
+      "h-[36px]",
+      "w-[36px]",
+      "pointer-coarse:min-h-[44px]",
+      "pointer-coarse:min-w-[44px]"
+    );
     expect(more.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(screen.queryByRole("menu")).toBeNull();
   });
@@ -536,10 +536,12 @@ describe("Enlarge and Close", () => {
       expect(button).toHaveAttribute("type", "button");
       expect(button).toHaveAttribute("data-variant", "ghost");
       expect(button).toHaveClass(
-        "h-9",
-        "w-9",
-        "pointer-coarse:min-h-11",
-        "pointer-coarse:min-w-11",
+        "h-[36px]",
+        "w-[36px]",
+        "md-fine:h-[36px]",
+        "md-fine:w-[36px]",
+        "pointer-coarse:min-h-[44px]",
+        "pointer-coarse:min-w-[44px]",
         "items-center",
         "justify-center"
       );
@@ -551,7 +553,63 @@ describe("Enlarge and Close", () => {
     for (const svg of Array.from(header().querySelectorAll("svg"))) {
       expect(svg).toHaveAttribute("aria-hidden", "true");
     }
-    expect(PANEL_ICON).toContain("pointer-coarse:min-h-11");
+    expect(PANEL_ICON).toContain("pointer-coarse:min-h-[44px]");
+  });
+
+  it("sizes every header icon in px, so a larger default font grows the words, not the icons", () => {
+    // In rem, 200% text made each icon 72 px (88 px on touch): five of them
+    // ran wider than the 380 px panel, Close went out of it, and the plate lay
+    // over the first icons.
+    render(
+      <Panel onToggleEnlarge={() => {}} tilt={tiltOf()}>
+        <PanelBack>
+          <PanelIconButton label="Back to tool finder">‹</PanelIconButton>
+        </PanelBack>
+        <PanelActions>
+          <PanelIconButton label="New chat">+</PanelIconButton>
+        </PanelActions>
+      </Panel>
+    );
+    const remSized =
+      /^(?:[a-z0-9-]+:)*(?:size|h|w|min-h|min-w)-(?:\d+(?:\.\d+)?|px|\[[\d.]+rem\])$/;
+    for (const name of [
+      "Back to tool finder",
+      "New chat",
+      "More",
+      "Enlarge chat",
+      "Close assistant",
+    ]) {
+      const button = within(header()).getByRole("button", { name });
+      const sized = classes(button).filter((c) => /(?:^|:)(?:size|h|w|min-h|min-w)-/.test(c));
+      expect(sized.filter((c) => remSized.test(c) && !/-0$/.test(c))).toEqual([]);
+      // Button's own md-fine:h-9 / md-fine:w-9 (2.25rem) gave way to the px size.
+      expect(classes(button)).not.toContain("md-fine:h-9");
+      expect(classes(button)).not.toContain("md-fine:w-9");
+    }
+    expect(PANEL_ICON).not.toMatch(/(?:^|\s)(?:[a-z0-9-]+:)*(?:h|w|min-h|min-w)-(?:9|11)(?:\s|$)/);
+  });
+
+  it("wraps its icons onto a second row, at the end, rather than run out of the panel", () => {
+    render(
+      <Panel subtitle="A very long thread title that cannot fit in the header" tilt={tiltOf()}>
+        <PanelActions>
+          <PanelIconButton label="New chat">+</PanelIconButton>
+        </PanelActions>
+      </Panel>
+    );
+    expect(header()).toHaveClass("flex", "flex-wrap");
+    const icons = within(header()).getByRole("button", { name: "Close assistant" }).parentElement!;
+    expect(icons).toHaveClass("ms-auto", "shrink-0");
+    expect(icons).toContainElement(slot("actions"));
+    // The plate's column holds at least the plate, so the plate never lies
+    // over an icon; the subtitle adds nothing to that floor and still fills it.
+    const plate = screen.getByRole("heading", { level: 2 });
+    expect(plate).toHaveClass("max-w-full");
+    const column = plate.parentElement!;
+    expect(column).toHaveClass("min-w-min", "flex-1");
+    expect(column).not.toHaveClass("min-w-0");
+    expect(subtitleLine()).toHaveClass("w-0", "min-w-full", "truncate");
+    expect(subtitleLine()).not.toHaveClass("w-full");
   });
 
   it("is at least 52 px tall", () => {

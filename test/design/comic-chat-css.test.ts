@@ -17,8 +17,9 @@
  *    hold the plate's outline, and give the you caption a heavier start edge,
  *    so it never reads as narration once both fills turn to Canvas;
  *  - the panel's entrance (.panelEnter, mascot-assistant.module.css): opacity
- *    and the scale property from its tail, never transform, and nothing at all
- *    under reduced motion;
+ *    and the scale property from its tail (the phone's sheet slides up from its
+ *    edge on translate instead), never transform, and nothing at all under
+ *    reduced motion;
  *  - the page scrolls smoothly only for readers who haven't asked for less motion.
  * The last block builds globals.css and the module the way Next does (Tailwind
  * or CSS modules, then its minifier) and runs the AMR markers of
@@ -725,10 +726,16 @@ describe("forced colours", () => {
 
 describe("the panel's entrance (.panelEnter)", () => {
   const tree = postcss.parse(MODULE_SOURCE);
-  const mine: CssRule[] = [];
+  const all: CssRule[] = [];
   tree.walkRules((r) => {
-    if (r.selectors.some((s) => /\.panelEnter\b/.test(s))) mine.push(r);
+    if (r.selectors.some((s) => /\.panelEnter\b/.test(s))) all.push(r);
   });
+  /** The phone's full-height sheet has an entrance of its own: it slides from its edge. */
+  const SHEET_SELECTOR = '.panelEnter[data-amr-layout="sheet"]';
+  const isSheet = (r: CssRule) => r.selectors.every((s) => s.trim() === SHEET_SELECTOR);
+  /** The floating card's and the side panel's entrance: it grows from the tail. */
+  const mine = all.filter((r) => !isSheet(r));
+  const sheet = all.filter(isSheet);
   /** The at-rules a rule sits in, innermost first. */
   function within(r: CssRule): AtRule[] {
     const out: AtRule[] = [];
@@ -743,20 +750,25 @@ describe("the panel's entrance (.panelEnter)", () => {
     );
   const starting = mine.filter((r) => within(r).some((a) => a.name === "starting-style"));
   const moving = mine.filter((r) => decls(r).transition !== undefined);
+  const transitioned = (r: CssRule) =>
+    decls(r)
+      .transition.split(/,(?![^(]*\))/)
+      .map((part) => part.trim().split(/\s+/)[0]);
+  const guarded = (r: CssRule) =>
+    within(r).some(
+      (a) => a.name === "media" && a.params === "(prefers-reduced-motion: no-preference)"
+    );
 
   it("never sets transform: opacity and the scale property only", () => {
     expect(mine.length).toBeGreaterThanOrEqual(3);
-    for (const r of mine) {
+    for (const r of all) {
       r.walkDecls((d) => {
         expect(d.prop, r.selector).not.toBe("transform");
         expect(d.prop, r.selector).not.toBe("animation");
       });
     }
     expect(moving).toHaveLength(1);
-    const props = decls(moving[0])
-      .transition.split(/,(?![^(]*\))/)
-      .map((part) => part.trim().split(/\s+/)[0]);
-    expect(props).toEqual(["opacity", "scale"]);
+    expect(transitioned(moving[0])).toEqual(["opacity", "scale"]);
   });
 
   it("starts at opacity 0 and 96% in @starting-style, so the finished state is the fallback", () => {
@@ -779,10 +791,6 @@ describe("the panel's entrance (.panelEnter)", () => {
   });
 
   it("moves nothing under reduced motion: the transition and its start live only under no-preference", () => {
-    const guarded = (r: CssRule) =>
-      within(r).some(
-        (a) => a.name === "media" && a.params === "(prefers-reduced-motion: no-preference)"
-      );
     expect(guarded(moving[0])).toBe(true);
     expect(guarded(starting[0])).toBe(true);
     // The guard itself is top level, so no other condition hides it.
@@ -794,6 +802,20 @@ describe("the panel's entrance (.panelEnter)", () => {
     const base = mine.filter((r) => within(r).length === 0);
     expect(base).toHaveLength(1);
     expect(decls(base[0])).toEqual({ "transform-origin": "var(--panel-origin, 50% 100%)" });
+  });
+
+  it("slides the phone's sheet up from its bottom edge on translate, at --dur-sheet-in, never scaling it", () => {
+    // DNA-SPEC §8: a sheet slides from its edge. Only under no-preference.
+    expect(sheet).toHaveLength(2);
+    for (const r of sheet) expect(guarded(r), r.selector).toBe(true);
+    const [move] = sheet.filter((r) => decls(r).transition !== undefined);
+    expect(transitioned(move)).toEqual(["opacity", "translate"]);
+    expect(decls(move).transition.replace(/\s+/g, " ")).toBe(
+      "opacity var(--dur-sheet-in) var(--ease-calm), translate var(--dur-sheet-in) var(--ease-calm)"
+    );
+    const [start] = sheet.filter((r) => within(r).some((a) => a.name === "starting-style"));
+    expect(decls(start)).toEqual({ opacity: "0", scale: "none", translate: "0 100%" });
+    expect(section("MOTION FOUNDATIONS", "PAGE SETTLE")).toMatch(/--dur-sheet-in:\s*\d+ms;/);
   });
 });
 
@@ -873,6 +895,8 @@ describe("Amr himself (mascot-assistant.module.css)", () => {
     );
     expect(still, "a reduced-motion rule for .bob").toBeDefined();
     expect(decls(still!).animation).toBe("none");
+    // Docked in the phone's sheet he is never scaled, not even by a hover a tap left stuck.
+    expect(only(".bob[data-amr-docked]:hover")).toEqual({ transform: "none" });
   });
 
   it("draws focus on his hit span in --ring, close in, on pen corners, not around his box", () => {

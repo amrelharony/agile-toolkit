@@ -10,7 +10,9 @@
  * A column: the title, the visitor's question (in their own caption) and the
  * points scroll, and the buttons sit in a footer that never does, so "Agree"
  * and "Not now" stay in view in the shortest phone panel. The privacy page's
- * link closes the panel on its way (`onNavigate`).
+ * link closes the panel on its way (`onNavigate`, else the panel context's),
+ * and on the phone's sheet it replaces Back's history marker while that is
+ * the newest entry.
  *
  * Light on purpose: it ships with the page, beside the tool finder, so it
  * imports nothing of the agent runtime (the comic parts are runtime-free).
@@ -21,9 +23,11 @@ import { ShieldCheck } from "lucide-react";
 import { YouCaption } from "@/components/agent/comic/comic-parts";
 import { FormPrivacyNote } from "@/components/data/form-privacy-note";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import { VISITOR_AI_CONSENT_TEXT, VISITOR_AI_DAILY_MESSAGES } from "@/lib/site/disclosures";
 import { storeVisitorAiConsent } from "@/lib/visitor-ai/consent";
 import { awaitDecision } from "@/lib/agent/mascot/companion";
+import { DOCK_FOOTER, useAmrPanel } from "./panel-context";
 
 // The key, its version and the storage helpers live in lib/visitor-ai/consent.ts,
 // which the tools' compact card uses too; re-exported here for the panel and
@@ -53,6 +57,9 @@ export function VisitorAiConsent({
   /** The privacy link was followed: the panel closes as the page changes. */
   onNavigate?: () => void;
 }) {
+  // The panel around the card: how it closes for a link, and whether the
+  // privacy page should take the place of the phone sheet's Back marker.
+  const panel = useAmrPanel();
   // Focus moves to the card's scrolling text when it appears, not to "Agree
   // and ask": a screen reader reads what it says before the buttons, and the
   // arrow, Page and Space keys scroll the points (keys scroll the focused
@@ -74,6 +81,7 @@ export function VisitorAiConsent({
       <div
         ref={cardRef}
         tabIndex={-1}
+        data-amr-scroll=""
         className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-2 pt-3 focus:outline-none"
       >
         <div className="panel flex flex-col gap-3 px-3 py-3">
@@ -94,12 +102,21 @@ export function VisitorAiConsent({
           </ul>
           {/* The privacy page's link, in a sentence after the points (they
               already say what is sent and kept). Following it closes the panel. */}
-          <FormPrivacyNote onNavigate={onNavigate} />
+          <FormPrivacyNote
+            onNavigate={onNavigate ?? panel.onNavigate}
+            replace={panel.replaceOnNavigate}
+          />
         </div>
       </div>
       {/* Never scrolls: both choices stay in view. Size "default" is 44 px on
-          touch and on narrow screens. */}
-      <div className="flex shrink-0 flex-wrap gap-2 border-t border-border px-4 py-3">
+          touch and on narrow screens. Docked Amr (the phone's sheet) stands
+          beside them, in his gutter. */}
+      <div
+        className={cn(
+          "flex shrink-0 flex-wrap gap-2 border-t border-border px-4 py-3",
+          DOCK_FOOTER
+        )}
+      >
         <Button
           type="button"
           onClick={() => {

@@ -26,8 +26,9 @@ import {
 } from "@/components/agent/mascot/engine/interactions/intent";
 import {
   handleMascotCommand,
+  PLAY_NOTE,
   storyFor,
-} from "@/components/agent/mascot/engine/customization/commands";
+} from "@/components/agent/mascot/engine/customization/chat-commands";
 import {
   awaitDecision,
   CALM_AFTER_TROUBLE,
@@ -461,10 +462,10 @@ describe("/play", () => {
   });
 
   it("plays it now, and keeps the command out of the AI chat", () => {
-    expect(handleMascotCommand("/play reviewer")).toBe(true);
+    expect(handleMascotCommand("/play reviewer")).toEqual({ note: PLAY_NOTE });
     expect(useMascotStore.getState().reactionQueue).toEqual(["scene:reviewer"]);
-    expect(handleMascotCommand("/PLAY")).toBe(true);
-    expect(handleMascotCommand("/playful")).toBe(false);
+    expect(handleMascotCommand("/PLAY")).toEqual({ note: PLAY_NOTE });
+    expect(handleMascotCommand("/playful")).toBeNull();
     for (const s of COMPANION_SCENES.play) expect(shippedScene(s), s).toBeDefined();
   });
 });

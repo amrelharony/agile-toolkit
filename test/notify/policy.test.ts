@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  AMR_SHEET_SUCCESS_MAX_MS,
   decide,
   dedupeKeyFor,
   DIALOG_DEFER_MAX_MS,
@@ -18,6 +19,7 @@ import type { NotifyKind, NotifyRequest, PolicyContext } from "@/lib/notify/type
 const CALM: PolicyContext = {
   quiet: { quiet: false, reason: null },
   dialogOpen: false,
+  amrSheet: false,
   typing: false,
   phone: false,
   touch: false,
@@ -26,6 +28,7 @@ const CALM: PolicyContext = {
 };
 const QUIET: Partial<PolicyContext> = { quiet: { quiet: true, reason: "ceremony" } };
 const DIALOG: Partial<PolicyContext> = { dialogOpen: true };
+const AMR_SHEET: Partial<PolicyContext> = { amrSheet: true, phone: true, touch: true };
 const TYPING_PHONE: Partial<PolicyContext> = { typing: true, phone: true };
 const TYPING_DESKTOP: Partial<PolicyContext> = { typing: true, phone: false };
 
@@ -162,6 +165,67 @@ describe("decide: a dialog is open", () => {
   it("a success waits at most 5 s for the dialog", () => {
     expect(d("success", DIALOG, { waitedMs: DIALOG_DEFER_MAX_MS - 1 }).channel).toBe("defer");
     expect(d("success", DIALOG, { waitedMs: DIALOG_DEFER_MAX_MS }).channel).toBe("toast");
+  });
+});
+
+describe("decide: Amr's chat is open as the phone's sheet", () => {
+  // Over the site header, one at a time (app-toaster): what can wait does.
+  it.each([
+    ["error", "toast"],
+    ["warning", "toast"],
+    ["undo", "toast"],
+    ["progress", "toast"],
+    ["success", "defer"],
+    ["info", "defer"],
+    ["system", "defer"],
+    ["echo", "inline"],
+  ] as const)("%s → %s", (kind, channel) => {
+    expect(d(kind, AMR_SHEET).channel).toBe(channel);
+  });
+
+  it("errors and Undo still show, sound and all, with their close buttons", () => {
+    expect(d("error", AMR_SHEET)).toMatchObject({
+      channel: "toast",
+      closeButton: true,
+      sound: "toast-error",
+    });
+    expect(d("undo", AMR_SHEET, { hasAction: true })).toMatchObject({
+      channel: "toast",
+      durationMs: 8000,
+      closeButton: true,
+    });
+    expect(d("error", AMR_SHEET, { hasAction: true }).channel).toBe("toast");
+  });
+
+  it("holds success, info and system until it closes, asking again every second", () => {
+    for (const kind of ["success", "info", "system"] as const) {
+      const r = d(kind, AMR_SHEET, { waitedMs: 10_000 });
+      expect(r).toMatchObject({ channel: "defer", retryInMs: HOLD_RETRY_MS, reason: "amr-sheet" });
+      // Closed: shown.
+      expect(d(kind, {}, { waitedMs: 10_000 }).channel).toBe("toast");
+    }
+  });
+
+  it("a success waits at most a minute, then is dropped, unless it carries an action", () => {
+    const late = { waitedMs: AMR_SHEET_SUCCESS_MAX_MS };
+    expect(d("success", AMR_SHEET, { waitedMs: AMR_SHEET_SUCCESS_MAX_MS - 1 }).channel).toBe(
+      "defer"
+    );
+    expect(d("success", AMR_SHEET, late)).toMatchObject({ channel: "drop", reason: "amr-sheet" });
+    expect(d("success", AMR_SHEET, { ...late, hasAction: true }).channel).toBe("toast");
+  });
+
+  it("info keeps its 30 min hold, and an info with an action is never dropped", () => {
+    expect(d("info", AMR_SHEET, { waitedMs: INFO_HOLD_MAX_MS }).channel).toBe("drop");
+    expect(d("info", AMR_SHEET, { waitedMs: INFO_HOLD_MAX_MS, hasAction: true }).channel).toBe(
+      "defer"
+    );
+  });
+
+  it("is not a dialog: echo stays inline (a dialog drops it), and the quiet state still wins", () => {
+    expect(d("echo", { ...AMR_SHEET, confirmationsAsToasts: true }).channel).toBe("toast");
+    expect(d("info", { ...AMR_SHEET, ...QUIET }).retryInMs).toBe(QUIET_RETRY_MS);
+    expect(d("success", { ...AMR_SHEET, ...QUIET }).channel).toBe("drop");
   });
 });
 
