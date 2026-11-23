@@ -78,6 +78,9 @@ describe("what the MCP handlers call", () => {
         "src/lib/facilitator-timers/settings.ts",
         "src/lib/facilitator-timers/model.ts",
         "src/lib/facilitator-timers/sounds.ts",
+        "src/lib/product-canvas/bets.ts",
+        "src/lib/product-canvas/fields.ts",
+        "src/lib/product-canvas/intake.ts",
         "src/lib/product-canvas/model.ts",
         "src/lib/product-canvas/starter.ts",
       ].map(abs)
