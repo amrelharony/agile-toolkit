@@ -406,6 +406,27 @@ describe("check-ins", () => {
     expect(within(card).getByText("(40 → 60)")).toBeInTheDocument();
   });
 
+  it("drafts the update since the last check-in, whichever check-in is compared with", () => {
+    const old = { id: "c0", at: ago(21), positions: [{ scopeId: "s2", position: 10 }] };
+    const last = {
+      id: "c1",
+      at: ago(7),
+      positions: [
+        { scopeId: "s1", position: 30 },
+        { scopeId: "s2", position: 60 },
+      ],
+    };
+    seed([chart({ checkIns: [old, last] })]);
+    renderPage();
+    fireEvent.change(screen.getByLabelText("Compare with"), { target: { value: "c0" } });
+    const card = screen.getByRole("region", { name: "Moved since a check-in" });
+    expect(within(card).getByText("(10 → 60)")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Draft the update" }));
+    expect(screen.getByRole("region", { name: "The week's update" })).toHaveTextContent(
+      /Nothing moved since the last check-in\./
+    );
+  });
+
   it("drafts the week's update without AI, and keeps it only as the note", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Draft the update" }));

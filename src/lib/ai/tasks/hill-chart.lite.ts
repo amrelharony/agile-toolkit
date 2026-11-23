@@ -30,8 +30,9 @@ const cut = (text: string, max: number) =>
 
 /**
  * What the page sends: the chart's title, today, and each scope with where
- * it was at the check-in compared against (`moves`), how long since it
- * moved and whether it is done. Names and notes never go.
+ * it was at the last check-in (`moves`, always against the last one, as the
+ * update and its prompt say), how long since it moved and whether it is
+ * done. Names and notes never go.
  */
 export function updateNoteInput(
   chart: Pick<HillChart, "title" | "scopes">,
@@ -60,7 +61,7 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
 
 /**
  * The week's update without AI: how many pieces are over the hill, what
- * moved forward or back since the check-in compared against, and each
+ * moved forward or back since the last check-in, and each
  * scope stuck on the uphill side; one question per stuck scope (up to 3).
  * A chart with no scopes throws, as its schema refuses it.
  */

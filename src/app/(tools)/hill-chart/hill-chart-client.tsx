@@ -805,8 +805,10 @@ function ChartBody({
                 </Button>
                 <AiButton
                   task={hillChartUpdateNoteTask}
+                  // The week's update is always since the last check-in, whichever
+                  // check-in "Moved since a check-in" compares with.
                   input={() =>
-                    updateNoteInput(chart, Array.from(moveById.values()), today, new Date())
+                    updateNoteInput(chart, movement(chart, lastCheckIn(chart)), today, new Date())
                   }
                   onResult={(data, meta) => setUpdate({ ...data, source: meta.source })}
                   label="Ask Amr for the week's update"
