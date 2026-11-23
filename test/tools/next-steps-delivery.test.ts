@@ -215,6 +215,32 @@ describe("release readiness and feature flags", () => {
     expect(out).toEqual(["release-rollback-retro", "release-premortem"]);
   });
 
+  it("asks for the release notes of a release that shipped this fortnight with its stories linked", () => {
+    const shipped = release({
+      status: "shipped",
+      shippedDate: "2026-10-20",
+      storyIds: ["s1"],
+    });
+    const notes = steps("release-readiness", {
+      releaseReadinesses: readiness([shipped]),
+      stories: [story("s1", { status: "done", doneAt: "2026-10-19T12:00:00.000Z" })],
+      featureFlags: [],
+    });
+    expect(notes.map((s) => s.id)).toEqual(["release-notes"]);
+    expect(notes[0].label).toBe("Write the release notes for v3.3");
+    // With notes saved, or with no stories linked, nothing is asked.
+    const quiet = (r: Release) =>
+      ids("release-readiness", {
+        releaseReadinesses: readiness([r]),
+        stories: [story("s1", { status: "done" })],
+        featureFlags: [],
+      });
+    expect(
+      quiet({ ...shipped, releaseNotes: { audience: "team", text: "Done", updatedAt: "" } })
+    ).toEqual([]);
+    expect(quiet({ ...shipped, storyIds: undefined })).toEqual([]);
+  });
+
   it("flags: plans the removal of stale flags", () => {
     const flag: FeatureFlag = {
       id: "f1",
