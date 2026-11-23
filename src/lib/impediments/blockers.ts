@@ -25,6 +25,7 @@
  * Example rows are left out. Pure and server-safe (the agent actions call it).
  */
 
+import { BLOCKER_CLUSTER_MAX } from "@/lib/stores/workspace-types";
 import type { BlockSide, Impediment, KanbanCard, Story } from "@/lib/stores/workspace-types";
 import { PARETO_CUTOFF, paretoRows } from "@/lib/root-cause/model";
 import { MIN_SAMPLE } from "@/lib/analytics/min-sample";
@@ -515,4 +516,96 @@ export function readBlockers(
     trackingSince: BLOCK_TRACKING_SINCE,
   };
   return { ...partial, verdict: blockersVerdict(partial) };
+}
+
+/* ── Writing a cluster, and raising one as an impediment ───────────── */
+
+/** A cluster's name compared without case or extra spaces. */
+export function clusterKey(cluster: string | null | undefined): string {
+  return typeof cluster === "string" ? cluster.trim().replace(/\s+/g, " ").toLowerCase() : "";
+}
+
+/** A cluster's name as stored: trimmed, single spaces, at most BLOCKER_CLUSTER_MAX characters. */
+export function cleanClusterName(cluster: string): string {
+  return cluster.trim().replace(/\s+/g, " ").slice(0, BLOCKER_CLUSTER_MAX).trim();
+}
+
+/**
+ * The impediment with `cluster` (null clears it and its side) and, when
+ * given, `side` as its blockSide. The same impediment when nothing changes.
+ */
+export function withImpedimentCluster(
+  i: Impediment,
+  cluster: string | null,
+  side?: BlockSide
+): Impediment {
+  const next: Impediment = { ...i };
+  if (cluster === null || !cleanClusterName(cluster)) {
+    delete next.cluster;
+    delete next.blockSide;
+  } else {
+    next.cluster = cleanClusterName(cluster);
+    if (side) next.blockSide = side;
+  }
+  return next.cluster === i.cluster && next.blockSide === i.blockSide ? i : next;
+}
+
+/** The unresolved impediment already raised for `cluster` (by its cluster), if any. */
+export function openImpedimentFor(
+  impediments: readonly Impediment[],
+  cluster: string
+): Impediment | undefined {
+  const key = clusterKey(cluster);
+  if (!key) return undefined;
+  return impediments.find((i) => i && !isResolved(i) && clusterKey(i.cluster) === key);
+}
+
+export const RAISED_TITLE = "Keeps blocking us: ";
+
+/**
+ * An impediment for a whole cluster ("Keeps blocking us: Another team"):
+ * medium severity, outside the team as `external`, inside as `process`,
+ * the cluster and its side set, and a description with its counts in the
+ * window and up to 5 causes. `rows` is the window's blocker rows.
+ */
+export function clusterImpediment(
+  rows: readonly BlockerRow[],
+  cluster: string,
+  { id, today, from }: { id: string; today: string; from: string }
+): Impediment {
+  const name = cleanClusterName(cluster);
+  const key = clusterKey(name);
+  const members = rows.filter((r) => clusterKey(r.cluster) === key);
+  const side = members.length ? majoritySide(members) : (defaultClusterSide(name) ?? "internal");
+  const items = new Set(
+    members.filter((r) => r.kind !== "impediment").map((r) => `${r.kind}:${r.id}`)
+  ).size;
+  const days = round1(members.reduce((n, r) => n + r.blockedDays, 0));
+  const imps = members.filter((r) => r.kind === "impediment").length;
+  const causes = Array.from(
+    new Set(members.map((r) => (r.cause ?? r.title).replace(/\s+/g, " ").trim()).filter(Boolean))
+  )
+    .slice(0, 5)
+    .map((c) => (c.length > 160 ? `${c.slice(0, 159).trimEnd()}…` : c));
+  const counts = [
+    items
+      ? `${items} ${items === 1 ? "item" : "items"} blocked for ${days} ${days === 1 ? "day" : "days"}`
+      : "",
+    imps ? `${imps} ${imps === 1 ? "impediment" : "impediments"} raised` : "",
+  ].filter(Boolean);
+  const description = [
+    counts.length ? `Since ${from}: ${counts.join(", ")}.` : `Raised from the "${name}" cluster.`,
+    ...(causes.length ? ["Causes:", ...causes.map((c) => `- ${c}`)] : []),
+  ].join("\n");
+  return {
+    id,
+    title: `${RAISED_TITLE}${name}`,
+    severity: "medium",
+    raisedAt: today,
+    source: "manual",
+    category: side === "external" ? "external" : "process",
+    cluster: name,
+    blockSide: side,
+    description,
+  };
 }
