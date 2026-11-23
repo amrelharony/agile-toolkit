@@ -404,6 +404,40 @@ describe("sending", () => {
     ).toBeDisabled();
     expect(h.logs).toEqual([]);
   });
+
+  it("never offers Send all on the example", () => {
+    seed([note({ id: "example-n", items: [item("a1"), item("a2")] })]);
+    renderPage();
+    expect(screen.queryByRole("button", { name: /^Send all/ })).toBeNull();
+  });
+
+  it("opens a dropped item again, with Undo", () => {
+    seed([note({ items: [item("a1", { status: "dropped" })] })]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Open again" }));
+    expect(storedItem("a1")?.status).toBe("open");
+    undoLast();
+    expect(storedItem("a1")?.status).toBe("dropped");
+  });
+
+  it("says a decision goes to the Decision Log as proposed", () => {
+    renderPage();
+    expect(
+      screen.getByText(
+        "A decision goes to the Decision Log as proposed; the team accepts it there."
+      )
+    ).toBeInTheDocument();
+  });
+
+  it("refuses an item with no words, and keeps its due day a real one", () => {
+    seed([note({ items: [item("a1")] })]);
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Edit Item a1" }));
+    fireEvent.change(screen.getByLabelText(/What it is/), { target: { value: "  " } });
+    fireEvent.click(screen.getByRole("button", { name: "Save item" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Say what it is, in a few words.");
+    expect(storedItem("a1")?.text).toBe("Item a1");
+  });
 });
 
 describe("forgetting, deleting and exporting", () => {

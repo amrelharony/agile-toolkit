@@ -459,4 +459,31 @@ describe("charts", () => {
     expect(text).not.toContain("Secret");
     expect(h.logs.length).toBeGreaterThan(2);
   });
+
+  it("says so when every chart is archived", () => {
+    seed([chart({ archived: true })]);
+    renderPage();
+    expect(screen.getByText(/Every chart is archived/)).toBeInTheDocument();
+    expect(screen.queryAllByRole("slider")).toHaveLength(0);
+  });
+
+  it("holds 30 scopes at most", () => {
+    seed([chart({ scopes: Array.from({ length: 30 }, (_, i) => scope(`x${i}`, 10, 0)) })]);
+    renderPage();
+    const card = screen.getByRole("region", { name: "Add a scope" });
+    expect(within(card).getByText(/This chart holds 30 scopes, its most/)).toBeInTheDocument();
+    expect(within(card).queryByRole("button", { name: "Add scope" })).toBeNull();
+  });
+
+  it("offers the copyable prompts for the chart on screen", () => {
+    seed([chart()]);
+    renderPage();
+    expect(screen.getByTestId("ai-prompt")).toHaveTextContent("hill-update,hill-stuck");
+  });
+
+  it("credits Shape Up for the hill", () => {
+    seed([chart()]);
+    renderPage();
+    expect(screen.getByText("After Basecamp's Shape Up.")).toBeInTheDocument();
+  });
 });
