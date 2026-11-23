@@ -72,6 +72,7 @@ import {
 import { RELEASE_DOC_ID } from "@/lib/releases/gates";
 import { releaseNotesSteps } from "@/lib/releases/notes-steps";
 import { isValueCheck, valueCheckSteps } from "@/lib/hypotheses/value-steps";
+import { UNSIZED_BATCH_MIN, unsizedBacklog } from "@/lib/relative-sizing/unsized";
 import { shipEvents, shippedBetween } from "@/lib/releases/model";
 import { gateResults, releaseChecks } from "@/lib/releases/auto-gates";
 import { flagSummary } from "@/lib/flags/model";
@@ -1470,6 +1471,15 @@ const RULES: Record<string, NextStepRule<object>> = {
           label: "Estimate the queued stories",
           detail: `${plural(queued, "story", "stories")} ${be(queued)} waiting in Planning Poker.`,
           href: "/planning-poker",
+        });
+      }
+      const unsized = unsizedBacklog(stories ?? []).length;
+      if (unsized >= UNSIZED_BATCH_MIN) {
+        steps.push({
+          id: "refinement-size-together",
+          label: `Size ${unsized} unsized stories together`,
+          detail: `${plural(unsized, "backlog story", "backlog stories")} ${unsized === 1 ? "has" : "have"} no points. Relative Sizing sizes them in one sitting.`,
+          href: "/relative-sizing?stories=unsized",
         });
       }
       const ready = real(stories).filter(
