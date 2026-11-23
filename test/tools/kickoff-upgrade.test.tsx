@@ -440,6 +440,42 @@ describe("filling it in", () => {
     expect(screen.getByText("Covers: The partner is slow")).toBeInTheDocument();
   });
 
+  it("closes the cover's add with Cancel or Escape, and puts focus back on its button", () => {
+    seed(
+      kickoff({
+        id: "k1",
+        format: "inception",
+        sections: { worries: [item("w1", "Certification is slow", { likelihood: 4, impact: 3 })] },
+      })
+    );
+    renderPage();
+    const trigger = () =>
+      screen.getByRole("button", { name: "What would take “Certification is slow” away?" });
+    fireEvent.click(trigger());
+    // Inception covers with a need only: the field opens focused.
+    const field = screen.getByLabelText("What would we need so this can't happen?");
+    expect(field).toHaveFocus();
+    fireEvent.change(field, { target: { value: "A partner contact" } });
+    fireEvent.keyDown(field, { key: "Escape" });
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    expect(trigger()).toHaveFocus();
+    expect(byId("k1").sections.needs ?? []).toEqual([]);
+    fireEvent.click(trigger());
+    // The words typed before Escape are gone.
+    expect(screen.getByLabelText("What would we need so this can't happen?")).toHaveValue("");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(trigger()).toHaveFocus();
+    fireEvent.click(trigger());
+    fireEvent.change(screen.getByLabelText("What would we need so this can't happen?"), {
+      target: { value: "A partner contact" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Add a need/ }));
+    expect(byId("k1").sections.needs).toEqual([
+      expect.objectContaining({ text: "A partner contact", covers: "w1" }),
+    ]);
+    expect(trigger()).toHaveFocus();
+  });
+
   it("puts a deleted worry back with Undo still covered, even after another edit", () => {
     seed(
       kickoff({

@@ -14,7 +14,7 @@
  * to save; the card then shows the reason.
  */
 
-import { useId, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { SectionItemsCard } from "@/components/sectioned/section-items-card";
@@ -123,6 +123,16 @@ function Cover({ handle, worry }: { handle: KickoffHandle; worry: KickoffItem })
   const [text, setText] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const fieldId = useId();
+  const panelRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  /** Where focus goes once `open` changes: into the panel, or back to its trigger. */
+  const moveFocus = useRef(false);
+  useEffect(() => {
+    if (!moveFocus.current) return;
+    moveFocus.current = false;
+    if (open) panelRef.current?.querySelector<HTMLElement>("button, input")?.focus();
+    else triggerRef.current?.focus();
+  }, [open]);
   if (targets.length === 0) return null;
   const def = targets.find((d) => d.id === target);
   const hint = !def
@@ -131,6 +141,17 @@ function Cover({ handle, worry }: { handle: KickoffHandle; worry: KickoffItem })
       ? COVER_HINT.commitment
       : COVER_HINT.resource;
 
+  const show = () => {
+    moveFocus.current = true;
+    setOpen(true);
+  };
+  /** Closed, after an add or a Cancel: the words go, and focus goes back to the trigger. */
+  const close = () => {
+    setText("");
+    setProblem(null);
+    moveFocus.current = true;
+    setOpen(false);
+  };
   const add = () => {
     const words = cutText(oneLine(text), KICKOFF_ITEM_MAX);
     if (!def) {
@@ -156,9 +177,7 @@ function Cover({ handle, worry }: { handle: KickoffHandle; worry: KickoffItem })
       return;
     }
     log(KICKOFF_ACTIONS.ITEM_ADDED, { kickoffId: k.id, section: def.id });
-    setText("");
-    setProblem(null);
-    setOpen(false);
+    close();
   };
 
   return (
@@ -181,7 +200,7 @@ function Cover({ handle, worry }: { handle: KickoffHandle; worry: KickoffItem })
       )}
       {!handle.example &&
         (open ? (
-          <div className="space-y-2 rounded-md border border-border bg-card p-2">
+          <div ref={panelRef} className="space-y-2 rounded-md border border-border bg-card p-2">
             {targets.length > 1 && (
               <fieldset className="flex flex-wrap items-center gap-1.5">
                 <legend className="mb-1 text-xs text-sub">What takes it away?</legend>
@@ -213,16 +232,26 @@ function Cover({ handle, worry }: { handle: KickoffHandle; worry: KickoffItem })
                 maxLength={KICKOFF_ITEM_MAX}
                 onChange={(e) => setText(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
-                  e.preventDefault();
-                  add();
+                  if (e.nativeEvent.isComposing) return;
+                  if (e.key === "Escape") {
+                    e.preventDefault();
+                    close();
+                  } else if (e.key === "Enter") {
+                    e.preventDefault();
+                    add();
+                  }
                 }}
                 className="min-w-0 sm:flex-1"
               />
-              <Button type="button" variant="toolkit" onClick={add} className="shrink-0">
-                <Plus aria-hidden="true" />
-                Add {def?.covers ?? "it"}
-              </Button>
+              <div className="flex shrink-0 gap-2">
+                <Button type="button" variant="toolkit" onClick={add} className="shrink-0">
+                  <Plus aria-hidden="true" />
+                  Add {def?.covers ?? "it"}
+                </Button>
+                <Button type="button" variant="ghost" onClick={close} className="shrink-0">
+                  Cancel
+                </Button>
+              </div>
             </div>
             {problem && (
               <p role="alert" className="text-xs text-danger">
@@ -232,12 +261,13 @@ function Cover({ handle, worry }: { handle: KickoffHandle; worry: KickoffItem })
           </div>
         ) : (
           <Button
+            ref={triggerRef}
             type="button"
             size="sm"
             variant="ghost"
             className="text-xs text-sub hover:text-accent"
             aria-label={`What would take “${shortText(worry.text, 60)}” away?`}
-            onClick={() => setOpen(true)}
+            onClick={show}
           >
             What would take this away?
           </Button>
