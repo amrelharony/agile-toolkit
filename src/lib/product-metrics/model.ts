@@ -305,41 +305,41 @@ export function compactMetric(m: ProductMetric): ProductMetric {
   return out as unknown as ProductMetric;
 }
 
+/** Which rule a write breaks: a view's (`role`, `aarrr`, `heart`) or the tool's cap (`cap`). */
+export type MetricRuleErrors = Partial<Record<"role" | "aarrr" | "heart" | "cap", string>>;
+
 /**
  * What stops `next` being saved beside `all` (the stored rows; `next`'s
- * own stored row, by id, is left out), each a plain sentence; [] when it
- * can be. The same rules as the CRUD's `beforeWrite`: one North Star, at
- * most TOOL_LIST_MAX.northStarInputs inputs, one metric per funnel stage,
- * one per HEART feature and category (the feature trimmed, any case), and
- * at most TOOL_LIST_MAX.productMetrics metrics, each counted among rows of
- * the same kind (the team's own apart from the example's).
+ * own stored row, by id, is left out), one plain sentence per rule broken;
+ * {} when it can be. The same rules as the CRUD's `beforeWrite`: one North
+ * Star, at most TOOL_LIST_MAX.northStarInputs inputs, one metric per
+ * funnel stage, one per HEART feature and category (the feature trimmed,
+ * any case), and at most TOOL_LIST_MAX.productMetrics metrics, each
+ * counted among rows of the same kind (the team's own apart from the
+ * example's).
  */
-export function metricRuleProblems(
+export function metricRuleErrors(
   next: Pick<ProductMetric, "id" | "role" | "aarrr" | "heart">,
   all: readonly ProductMetric[]
-): string[] {
+): MetricRuleErrors {
   const example = isExampleId(next.id);
   const existing = all.some((m) => m.id === next.id);
   const others = all.filter((m) => m && m.id !== next.id && isExampleId(m.id) === example);
-  const problems: string[] = [];
+  const errors: MetricRuleErrors = {};
   if (next.role === "north-star") {
     const ns = others.find((m) => m.role === "north-star");
-    if (ns) problems.push(`“${ns.name}” is the North Star. There is one North Star.`);
+    if (ns) errors.role = `“${ns.name}” is the North Star. There is one North Star.`;
   }
   if (next.role === "input") {
     const inputs = others.filter((m) => m.role === "input").length;
     if (inputs >= TOOL_LIST_MAX.northStarInputs) {
-      problems.push(
-        `The North Star already has ${inputs} inputs, the most it takes. Remove one first.`
-      );
+      errors.role = `The North Star already has ${inputs} inputs, the most it takes. Remove one first.`;
     }
   }
   if (next.aarrr) {
     const on = others.find((m) => m.aarrr === next.aarrr);
     if (on) {
-      problems.push(
-        `“${on.name}” is the ${AARRR_LABEL[next.aarrr]} stage. There is one metric per stage.`
-      );
+      errors.aarrr = `“${on.name}” is the ${AARRR_LABEL[next.aarrr]} stage. There is one metric per stage.`;
     }
   }
   const heart = next.heart;
@@ -349,17 +349,21 @@ export function metricRuleProblems(
       (m) => m.heart?.category === heart.category && featureKey(m.heart.feature) === feature
     );
     if (same) {
-      problems.push(
-        `“${same.name}” is the ${HEART_LABEL[heart.category]} metric for “${heart.feature.trim()}”. There is one per feature and category.`
-      );
+      errors.heart = `“${same.name}” is the ${HEART_LABEL[heart.category]} metric for “${heart.feature.trim()}”. There is one per feature and category.`;
     }
   }
   if (!existing && others.length >= TOOL_LIST_MAX.productMetrics) {
-    problems.push(
-      `There are already ${others.length} metrics, the most the tool keeps. Remove one first.`
-    );
+    errors.cap = `There are already ${others.length} metrics, the most the tool keeps. Remove one first.`;
   }
-  return problems;
+  return errors;
+}
+
+/** `metricRuleErrors` as a list of sentences; [] when `next` can be saved. */
+export function metricRuleProblems(
+  next: Pick<ProductMetric, "id" | "role" | "aarrr" | "heart">,
+  all: readonly ProductMetric[]
+): string[] {
+  return Object.values(metricRuleErrors(next, all)).filter((x): x is string => Boolean(x));
 }
 
 /** A HEART feature as compared: trimmed, spaces collapsed, any case. */
@@ -888,4 +892,53 @@ export function metricsVerdict(
   return `The North Star, “${northStar.name}”, is ${progress}${
     stale ? `, with no reading in ${METRIC_STALE_DAYS} days` : ""
   }.`;
+}
+
+/* ── A funnel period ────────────────────────────────────────────────── */
+
+export type FunnelDraft = { date: string } & Record<AarrrStage, string>;
+export type FunnelField = keyof FunnelDraft;
+
+export interface FunnelValues {
+  date: string;
+  counts: Partial<Record<AarrrStage, number>>;
+}
+
+export function emptyFunnelDraft(today: string): FunnelDraft {
+  return { date: today, acquisition: "", activation: "", retention: "", referral: "", revenue: "" };
+}
+
+/**
+ * Check "Add a period": a real day, never after `latest`; whole counts, 0
+ * or more; Acquisition and at least one other stage; and a metric for
+ * every stage given (`hasMetric`).
+ */
+export function validateFunnelPeriod(
+  d: FunnelDraft,
+  latest: string,
+  hasMetric: Record<AarrrStage, boolean>
+): Validation<FunnelValues, FunnelField> {
+  const errors: FormErrors<FunnelField> = {};
+  const date = d.date.trim();
+  if (!date) errors.date = "Pick the period's day.";
+  else if (!isDay(date)) errors.date = "Pick a date from the calendar.";
+  else if (date > latest) errors.date = "A period can't be for a day after today.";
+  const counts: Partial<Record<AarrrStage, number>> = {};
+  for (const stage of AARRR_STAGES) {
+    const n = parseNumber(d[stage]);
+    if (n === undefined) continue;
+    if (!Number.isInteger(n) || n < 0) errors[stage] = "Enter a whole number, 0 or more.";
+    else if (!hasMetric[stage]) {
+      errors[stage] = "This stage has no metric yet: set up the funnel first.";
+    } else counts[stage] = n;
+  }
+  if (!errors.acquisition && counts.acquisition === undefined) {
+    errors.acquisition = "Enter how many people arrived.";
+  }
+  const others = AARRR_STAGES.filter((s) => s !== "acquisition" && counts[s] !== undefined);
+  if (!errors.activation && others.length === 0 && counts.acquisition !== undefined) {
+    errors.activation = "Enter at least one more stage's count.";
+  }
+  if (Object.keys(errors).length > 0) return { ok: false, errors };
+  return { ok: true, values: { date, counts } };
 }
