@@ -1603,6 +1603,15 @@ describe("Causal loop", () => {
       "improve_origin",
       "improve_mine",
     ]);
+    // An example A3 linked to this analysis (before examples were kept out) is never listed.
+    const example = blankImprovement(
+      { title: "Example A3", method: "a3", rootCauseId: "rca_1" },
+      "example-improve-releases",
+      "2026-11-04T09:00:00.000Z"
+    );
+    expect(improvementsUsing({ id: "rca_1" }, [mine, example]).map((i) => i.id)).toEqual([
+      "improve_mine",
+    ]);
   });
 
   it("shows neither Improve link on the example", () => {
