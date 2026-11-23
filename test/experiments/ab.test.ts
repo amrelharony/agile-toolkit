@@ -404,6 +404,30 @@ describe("the plan form", () => {
     expect(r.ok && r.values.dailyTraffic).toBe(1200);
   });
 
+  it("reads a decimal comma in a rate as the point, never as a thousands mark", () => {
+    const r = validatePlan({
+      ...emptyPlanDraft(),
+      baselinePct: "2,5",
+      mde: "1,5 %",
+      mdeMode: "absolute",
+      dailyTraffic: "1,200",
+    });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.baseline).toBe(0.025);
+      expect(r.values.mde).toBe(0.015);
+      // Visitors a day are whole: there a comma still marks thousands.
+      expect(r.values.dailyTraffic).toBe(1200);
+    }
+    // A comma next to a point, or two of them, isn't a rate.
+    for (const typed of ["1,000.5", "2,5,5"]) {
+      const bad = validatePlan({ ...emptyPlanDraft(), baselinePct: typed, mde: "20" });
+      expect(!bad.ok && bad.errors.baselinePct).toBe("Enter a rate above 0 and below 100%.");
+    }
+    const badMde = validatePlan({ ...emptyPlanDraft(), baselinePct: "10", mde: "1.5,0" });
+    expect(!badMde.ok && badMde.errors.mde).toBe("Enter a change above 0.");
+  });
+
   it("sizes a plan, says how long it runs, and when to pick a bigger effect", () => {
     expect(planResult({ ...plan(), dailyTraffic: 800 })).toEqual({
       treatment: 0.12,

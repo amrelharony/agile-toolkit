@@ -113,8 +113,19 @@ export function planDraftFrom(plan: AbTestPlan): PlanDraft {
   };
 }
 
-/** A number as people type it: "3,841", "12 %", " 10 ". */
+/** A whole number as people type it: "3,841", " 10 ". */
 const typedNumber = (raw: string) => parseNumber(raw.replace(/[\s,_%]/g, ""));
+
+/**
+ * A rate or a change as people type it: "2.5", "12 %", and "2,5" from a
+ * phone whose decimal key is a comma, so it reads 2.5, never 25. A lone
+ * comma is the decimal point; a comma next to a point, or a second one,
+ * doesn't read as a number.
+ */
+const typedRate = (raw: string) => {
+  const s = raw.replace(/[\s_%]/g, "");
+  return parseNumber(/^[^.,]*,[^.,]*$/.test(s) ? s.replace(",", ".") : s);
+};
 
 /**
  * Check the plan form. The current rate is above 0 and below 100%, the
@@ -124,8 +135,8 @@ const typedNumber = (raw: string) => parseNumber(raw.replace(/[\s,_%]/g, ""));
  */
 export function validatePlan(d: PlanDraft): Validation<AbTestPlan, PlanField> {
   const errors: FormErrors<PlanField> = {};
-  const baselinePct = typedNumber(d.baselinePct);
-  const mde = typedNumber(d.mde);
+  const baselinePct = typedRate(d.baselinePct);
+  const mde = typedRate(d.mde);
   if (baselinePct === undefined) errors.baselinePct = "Enter the current conversion rate.";
   else if (!Number.isFinite(baselinePct) || baselinePct <= 0 || baselinePct >= 100) {
     errors.baselinePct = "Enter a rate above 0 and below 100%.";
