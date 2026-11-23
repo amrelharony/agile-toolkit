@@ -2,7 +2,7 @@
 
 /**
  * A wall room once it is open, on the host's screen: the prompt and mode,
- * Reveal, stop or start taking posts, Hide, Merge, Answered, raised hands,
+ * Reveal, stop or start taking posts, Hide, Merge (with Undo), Answered, raised hands,
  * New round, Save round, the timer, the reactions, the big screen, who is
  * in, End room and the idle prompt. `WallRoomHost` mounts it after the
  * consent dialog, loading this module only then (next/dynamic): no key or
@@ -34,6 +34,7 @@ import {
 } from "@/lib/realtime/wall-room/protocol";
 import { useWallRoom, type WallRoundScreen } from "@/lib/realtime/wall-room/use-wall-room";
 import { cn } from "@/lib/utils";
+import { undoable } from "@/lib/utils/undoable";
 import { WallPostList } from "./wall-post-list";
 import type { WallRoomHostProps } from "./wall-room-host";
 
@@ -82,6 +83,9 @@ export function HostWallRoom({
     startedAt: session.startedAt,
     crypto,
   });
+  // The room as it is when an Undo runs, seconds after the merge.
+  const roomRef = useRef(room);
+  roomRef.current = room;
   const extras = useRoomExtras(room.extras);
   const big = useBigScreen();
   const announce = useAnnounce();
@@ -427,8 +431,23 @@ export function HostWallRoom({
                 round.scoring
                   ? undefined
                   : (from, into) => {
-                      room.merge(from, into);
-                      setNotice("Merged the post into the one you picked.");
+                      // No asking first: Undo puts the post back, from where
+                      // things stand then, so votes cast since stay.
+                      undoable({
+                        label: "Merged the post",
+                        apply: () => {
+                          room.merge(from, into);
+                          setNotice(
+                            "Merged the post into the one you picked. Undo is there for a few seconds."
+                          );
+                        },
+                        revert: () => {
+                          roomRef.current.unmerge(from);
+                          setNotice("Put the post back on its own.");
+                        },
+                      });
+                      // The merged post's controls are gone: focus stays on the wall.
+                      window.setTimeout(() => roundRef.current?.focus(), 0);
                     }
               }
               onAnswer={answerable ? room.answer : undefined}

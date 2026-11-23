@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, renderHook, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import type { HostKeyPair } from "@/lib/realtime/vote-room/crypto";
 import {
   WALL_LIMITS,
@@ -526,7 +526,7 @@ describe("WallRoomHost: hidden until reveal", () => {
 });
 
 describe("WallRoomHost: merging", () => {
-  it("merges only from the Merge button, after asking, never from picking in the list", async () => {
+  it("merges only from the Merge button, never from picking in the list, and Undo puts it back", async () => {
     const crypto = fakeVoteCrypto();
     render(
       <LiveAnnouncerProvider>
@@ -600,23 +600,36 @@ describe("WallRoomHost: merging", () => {
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(firstMerge).toBeEnabled();
 
-    // The button asks first; Cancel leaves both posts.
-    fireEvent.click(firstMerge);
-    let confirm = screen.getByRole("dialog", { name: "Merge these posts?" });
-    expect(confirm).toHaveTextContent("You can't split them again.");
-    fireEvent.click(within(confirm).getByRole("button", { name: "Cancel" }));
-    await tick(600);
-    expect(screen.getAllByRole("button", { name: /^Merge:/ })).toHaveLength(2);
-
-    fireEvent.click(screen.getAllByRole("button", { name: /^Merge:/ })[0]);
-    confirm = screen.getByRole("dialog", { name: "Merge these posts?" });
+    // The button merges at once, with Undo instead of a question first.
+    toastMock.mockClear();
     await act(async () => {
-      fireEvent.click(within(confirm).getByRole("button", { name: "Merge posts" }));
+      fireEvent.click(firstMerge);
     });
     await tick(600);
-    expect(screen.getByText("Merged the post into the one you picked.")).toBeInTheDocument();
-    const round = states(ch).at(-1)!.round!;
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(
+      screen.getByText("Merged the post into the one you picked. Undo is there for a few seconds.")
+    ).toBeInTheDocument();
+    let round = states(ch).at(-1)!.round!;
     expect(round.count).toBe(1);
     expect(round.posts![0].merged).toHaveLength(1);
+    // The merged post's controls went with it: focus stays on the wall.
+    expect(document.activeElement).toHaveTextContent("Questions?");
+
+    // Undo, from the toast: both posts are back for the room.
+    const [label, options] = toastMock.mock.calls.at(-1) as [
+      string,
+      { action: { onClick: () => void } },
+    ];
+    expect(label).toBe("Merged the post");
+    await act(async () => {
+      options.action.onClick();
+    });
+    await tick(600);
+    round = states(ch).at(-1)!.round!;
+    expect(round.count).toBe(2);
+    expect(round.posts!.map((p) => p.merged)).toEqual([[], []]);
+    expect(screen.getByText("Put the post back on its own.")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: /^Merge:/ })).toHaveLength(2);
   });
 });

@@ -721,7 +721,7 @@ describe("the live wall", () => {
     expect(states(ch).at(-1)!.round!.posts![0]).toMatchObject({ answered: true });
   });
 
-  it("previews duplicate questions, and merges in the room only on Merge", async () => {
+  it("previews duplicate questions, merges in the room only on Merge, and Undo puts them back", async () => {
     const { ch, crypto, round } = await openLive("questions");
     await send(
       ch,
@@ -738,34 +738,50 @@ describe("the live wall", () => {
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Find duplicates without AI" }));
     });
-    expect(screen.getByText(/Only you see this draft/)).toBeInTheDocument();
+    // Only the host sees the draft; the room is unchanged until Merge.
+    expect(screen.getByText(/Only you see this draft/)).toHaveTextContent(
+      "Undo is there for a few seconds after you merge."
+    );
+    expect(screen.queryByText(/can't be split again/)).toBeNull();
+    await tick(600);
     expect(states(ch).at(-1)!.round!.count).toBe(2);
     const draft = () =>
       screen.getByRole("heading", { name: "Duplicates to merge" }).closest("section")!;
-    // Merge asks first, naming the posts: a merge can't be split again.
     await act(async () => {
       fireEvent.click(within(draft() as HTMLElement).getByRole("button", { name: /^Merge/ }));
     });
-    let dialog = screen.getByRole("dialog");
-    expect(dialog).toHaveTextContent("Merge these questions for everyone?");
-    expect(dialog).toHaveTextContent(/can't be split again/);
-    await act(async () => {
-      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
-    });
+    // No question first: it merges, with Undo.
+    expect(screen.queryByRole("dialog")).toBeNull();
     await tick(600);
-    expect(states(ch).at(-1)!.round!.count).toBe(2);
-    // A "no" puts the group back in the draft.
-    await act(async () => {
-      fireEvent.click(within(draft() as HTMLElement).getByRole("button", { name: /^Merge/ }));
-    });
-    dialog = screen.getByRole("dialog");
-    await act(async () => {
-      fireEvent.click(within(dialog).getByRole("button", { name: "Merge questions" }));
-    });
-    await tick(600);
-    const shared = states(ch).at(-1)!.round!;
+    let shared = states(ch).at(-1)!.round!;
     expect(shared.count).toBe(1);
     expect(shared.posts![0].merged).toHaveLength(1);
+    expect(screen.getByTestId("live-polite")).toHaveTextContent(
+      "Merged 1 question in the room. Undo is there for a few seconds."
+    );
+    // Someone upvotes the kept question meanwhile: Undo keeps that vote.
+    await send(ch, crypto, B.id, {
+      t: "vote",
+      r: round,
+      pid: "pid_q0000001",
+      lock: lockOf("keyB2_0123456789abcd"),
+    });
+    undoOf("Merged 1 question")();
+    await tick(600);
+    shared = states(ch).at(-1)!.round!;
+    expect(shared.count).toBe(2);
+    expect(shared.posts!.map((p) => [p.text, p.votes, p.merged])).toEqual([
+      ["When is the next release?", 1, []],
+      ["when is the NEXT release", 0, []],
+    ]);
+    // The questions are back on the host's screen too, each with its own
+    // Merge, and the draft offers the group again.
+    expect(screen.getByText("when is the NEXT release", { selector: "p" })).toBeInTheDocument();
+    const list = screen.getByText("when is the NEXT release", { selector: "p" }).closest("ol")!;
+    expect(within(list as HTMLElement).getAllByRole("button", { name: /^Merge:/ })).toHaveLength(2);
+    expect(
+      within(draft() as HTMLElement).getByRole("button", { name: /^Merge/ })
+    ).toBeInTheDocument();
   });
 
   it("tells Amr the round isn't saved, until Save round", async () => {
