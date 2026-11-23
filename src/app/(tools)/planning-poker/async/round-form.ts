@@ -7,7 +7,14 @@
 
 import type { Validation } from "@/lib/utils/form";
 import { POKER_ASYNC_MAX } from "@/lib/stores/workspace-types";
-import { asyncDeckFor, asyncDeckProblem, isDay, typedLine } from "@/lib/estimation/async-pack";
+import {
+  DUE_TOO_FAR,
+  asyncDeckFor,
+  asyncDeckProblem,
+  isDay,
+  latestDueDay,
+  typedLine,
+} from "@/lib/estimation/async-pack";
 import { DEFAULT_CUSTOM_DECK, type ScaleType } from "../types";
 
 export interface AsyncRoundDraft {
@@ -105,6 +112,7 @@ export function validateAsyncRound(
   if (d.dueDate) {
     if (!isDay(d.dueDate)) errors.dueDate = "Pick a due day.";
     else if (d.dueDate < ctx.today) errors.dueDate = "Pick today or a later day.";
+    else if (d.dueDate > latestDueDay(ctx.today)) errors.dueDate = DUE_TOO_FAR;
   }
 
   if (Object.keys(errors).length > 0) return { ok: false, errors };

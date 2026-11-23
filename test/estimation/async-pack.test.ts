@@ -24,6 +24,7 @@ import {
   isReplyIn,
   isReadyToReveal,
   keepUntil,
+  latestDueDay,
   needsTalk,
   newAsyncRound,
   packFor,
@@ -567,6 +568,12 @@ describe("a new round", () => {
     expect(asyncRoundProblem({ ...input, stories: many }, "2026-11-20")).toMatch(/Split/);
     expect(asyncRoundProblem({ ...input, dueDate: "2026-11-19" }, "2026-11-20")).toMatch(/later/);
     expect(asyncRoundProblem({ ...input, dueDate: "soon" }, "2026-11-20")).toMatch(/due day/);
+    // At most 90 days ahead, so the 14 days kept after it stay bounded.
+    expect(latestDueDay("2026-11-20")).toBe("2027-02-18");
+    expect(asyncRoundProblem({ ...input, dueDate: "2027-02-18" }, "2026-11-20")).toBeNull();
+    expect(asyncRoundProblem({ ...input, dueDate: "2027-02-19" }, "2026-11-20")).toBe(
+      "Pick a day in the next 90 days."
+    );
     expect(asyncDeckProblem(Array.from({ length: 17 }, (_, i) => String(i)))).toMatch(/16/);
     expect(asyncDeckProblem(asyncDeckFor("custom", "1, 2, 2"))).toMatch(/twice/);
     expect(asyncDeckProblem(asyncDeckFor("tshirt"))).toBeNull();

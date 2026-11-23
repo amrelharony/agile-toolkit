@@ -768,7 +768,7 @@ const CreateAsyncParams = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional()
-    .describe("The day replies are due, YYYY-MM-DD, today or later."),
+    .describe("The day replies are due, YYYY-MM-DD, from today to 90 days ahead."),
   expected: z
     .array(z.string().trim().min(1).max(POKER_ASYNC_MAX.name))
     .max(POKER_ASYNC_MAX.expected)
@@ -853,7 +853,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Make a round without a meeting from typed story titles (1 to 20, up to 120 characters each; stories queued from other tools are picked on the page). scale is fibonacci (default), tshirt, or custom with deck (2 to 16 cards, lowest first). Optional dueDate (YYYY-MM-DD, today or later), expected (the names of who should reply, up to 20) and host (the facilitator's name shown to estimators). Returns {created: true, id, path, chars}: path is the estimator's link, /planning-poker/estimate#estimate=…, for the person to send themselves; or {created: false, problem} (for example a round too long for one link: split it). Replies come back to the Poker page as codes the host pastes in.",
+    "Make a round without a meeting from typed story titles (1 to 20, up to 120 characters each; stories queued from other tools are picked on the page). scale is fibonacci (default), tshirt, or custom with deck (2 to 16 cards, lowest first). Optional dueDate (YYYY-MM-DD, from today to 90 days ahead), expected (the names of who should reply, up to 20) and host (the facilitator's name shown to estimators). Returns {created: true, id, path, chars}: path is the estimator's link, /planning-poker/estimate#estimate=…, for the person to send themselves; or {created: false, problem} (for example a round too long for one link: split it). Replies come back to the Poker page as codes the host pastes in.",
   paramsSchema: CreateAsyncParams,
   handler: async (params) => {
     const plan = planAsyncRound(params);

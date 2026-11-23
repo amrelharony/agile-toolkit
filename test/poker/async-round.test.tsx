@@ -74,7 +74,9 @@ import { sendHandoff } from "@/lib/handoffs/send";
 import { STORY_MAP_ID, takeQueuedStoriesById } from "@/lib/handoffs/poker-writeback";
 import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
+import { dueDayLabel } from "@/app/(tools)/planning-poker/async/day-label";
 import {
+  addDaysIso,
   asyncDeckFor,
   encodeReply,
   newAsyncRound,
@@ -714,6 +716,27 @@ describe("a new round", () => {
     const box = article("Big");
     expect(within(box).getByRole("button", { name: "Copy link" })).toBeTruthy();
     expect(box.textContent).not.toContain("Too long for one link");
+  });
+
+  it("takes a due day up to 90 days ahead, and shows the year when it isn't this one", () => {
+    render(<AsyncRoundsPanel hostName="Priya" />);
+    fireEvent.click(screen.getByRole("button", { name: "New round" }));
+    const due = screen.getByLabelText(/Due day/) as HTMLInputElement;
+    expect(due.max).toBe(addDaysIso(due.min, 90));
+    fireEvent.change(screen.getByLabelText(/Round name/), { target: { value: "Later" } });
+    fireEvent.change(screen.getByLabelText(/Stories, one per line/), {
+      target: { value: "Pay by phone" },
+    });
+    fireEvent.change(due, { target: { value: addDaysIso(due.min, 91) } });
+    fireEvent.click(screen.getByRole("button", { name: "Make the link" }));
+    expect(screen.getByText("Pick a day in the next 90 days.")).toBeTruthy();
+    expect(rounds()).toEqual([]);
+
+    fireEvent.change(due, { target: { value: addDaysIso(due.min, 90) } });
+    fireEvent.click(screen.getByRole("button", { name: "Make the link" }));
+    expect(rounds()[0].dueDate).toBe(addDaysIso(due.min, 90));
+    expect(dueDayLabel("2027-01-05", new Date("2026-11-23T12:00:00")).includes("2027")).toBe(true);
+    expect(dueDayLabel("2026-11-28", new Date("2026-11-23T12:00:00"))).not.toContain("2026");
   });
 
   it("strips hidden direction marks from queued and typed titles, never “Untitled story”", () => {

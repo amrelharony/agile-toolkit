@@ -52,7 +52,13 @@ import {
   type ConsensusLevel,
 } from "./consensus";
 import { SCALES, type ScaleType } from "./decks";
-import { ASYNC_ROUND_PREFIX, ESTIMATE_PATH, revealRound } from "./async-rounds";
+import {
+  ASYNC_ROUND_PREFIX,
+  DUE_MAX_DAYS,
+  ESTIMATE_PATH,
+  latestDueDay,
+  revealRound,
+} from "./async-rounds";
 
 export * from "./async-rounds";
 
@@ -75,6 +81,7 @@ const REPLY_CODE_RE = /AT1\.[A-Za-z0-9_-]+/g;
 const PASTE_MAX_CHARS = 80_000;
 
 export const SPLIT_ROUND = "Too long for one link. Split the stories into two rounds.";
+export const DUE_TOO_FAR = `Pick a day in the next ${DUE_MAX_DAYS} days.`;
 export const NOT_IN_BROWSER =
   "This reply is for a round that isn't in this browser. Open it on the device that made the round.";
 
@@ -252,6 +259,7 @@ export function asyncRoundProblem(input: AsyncRoundInput, today: string): string
   if (input.dueDate !== undefined && input.dueDate !== "") {
     if (!isDay(input.dueDate)) return "Pick a due day.";
     if (input.dueDate < today) return "Pick today or a later day.";
+    if (input.dueDate > latestDueDay(today)) return DUE_TOO_FAR;
   }
   return null;
 }

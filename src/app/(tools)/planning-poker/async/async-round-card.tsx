@@ -55,6 +55,7 @@ import { withRound } from "../rounds";
 import { SCALE_LABELS, type ScaleType, type Story as SessionStory } from "../types";
 import { useCardReferences } from "../use-card-references";
 import { asyncRoundMarkdown } from "./markdown";
+import { dueDayLabel } from "./day-label";
 import {
   acceptAsyncEstimate,
   addReplyToRound,
@@ -89,14 +90,6 @@ const STATUS_LABEL: Record<PokerAsyncRound["status"], string> = {
   revealed: "Revealed",
   closed: "Closed",
 };
-
-/** "Fri 28 Nov" for a due day. */
-function dayLabel(day: string): string {
-  const d = new Date(`${day}T12:00:00`);
-  return Number.isNaN(d.getTime())
-    ? day
-    : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
-}
 
 const people = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
 
@@ -147,7 +140,7 @@ export function AsyncRoundCard({
     STATUS_LABEL[round.status],
     `${SCALE_LABELS[scaleType]} deck`,
     people(round.stories.length, "story", "stories"),
-    ...(round.dueDate ? [`due ${dayLabel(round.dueDate)}`] : []),
+    ...(round.dueDate ? [`due ${dueDayLabel(round.dueDate)}`] : []),
   ].join(" · ");
 
   const remove = () => {

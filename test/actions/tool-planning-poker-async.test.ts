@@ -23,7 +23,8 @@ import {
   type PokerAsyncReply,
   type PokerAsyncRound,
 } from "@/lib/stores/workspace-types";
-import { readPack } from "@/lib/estimation/async-pack";
+import { addDaysIso, readPack } from "@/lib/estimation/async-pack";
+import { todayIso } from "@/lib/sprints/series";
 import "@/lib/actions/tools/planning-poker";
 
 const ctx = (source: "agent" | "mcp" = "agent") => ({
@@ -158,13 +159,16 @@ describe("list_async", () => {
 });
 
 describe("create_async_round", () => {
+  /** A due day within the 90 a round may be due in. */
+  const SOON = addDaysIso(todayIso(), 30);
+
   it("makes an open round of typed titles and returns the link for the person to send", async () => {
     const result = (await run("create_async_round", {
       title: "Checkout",
       stories: ["Pay by phone", "Refund a payment"],
       host: "Priya",
       expected: ["Ana"],
-      dueDate: "2099-12-01",
+      dueDate: SOON,
     })) as { created: boolean; id: string; path: string; chars: number };
     expect(result.created).toBe(true);
     expect(result.path.startsWith("/planning-poker/estimate#estimate=")).toBe(true);
@@ -176,7 +180,7 @@ describe("create_async_round", () => {
       status: "open",
       deck: FIB,
       expected: ["Ana"],
-      dueDate: "2099-12-01",
+      dueDate: SOON,
       replies: [],
     });
     const pack = readPack(result.path.slice(result.path.indexOf("#")));
@@ -207,6 +211,13 @@ describe("create_async_round", () => {
     expect(
       await run("create_async_round", { title: "X", stories: ["A"], dueDate: "2000-01-01" })
     ).toEqual({ created: false, problem: "Pick today or a later day." });
+    expect(
+      await run("create_async_round", {
+        title: "X",
+        stories: ["A"],
+        dueDate: addDaysIso(todayIso(), 91),
+      })
+    ).toEqual({ created: false, problem: "Pick a day in the next 90 days." });
     const huge = await run("create_async_round", {
       title: "X",
       stories: Array.from({ length: 20 }, () => "估".repeat(120)),

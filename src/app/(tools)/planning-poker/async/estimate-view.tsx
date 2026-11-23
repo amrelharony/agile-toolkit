@@ -33,19 +33,12 @@ import {
   type ReplyDraft,
   type ReplyField,
 } from "@/lib/estimation/async-pack";
+import { dueDayLabel } from "./day-label";
 
 /** The notice with the facilitator's name in it. */
 export function estimatorNotice(host: string | undefined): string {
   const name = host?.trim() || "the facilitator";
   return ASYNC_ESTIMATE_NOTICE.split("{name}").join(name);
-}
-
-/** "Fri 28 Nov" for a due day. */
-function dayLabel(day: string): string {
-  const d = new Date(`${day}T12:00:00`);
-  return Number.isNaN(d.getTime())
-    ? day
-    : d.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" });
 }
 
 /** The host's page address for a reply code. */
@@ -171,7 +164,7 @@ function EstimateForm({ pack }: { pack: AsyncPack }) {
           </h2>
           <p className="text-sm text-sub">
             {pack.s.length} {pack.s.length === 1 ? "story" : "stories"}
-            {pack.due ? `, reply by ${dayLabel(pack.due)}` : ""}.
+            {pack.due ? `, reply by ${dueDayLabel(pack.due)}` : ""}.
           </p>
         </div>
 

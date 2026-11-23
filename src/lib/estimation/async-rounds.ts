@@ -45,6 +45,17 @@ export function addDaysIso(day: string, n: number): string {
   return t.toISOString().slice(0, 10);
 }
 
+/**
+ * How far ahead a round can be due, in days. Names and notes stay until 14
+ * days after the due day, so this keeps that promise bounded.
+ */
+export const DUE_MAX_DAYS = 90;
+
+/** The latest due day a round made on `today` ("YYYY-MM-DD") can have. */
+export function latestDueDay(today: string): string {
+  return addDaysIso(today, DUE_MAX_DAYS);
+}
+
 /** The last day a round keeps its names and notes. */
 export function keepUntil(round: Pick<PokerAsyncRound, "dueDate" | "createdAt">): string {
   const from = round.dueDate && /^\d{4}-\d{2}-\d{2}$/.test(round.dueDate) ? round.dueDate : "";

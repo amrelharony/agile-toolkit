@@ -31,8 +31,10 @@ import { POKER_LOG_ID } from "@/lib/handoffs/targets/poker-queue";
 import { pendingQueueItems, takeQueuedStoriesById } from "@/lib/handoffs/poker-writeback";
 import { todayIso } from "@/lib/sprints/series";
 import {
+  DUE_MAX_DAYS,
   encodePack,
   heldStoryIds,
+  latestDueDay,
   newAsyncRound,
   newAsyncRoundId,
   packFor,
@@ -336,12 +338,17 @@ function NewRoundForm({
         offerAddToRoster={false}
       />
 
-      <Field label="Due day" hint="Optional." error={errors.dueDate}>
+      <Field
+        label="Due day"
+        hint={`Optional. Up to ${DUE_MAX_DAYS} days ahead.`}
+        error={errors.dueDate}
+      >
         {(props) => (
           <Input
             {...props}
             type="date"
             min={today}
+            max={latestDueDay(today)}
             value={draft.dueDate}
             onChange={(e) => update({ dueDate: e.target.value })}
             className="sm:max-w-48"
