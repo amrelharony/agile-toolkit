@@ -196,7 +196,7 @@ describe("readings", () => {
   it("adds a reading and replaces one on the same day", async () => {
     seed([metric({ role: "north-star" })]);
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Reading" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reading for “Weekly teams”" }));
     type(/^Value/, "12");
     fireEvent.click(screen.getByRole("button", { name: "Add the reading" }));
     expect(metrics()[0].readings.map((r) => r.value)).toEqual([12]);
@@ -209,7 +209,7 @@ describe("readings", () => {
   it("refuses a reading after today", async () => {
     seed([metric({ role: "north-star" })]);
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Reading" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reading for “Weekly teams”" }));
     type(/^Day/, "2999-01-01");
     type(/^Value/, "3");
     fireEvent.click(screen.getByRole("button", { name: "Add the reading" }));
@@ -243,7 +243,7 @@ describe("readings", () => {
   it("pastes readings, names the bad lines, and undoes them together", async () => {
     seed([metric({ role: "north-star" })]);
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Reading" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reading for “Weekly teams”" }));
     fireEvent.click(screen.getByRole("button", { name: "Paste readings" }));
     type(/^Paste readings/, "2026-10-01, 40\nnonsense\n2026-10-08, 42");
     fireEvent.click(screen.getByRole("button", { name: "Add these readings" }));
@@ -485,7 +485,7 @@ describe("more of the contract", () => {
   it("removes a reading with Undo and logs it", async () => {
     seed([metric({ role: "north-star", readings: [{ id: "r1", date: "2026-10-01", value: 9 }] })]);
     renderPage();
-    fireEvent.click(await screen.findByRole("button", { name: "Reading" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Reading for “Weekly teams”" }));
     fireEvent.click(screen.getByRole("button", { name: "Remove the reading of 2026-10-01" }));
     expect(metrics()[0].readings).toEqual([]);
     expect(logs.at(-1)).toMatchObject({
@@ -507,6 +507,16 @@ describe("more of the contract", () => {
     expect(metrics().find((m) => m.id === "example-pm-first-retro")?.role).toBe("north-star");
     expect(logs).toEqual([]);
     expect(cheers).toEqual([]);
+  });
+
+  it("names each metric's Reading button after its metric", async () => {
+    seed([
+      metric({ id: "metric_ns", name: "Star", role: "north-star" }),
+      metric({ id: "metric_in", name: "Input one", role: "input" }),
+    ]);
+    renderPage();
+    expect(await screen.findByRole("button", { name: "Reading for “Star”" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reading for “Input one”" })).toBeInTheDocument();
   });
 
   it("takes at most five inputs", async () => {

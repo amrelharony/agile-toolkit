@@ -159,7 +159,7 @@ export function AreaPanel({
                   <div className="flex flex-wrap gap-1">
                     <Button type="button" size="sm" variant="outline" onClick={() => onReading(m)}>
                       <Plus aria-hidden="true" />
-                      Reading
+                      Reading <span className="sr-only">for “{m.name}”</span>
                     </Button>
                     <IconButton
                       label={`Edit “${m.name}”`}
@@ -192,7 +192,7 @@ export function AreaPanel({
                         variant="ghost"
                         onClick={() => onAcceptSource(m, reading)}
                       >
-                        Add this reading
+                        Add this reading <span className="sr-only">to “{m.name}”</span>
                       </Button>
                     )}
                   </p>

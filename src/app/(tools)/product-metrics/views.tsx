@@ -136,7 +136,7 @@ function RowActions({ metric, actions }: { metric: ProductMetric; actions: Metri
     <div className="flex flex-wrap gap-1">
       <Button type="button" size="sm" variant="outline" onClick={() => actions.onReading(metric)}>
         <Plus aria-hidden="true" />
-        Reading
+        Reading <span className="sr-only">for “{metric.name}”</span>
       </Button>
       <IconButton
         label={`Edit “${metric.name}”`}

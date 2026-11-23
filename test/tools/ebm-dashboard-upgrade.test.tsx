@@ -323,13 +323,13 @@ describe("measures", () => {
     const ai = await screen.findByRole("region", { name: "Ability to Innovate" });
     expect(within(ai).getByText(/From Tech Debt: 1 on/)).toBeInTheDocument();
     expect(metrics()[0].readings).toEqual([]);
-    fireEvent.click(within(ai).getByRole("button", { name: "Add this reading" }));
+    fireEvent.click(within(ai).getByRole("button", { name: "Add this reading to “Open debt”" }));
     expect(metrics()[0].readings.map((r) => [r.date, r.value])).toEqual([[todayIso(), 1]]);
     expect(logs.at(-1)).toMatchObject({
       action: EBM_DASHBOARD_ACTIONS.READING_ADDED,
       payload: { metricId: "metric_debt", source: "open-tech-debt" },
     });
-    expect(within(ai).queryByRole("button", { name: "Add this reading" })).toBeNull();
+    expect(within(ai).queryByRole("button", { name: /^Add this reading/ })).toBeNull();
   });
 
   it("removes a measure that sits in another view from EBM only, and deletes one that doesn't, with Undo", async () => {
@@ -569,7 +569,7 @@ describe("more of the contract", () => {
     useWorkspaceStore.setState({ productMetrics: [measured()] });
     renderPage();
     const cv = await screen.findByRole("region", { name: "Current Value" });
-    fireEvent.click(within(cv).getByRole("button", { name: "Reading" }));
+    fireEvent.click(within(cv).getByRole("button", { name: "Reading for “Renewals”" }));
     const panel = screen.getByRole("region", { name: "Readings for Renewals" });
     fireEvent.change(within(panel).getByLabelText(/^Value/), { target: { value: "7" } });
     fireEvent.click(within(panel).getByRole("button", { name: "Add the reading" }));
