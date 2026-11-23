@@ -12,32 +12,49 @@
  *    and chat" when nothing was asked).
  *  - chat: Amr's AI (visitor-agent-panel), a separate chunk loaded only now;
  *    the agent runtime behind it loads on the first message.
+ * The panel header's subtitle names the step ("Find the right tool", "Before
+ * you chat", "Chat · not saved"; PANEL_SUBTITLE), filled from here. The
+ * consent card and the chat both put a "Back to tool finder" chevron before
+ * the name plate (the chat draws its own).
  *
  * The search travels with the visitor: "Not now" on the card, and going back
  * from the chat, open the guide on the question they took there. The chat's
  * own question was sent already, so while the search still holds it the Ask
  * button reads "Back to chat" and nothing is sent twice. A failure or a
- * refusal drops it (the note says what happened, and asking again starts
- * fresh), and so does Clear chat (the question is no longer in the chat).
+ * refusal on the guide drops it (the note says what happened, and asking
+ * again starts fresh), and so does Clear chat (the question is no longer in
+ * the chat). From the chat's read-only footer, the guide opens on the
+ * question Amr couldn't answer, which is then the one "Back to chat" keeps.
  *
  * When the visitor route says there's no more AI for now (visitorFallback),
- * the panel goes back to the guide with a note saying which limit was reached
- * (visitorFallbackNote). It does the same when the chat's chunk can't load
- * (offline, or a tab left open across a deploy), and asking again tries the
- * import again. And it does the same when the loaded chat fails while it is
- * drawn. A note is a narration caption: the narrator's line, never Amr's.
+ * a chat under way stays, read-only (fallbackWaits): the chat's footer says
+ * which limit was reached and takes the composer's place, so the visitor can
+ * still read it, and a reopened panel goes back to it. "Back to chat" from the
+ * guide returns to it as it is, the refusal still there; only a new question
+ * is a fresh try. With no chat to read, the panel goes back to the guide with
+ * a note saying which limit was reached (visitorFallbackNote). It does the
+ * same when the chat's chunk can't load (offline, or a tab left open across a
+ * deploy), and asking again tries the import again. And it does the same
+ * when the loaded chat fails while it is drawn. A note is a narration
+ * caption: the narrator's line, never Amr's.
  *
- * Focus follows the step: the consent card and the chat's message box take it
- * themselves, and a return to the guide puts it on the note, or on the guide
- * when there is no note. A panel that opens on the guide moves no focus (one
- * opened again mid-chat opens on the chat). A note is read out once: by taking
- * focus, or through the announcer when the guide was already showing and no
- * focus moves.
+ * Focus follows the step: the consent card takes it itself, the chat offers its
+ * message box to the panel's focus owner (lib/agent/mascot/use-panel-focus),
+ * which focuses it on a fine pointer only (but a yes on the consent card with
+ * no question waiting means "let me type": the box takes focus then even on a
+ * touch screen), and a return to the guide puts it
+ * on the note, or on the guide when there is no note. A panel that opens on
+ * the guide moves no focus here: the focus owner puts a keyboard open on Amr's
+ * name plate (one opened again mid-chat opens on the chat). A note is read
+ * out once: by taking focus, or through the announcer when the guide was
+ * already showing and no focus moves.
  *
- * This module stays light: it ships in every page with the mascot.
+ * This module stays light: every visitor fetches it, in the visitor body's
+ * chunk (visitor-body), which the mascot fetches ahead while the browser is idle.
  */
 
 import { Suspense, lazy, useEffect, useRef, useState, type LazyExoticComponent } from "react";
+import { ChevronDown } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Narration } from "@/components/agent/comic/comic-parts";
 import { ErrorBoundary } from "@/components/layout/error-boundary";
@@ -46,6 +63,9 @@ import type { VisitorErrorCode } from "@/lib/visitor-ai/contract";
 import { formatPeakTime } from "@/lib/visitor-ai/peak";
 import { VisitorGuide } from "./visitor-guide";
 import { VisitorAiConsent, hasVisitorAiConsent } from "./visitor-ai-consent";
+import { PANEL_SUBTITLE, PanelIconButton } from "./panel-chrome";
+import { PanelBack, PanelSubtitle } from "./panel-fills";
+import { PanelLoading } from "./panel-parts";
 
 type ChatModule = typeof import("./visitor-agent-panel");
 type LoadChat = () => Promise<ChatModule>;
@@ -130,11 +150,22 @@ export function visitorFallbackNote(
 
 type Mode = "guide" | "consent" | "chat";
 
-/** Reopening the panel mid-chat goes straight back to the chat. */
-function initialMode(): Mode {
-  const s = useAgentStore.getState();
-  const midChat = s.chatProfile === "visitor" && s.messages.length > 0 && !s.visitorFallback;
-  return midChat && hasVisitorAiConsent() ? "chat" : "guide";
+/**
+ * Whether a refusal (visitorFallback) waits in the chat: there is a visitor's
+ * chat to read, so it stays, read-only (its footer says which limit was
+ * reached and takes the composer's place), instead of the panel going back to
+ * the tool finder.
+ */
+export function fallbackWaits(s = useAgentStore.getState()): boolean {
+  return s.chatProfile === "visitor" && s.messages.length > 0;
+}
+
+/**
+ * Reopening the panel mid-chat goes straight back to the chat, a refusal and
+ * all (it waits there, read-only).
+ */
+export function initialMode(): Mode {
+  return fallbackWaits() && hasVisitorAiConsent() ? "chat" : "guide";
 }
 
 export function VisitorPanel({
@@ -149,6 +180,9 @@ export function VisitorPanel({
   // The question to send when the chat opens ("" opens it empty, or goes back
   // to the chat under way). Kept after "Not now", so the guide opens on it.
   const [question, setQuestion] = useState("");
+  // The chat opens from the consent card's yes with no question waiting: its
+  // message box takes focus, even on a touch screen.
+  const [typeNow, setTypeNow] = useState(false);
   // The question the chat under way opened with, sent already. The guide opens
   // on it after "Tool finder", and while its search still holds it, the Ask
   // button goes back to the chat instead of asking it again.
@@ -167,17 +201,19 @@ export function VisitorPanel({
   const guideRef = useRef<HTMLDivElement>(null);
   const noteRef = useRef<HTMLDivElement>(null);
 
-  // A "no more AI for now" refusal: back to the tool finder. Coming from
-  // another step, its note takes focus (below), and a screen reader reads it
-  // then. It is announced only when the guide is already showing, so it is
-  // never said twice. An old one still showing when the panel opens is not
-  // said again.
+  // A "no more AI for now" refusal. In a chat under way it waits there,
+  // read-only: the chat's footer says it and takes the focus the composer
+  // had. Otherwise back to the tool finder: coming from another step, its
+  // note takes focus (below), and a screen reader reads it then. It is
+  // announced only when the guide is already showing, so it is never said
+  // twice. An old one still showing when the panel opens is not said again.
   const lastFallback = useRef(fallback);
   const lastMode = useRef(mode);
   useEffect(() => {
     const was = lastFallback.current;
     lastFallback.current = fallback;
     if (!fallback) return;
+    if (lastMode.current === "chat" && fallbackWaits()) return;
     setMode("guide");
     if (was === fallback) return;
     // A refusal drops the question: the panel can't tell which message was
@@ -221,8 +257,9 @@ export function VisitorPanel({
 
   // The chat opens. A question becomes the chat's own; opening it empty with
   // no chat under way starts afresh; going back to the chat keeps its own.
-  const openChat = (ask: string) => {
+  const openChat = (ask: string, agreed = false) => {
     if (ask || !chatUnderWay) setSent(ask);
+    setTypeNow(agreed && !ask);
     setMode("chat");
   };
 
@@ -230,25 +267,41 @@ export function VisitorPanel({
     const q = query.trim();
     // Back to the chat under way, with no question or with the one it opened
     // with: that one was sent already, so nothing is sent twice.
-    const ask = chatUnderWay && (q === "" || q === sent) ? "" : q;
+    const back = chatUnderWay && (q === "" || q === sent);
+    const ask = back ? "" : q;
     setQuestion(ask);
     // Asking again is a fresh try: the route answers again if it can, and the
-    // chat's code loads again if it didn't.
+    // chat's code loads again if it didn't. Going back to the chat isn't: a
+    // refusal waits there, read-only, as it was.
     setFailure(null);
-    useAgentStore.getState().setVisitorFallback(null);
+    if (!back) useAgentStore.getState().setVisitorFallback(null);
     if (hasVisitorAiConsent()) openChat(ask);
     else setMode("consent");
   };
 
+  // The panel header says which step this is.
+  const subtitle = <PanelSubtitle>{PANEL_SUBTITLE[mode]}</PanelSubtitle>;
+
   if (mode === "consent") {
     return (
-      <VisitorAiConsent
-        question={question}
-        onAgree={() => openChat(question)}
-        // Back to the guide with the question still in its search.
-        onDecline={() => setMode("guide")}
-        onNavigate={onNavigate}
-      />
+      <>
+        {subtitle}
+        {/* Back to the guide, as "Not now" goes: the question stays in its
+            search. ChevronDown turned is the chat's ChevronLeft, and ships
+            here already with the guide. */}
+        <PanelBack>
+          <PanelIconButton label="Back to tool finder" onClick={() => setMode("guide")}>
+            <ChevronDown aria-hidden="true" className="rotate-90" />
+          </PanelIconButton>
+        </PanelBack>
+        <VisitorAiConsent
+          question={question}
+          onAgree={() => openChat(question, true)}
+          // Back to the guide with the question still in its search.
+          onDecline={() => setMode("guide")}
+          onNavigate={onNavigate}
+        />
+      </>
     );
   }
   if (mode === "chat") {
@@ -258,27 +311,35 @@ export function VisitorPanel({
     // imports the chunk again.
     const Chat = chatFor(load);
     return (
-      // A failure stops here, not at the app shell's error boundary, which
-      // would replace the page the visitor is on.
-      <ErrorBoundary
-        name="Visitor chat"
-        fallback={() => (
-          <ChatFailed onFailed={() => chatFailed(failedChats.has(Chat) ? "load" : "error")} />
-        )}
-      >
-        <Suspense fallback={<div className="min-h-0 flex-1" aria-busy="true" />}>
-          <Chat
-            initialQuestion={question}
-            // Back to the guide, its search on the question the chat opened
-            // with (`sent`); the guide's "Back to chat" returns to this chat,
-            // which then has nothing to send.
-            onOfflineGuide={() => {
-              setQuestion("");
-              setMode("guide");
-            }}
-          />
-        </Suspense>
-      </ErrorBoundary>
+      <>
+        {subtitle}
+        {/* A failure stops here, not at the app shell's error boundary, which
+            would replace the page the visitor is on. */}
+        <ErrorBoundary
+          name="Visitor chat"
+          fallback={() => (
+            <ChatFailed onFailed={() => chatFailed(failedChats.has(Chat) ? "load" : "error")} />
+          )}
+        >
+          {/* While it loads, a pen scribbles in its place, named for screen readers. */}
+          <Suspense fallback={<PanelLoading />}>
+            <Chat
+              initialQuestion={question}
+              takeFocus={typeNow}
+              // Back to the guide, its search on the question the chat opened
+              // with (`sent`), or the one Amr couldn't answer (from the
+              // read-only footer), which is the chat's own from then on; the
+              // guide's "Back to chat" returns to this chat, which then has
+              // nothing to send.
+              onOfflineGuide={(unanswered) => {
+                setQuestion("");
+                if (unanswered) setSent(unanswered);
+                setMode("guide");
+              }}
+            />
+          </Suspense>
+        </ErrorBoundary>
+      </>
     );
   }
   const note =
@@ -290,26 +351,29 @@ export function VisitorPanel({
           ? visitorFallbackNote(fallback, quota)
           : null;
   return (
-    <VisitorGuide
-      onNavigate={onNavigate}
-      onAskAmr={askAmr}
-      guideRef={guideRef}
-      initialQuery={question || sent}
-      resumeChat={chatUnderWay}
-      resumeQuery={sent}
-      // The note sits inside the guide's scroll area. Above it, in a panel as
-      // short as 160 px, it left the guide a strip too low to use.
-      note={
-        note && (
-          // A narration caption, the narrator's line, in a box that takes
-          // focus from code only (tabIndex -1). Not a live region: it is read
-          // once, when it takes focus or is announced.
-          <div ref={noteRef} tabIndex={-1} className="shrink-0 focus:outline-none">
-            <Narration tone={failure ? "error" : "note"}>{note}</Narration>
-          </div>
-        )
-      }
-    />
+    <>
+      {subtitle}
+      <VisitorGuide
+        onNavigate={onNavigate}
+        onAskAmr={askAmr}
+        guideRef={guideRef}
+        initialQuery={question || sent}
+        resumeChat={chatUnderWay}
+        resumeQuery={sent}
+        // The note sits inside the guide's scroll area. Above it, in a panel as
+        // short as 160 px, it left the guide a strip too low to use.
+        note={
+          note && (
+            // A narration caption, the narrator's line, in a box that takes
+            // focus from code only (tabIndex -1). Not a live region: it is read
+            // once, when it takes focus or is announced.
+            <div ref={noteRef} tabIndex={-1} className="shrink-0 focus:outline-none">
+              <Narration tone={failure ? "error" : "note"}>{note}</Narration>
+            </div>
+          )
+        }
+      />
+    </>
   );
 }
 

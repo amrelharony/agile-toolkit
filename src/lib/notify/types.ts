@@ -65,6 +65,13 @@ export interface PolicyContext {
   quiet: QuietState;
   /** A modal dialog or sheet is open. */
   dialogOpen: boolean;
+  /**
+   * Amr's chat is open as the phone's full-height sheet, or down the side with
+   * too little room beside it for a toast (lib/layout/amr-sheet's
+   * amrHoldsToasts). Not a dialog for the toaster's lift; the policy holds
+   * what can wait.
+   */
+  amrSheet: boolean;
   /** The user typed in an editable field within the last 2.5 s. */
   typing: boolean;
   /** Phone-width viewport. */

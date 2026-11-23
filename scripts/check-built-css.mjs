@@ -158,12 +158,18 @@ function declsLike(css, selector) {
     .flatMap((r) => r.body.split(";").map(minified));
 }
 
-/** `selector`'s ink and paper triangles: `ink` and `paper` hold the declarations each must have. */
+/**
+ * `selector`'s ink and paper triangles: `ink` and `paper` hold the declarations
+ * each must have, read as minified too (so `content:""` matches the build's).
+ */
 function tail(selector, ink, paper) {
   return (css) => {
     const before = declsLike(css, `${selector}::before`);
     const after = declsLike(css, `${selector}::after`);
-    return ink.every((d) => before.includes(d)) && paper.every((d) => after.includes(d));
+    return (
+      ink.every((d) => before.includes(minified(d))) &&
+      paper.every((d) => after.includes(minified(d)))
+    );
   };
 }
 
@@ -176,6 +182,62 @@ const RIGHT_TAIL = {
     "border-color:transparenttransparenttransparentvar(--balloon-fill)",
   ],
 };
+
+/** The chat panel's down tail, in the panel's own ink (--border) and paper (--card). */
+const PANEL_DOWN_TAIL = {
+  ink: [
+    'content:""',
+    "bottom:-.8rem",
+    "left:var(--tail-at)",
+    "border-width:.8rem.4rem0",
+    "border-color:var(--border)transparenttransparent",
+  ],
+  paper: [
+    'content:""',
+    "bottom:-.6rem",
+    "left:calc(var(--tail-at)+.1rem)",
+    "border-width:.65rem.3rem0",
+    "border-color:var(--card)transparenttransparent",
+  ],
+};
+
+/** The name plate tilts and casts --shadow-1, and high contrast lays it flat. */
+function namePlate(css) {
+  const plate = declsLike(css, ".comic-name-plate");
+  const flat = [".hc.comic-name-plate", "[data-theme=hc].comic-name-plate"].every((selector) => {
+    const decls = declsLike(css, selector);
+    return decls.includes("rotate:none") && decls.includes("box-shadow:none");
+  });
+  return plate.includes("box-shadow:var(--shadow-1)") && plate.includes("rotate:-1deg") && flat;
+}
+
+/**
+ * The chat panel's entrance (mascot-assistant.module.css, hashed to
+ * `…_panelEnter__…` in the build): under prefers-reduced-motion:no-preference, an
+ * opacity and scale transition and an @starting-style block that starts it at
+ * opacity:0 and scale:.96.
+ */
+function panelEntrance(css) {
+  const named = (r) => r.selectors.some((s) => /panelEnter/.test(s));
+  const decls = (r) => r.body.split(";").map(minified);
+  return blocks(css, "@media")
+    .filter((m) => m.params.includes("(prefers-reduced-motion:no-preference)"))
+    .some(
+      (m) =>
+        rules(m.body).some((r) => {
+          if (!named(r)) return false;
+          const transition = decls(r).find((d) => d.startsWith("transition:")) ?? "";
+          return ["opacity", "scale", "var(--dur-surface-in)", "var(--ease-calm)"].every((part) =>
+            transition.includes(part)
+          );
+        }) &&
+        blocks(m.body, "@starting-style").some((s) =>
+          rules(s.body).some(
+            (r) => named(r) && ["opacity:0", "scale:.96"].every((d) => decls(r).includes(d))
+          )
+        )
+    );
+}
 
 /** Rules with where they start, so a fallback can be held before its @supports. */
 function rulesAt(css) {
@@ -314,6 +376,18 @@ export const MARKERS = {
     {
       name: "forced colours: .comic-caption[data-voice=you] keeps a border-inline-start-width heavier than --line-w, in @media (forced-colors:active)",
       test: youEdgeInForcedColors,
+    },
+    {
+      name: ".comic-tailed[data-tail=down]: the panel's tail on its bottom edge at --tail-at, ink in --border and paper in --card",
+      test: tail(".comic-tailed[data-tail=down]", PANEL_DOWN_TAIL.ink, PANEL_DOWN_TAIL.paper),
+    },
+    {
+      name: ".comic-name-plate: box-shadow:var(--shadow-1) and rotate:-1deg, laid flat (rotate:none, box-shadow:none) under .hc and [data-theme=hc]",
+      test: namePlate,
+    },
+    {
+      name: "@starting-style: the chat panel's entrance (panelEnter) starts at opacity:0 and scale:.96 and transitions both, in @media (prefers-reduced-motion:no-preference)",
+      test: panelEntrance,
     },
   ],
 };
