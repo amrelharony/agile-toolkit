@@ -161,6 +161,50 @@ describe("set_cluster", () => {
     expect(state().impediments[0]).not.toHaveProperty("blockSide");
   });
 
+  it("gives an impediment a default cluster's side, as it does a spell", async () => {
+    useWorkspaceStore.setState({
+      impediments: [imp("i1", { cluster: "Legal sign-off", blockSide: "external" })],
+      stories: [
+        story("a", {
+          blocked: true,
+          blockLog: [{ from: ago(2), cluster: "Legal sign-off", side: "external" }],
+        }),
+      ],
+    });
+    const onImpediment = await run<{ side: string }>("tool.impediments.set_cluster", {
+      kind: "impediment",
+      id: "i1",
+      cluster: "Waiting for a review",
+    });
+    const onSpell = await run<{ side: string }>("tool.impediments.set_cluster", {
+      kind: "story",
+      id: "a",
+      cluster: "Waiting for a review",
+    });
+    expect(state().impediments[0]).toMatchObject({
+      cluster: "Waiting for a review",
+      blockSide: "internal",
+    });
+    expect(state().stories[0].blockLog?.[0]).toMatchObject({ side: "internal" });
+    expect([onImpediment.side, onSpell.side]).toEqual(["internal", "internal"]);
+    // A cluster of the team's own keeps the side already stored, on either.
+    await run("tool.impediments.set_cluster", {
+      kind: "impediment",
+      id: "i1",
+      cluster: "Waiting on legal",
+      side: "external",
+    });
+    await run("tool.impediments.set_cluster", {
+      kind: "impediment",
+      id: "i1",
+      cluster: "Legal and compliance",
+    });
+    expect(state().impediments[0]).toMatchObject({
+      cluster: "Legal and compliance",
+      blockSide: "external",
+    });
+  });
+
   it("notes a story's open spell, or starts one for a block from before tracking", async () => {
     useWorkspaceStore.setState({
       stories: [

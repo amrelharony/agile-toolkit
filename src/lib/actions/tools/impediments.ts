@@ -287,7 +287,7 @@ const ClusterParams = z.object({
     .enum(BLOCK_SIDES)
     .optional()
     .describe(
-      "internal: the team can remove it itself; external: it needs someone outside. Default: the stored side, else a default cluster's."
+      "internal: the team can remove it itself; external: it needs someone outside. Default: a default cluster's own side, else the side already stored (on the impediment or the spell alike)."
     ),
 });
 
@@ -318,12 +318,10 @@ async function setCluster(store: BlockerStore, p: z.infer<typeof ClusterParams>)
         hint: "No impediment has that id. tool.impediments.list_state lists them.",
       };
     }
-    const next = withImpedimentCluster(current, cluster, p.side);
+    // The side the spell branch writes too: the one given, else the default cluster's.
+    const next = withImpedimentCluster(current, cluster, side);
     if (next !== current) await store.putImpediment(next);
-    return {
-      ...done,
-      side: next.blockSide ?? (cluster ? (defaultClusterSide(cluster) ?? null) : null),
-    };
+    return { ...done, side: cluster ? (next.blockSide ?? null) : null };
   }
   const note =
     cluster === null ? { cluster: "", side: null } : { cluster, ...(side ? { side } : {}) };
