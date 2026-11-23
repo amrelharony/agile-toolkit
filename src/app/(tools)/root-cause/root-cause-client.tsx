@@ -100,6 +100,13 @@ const METHOD_ICON: Record<RootCauseMethod, typeof ListTree> = {
   "causal-loop": RefreshCcwDot,
 };
 
+/** What to do first in a new analysis, announced when it starts. */
+const METHOD_FIRST_STEP: Record<RootCauseMethod, string> = {
+  "five-whys": "Ask why it happened.",
+  fishbone: "Add its causes.",
+  "causal-loop": "Add the things that go up or down.",
+};
+
 const TOOL_ID = "root-cause";
 const NONE: RootCauseAnalysis[] = [];
 
@@ -576,9 +583,7 @@ export function RootCauseClient() {
     });
     select(a.id);
     setCreating(false);
-    announce(
-      `Started “${short(a.title)}”. ${a.method === "five-whys" ? "Ask why it happened." : "Add its causes."}`
-    );
+    announce(`Started “${short(a.title)}”. ${METHOD_FIRST_STEP[a.method]}`);
   };
 
   const remove = (a: RootCauseAnalysis) => {

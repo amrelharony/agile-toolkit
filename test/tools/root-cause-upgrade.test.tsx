@@ -1203,6 +1203,24 @@ describe("Causal loop", () => {
     await openLoop();
   });
 
+  it("starts an analysis on the loop and says to add the things that go up or down", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /Start the analysis/ }));
+    fireEvent.change(screen.getByLabelText(/The problem, in a few words/), {
+      target: { value: "Checkout errors noticed late" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Causal loop" }));
+    fireEvent.click(screen.getByRole("button", { name: /Start the analysis/ }));
+    expect(byTitle("Checkout errors noticed late")).toMatchObject({ method: "causal-loop" });
+    await openLoop();
+    await waitFor(() =>
+      expect(screen.getByTestId("live-polite")).toHaveTextContent(
+        "Started “Checkout errors noticed late”. Add the things that go up or down."
+      )
+    );
+    expect(screen.getByTestId("live-polite")).not.toHaveTextContent("Add its causes.");
+  });
+
   it("adds things with Enter, refusing blank and the same words in another case", async () => {
     ws().upsertRootCauseAnalysis(loopAnalysis());
     renderPage();
