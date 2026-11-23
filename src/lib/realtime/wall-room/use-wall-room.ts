@@ -209,9 +209,11 @@ export interface WallRoom extends Pick<
   /**
    * Put a merged post back on its own (the Undo of `merge`): its votes and
    * the posts merged into it go back with it, and what happened since stays.
-   * Does nothing once it can't (taken back, the round scored or new).
+   * Does nothing once it can't (taken back, merged on into a third post, the
+   * round scored or new, the room ended). Returns whether it put the post
+   * back, so the Undo can say what happened.
    */
-  unmerge: (fromId: string) => void;
+  unmerge: (fromId: string) => boolean;
   /** Mark a question answered, or not. */
   answer: (postId: string, answered: boolean) => void;
   lowerHand: (id: string) => void;
@@ -455,10 +457,14 @@ export function useWallRoom(opts: UseWallRoomOptions): WallRoom {
     [activeRef, changeWall, role]
   );
 
+  /** Host: change the wall by `f`. Whether it changed anything. */
   const hostOnly = useCallback(
-    (f: (w: HostWall) => HostWall) => {
-      if (role !== "host" || !activeRef.current) return;
-      changeWall(f(wallRef.current));
+    (f: (w: HostWall) => HostWall): boolean => {
+      if (role !== "host" || !activeRef.current) return false;
+      const next = f(wallRef.current);
+      if (next === wallRef.current) return false;
+      changeWall(next);
+      return true;
     },
     [activeRef, changeWall, role]
   );

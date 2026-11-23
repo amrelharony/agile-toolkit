@@ -222,7 +222,11 @@ describe("the host's hook", () => {
       })
     );
     await tick(600);
-    act(() => result.current.unmerge("pid_quest002"));
+    let undone: boolean | undefined;
+    act(() => {
+      undone = result.current.unmerge("pid_quest002");
+    });
+    expect(undone).toBe(true);
     await tick(600);
     const round = states(ch).at(-1)!.round!;
     expect(round.count).toBe(2);
@@ -230,11 +234,48 @@ describe("the host's hook", () => {
       { id: "pid_quest001", text: "When is the next release?", votes: 1, merged: [] },
       { id: "pid_quest002", text: "Release date?", votes: 0, merged: [] },
     ]);
-    // Undoing it again changes nothing.
+    // Undoing it again changes nothing, and says so.
     const sent = states(ch).length;
-    act(() => result.current.unmerge("pid_quest002"));
+    act(() => {
+      undone = result.current.unmerge("pid_quest002");
+    });
+    expect(undone).toBe(false);
     await tick(600);
     expect(states(ch)).toHaveLength(sent);
+  });
+
+  it("can't undo a merge once the scoring started, and says so", async () => {
+    const { ch, crypto, result } = await startHost();
+    act(() => {
+      result.current.openRound("Our boldest idea", "live");
+    });
+    await tick(600);
+    let s = states(ch).at(-1)!;
+    const r = s.round!.id;
+    for (const [m, pid, text, key] of [
+      [A, "pid_idea0001", "Ship every week", "keyA_0123456789abcdef"],
+      [B, "pid_idea0002", "Ship weekly", "keyB_0123456789abcdef"],
+    ] as const) {
+      s = states(ch).at(-1)!;
+      await deliver(
+        ch,
+        WALL_ROOM_EVENTS.intent,
+        await request(crypto, s, m.id, { t: "post", r, pid, text, lock: lockOf(key) })
+      );
+      await tick(600);
+    }
+    act(() => result.current.merge("pid_idea0002", "pid_idea0001"));
+    act(() => result.current.setScoring("open"));
+    await tick(600);
+    const sent = states(ch).length;
+    let undone: boolean | undefined;
+    act(() => {
+      undone = result.current.unmerge("pid_idea0002");
+    });
+    expect(undone).toBe(false);
+    await tick(600);
+    expect(states(ch)).toHaveLength(sent);
+    expect(states(ch).at(-1)!.round).toMatchObject({ count: 1 });
   });
 
   it("runs a 25/10 scoring: counts scores while open, shares totals only when shown", async () => {

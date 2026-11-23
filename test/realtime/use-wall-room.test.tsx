@@ -632,4 +632,104 @@ describe("WallRoomHost: merging", () => {
     expect(screen.getByText("Put the post back on its own.")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Merge:/ })).toHaveLength(2);
   });
+
+  it("says a merge can't be undone once the post moved on with another, and changes nothing", async () => {
+    const crypto = fakeVoteCrypto();
+    render(
+      <LiveAnnouncerProvider>
+        <WallRoomHost
+          tool="audience-wall"
+          toolName="Audience Wall"
+          onSave={() => undefined}
+          defaultMode="live"
+          crypto={crypto}
+        />
+      </LiveAnnouncerProvider>
+    );
+    await flush();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open a live wall" }));
+    });
+    const dialog = screen.getByRole("dialog");
+    const name = dialog.querySelector("input:not([type=checkbox])") as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(name, { target: { value: "Hana Ito" } });
+      fireEvent.click(dialog.querySelector("input[type=checkbox]")!);
+      fireEvent.click(screen.getByRole("button", { name: "Start room" }));
+    });
+    await settle(() => fakeRealtime.channels.length > 0);
+    const ch = fakeRealtime.last();
+    act(() => {
+      ch.connect();
+    });
+    await flush();
+    const hostId = (ch.track.mock.calls.at(-1) as unknown as [{ id: string }])[0].id;
+    const C: FakeMember = {
+      id: "carol_0000000000",
+      name: "Cy Ra",
+      joinedAt: "2026-10-26T09:03:00Z",
+    };
+    act(() => {
+      ch.setPresence([{ ...HOST, id: hostId }, A, B, C]);
+    });
+    await flush();
+    await tick(600);
+    fireEvent.change(screen.getByLabelText(/Prompt/), { target: { value: "Questions?" } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Open the wall" }));
+    });
+    await tick(600);
+    const s = states(ch).at(-1)!;
+    for (const [m, id, text, key] of [
+      [A, "pid_00000001", "When is the release?", "keyA_0123456789abcdef"],
+      [B, "pid_00000002", "Release date?", "keyB_0123456789abcdef"],
+      [C, "pid_00000003", "Which release train?", "keyC_0123456789abcdef"],
+    ] as const) {
+      await deliver(
+        ch,
+        WALL_ROOM_EVENTS.intent,
+        await request(crypto, s, m.id, {
+          t: "post",
+          r: s.round!.id,
+          pid: id,
+          text,
+          lock: lockOf(key),
+        })
+      );
+    }
+    await tick(600);
+    /** Merge the first post on the list into the first post its list offers. */
+    const mergeFirst = async () => {
+      const [list] = screen.getAllByLabelText("Merge into");
+      fireEvent.change(list, {
+        target: { value: (list as HTMLSelectElement).options[1].value },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getAllByRole("button", { name: /^Merge:/ })[0]);
+      });
+      await tick(600);
+    };
+    toastMock.mockClear();
+    await mergeFirst();
+    // The post it went under moves on, into the third, taking it along.
+    await mergeFirst();
+    expect(states(ch).at(-1)!.round!.count).toBe(1);
+    const merges = toastMock.mock.calls.filter((c) => c[0] === "Merged the post") as unknown as [
+      string,
+      { action: { onClick: () => void } },
+    ][];
+    expect(merges).toHaveLength(2);
+    const sent = states(ch).length;
+    // The first merge's Undo, still on screen: nothing to put back now.
+    await act(async () => {
+      merges[0][1].action.onClick();
+    });
+    await tick(600);
+    expect(states(ch)).toHaveLength(sent);
+    expect(states(ch).at(-1)!.round!.count).toBe(1);
+    expect(
+      screen.getByText("That merge can't be undone now. The wall stays as it is.")
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Put the post back on its own.")).toBeNull();
+  });
 });

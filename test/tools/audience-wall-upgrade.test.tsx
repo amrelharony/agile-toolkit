@@ -784,6 +784,46 @@ describe("the live wall", () => {
     ).toBeInTheDocument();
   });
 
+  it("says when Amr's merge can't be undone any more, instead of saying the questions came back", async () => {
+    const { ch, crypto, round } = await openLive("questions");
+    await send(
+      ch,
+      crypto,
+      A.id,
+      post(round, "pid_q0000001", "When is the next release?", "keyA_0123456789abcdef")
+    );
+    await send(
+      ch,
+      crypto,
+      B.id,
+      post(round, "pid_q0000002", "when is the NEXT release", "keyB_0123456789abcdef")
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Find duplicates without AI" }));
+    });
+    const draft = screen.getByRole("heading", { name: "Duplicates to merge" }).closest("section")!;
+    await act(async () => {
+      fireEvent.click(within(draft as HTMLElement).getByRole("button", { name: /^Merge/ }));
+    });
+    await tick(600);
+    expect(states(ch).at(-1)!.round!.count).toBe(1);
+    // Bo takes the merged question back before the host presses Undo.
+    await send(ch, crypto, B.id, {
+      t: "withdraw",
+      r: round,
+      pid: "pid_q0000002",
+      key: "keyB_0123456789abcdef",
+    });
+    const sent = states(ch).length;
+    undoOf("Merged 1 question")();
+    await tick(600);
+    expect(states(ch)).toHaveLength(sent);
+    expect(screen.getByTestId("live-polite")).toHaveTextContent(
+      "That merge can't be undone now. The wall stays as it is."
+    );
+    expect(screen.getByTestId("live-polite")).not.toHaveTextContent("back on the wall");
+  });
+
   it("tells Amr the round isn't saved, until Save round", async () => {
     const { ch, crypto, round } = await openLive("questions");
     expect(liveWall()!.status().unsaved).toBe(false);

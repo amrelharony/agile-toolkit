@@ -193,6 +193,18 @@ function LiveControls({
   );
 }
 
+const questionCount = (n: number) => `${n} ${n === 1 ? "question" : "questions"}`;
+
+/** What an Undo of `n` merged questions says, when `back` of them came back. */
+function undoneText(back: number, n: number): string {
+  if (back >= n) return `Put ${questionCount(n)} back on the wall.`;
+  if (back > 0)
+    return `Put ${back} of ${questionCount(n)} back on the wall. The rest can't be undone now.`;
+  return n === 1
+    ? "That merge can't be undone now. The wall stays as it is."
+    : "Those merges can't be undone now. The wall stays as it is.";
+}
+
 /** Questions: Amr (or the word rules) finds duplicates; the host merges each group. */
 function DuplicateQuestions({ room }: { room: WallRoom }) {
   const announce = useAnnounce();
@@ -221,7 +233,7 @@ function DuplicateQuestions({ room }: { room: WallRoom }) {
     );
     if (pairs.length === 0) return;
     const n = pairs.length;
-    const what = `${n} ${n === 1 ? "question" : "questions"}`;
+    const what = questionCount(n);
     undoable({
       label: `Merged ${what}`,
       apply: () => {
@@ -229,8 +241,10 @@ function DuplicateQuestions({ room }: { room: WallRoom }) {
         announce(`Merged ${what} in the room. Undo is there for a few seconds.`);
       },
       revert: () => {
-        for (const p of [...pairs].reverse()) roomRef.current.unmerge(p.from);
-        announce(`Put ${what} back on the wall.`);
+        // A question that moved on, was taken back or scored since stays merged.
+        let back = 0;
+        for (const p of [...pairs].reverse()) if (roomRef.current.unmerge(p.from)) back++;
+        announce(undoneText(back, n));
       },
     });
   };

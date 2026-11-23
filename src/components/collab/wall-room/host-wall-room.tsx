@@ -442,8 +442,12 @@ export function HostWallRoom({
                           );
                         },
                         revert: () => {
-                          roomRef.current.unmerge(from);
-                          setNotice("Put the post back on its own.");
+                          // Not once the post moved on, was taken back or scored.
+                          setNotice(
+                            roomRef.current.unmerge(from)
+                              ? "Put the post back on its own."
+                              : "That merge can't be undone now. The wall stays as it is."
+                          );
                         },
                       });
                       // The merged post's controls are gone: focus stays on the wall.
