@@ -212,7 +212,10 @@ export function VisitorGuide({
       data-testid="mascot-visitor-guide"
       // It ends above Amr docked in the phone's sheet: no tile scrolls under him.
       data-amr-scroll=""
-      className={`flex h-full flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-3 focus:outline-none ${DOCK_END_FULL}`}
+      // scroll-py-2: Tab scrolls a tile, a result or AI settings 8 px clear of
+      // the scroller's edge, so its focus ring (drawn up to 5 px outside it, the
+      // only sign of focus in forced colours) is never cut off there.
+      className={`flex h-full scroll-py-2 flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-3 focus:outline-none ${DOCK_END_FULL}`}
     >
       {note}
       {/* The search comes first. A phone shows about 360 px of this panel, and
@@ -453,13 +456,20 @@ function ToolLink({
         onClick={onNavigate}
         className="min-touch-coarse group flex h-full min-w-0 flex-col justify-center gap-0.5 rounded-md border border-border bg-card px-2.5 py-2 transition-colors hover:border-accent hover:bg-accent/10 focus-visible:bg-accent/10"
       >
+        {/* Half the panel wide: a long word (or 200% text) breaks inside the
+            tile rather than run into the next one, and the tool's name takes
+            the lines it needs rather than lose its end to an ellipsis or a
+            clamp (at 200% "Backlog Prioritizer" needs three). */}
         <span
           dir="auto"
-          className="text-sm font-medium leading-snug text-text group-hover:text-accent"
+          className="break-words text-sm font-medium leading-snug text-text hyphens-auto [overflow-wrap:anywhere] group-hover:text-accent"
         >
           {title}
         </span>
-        <span dir="auto" className="truncate text-xs text-sub">
+        <span
+          dir="auto"
+          className="break-words text-xs text-sub hyphens-auto [overflow-wrap:anywhere]"
+        >
           {subtitle}
         </span>
       </Link>

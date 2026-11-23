@@ -25,8 +25,8 @@ vi.mock("@/lib/agent/persist", async (importOriginal) => ({
   appendMessages: h.appendMessages,
   recordChatUsage: vi.fn(async () => {}),
   fetchChatUsage: vi.fn(async () => null),
-  listConversations: vi.fn(async () => []),
-  loadMessages: vi.fn(async () => []),
+  listConversations: vi.fn(async () => ({ ok: true, data: [] })),
+  loadMessages: vi.fn(async () => ({ ok: true, data: [] })),
   renameConversation: vi.fn(async () => {}),
   deleteConversation: vi.fn(async () => {}),
   createConversation: vi.fn(async () => ({
@@ -116,6 +116,14 @@ beforeEach(() => {
   useAgentStore.getState().reset();
   useAgentStore.setState({ chatProfile: "owner", visitorQuota: null, open: true });
   if (typeof Element.prototype.scrollTo !== "function") Element.prototype.scrollTo = () => {};
+  // No media query matches. unstubAllGlobals below takes test/setup's
+  // matchMedia away too, and the composer reads one (its narrow width).
+  vi.stubGlobal("matchMedia", (query: string) => ({
+    matches: false,
+    media: query,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+  }));
   vi.stubGlobal(
     "fetch",
     vi.fn(async (url: string, init?: RequestInit) => {

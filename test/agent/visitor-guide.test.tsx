@@ -480,5 +480,29 @@ describe("VisitorGuide", () => {
         "overscroll-contain"
       );
     });
+
+    it("leaves room round what Tab scrolls to its edge, so a focus ring is never cut off", () => {
+      // Without scroll padding Tab stopped a tile flush with the scroller's
+      // edge, which clipped the ring drawn outside it: the only sign of focus
+      // in forced colours, where the tile's focus fill is overridden.
+      render(<VisitorGuide />);
+      expect(screen.getByTestId("mascot-visitor-guide")).toHaveClass("scroll-py-2");
+    });
+
+    it("lets a tile's words wrap inside it, never spilling into the next tile or cut to an ellipsis", () => {
+      render(<VisitorGuide />);
+      const list = screen.getByRole("list", { name: "Popular tasks" });
+      // Still two tiles a row.
+      expect(list).toHaveClass("grid-cols-2");
+      for (const tile of within(list).getAllByRole("link")) {
+        const [title, subtitle] = Array.from(tile.querySelectorAll("span[dir]"));
+        expect(title).toHaveClass("break-words", "hyphens-auto", "[overflow-wrap:anywhere]");
+        // The tool's name is never cut: no ellipsis and no clamp (at 200% text
+        // "Backlog Prioritizer" takes three lines of half the panel).
+        expect(subtitle).toHaveClass("break-words", "hyphens-auto", "[overflow-wrap:anywhere]");
+        expect(subtitle).not.toHaveClass("truncate");
+        expect(subtitle.className).not.toMatch(/line-clamp/);
+      }
+    });
   });
 });

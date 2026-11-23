@@ -10,12 +10,19 @@
  *
  * It fills the panel header (panel-chrome) from here, so New chat goes through
  * this chunk's store and the header icons arrive with the chat:
- *  - actions: New chat, then History. In History that button is "Back to chat"
- *    with an arrow, the same button (focus stays on it both ways: the chat
+ *  - actions: New chat, then History. New chat puts focus in the fresh chat's
+ *    message box, even on a touch screen (a tap on it means "let me type").
+ *    In History that button is "Back to chat"
+ *    with an arrow, the same button, and it carries a dot while a confirm
+ *    card waits in the chat behind it. Going in, focus moves on to History's
+ *    search (on a fine pointer; on a touch screen it stays on the button, so
+ *    no keyboard rises); coming back, it stays on the button (the chat
  *    coming back offers its composer to the panel's focus owner, which leaves
- *    focus that a control inside the panel holds), and it carries a dot while
- *    a confirm card waits in the chat behind it.
+ *    focus that a control inside the panel holds).
  *  - subtitle: the open thread's title, or "New chat"; "Your chats" in History.
+ * Under the header: while Approve all holds, the chip that says so and turns
+ * it off (chat/auto-approve-chip), over the chat and History alike; then, over
+ * the chat, its status row, the usage (rate-limit-bar).
  * Whether History shows is kept by the shell, so it outlasts the panel closing.
  *
  * Closing the panel unmounts this, and an answer under way goes on: the turn
@@ -26,11 +33,15 @@
 
 // Populate the tool action registry before any agent code reads it.
 import "@/lib/actions/register-all";
+import { useState } from "react";
 import { ArrowLeft, History, Plus } from "lucide-react";
 import { AMR_WAITING_FOR_OK } from "@/lib/agent/mascot/outside-narration";
 import { useAgentStore } from "@/lib/agent/store";
+import { AutoApproveChip } from "../chat/auto-approve-chip";
+import { focusComposerAfterNewChat } from "../chat/chat-composer";
 import { RateLimitBar } from "./rate-limit-bar";
-import { PANEL_SUBTITLE, PanelActions, PanelIconButton, PanelSubtitle } from "./panel-chrome";
+import { PANEL_SUBTITLE, PanelIconButton } from "./panel-chrome";
+import { PanelActions, PanelSubtitle } from "./panel-fills";
 import { COMPACT_HIDDEN } from "./panel-context";
 import { AgentConversation } from "../agent-conversation";
 import { ConversationList } from "../conversation-list";
@@ -56,16 +67,21 @@ export default function OwnerAgentPanel({
   const thread = useAgentStore((s) => s.activeMeta?.title.trim() || null);
   // A card the owner can't see from History: the way back says so.
   const cardWaits = useAgentStore((s) => s.pendingToolUse !== null) && showHistory;
+  // History came in from the chat (its button, here), not with the panel
+  // opening on it: its search takes focus (the list decides, by pointer).
+  const [cameIn, setCameIn] = useState(false);
 
   return (
     <>
-      <PanelActions>
+      {/* Over the scenes too: History and New chat take turns with them. */}
+      <PanelActions whileHidden>
         <PanelIconButton
           label="New chat"
           onClick={() => {
             // Stops an answer under way too (the store's reset aborts the turn).
             useAgentStore.getState().reset();
             onCloseHistory();
+            focusComposerAfterNewChat();
           }}
           // Under 360 px wide there's no room beside History: New chat heads
           // the header's More menu instead (the shell's onNewChat).
@@ -84,7 +100,10 @@ export default function OwnerAgentPanel({
                 : "Back to chat"
               : "History"
           }
-          onClick={onToggleHistory}
+          onClick={() => {
+            setCameIn(!showHistory);
+            onToggleHistory();
+          }}
           className="relative"
           // Where focus goes when Escape takes the owner back from History.
           data-panel-history=""
@@ -109,13 +128,15 @@ export default function OwnerAgentPanel({
           PANEL_SUBTITLE.owner
         )}
       </PanelSubtitle>
+      {/* While Approve all holds, over the chat and History alike: a control, so never compact-hidden. */}
+      <AutoApproveChip />
       {showHistory ? (
         <div className="min-h-0 flex-1">
-          <ConversationList onClose={onCloseHistory} />
+          <ConversationList onClose={onCloseHistory} takeFocus={cameIn} />
         </div>
       ) : (
         <>
-          {/* The usage line waits while the panel is compact (a keyboard is up). */}
+          {/* The usage waits while the panel is compact (a keyboard is up). */}
           <div className={COMPACT_HIDDEN}>
             <RateLimitBar />
           </div>

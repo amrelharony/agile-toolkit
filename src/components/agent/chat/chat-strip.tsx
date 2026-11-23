@@ -6,6 +6,15 @@
  * frame (chat-frame: the log, the Latest button, the composer's footer) with
  * the store's messages turned into items (lib/agent/chat-view).
  *
+ * The view that makes the items comes from the strip kit (chat/strip-kit,
+ * through its holder chat/strip-kit-ref), not from an import here: the
+ * owner's chat brings the kit statically, so its strip makes one view per
+ * mount, as it always did; a visitor's brings it with the runtime, before
+ * its first message. With no kit yet there is no message to turn into items
+ * (a visitor's messages come only from that runtime), so the strip hands the
+ * frame no items, and a visitor's first paint carries no chat view and no
+ * markdown parser.
+ *
  * Streaming. A streamed chunk patches one message in the store. Only this
  * component reads the messages, so only it renders again: the container
  * around it reads plain values that a chunk leaves as they were (busy, the
@@ -17,40 +26,44 @@
  * chunk (test/agent/chat-stream-renders.test.tsx).
  *
  * Also here, for both containers: whether Amr is still to begin his reply
- * (the thinking balloon), and the chat's one status line, always mounted, so
- * a screen reader hears "Amr is thinking…" as it changes. It stands outside
- * the log, which is never live (chat-log).
+ * (the thinking balloon). The chat's one status line, which says it in words,
+ * is chat-status, outside the log, which is never live (chat-log).
  *
- * Runtime parts (the agent store, the markdown renderer through the log), so
- * this lives in chat/, which every-page code may not reach
- * (test/agent/bundle-boundary.test.ts).
+ * Runtime parts (the agent store, the kit's holder), so this lives in chat/,
+ * which every-page code may not reach (test/agent/bundle-boundary.test.ts).
  */
 
-import { useMemo, useState } from "react";
-import { createChatView, type ChatItem } from "@/lib/agent/chat-view";
+import { useMemo } from "react";
+import type { ChatItem } from "@/lib/agent/chat-view";
 import { useAgentStore } from "@/lib/agent/store";
 import type { ChatMessage } from "@/lib/agent/types";
-import { cn } from "@/lib/utils";
 import { ChatFrame, type ChatFrameProps } from "./chat-frame";
+import { useStripKit } from "./strip-kit-ref";
 
-/** The status line's words while Amr is still to begin his reply. */
-export const AMR_THINKING = "Amr is thinking…";
+/** The items while there is no kit, and so no message: one empty list, kept by identity. */
+const NO_ITEMS: readonly ChatItem[] = Object.freeze([]);
 
 /**
  * The chat's items from the store, each kept by identity while it doesn't
  * change. Reads the store's values a step needs (the reply streaming now,
- * whether a turn is under way, the call whose card is showing) as plain ids.
+ * whether a turn is under way, the call whose card is showing) and where a
+ * picked-up thread's scene caption goes, as plain ids.
  */
 export function useChatItems(): readonly ChatItem[] {
   const messages = useAgentStore((s) => s.messages);
   const streamingId = useAgentStore((s) => s.streamingMessageId);
   const streaming = useAgentStore((s) => s.streaming);
   const pendingId = useAgentStore((s) => s.pendingToolUse?.toolUseId ?? null);
-  // One view per chat on screen: it keeps only what its last call made.
-  const [view] = useState(createChatView);
+  const resumedAfter = useAgentStore((s) => s.resumedAfter);
+  // One view per chat on screen and kit: it keeps only what its last call
+  // made. The owner's kit is in from the start; a visitor's comes with the
+  // runtime, before any message.
+  const kit = useStripKit();
+  const view = useMemo(() => kit?.createChatView() ?? null, [kit]);
   return useMemo(
-    () => view(messages, { streamingId, busy: streaming, pendingId }),
-    [view, messages, streamingId, streaming, pendingId]
+    () =>
+      view ? view(messages, { streamingId, busy: streaming, pendingId, resumedAfter }) : NO_ITEMS,
+    [view, messages, streamingId, streaming, pendingId, resumedAfter]
   );
 }
 
@@ -75,22 +88,4 @@ export type ChatStripProps = Omit<ChatFrameProps, "items">;
 export function ChatStrip(props: ChatStripProps) {
   const items = useChatItems();
   return <ChatFrame {...props} items={items} />;
-}
-
-/**
- * The chat's one status line, under the composer: "Amr is thinking…" until
- * his reply begins, and empty otherwise, but always there, so the change is
- * heard (a live region mounted with its words is often missed). Compact (a
- * phone's keyboard up), it leaves the screen but still speaks.
- */
-export function ThinkingStatus({ awaiting }: { awaiting: boolean }) {
-  return (
-    <p
-      role="status"
-      data-chat-status=""
-      className={cn("mt-1.5 text-xs text-sub empty:mt-0", "group-data-[amr-compact]/amr:sr-only")}
-    >
-      {awaiting ? AMR_THINKING : null}
-    </p>
-  );
 }

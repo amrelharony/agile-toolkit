@@ -1,9 +1,10 @@
 /**
  * What the chat says out loud (src/components/agent/chat/use-turn-announcer.ts,
- * wired into chat-frame.tsx): one polite announcement per settled turn, with
- * the turn's own words as plain text, cut to a sensible length; nothing while
- * a reply streams; nothing for a waiting card that took focus, and "Amr needs
- * your OK: ..." for one that didn't; an error at once and assertively, with
+ * wired into chat-frame.tsx, with a turn's words from chat/spoken-text through
+ * the strip kit): one polite announcement per settled turn, with the turn's
+ * own words as plain text, cut to a sensible length; nothing while a reply
+ * streams; nothing for a waiting card that took focus, and "Amr needs your
+ * OK: ..." for one that didn't; an error at once and assertively, with
  * nothing more for its turn; nothing for a thread loaded or a chat swapped
  * under its turn.
  *
@@ -14,22 +15,23 @@
 
 import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
 import { ChatProvider, useChat } from "@/components/agent/chat/chat-context";
 import { ChatFrame } from "@/components/agent/chat/chat-frame";
-import { ConfirmCard } from "@/components/agent/chat/confirm-card";
 import {
   ANNOUNCE_MAX,
   CODE_WORDS,
-  NEEDS_OK,
   REST_IN_LOG,
   SPEAKER,
   TABLE_WORDS,
   clipSpoken,
   spokenText,
   turnAnnouncement,
-} from "@/components/agent/chat/use-turn-announcer";
+} from "@/components/agent/chat/spoken-text";
+import { NEEDS_OK } from "@/components/agent/chat/use-turn-announcer";
 import { createChatView } from "@/lib/agent/chat-view";
 import { useAgentStore, type AgentNotice } from "@/lib/agent/store";
 import type {
@@ -116,16 +118,7 @@ function Composer() {
   );
 }
 
-/** What the card's focus rule (PR 10) does as a card comes: it takes focus in its own effect. */
-function CardTakesFocus() {
-  const pending = useAgentStore((s) => s.pendingToolUse);
-  useEffect(() => {
-    if (pending) document.querySelector<HTMLElement>("[data-confirm-card] button")?.focus();
-  }, [pending]);
-  return null;
-}
-
-function Chat({ takeCardFocus = false }: { takeCardFocus?: boolean }) {
+function Chat() {
   const messages = useAgentStore((s) => s.messages);
   const streaming = useAgentStore((s) => s.streaming);
   const streamingId = useAgentStore((s) => s.streamingMessageId);
@@ -133,10 +126,9 @@ function Chat({ takeCardFocus = false }: { takeCardFocus?: boolean }) {
   const [view] = useState(createChatView);
   const items = view(messages, { streamingId, busy: streaming, pendingId });
   return (
-    <ChatFrame items={items} busy={streaming} footer={<Composer />}>
-      <ConfirmCard allowApproveAll />
-      {takeCardFocus && <CardTakesFocus />}
-    </ChatFrame>
+    // The log draws the confirm card, under its step; it takes focus itself
+    // as it comes, when focus is on nothing (confirm-card).
+    <ChatFrame items={items} busy={streaming} footer={<Composer />} />
   );
 }
 
@@ -169,11 +161,11 @@ function listen(): Ears {
   return { heard, changes: () => changes };
 }
 
-function mount(props: { takeCardFocus?: boolean } = {}): Ears {
+function mount(): Ears {
   render(
     <LiveAnnouncerProvider>
       <ChatProvider profile="owner">
-        <Chat {...props} />
+        <Chat />
       </ChatProvider>
     </LiveAnnouncerProvider>
   );
@@ -369,7 +361,7 @@ describe("a streamed turn", () => {
 
 describe("a waiting card", () => {
   it("is not announced when it takes focus as it comes; the turn still speaks once at the end", async () => {
-    const ears = mount({ takeCardFocus: true });
+    const ears = mount();
     await ask("u1", "Add a card saying flaky CI.");
     await replyIn("a1", [call("t1")]);
     act(() => store().setPendingToolUse(card("t1")));
@@ -441,6 +433,24 @@ describe("an error", () => {
     const ears = mount();
     await quiet();
     expect(ears.changes()).toBe(0);
+  });
+
+  it("marked quiet is left to what took its place: neither it nor its turn is said", async () => {
+    const ears = mount();
+    await ask("u1", "How do I run a retro?");
+    await settle({
+      tone: "error",
+      kind: "visitor_limit",
+      text: "You've used all of today's messages with Amr.",
+      quiet: true,
+    });
+    expect(ears.heard.assertive).toEqual([]);
+    expect(ears.heard.polite).toEqual([]);
+
+    // A quiet note with no turn under way says nothing either.
+    act(() => store().setNotice({ tone: "note", kind: "round_limit", text: "Hm.", quiet: true }));
+    await quiet();
+    expect(ears.heard.polite).toEqual([]);
   });
 });
 

@@ -1,15 +1,15 @@
 /**
- * Mascot chat commands + Konami easter egg.
+ * The Konami easter egg, for Amr's every-page chunk (mascot-assistant
+ * installs the listener).
  *
- * The vanilla mascot exposed `mascot-aura` / `mascot-game` terminal commands + a "dance" chat command + the Konami code. The toolkit has
- * no terminal, so the slash commands are intercepted in the agent chat input
- * before the message reaches the agent; the Konami listener is global.
+ * The vanilla mascot exposed `mascot-aura` / `mascot-game` terminal commands,
+ * a "dance" chat command and the Konami code. The toolkit has no terminal:
+ * the chat commands are read from the chat's message box before a message
+ * reaches the AI, in chat-commands.ts, which only the chat imports; the Konami
+ * listener is global.
  */
 
 import { useMascotStore } from "@/lib/agent/mascot/store";
-import { EXPANSION_SHEETS } from "../expansion-table";
-import { COMPANION_SCENES, galleryScene, sceneReaction } from "../scenes";
-import { shippedScene } from "../sprite-poses";
 
 /**
  * The Konami sweep's colours, red to violet, as theme tokens rather than pure
@@ -26,97 +26,6 @@ export const RAINBOW = [
   "var(--info)",
   "var(--accent3)",
 ] as const;
-
-/** Names a visitor may give /play, besides the scenes' own (engine/scenes.ts COMPANION_SCENES.play). */
-const STORY_NAMES: Readonly<Record<string, string>> = {
-  ai: "reviewer",
-  review: "reviewer",
-  robot: "reviewer",
-  dinosaur: "dino",
-  priorities: "dino",
-  deadline: "rabbit",
-  overload: "octopus",
-  tea: "ahwa",
-  debrief: "ahwa",
-  sticky: "escape",
-  idea: "comic",
-  retry: "retry",
-  bell: "quiet",
-};
-
-/** An expansion scene asked for by its pack's name (X001–X124), as the Scenes tab plays it; or undefined. */
-function expansionFor(name: string): string | undefined {
-  const pack = name.toLowerCase();
-  if (!EXPANSION_SHEETS.some((s) => s.pack === pack)) return undefined;
-  const scene = galleryScene(pack);
-  return shippedScene(scene) ? scene : undefined;
-}
-
-/** Whether `scene` is one of the companion stories /play takes in turn. */
-const isStory = (scene: string) => (COMPANION_SCENES.play as readonly string[]).includes(scene);
-
-/**
- * The story `/play <name>` asks for, or (no name, or one he doesn't know) the
- * next one in turn after `last`. A name can be a companion story's (or a plain
- * word for it) or any expansion scene's pack name (X001 or x001). Only shipped
- * scenes; null when none has shipped.
- */
-export function storyFor(name: string | undefined, last: string | null): string | null {
-  const expansion = name ? expansionFor(name) : undefined;
-  if (expansion) return expansion;
-  const stories = COMPANION_SCENES.play.filter((s) => shippedScene(s) !== undefined);
-  if (!stories.length) return null;
-  const wanted = name ? (STORY_NAMES[name] ?? name) : undefined;
-  if (wanted && stories.includes(wanted as (typeof stories)[number])) return wanted;
-  const i = last ? stories.indexOf(last as (typeof stories)[number]) : -1;
-  return stories[(i + 1) % stories.length];
-}
-
-/** The companion story /play last played, so a bare /play takes the next in turn. */
-let lastStory: string | null = null;
-
-/**
- * Parse + execute a mascot chat command. Returns true if the text was a mascot
- * command (and should NOT be forwarded to the agent).
- *
- * Supported: `/mascot-aura <#rrggbb|none>`, `/dance`, and `/play [story]`: one of
- * his little companion stories, or any expansion scene by its pack (`/play x001`),
- * acted out because the visitor asked. They are illustrations (the AI reviewer
- * checks nothing; the retry retries nothing; a bookmark saves nothing).
- */
-export function handleMascotCommand(text: string): boolean {
-  const raw = text.trim();
-  const t = raw.toLowerCase();
-  const store = useMascotStore.getState();
-
-  const play = t.match(/^\/play(?:\s+([a-z0-9-]+))?$/);
-  if (play) {
-    const story = storyFor(play[1], lastStory);
-    if (story) {
-      // An expansion scene leaves the companion stories' turn where it was.
-      if (isStory(story)) lastStory = story;
-      store.playNow(sceneReaction(story));
-    }
-    return true;
-  }
-
-  if (t === "/dance" || t === "dance") {
-    store.queueReaction("wave");
-    setTimeout(() => store.queueReaction("excited"), 800);
-    setTimeout(() => store.queueReaction("spin"), 1800);
-    return true;
-  }
-
-  const aura = raw.match(/^\/mascot-aura\s+(#?[0-9a-fA-F]{6}|none|off)$/i);
-  if (aura) {
-    const v = aura[1].toLowerCase();
-    if (v === "none" || v === "off") store.setAuraColor(null);
-    else store.setAuraColor(v.startsWith("#") ? v : `#${v}`);
-    return true;
-  }
-
-  return false;
-}
 
 const KONAMI = [
   "ArrowUp",

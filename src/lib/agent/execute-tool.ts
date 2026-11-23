@@ -271,6 +271,8 @@ const NEW_VERBS: ReadonlySet<string> = new Set([
   "cast",
   "create",
   "log",
+  // "Open a round", "Open an incident": both open_* actions put up a new one.
+  "open",
   "post",
   "raise",
   "record",
@@ -279,8 +281,8 @@ const NEW_VERBS: ReadonlySet<string> = new Set([
 ]);
 /**
  * Second words that make a verb one phrase of its own: "Score and save",
- * "Check in", "Save to prioritization", "Step back". Such a verb gets no
- * "this" or "a" put inside it.
+ * "Check in", "Save to prioritization", "Step back", "Open or close the
+ * wall". Such a verb gets no "this" or "a" put inside it.
  */
 const PARTICLES: ReadonlySet<string> = new Set([
   "and",
@@ -288,6 +290,7 @@ const PARTICLES: ReadonlySet<string> = new Set([
   "by",
   "in",
   "on",
+  "or",
   "out",
   "to",
   "up",
@@ -329,7 +332,7 @@ function describeAction(
   input: unknown,
   destructive: boolean
 ): ConfirmPrompt {
-  const { confirmLabel, ...words } = confirmWords(action);
+  const { confirmLabel, ...words } = confirmWords(action, input);
   return {
     ...words,
     detail: describeParams(input, action.paramsSchema),
@@ -339,16 +342,22 @@ function describeAction(
 }
 
 /**
- * The card's words that come from the action alone: the verb, the tool's
- * name and the question. Exported so a test can read every registered
- * action's question without building its arguments.
+ * The card's words: the verb, the tool's name and the question. Exported so a
+ * test can read every registered action's question without building its
+ * arguments; without `params`, a label worked out from them is left out and
+ * the question comes from the verb ("Open or close the wall in Audience
+ * Wall?"). The card always has its checked params.
  */
 export function confirmWords(
-  action: Pick<AnyToolAction, "id" | "name" | "confirmLabel">
+  action: Pick<AnyToolAction, "id" | "name" | "confirmLabel">,
+  params?: unknown
 ): Pick<ConfirmPrompt, "verb" | "title" | "question" | "confirmLabel"> {
   const label = toolLabel(action.id);
   const verb = label.verb || verbPhrase(keyWords(action.name)) || "Go ahead";
-  const confirmLabel = action.confirmLabel?.trim() || undefined;
+  const own = action.confirmLabel;
+  const written =
+    typeof own === "function" ? (params === undefined ? undefined : own(params)) : own;
+  const confirmLabel = written?.trim() || undefined;
   return {
     verb,
     title: label.tool,
@@ -383,9 +392,12 @@ function withArticle(verb: string, object: string[]): string {
   const first = object[0].toLowerCase();
   const last = object[object.length - 1].toLowerCase();
   // Already says which, a participle on its own ("Mark resolved", not "a
-  // weighted criterion" or "this red team finding"), or a plural ("Add stories").
+  // weighted criterion" or "this red team finding"), or a plural ("Add
+  // stories"). A singular in -is or -us is no plural: "a root cause
+  // analysis", "a hypothesis", "the status".
   const participle = object.length === 1 && /(?:ed|ing)$/.test(first);
-  if (NO_ARTICLE.has(first) || participle || /[^s]s$/.test(last)) return thing;
+  const plural = /[^s]s$/.test(last) && !/(?:is|us)$/.test(last);
+  if (NO_ARTICLE.has(first) || participle || plural) return thing;
   if (verb === "set") return `the ${thing}`;
   if (!NEW_VERBS.has(verb)) return `this ${thing}`;
   return `${indefinite(object[0])} ${thing}`;

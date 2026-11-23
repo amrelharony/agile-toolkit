@@ -9,6 +9,7 @@ import { SECTIONS } from "@/lib/constants/sections";
 import { SECTION_ART, SECTION_TONE } from "@/lib/ink/drawings/sections";
 import { PAGE_ART } from "@/lib/ink/drawings/pages";
 import { MARKS } from "@/lib/ink/drawings/marks";
+import { STEP_RUNNING } from "@/lib/ink/drawings/step-running";
 import { HOME_HERO } from "@/lib/ink/drawings/scenes/home-hero";
 import { NOT_FOUND_SCENE } from "@/lib/ink/drawings/scenes/not-found";
 import { ERROR_SCENE } from "@/lib/ink/drawings/scenes/error";
@@ -16,7 +17,7 @@ import { INK_TONES, type InkDrawing } from "@/lib/ink/types";
 
 const SPOTS: InkDrawing[] = [...Object.values(SECTION_ART), ...Object.values(PAGE_ART)];
 const SCENES: InkDrawing[] = [HOME_HERO, NOT_FOUND_SCENE, ERROR_SCENE];
-const ALL: InkDrawing[] = [...SPOTS, ...SCENES, ...Object.values(MARKS)];
+const ALL: InkDrawing[] = [...SPOTS, ...SCENES, ...Object.values(MARKS), STEP_RUNNING];
 
 const PATH = /^M[\d.\s,MLHVQTCSAZmlhvqtcsaz-]+$/;
 const bytes = (d: InkDrawing) =>

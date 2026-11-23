@@ -338,7 +338,7 @@ describe("his balloon's tail", () => {
 
     // Stepped aside to the other side and 48 px up: the bubble and its tail go too.
     placeAt("bottomLeft", 48);
-    expect(region().style.left).toBe("156px");
+    expect(region().style.left).toBe("calc(156px + var(--app-rail, 0px))");
     expect(region().style.right).toBe("");
     expect(region().style.bottom).toBe("72px");
     expect(bubble()).toHaveAttribute("data-tail", "left");

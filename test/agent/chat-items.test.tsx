@@ -11,17 +11,33 @@
 
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useRef, type ReactNode } from "react";
+import { z } from "zod";
+// The parts that draw messages (the owner's chat and a visitor's runtime bring them).
+import "@/components/agent/chat/strip-kit";
+import { ChatComposer } from "@/components/agent/chat/chat-composer";
 import {
   ChatProvider,
   NO_CHAT,
   useChat,
   type ChatContextValue,
 } from "@/components/agent/chat/chat-context";
-import { ChatItemView } from "@/components/agent/chat/chat-items";
-import { useChatItems } from "@/components/agent/chat/chat-strip";
+import { ChatItemView, PICKED_UP, latestReply } from "@/components/agent/chat/chat-items";
+import {
+  COPY_FAILED,
+  FOLLOW_UPS_LABEL,
+  REPLY_COPIED,
+  ReplyEnd,
+  type ReplyRetry,
+} from "@/components/agent/chat/reply-end";
+import { retryCost } from "@/lib/visitor-ai/allowance";
+import { StepDetails } from "@/components/agent/chat/step-details";
+import { ChatStrip, useChatItems } from "@/components/agent/chat/chat-strip";
+import { registry } from "@/lib/actions/registry";
+import { canRetryLastTurn } from "@/lib/agent/client";
+import { FOLLOW_UP_TEXT, followUps, moreIn } from "@/lib/agent/follow-ups";
 import {
   LEAD_MAX,
   chatView,
@@ -34,6 +50,16 @@ import type { ChatMessage, ContentBlock, ToolResultBlock, ToolUseBlock } from "@
 
 /** How often each reply's markdown rendered, by its source. */
 const renders = vi.hoisted(() => new Map<string, number>());
+
+const h = vi.hoisted(() => ({
+  /** The clipboard helper: whether the clipboard took the text. */
+  copy: vi.fn<(text: string) => Promise<boolean>>(async () => true),
+  announce: vi.fn(),
+  onSend: vi.fn(),
+}));
+
+vi.mock("@/lib/utils/clipboard", () => ({ copyToClipboard: h.copy }));
+vi.mock("@/components/a11y/live-announcer", () => ({ useAnnounce: () => h.announce }));
 
 vi.mock("@/components/agent/markdown", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/components/agent/markdown")>();
@@ -88,7 +114,7 @@ const all = (root: Element) => [root, ...Array.from(root.querySelectorAll("*"))]
 /** A string of `n` characters of plain Latin words, with no sentence end. */
 const words = (n: number) => "word ".repeat(Math.ceil(n / 5)).slice(0, n);
 
-/** The strip's items in a chat, as a log draws them. */
+/** The strip's items in a chat, as a log draws them, with Details handed in as the owner's chat does. */
 function Strip({
   items,
   profile = "visitor",
@@ -97,7 +123,7 @@ function Strip({
   profile?: ChatProfile;
 }) {
   return (
-    <ChatProvider profile={profile}>
+    <ChatProvider profile={profile} stepDetails={StepDetails}>
       <div data-testid="log">
         {items.map((item) => (
           <ChatItemView key={item.key} item={item} />
@@ -391,7 +417,9 @@ describe("tool steps", () => {
   });
 
   it("gives the owner Details with the raw arguments and result, named for the step", () => {
-    strip([assistant("a1", call("c1")), toolMsg("t1", result("c1"))], { profile: "owner" });
+    const log = strip([assistant("a1", call("c1")), toolMsg("t1", result("c1"))], {
+      profile: "owner",
+    });
     const summary = screen.getByText("Details").closest("summary")!;
     expect(summary).toHaveClass("pointer-coarse:min-h-11");
     act(() => summary.parentElement!.setAttribute("open", ""));
@@ -408,6 +436,21 @@ describe("tool steps", () => {
       expect(block).toHaveAttribute("dir", "ltr");
       expect(block).toHaveClass("font-data");
     }
+    // The step's own line stays in words: no JSON, no wire name.
+    const line = log.querySelector("[data-tool-step] p")!;
+    expect(line.textContent).not.toMatch(/[{}]|"added"|tool_retro/);
+    expect(log.textContent).not.toMatch(/tool_retro/);
+  });
+
+  it("cuts the owner's raw Details at 4,000 characters", () => {
+    const long = "x".repeat(5000);
+    strip([assistant("a1", call("c1")), toolMsg("t1", result("c1", long))], { profile: "owner" });
+    const summary = screen.getByText("Details").closest("summary")!;
+    act(() => summary.parentElement!.setAttribute("open", ""));
+    const output = screen.getByRole("region", {
+      name: "Result for Retro Board · Add card “flaky CI”",
+    });
+    expect(output.textContent).toBe(`${"x".repeat(4000)}…`);
   });
 
   it("puts a run of calls in one caption, a line each", () => {
@@ -423,8 +466,10 @@ describe("tool steps", () => {
       "failed",
     ]);
     expect(lines[1]).toHaveTextContent("Retro Board · Add card · Didn't work · “slow build”");
-    // Trouble is said in words, with the danger colour as a second cue.
+    // Trouble is said in words, with the caption's danger line and the
+    // danger colour as second cues.
     expect(screen.getByText("Didn't work")).toHaveClass("text-danger");
+    expect(captions[0].querySelector("[data-tool-steps]")).toHaveAttribute("data-tone", "error");
   });
 
   it("keeps a streaming call at Getting ready…, without its arguments", () => {
@@ -436,6 +481,31 @@ describe("tool steps", () => {
   it("still shows a result whose call isn't in the chat", () => {
     const log = strip([toolMsg("t1", result("c9", "Cancelled.", true))]);
     expect(log).toHaveTextContent("Step · Stopped");
+  });
+});
+
+describe("scene captions", () => {
+  it("names a new day in a <time> and marks where a picked-up thread left off, as scene captions", () => {
+    const today = new Date();
+    const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 12);
+    const log = strip(
+      [
+        { ...user("u1", "Plan the sprint"), createdAt: yesterday.toISOString() },
+        { ...assistant("a1", text("Planned.")), createdAt: yesterday.toISOString() },
+        { ...user("u2", "And now?"), createdAt: today.toISOString() },
+      ],
+      { resumedAfter: "a1" }
+    );
+    const scenes = Array.from(log.querySelectorAll('[data-chat-item="scene"]'));
+    expect(scenes.map((s) => s.textContent)).toEqual(["Yesterday", PICKED_UP, "Today"]);
+    for (const scene of scenes) {
+      const caption = scene.querySelector(".comic-caption")!;
+      expect(caption).toHaveAttribute("data-voice", "scene");
+      // Narration, not anyone's words: no speaker.
+      expect(caption.querySelector("[data-speaker]")).toBeNull();
+    }
+    expect(scenes[0].querySelector("time")).toHaveAttribute("dateTime", yesterday.toISOString());
+    expect(scenes[1].querySelector("time")).toBeNull();
   });
 });
 
@@ -672,6 +742,370 @@ describe("fed from the store (chat-strip's useChatItems)", () => {
     expect(renders.get("Sure. Add a")).toBe(1);
     expect(renders.get("Sure. Add a card. Then vote.")).toBe(1);
     expect(screen.getByTestId("log")).toHaveTextContent("Sure. Add a card. Then vote.");
+  });
+});
+
+describe("the end of the latest reply (ReplyEnd)", () => {
+  const FIRST_PERSON = /\b(I|I'm|I'll|I've|me|my)\b/i;
+  const READ = "tool_retro_list_cards";
+  // The real rule for Try again (client canRetryLastTurn) reads each call's
+  // category from the registry: one read and one change on Retro Board.
+  for (const [name, category] of [
+    ["list_cards", "read"],
+    ["add_card", "write"],
+  ] as const) {
+    const id = `tool.retro.${name}`;
+    if (!registry.resolve(id)) {
+      registry.register({
+        id,
+        toolId: "tool.retro",
+        name,
+        category,
+        description: `Probe: ${name}.`,
+        paramsSchema: z.object({}),
+        handler: async () => ({}),
+      });
+    }
+  }
+
+  /**
+   * Both containers' chat: the store's strip with the shared composer as its
+   * footer, and the reply's end handed in (`end`: false for a chat that has
+   * none yet, as a visitor's before it loads).
+   */
+  function Chat({
+    profile = "owner",
+    busy = false,
+    retry,
+    end = true,
+    composer = true,
+  }: {
+    profile?: ChatProfile;
+    busy?: boolean;
+    retry?: ReplyRetry;
+    end?: boolean;
+    composer?: boolean;
+  }) {
+    return (
+      <ChatProvider profile={profile}>
+        <ChatStrip
+          busy={busy}
+          replyEnd={end ? ReplyEnd : undefined}
+          retry={retry}
+          footer={
+            composer ? <ChatComposer busy={busy} onSend={h.onSend} onStop={() => {}} /> : null
+          }
+        />
+      </ChatProvider>
+    );
+  }
+
+  type AgentState = ReturnType<typeof useAgentStore.getState>;
+  const setChat = (messages: ChatMessage[], more: Partial<AgentState> = {}) =>
+    act(() => useAgentStore.setState({ messages, ...more }));
+  const ends = () => Array.from(document.querySelectorAll<HTMLElement>("[data-chat-reply-end]"));
+  /** The one reply end in the chat. */
+  const end = () => {
+    const found = ends();
+    expect(found).toHaveLength(1);
+    return found[0];
+  };
+  const box = () => screen.getByRole("textbox", { name: "Message" }) as HTMLTextAreaElement;
+  const readTurn = () => [
+    user("u1", "What's on the board?"),
+    assistant("a1", { type: "tool_use", id: "c1", name: READ, input: {} }),
+    toolMsg("t1", result("c1", '{"cards":[]}')),
+    assistant("a2", text("The board is empty.")),
+  ];
+  const writeTurn = () => [
+    user("u1", "Add flaky CI"),
+    assistant("a1", text("On it."), call("c1")),
+    toolMsg("t1", result("c1")),
+    assistant("a2", text("Added it to the board.")),
+  ];
+  /** Copy's promise and the note it leaves: past the clipboard helper's own tick. */
+  const press = (button: HTMLElement) =>
+    act(async () => {
+      fireEvent.click(button);
+      await new Promise((done) => setTimeout(done, 0));
+    });
+
+  beforeEach(() => {
+    useAgentStore.getState().reset();
+    h.copy.mockClear();
+    h.copy.mockImplementation(async () => true);
+    h.announce.mockClear();
+    h.onSend.mockClear();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    useAgentStore.getState().reset();
+  });
+
+  it("sits right under the latest reply only, once its turn has settled", () => {
+    const history = [
+      user("u1", "How do I run a retro?"),
+      assistant("a1", text("Open the board.")),
+      user("u2", "And then?"),
+    ];
+    const reply = assistant("a2", text("Add a card. Then vote."));
+    // A turn under way: no reply has settled yet.
+    setChat([...history, reply], { streaming: true, streamingMessageId: "a2" });
+    const view = render(<Chat busy />);
+    expect(ends()).toEqual([]);
+
+    setChat([...history, reply], { streaming: false, streamingMessageId: null });
+    view.rerender(<Chat />);
+    const row = end();
+    expect(row).toHaveAttribute("data-message-id", "a2");
+    expect(row.previousElementSibling).toHaveAttribute("data-chat-item", "balloon");
+    expect(row.previousElementSibling).toHaveAttribute("data-message-id", "a2");
+    expect(screen.getByRole("log", { name: "Conversation" }).contains(row)).toBe(true);
+    // On Amr's side, lined up with his balloon and mirrored when he moves.
+    expect(classes(row.firstElementChild!)).toEqual(
+      expect.arrayContaining(["ml-3.5", "group-data-[amr-side=right]/amr:justify-end"])
+    );
+    // Nothing under the earlier reply.
+    expect(
+      document.querySelector('[data-chat-item="balloon"][data-message-id="a1"]')!.nextElementSibling
+    ).toHaveAttribute("data-chat-item", "you");
+
+    // A new question: that reply is no longer the latest word.
+    setChat([...history, reply, user("u3", "Thanks")]);
+    expect(ends()).toEqual([]);
+  });
+
+  it("sits between a picked-up thread's last reply and the scene caption after it", () => {
+    setChat([user("u1", "Plan the sprint"), assistant("a1", text("Start with the goal."))], {
+      resumedAfter: "a1",
+    });
+    render(<Chat />);
+    const row = end();
+    expect(row.previousElementSibling).toHaveAttribute("data-message-id", "a1");
+    expect(row.nextElementSibling).toHaveAttribute("data-chat-item", "scene");
+  });
+
+  it("draws nothing when the turn ended on its steps, on a note, or while a notice shows", () => {
+    setChat([
+      user("u1", "Add flaky CI"),
+      assistant("a1", text("On it."), call("c1")),
+      toolMsg("t1", result("c1")),
+    ]);
+    const view = render(<Chat />);
+    expect(ends()).toEqual([]);
+    setChat([
+      user("u1", "Tidy the retro"),
+      assistant("a1", text("Tidying.")),
+      assistant("a2", { type: "text", text: "Amr used all 6 tool rounds.", note: true }),
+    ]);
+    expect(ends()).toEqual([]);
+
+    setChat([user("u1", "Plan the sprint"), assistant("a1", text("Start with the goal."))]);
+    end();
+    // The notice is the turn's end then, with its own button.
+    act(() =>
+      useAgentStore
+        .getState()
+        .setNotice({ tone: "error", kind: "stream_failed", text: "The answer broke off." })
+    );
+    expect(ends()).toEqual([]);
+    act(() => useAgentStore.getState().setNotice(null));
+    end();
+    view.unmount();
+  });
+
+  it("offers Try again after a turn that only read, never after one that ran a change", () => {
+    const onTryAgain = vi.fn();
+    const retry: ReplyRetry = { canRetry: canRetryLastTurn, onTryAgain };
+    setChat(readTurn());
+    const view = render(<Chat retry={retry} />);
+    act(() => useAgentStore.getState().setDraft("owner", "and the"));
+    onTryAgain.mockImplementation(() => {
+      // Focus is in the box, caret at the end, before the turn starts and the button goes.
+      expect(document.activeElement).toBe(box());
+      expect(box().selectionStart).toBe("and the".length);
+    });
+    fireEvent.click(within(end()).getByRole("button", { name: "Try again" }));
+    expect(onTryAgain).toHaveBeenCalledTimes(1);
+    expect(h.onSend).not.toHaveBeenCalled();
+    view.unmount();
+
+    setChat(writeTurn());
+    const after = render(<Chat retry={retry} />);
+    expect(within(end()).queryByRole("button", { name: /Try again/ })).toBeNull();
+    // Copy still is.
+    expect(within(end()).getByRole("button", { name: "Copy reply" })).toBeInTheDocument();
+    after.unmount();
+
+    // No Try again the chat can run now (signed out): none, even after a read.
+    setChat(readTurn());
+    render(<Chat />);
+    expect(within(end()).queryByRole("button", { name: /Try again/ })).toBeNull();
+  });
+
+  it("hands focus to the latest question after a tap on a touch screen, never the box", () => {
+    vi.spyOn(window, "matchMedia").mockImplementation(
+      (query: string) =>
+        ({
+          matches: query.includes("pointer: coarse"),
+          media: query,
+          addEventListener: () => {},
+          removeEventListener: () => {},
+          addListener: () => {},
+          removeListener: () => {},
+        }) as unknown as MediaQueryList
+    );
+    const onTryAgain = vi.fn();
+    setChat(readTurn());
+    render(<Chat retry={{ canRetry: canRetryLastTurn, onTryAgain }} />);
+    fireEvent.click(within(end()).getByRole("button", { name: "Try again" }), { detail: 1 });
+    expect(onTryAgain).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(document.querySelector('[data-chat-item="you"]'));
+    expect(document.activeElement).not.toBe(box());
+  });
+
+  it("says on a visitor's Try again that it spends one of the messages left", () => {
+    // The visitor's chat says what it spends, in lib/visitor-ai/allowance's words.
+    const retry = (left: number | null): ReplyRetry => ({
+      canRetry: () => true,
+      onTryAgain: () => {},
+      cost: retryCost(left),
+    });
+    setChat([user("u1", "How do retros work?"), assistant("a1", text("Look back, then plan."))]);
+    const view = render(<Chat profile="visitor" retry={retry(12)} />);
+    const name = () => within(end()).getAllByRole("button")[1]?.textContent;
+    expect(name()).toBe("Try again (uses 1 of your 12 left)");
+    view.rerender(<Chat profile="visitor" retry={retry(1)} />);
+    expect(name()).toBe("Try again (uses your last message)");
+    view.rerender(<Chat profile="visitor" retry={retry(null)} />);
+    expect(name()).toBe("Try again (uses 1 message)");
+    // None left: the container hands in no Try again.
+    view.rerender(<Chat profile="visitor" />);
+    expect(within(end()).queryByRole("button", { name: /Try again/ })).toBeNull();
+
+    for (const words of [
+      "Copy reply",
+      REPLY_COPIED,
+      COPY_FAILED,
+      ...[null, 1, 2, 12].map(retryCost),
+    ]) {
+      expect(words).not.toMatch(FIRST_PERSON);
+      expect(words).not.toMatch(/[–—]/);
+    }
+  });
+
+  it("copies the reply's markdown, and says so in the composer's status note, not a toast", async () => {
+    const reply = "Two steps:\n\n1. **Open** the board.\n2. Add a card.";
+    setChat([user("u1", "How?"), assistant("a1", text(reply))]);
+    render(<Chat />);
+    const copy = within(end()).getByRole("button", { name: "Copy reply" });
+    await press(copy);
+    expect(h.copy).toHaveBeenCalledTimes(1);
+    expect(h.copy).toHaveBeenCalledWith(reply);
+    const note = document.querySelector("[data-composer-note]")!;
+    // The status row's one live span, polite: no toast, and no second announcement.
+    expect(note).toHaveAttribute("aria-live", "polite");
+    expect(note).toHaveTextContent(REPLY_COPIED);
+    expect(h.announce).not.toHaveBeenCalled();
+    expect(document.querySelector("[data-sonner-toaster], [data-sonner-toast]")).toBeNull();
+    // The button stays for another go.
+    expect(copy).toBeInTheDocument();
+    // A second copy says the same words as a new node, so the live span says them again.
+    const first = note.firstElementChild;
+    await press(copy);
+    expect(h.copy).toHaveBeenCalledTimes(2);
+    expect(note).toHaveTextContent(REPLY_COPIED);
+    expect(note.firstElementChild).not.toBeNull();
+    expect(note.firstElementChild).not.toBe(first);
+
+    h.copy.mockImplementation(async () => false);
+    await press(copy);
+    expect(note).toHaveTextContent(COPY_FAILED);
+  });
+
+  it("says Copy's result through the app's announcer when no composer shows", async () => {
+    setChat([user("u1", "How?"), assistant("a1", text("Open the board."))]);
+    render(<Chat composer={false} />);
+    await press(within(end()).getByRole("button", { name: "Copy reply" }));
+    expect(h.copy).toHaveBeenCalledWith("Open the board.");
+    expect(h.announce).toHaveBeenCalledWith(REPLY_COPIED);
+  });
+
+  it("offers up to two follow-ups that fill the message box and never send", () => {
+    const asked = "Which retro formats are there?";
+    const reply = "Three to pick from:\n\n- Start, stop, continue\n- Mad, sad, glad\n- 4Ls";
+    setChat([user("u1", asked), assistant("a1", text(reply))]);
+    const before = useAgentStore.getState().messages;
+    render(<Chat />);
+    const list = within(end()).getByRole("list", { name: FOLLOW_UPS_LABEL });
+    const chips = within(list).getAllByRole("button");
+    const expected = followUps({ reply, asked });
+    expect(expected).toEqual([FOLLOW_UP_TEXT.ranks, FOLLOW_UP_TEXT.example]);
+    expect(chips.map((chip) => chip.textContent)).toEqual(expected);
+    // On Amr's side, and waiting while the panel is compact.
+    expect(classes(list)).toEqual(
+      expect.arrayContaining(["ml-3.5", "group-data-[amr-compact]/amr:hidden"])
+    );
+    // With Amr on the right, the side away from him keeps the list's 1 px inset,
+    // so a full-width chip's High contrast focus ring stays inside the log.
+    expect(classes(list)).toEqual(
+      expect.arrayContaining([
+        "mx-px",
+        "group-data-[amr-side=right]/amr:ml-px",
+        "group-data-[amr-side=right]/amr:mr-3.5",
+      ])
+    );
+    expect(classes(list)).not.toContain("group-data-[amr-side=right]/amr:ml-0");
+
+    fireEvent.click(chips[0]);
+    expect(useAgentStore.getState().drafts.owner).toBe(expected[0]);
+    expect(box()).toHaveValue(expected[0]);
+    expect(document.activeElement).toBe(box());
+    // Another swaps it; neither sends.
+    fireEvent.click(chips[1]);
+    expect(box()).toHaveValue(expected[1]);
+    expect(h.onSend).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().messages).toBe(before);
+    expect(useAgentStore.getState().streaming).toBe(false);
+  });
+
+  it("works the follow-ups out from the latest turn's own steps and question", () => {
+    setChat([user("u0", "Hi"), assistant("a0", text("Hello.")), ...writeTurn()]);
+    render(<Chat />);
+    // The turn's change in Retro Board, not the earlier greeting.
+    const chips = within(within(end()).getByRole("list", { name: FOLLOW_UPS_LABEL }))
+      .getAllByRole("button")
+      .map((b) => b.textContent);
+    expect(chips[0]).toBe(moreIn("Retro Board"));
+    // latestReply, which the log asks: that turn, its steps and its question.
+    const found = latestReply(chatView(useAgentStore.getState().messages))!;
+    expect(found.reply.messageId).toBe("a2");
+    expect(found.reply.text).toBe("Added it to the board.");
+    expect(found.asked).toBe("Add flaky CI");
+    expect(found.steps.map((s) => [s.call?.id, s.state])).toEqual([["c1", "done"]]);
+    expect(chips).toEqual(
+      followUps({ reply: found.reply.text, steps: found.steps, asked: found.asked })
+    );
+  });
+
+  it("draws no follow-ups for a reply in another script, only Copy reply", () => {
+    setChat([user("u1", "كيف أبدأ؟"), assistant("a1", text("افتح اللوحة أولا."))]);
+    render(<Chat profile="visitor" />);
+    expect(within(end()).queryByRole("list")).toBeNull();
+    expect(
+      within(end())
+        .getAllByRole("button")
+        .map((b) => b.textContent)
+    ).toEqual(["Copy reply"]);
+  });
+
+  it("draws no end at all until the chat hands one in (a visitor's, before it loads)", () => {
+    setChat([user("u1", "How?"), assistant("a1", text("Open the board."))]);
+    const view = render(<Chat end={false} />);
+    expect(ends()).toEqual([]);
+    view.rerender(<Chat />);
+    end();
   });
 });
 
