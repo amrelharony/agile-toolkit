@@ -303,6 +303,30 @@ describe("Blockers: where the time goes", () => {
     expect(ws().impediments.some((i) => i.cluster)).toBe(false);
   });
 
+  it("shows 20 blockers to cluster, then all of them, the newest first", async () => {
+    useWorkspaceStore.setState({
+      impediments: Array.from({ length: 24 }, (_, n) =>
+        imp(`i${n}`, `Impediment ${n}`, { raisedAt: ago(3 + n) })
+      ),
+      stories: [
+        story("s", { title: "Today's block", blocked: true, blockLog: [{ from: stamp(0) }] }),
+      ],
+    });
+    renderPage();
+    const s = within(await screen.findByRole("region", { name: "Blockers: where the time goes" }));
+    expect(s.getByRole("heading", { name: "Not clustered yet (25)" })).toBeInTheDocument();
+    const rows = () =>
+      within(s.getByRole("list", { name: "Blockers to cluster" })).getAllByRole("listitem");
+    expect(rows()).toHaveLength(20);
+    expect(rows()[0]).toHaveTextContent("Today's block");
+    expect(rows()[1]).toHaveTextContent("Impediment 0");
+    fireEvent.click(s.getByRole("button", { name: "Show all 25" }));
+    expect(rows()).toHaveLength(25);
+    expect(rows()[24]).toHaveTextContent("Impediment 23");
+    fireEvent.click(s.getByRole("button", { name: "Show fewer" }));
+    expect(rows()).toHaveLength(20);
+  });
+
   it("switches the window and shows the top clusters by month", async () => {
     useWorkspaceStore.setState({
       impediments: [imp("i1", "Old one", { cluster: "Another team", raisedAt: ago(60) })],

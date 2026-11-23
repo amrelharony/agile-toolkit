@@ -94,6 +94,9 @@ const SELECT_CLASS =
 
 const NEW_CLUSTER = "__new__";
 
+/** "Not clustered yet" rows shown before "Show all". */
+export const UNCLUSTERED_ROWS_SHOWN = 20;
+
 /** A new cluster's name: there, and short enough. */
 export function validateClusterName(name: string): Validation<string, "cluster"> {
   const clean = cleanClusterName(name);
@@ -194,13 +197,9 @@ export function BlockersSection({
     () => (view === "months" ? blockersByMonth(read.rows, read.pareto.measure) : []),
     [view, read]
   );
-  const unclustered = useMemo(
-    () =>
-      [...read.unclustered].sort((a, b) =>
-        (b.spellFrom ?? b.month).localeCompare(a.spellFrom ?? a.month)
-      ),
-    [read.unclustered]
-  );
+  // Newest first (the read sorts them), so the AI's fitter trims the oldest.
+  const unclustered = read.unclustered;
+  const [allRows, setAllRows] = useState(false);
   /** Every cluster on offer: the defaults, then the ones the team named. */
   const known = useMemo(() => {
     const seen = new Set(DEFAULT_BLOCKER_CLUSTERS.map((c) => clusterKey(c.label)));
@@ -499,10 +498,15 @@ export function BlockersSection({
               className="divide-y divide-border rounded-lg border border-border"
               aria-label="Blockers to cluster"
             >
-              {unclustered.slice(0, 20).map((r) => (
+              {(allRows ? unclustered : unclustered.slice(0, UNCLUSTERED_ROWS_SHOWN)).map((r) => (
                 <UnclusteredRow key={r.key} row={r} known={known} onPick={pick} />
               ))}
             </ul>
+            {unclustered.length > UNCLUSTERED_ROWS_SHOWN && (
+              <Button type="button" variant="ghost" size="sm" onClick={() => setAllRows((v) => !v)}>
+                {allRows ? "Show fewer" : `Show all ${unclustered.length}`}
+              </Button>
+            )}
           </div>
         )}
       </SectionCard>

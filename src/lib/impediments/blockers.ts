@@ -103,6 +103,16 @@ export interface BlockerRow {
   open: boolean;
   /** "YYYY-MM": when the spell began or the impediment was raised. */
   month: string;
+  /**
+   * When it began, in ms, to sort by: a spell's start, or the local start
+   * of the day an impediment was raised ("YYYY-MM-DD", so no time of day).
+   */
+  startedMs: number;
+}
+
+/** Newest first (by when they began), ties by key. */
+export function newestFirst(a: BlockerRow, b: BlockerRow): number {
+  return b.startedMs - a.startedMs || a.key.localeCompare(b.key);
 }
 
 /** Read options: the Impediments page keeps its own example's rows, which live in the workspace. */
@@ -187,6 +197,7 @@ export function blockerRows(
         ...(impedimentId && linked ? { impedimentId } : {}),
         open: s.open,
         month: (localDay(new Date(s.from).toISOString()) ?? window.from).slice(0, 7),
+        startedMs: s.from,
       });
     }
   };
@@ -213,6 +224,7 @@ export function blockerRows(
       impedimentId: i.id,
       open: !isResolved(i),
       month: (raised as string).slice(0, 7),
+      startedMs: dayStartMs(raised) ?? 0,
     });
   }
   return out;
@@ -538,7 +550,7 @@ export interface BlockersRead {
   split: SideSplit;
   blockedWork: BlockedWork | null;
   untracked: number;
-  /** Rows not clustered yet. */
+  /** Rows not clustered yet, newest first. */
   unclustered: BlockerRow[];
   /** BLOCK_TRACKING_SINCE, for "Blocked time counts from …". */
   trackingSince: string;
@@ -584,7 +596,7 @@ export function readBlockers(
     split: sideSplit(rows, pareto.measure),
     blockedWork: blockedWork(stories, cards, window, opts),
     untracked: untrackedCount(stories, cards, opts),
-    unclustered: rows.filter((r) => !r.cluster),
+    unclustered: rows.filter((r) => !r.cluster).sort(newestFirst),
     trackingSince: BLOCK_TRACKING_SINCE,
   };
   return { ...partial, verdict: blockersVerdict(partial) };

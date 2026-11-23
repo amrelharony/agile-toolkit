@@ -378,6 +378,21 @@ describe("the window", () => {
   });
 });
 
+describe("not clustered yet", () => {
+  it("lists the newest first, an impediment by the day it was raised", () => {
+    const x = readBlockers(
+      [
+        story("early", { blockLog: [{ from: at(day(3)), to: at(day(4)) }] }),
+        story("late", { blockLog: [{ from: at(day(28)), to: at(day(29)) }] }),
+      ],
+      [],
+      [imp("today", { raisedAt: day(30) }), imp("older", { raisedAt: day(10) })],
+      WINDOW
+    );
+    expect(x.unclustered.map((r) => r.id)).toEqual(["today", "late", "older", "early"]);
+  });
+});
+
 describe("cut text", () => {
   /** No lone half of an emoji: jsonb refuses one, and the row fails to sync. */
   const whole = (s: string) => !/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(s);
