@@ -92,11 +92,16 @@ function withDetails(base: AbTest, d: DetailsValues): AbTest {
   return next;
 }
 
-/** Days stamped as a test moves on: started when it runs, ended when it is done. */
+/**
+ * Days stamped as a test moves on: started when it runs, ended when it is
+ * done. A test moved back from done has no end day, so it gets a new one
+ * when it is done again.
+ */
 function stampDays(t: AbTest, today: string): AbTest {
   const next = { ...t };
   if ((t.status === "running" || t.status === "done") && !t.startedOn) next.startedOn = today;
-  if (t.status === "done" && !t.endedOn) next.endedOn = today;
+  if (t.status !== "done") delete next.endedOn;
+  else if (!t.endedOn) next.endedOn = today;
   return next;
 }
 

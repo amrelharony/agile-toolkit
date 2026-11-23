@@ -378,6 +378,30 @@ describe("a saved test", () => {
     expect(find("t1")?.note).toBe("B goes to everyone.");
   });
 
+  it("drops a done test's end day when it runs again, and stamps it anew when done", () => {
+    seed([saved({ status: "done", startedOn: "2026-10-01", endedOn: "2026-10-20" })]);
+    renderPage();
+    fireEvent.click(within(card("Shorter form")).getByRole("radio", { name: "Running" }));
+    expect(find("t1")?.status).toBe("running");
+    expect(find("t1")).not.toHaveProperty("endedOn");
+    expect(find("t1")?.startedOn).toBe("2026-10-01");
+    fireEvent.click(within(card("Shorter form")).getByRole("radio", { name: "Done" }));
+    expect(find("t1")).toMatchObject({ status: "done", startedOn: "2026-10-01", endedOn: TODAY });
+    // Saving it from the calculator as running drops the day the same way.
+    fireEvent.click(screen.getByRole("button", { name: "Open Shorter form in the calculator" }));
+    const form = screen
+      .getByRole("button", { name: "Save changes" })
+      .closest("form") as HTMLElement;
+    fireEvent.click(
+      within(within(form).getByRole("radiogroup", { name: "Status" })).getByRole("radio", {
+        name: "Running",
+      })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    expect(find("t1")?.status).toBe("running");
+    expect(find("t1")).not.toHaveProperty("endedOn");
+  });
+
   it("suggests checks without AI: a guardrail and a risk go in with Undo", async () => {
     seed([saved()]);
     renderPage();
