@@ -45,10 +45,7 @@ import type {
   Workspace,
 } from "@/lib/stores/workspace-types";
 import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
-import { personName } from "@/lib/team-time/format";
-import { readPeople } from "@/lib/team-time/model";
 import { canonicalZone } from "@/lib/team-time/zones";
-import { isExampleId } from "@/lib/utils/example-id";
 import {
   applyTemplate,
   isTemplateId,
@@ -94,7 +91,7 @@ import { AddRuleForm } from "./rule-form";
 import { RuleCard } from "./rule-card";
 import { VOTE_LABEL } from "./consent-panel";
 import { TemplatesPanel, templateButtonId } from "./templates-panel";
-import type { TeamTimeView } from "./template-forms";
+import type { TeamTimeSource } from "./template-form";
 import { VersionsPanel } from "./versions-panel";
 import { cn } from "@/lib/utils";
 
@@ -197,18 +194,13 @@ export function WorkingAgreementClient() {
     setOpenKey((k) => k + 1);
   };
 
-  // Team Time's people (never its example), for core hours on each clock.
+  // Team Time's rows as stored, for core hours on each clock. The template
+  // forms read them (never its example) once one opens: the reader loads with them.
   const teamTimeRaw = useWorkspaceStore((s) => s.teamTimePeople) ?? NO_PEOPLE;
   const [now] = useState(() => new Date());
   const [zone] = useState(browserZone);
-  const teamTime: TeamTimeView = useMemo(
-    () => ({
-      people: readPeople(teamTimeRaw)
-        .filter((p) => !isExampleId(p.id))
-        .map((p) => ({ ...p, name: personName(p, workspaceRoster) })),
-      now,
-      zone,
-    }),
+  const teamTime: TeamTimeSource = useMemo(
+    () => ({ people: teamTimeRaw, roster: workspaceRoster, now, zone }),
     [teamTimeRaw, workspaceRoster, now, zone]
   );
 

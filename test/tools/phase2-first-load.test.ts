@@ -134,4 +134,19 @@ describe("what a tool page's first load leaves out", () => {
       expect(reached, lazy).not.toContain(lazy);
     }
   });
+
+  it("the Working Agreement lists its charter templates and loads their forms when one opens", () => {
+    const reached = firstLoad("src/app/(tools)/working-agreement/working-agreement-client.tsx");
+    expect(reached).toContain("src/app/(tools)/working-agreement/templates-panel.tsx");
+    expect(reached).toContain("src/lib/working-agreement/templates.ts");
+    for (const lazy of [
+      "src/app/(tools)/working-agreement/template-form.tsx",
+      "src/app/(tools)/working-agreement/template-forms.tsx",
+      "src/app/(tools)/team-time/fields.tsx",
+      "src/lib/team-time/model.ts",
+      "src/lib/team-time/rows.ts",
+    ]) {
+      expect(reached, lazy).not.toContain(lazy);
+    }
+  });
 });

@@ -1,38 +1,31 @@
 "use client";
 
-import { useRef } from "react";
+import dynamic from "next/dynamic";
 import { CheckCircle2, LayoutTemplate } from "lucide-react";
 import type { CharterTemplateId, WorkingAgreement } from "@/lib/stores/workspace-types";
 import {
   CHARTER_TEMPLATES,
   appliedValues,
-  templateDefaults,
   templateRuleIds,
   type TemplateValuesById,
 } from "@/lib/working-agreement/templates";
 import { dayLabel } from "@/lib/working-agreement/model";
 import { cn } from "@/lib/utils";
-import {
-  AiUseForm,
-  CoreHoursForm,
-  FocusTimeForm,
-  UrgencyLadderForm,
-  useFocusOnOpen,
-  type TeamTimeView,
-} from "./template-forms";
+import type { TeamTimeSource } from "./template-form";
 
-/** The answers a template's form opens with: what it was applied with, else its defaults. */
-export function startingValues<Id extends CharterTemplateId>(
-  doc: WorkingAgreement,
-  id: Id,
-  zone: string
-): TemplateValuesById[Id] {
-  const stored = appliedValues(doc, id);
-  if (!stored) return templateDefaults(id, { timeZone: zone });
-  const { appliedAt, ...values } = stored;
-  void appliedAt;
-  return values as unknown as TemplateValuesById[Id];
-}
+// The four forms (and Team Time's fields and people reader) load when a
+// template opens: the page only lists them until then. A pointer or focus on
+// a template's button starts the load, so it is usually in by the click.
+const loadTemplateForm = () => import("./template-form");
+const TemplateForm = dynamic(() => loadTemplateForm().then((m) => m.TemplateForm), {
+  ssr: false,
+  loading: () => <p className="text-sm text-sub">Loading the template…</p>,
+});
+const preloadTemplateForm = () => {
+  loadTemplateForm().catch(() => {
+    /* the open itself tries again, and its loading line stays */
+  });
+};
 
 /** The id the Templates row gives each template's button, so a rule card's "Edit in template" can come back to it. */
 export const templateButtonId = (id: CharterTemplateId) => `wa-template-${id}`;
@@ -57,12 +50,10 @@ export function TemplatesPanel({
   openKey: number;
   /** The open form came from a link that asks to fill core hours from Team Time. */
   fillOnOpen: boolean;
-  teamTime: TeamTimeView;
+  teamTime: TeamTimeSource;
   onOpen: (id: CharterTemplateId | null) => void;
   onApply: <Id extends CharterTemplateId>(id: Id, values: TemplateValuesById[Id]) => void;
 }) {
-  const formRef = useRef<HTMLDivElement>(null);
-  useFocusOnOpen(formRef, open ? `${open}:${openKey}` : null);
   const close = () => {
     const id = open;
     onOpen(null);
@@ -93,6 +84,8 @@ export function TemplatesPanel({
                 aria-expanded={isOpen}
                 aria-controls={isOpen ? "wa-template-form" : undefined}
                 onClick={() => (isOpen ? close() : onOpen(t.id))}
+                onPointerEnter={preloadTemplateForm}
+                onFocus={preloadTemplateForm}
                 className={cn(
                   "flex min-h-11 w-full flex-col items-start rounded-lg border px-3 py-2 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
                   isOpen
@@ -122,48 +115,16 @@ export function TemplatesPanel({
         })}
       </ul>
       {open && (
-        <div id="wa-template-form" ref={formRef}>
-          {open === "urgency-ladder" && (
-            <UrgencyLadderForm
-              key={openKey}
-              doc={doc}
-              initial={startingValues(doc, "urgency-ladder", teamTime.zone)}
-              teamTime={teamTime}
-              onApply={(v) => onApply("urgency-ladder", v)}
-              onCancel={close}
-            />
-          )}
-          {open === "core-hours" && (
-            <CoreHoursForm
-              key={openKey}
-              doc={doc}
-              initial={startingValues(doc, "core-hours", teamTime.zone)}
-              teamTime={teamTime}
-              fillOnOpen={fillOnOpen}
-              onApply={(v) => onApply("core-hours", v)}
-              onCancel={close}
-            />
-          )}
-          {open === "focus-time" && (
-            <FocusTimeForm
-              key={openKey}
-              doc={doc}
-              initial={startingValues(doc, "focus-time", teamTime.zone)}
-              teamTime={teamTime}
-              onApply={(v) => onApply("focus-time", v)}
-              onCancel={close}
-            />
-          )}
-          {open === "ai-use" && (
-            <AiUseForm
-              key={openKey}
-              doc={doc}
-              initial={startingValues(doc, "ai-use", teamTime.zone)}
-              teamTime={teamTime}
-              onApply={(v) => onApply("ai-use", v)}
-              onCancel={close}
-            />
-          )}
+        <div id="wa-template-form">
+          <TemplateForm
+            doc={doc}
+            open={open}
+            openKey={openKey}
+            fillOnOpen={fillOnOpen}
+            teamTime={teamTime}
+            onApply={onApply}
+            onCancel={close}
+          />
         </div>
       )}
     </section>
