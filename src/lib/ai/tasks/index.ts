@@ -19,6 +19,7 @@ import { notesToActionsExtractTask } from "./notes-to-actions";
 import { parkingRouteTask } from "./parking-lot";
 import { themeNamesTask } from "./picker";
 import { pokerSimilarTask } from "./planning-poker";
+import { productCanvasDraftTask, productCanvasGapsTask } from "./product-canvas";
 import { productGoalDraftTask } from "./product-goal";
 import { sizingDiscussTask, sizingSplitTask } from "./relative-sizing";
 import { releaseReadinessNotesTask } from "./release-readiness";
@@ -52,6 +53,8 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   parkingRouteTask,
   themeNamesTask,
   pokerSimilarTask,
+  productCanvasDraftTask,
+  productCanvasGapsTask,
   productGoalDraftTask,
   sizingDiscussTask,
   sizingSplitTask,
