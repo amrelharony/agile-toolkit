@@ -118,6 +118,19 @@ export interface MascotDrag {
 /** The corner Amr is parked in (he can be dragged to any of the four). */
 export type MascotCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
+/**
+ * Where his figure is drawn once the page has been laid out: the side of the
+ * screen and the edge he stands against. Usually his corner's, but the other
+ * side when he has stepped aside for one of the page's controls.
+ */
+export interface MascotPlacement {
+  side: "left" | "right";
+  edge: "top" | "bottom";
+}
+
+/** How his chat panel is laid out on this screen (amr-geometry's panelLayout). */
+export type MascotPanelLayout = "float" | "sheet" | "side";
+
 interface MascotState {
   /** True once the sprite sheet has loaded and Amr is on screen. */
   ready: boolean;
@@ -149,8 +162,20 @@ interface MascotState {
   feelPhone: boolean | null;
   /** He has offered to feel the phone once (the bubble beside him); he doesn't ask twice. */
   motionAsked: boolean;
-  /** Where he's parked, so things shown beside him (the moment chip) can follow. */
+  /**
+   * The corner he was put in (by a drop, Move Amr or an arrow key). Things
+   * shown beside him follow `placed` and `lift` instead, where he is drawn.
+   */
   corner: MascotCorner;
+  /**
+   * Where he is actually drawn (see MascotPlacement). `corner` stays the corner
+   * he was put in; things beside him (his bubble, the moment chip) follow this.
+   */
+  placed: MascotPlacement;
+  /** How far (px) he has stepped up off his edge: his bubble and chips rise this much with him. */
+  lift: number;
+  /** The layout his chat panel is open in, null while it is closed: the toaster keeps off it. */
+  panel: MascotPanelLayout | null;
 }
 
 interface MascotActions {
@@ -176,11 +201,19 @@ interface MascotActions {
   setAuraColor(hex: string | null): void;
   /** Let him feel the phone's motion, or stop; persisted. */
   setFeelPhone(on: boolean): void;
-  /** Note that he has offered to feel the phone; persisted. */
+  /** Note that he has offered to feel the phone; persisted, for this device only. */
   setMotionAsked(): void;
   /** Report the corner he's parked in (the assistant calls it). */
   setCorner(c: MascotCorner): void;
-  /** Load the persisted aura and motion choice from localStorage. */
+  /**
+   * Report where he is drawn and how far he has stepped off his edge (the
+   * assistant calls it whenever it places him and his panel). A lift that
+   * isn't a positive number counts as 0. Unchanged values change nothing.
+   */
+  setPlacement(placed: MascotPlacement, lift: number): void;
+  /** Report the layout his panel is open in, or null as it closes (the assistant calls it). */
+  setPanel(panel: MascotPanelLayout | null): void;
+  /** Load the persisted aura, the motion choice and the "already offered" mark from localStorage. */
   hydrateAppearance(): void;
   reset(): void;
 }
@@ -200,14 +233,25 @@ const INITIAL: MascotState = {
   feelPhone: null,
   motionAsked: false,
   corner: "bottomRight",
+  placed: { side: "right", edge: "bottom" },
+  lift: 0,
+  panel: null,
 };
 
 const APPEARANCE_KEY = "mascot_appearance";
 
+/**
+ * The mark that he has offered to feel this phone. It has a key of its own
+ * because his appearance travels in a backup (lib/data/backup.ts) and this
+ * must not: it says what happened on this device, and a phone restored from
+ * another phone's backup should still be asked. The visitor's answer
+ * (feelPhone) is a choice, so it stays in the appearance and travels.
+ */
+export const MOTION_ASKED_KEY = "agile-toolkit:mascot:motion-asked";
+
 interface Appearance {
   auraColor: string | null;
   feelPhone: boolean | null;
-  motionAsked: boolean;
 }
 
 function saveAppearance(data: Appearance): void {
@@ -215,6 +259,24 @@ function saveAppearance(data: Appearance): void {
     localStorage.setItem(APPEARANCE_KEY, JSON.stringify(data));
   } catch {
     /* storage unavailable — ignore */
+  }
+}
+
+function loadMotionAsked(): boolean {
+  try {
+    return localStorage.getItem(MOTION_ASKED_KEY) !== null;
+  } catch {
+    return false;
+  }
+}
+
+/** True when the mark was written. */
+function saveMotionAsked(): boolean {
+  try {
+    localStorage.setItem(MOTION_ASKED_KEY, "1");
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -268,28 +330,45 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
   setMotionAsked: () => {
     if (get().motionAsked) return;
     set({ motionAsked: true });
-    saveAppearance(appearance(get()));
+    saveMotionAsked();
   },
   setCorner: (corner) => set((s) => (s.corner === corner ? s : { corner })),
+  setPlacement: ({ side, edge }, lift) =>
+    set((s) => {
+      const up = Number.isFinite(lift) && lift > 0 ? lift : 0;
+      if (s.placed.side === side && s.placed.edge === edge && s.lift === up) return s;
+      return { placed: { side, edge }, lift: up };
+    }),
+  setPanel: (panel) => set((s) => (s.panel === panel ? s : { panel })),
   hydrateAppearance: () => {
+    let asked = loadMotionAsked();
     try {
       const raw = localStorage.getItem(APPEARANCE_KEY);
-      if (!raw) return;
-      const data = JSON.parse(raw) as Partial<Appearance>;
-      set({
-        auraColor: data.auraColor ?? null,
-        feelPhone: typeof data.feelPhone === "boolean" ? data.feelPhone : null,
-        motionAsked: data.motionAsked === true,
-      });
+      if (raw) {
+        const data = JSON.parse(raw) as Partial<Appearance> & { motionAsked?: unknown };
+        const stored: Appearance = {
+          auraColor: data.auraColor ?? null,
+          feelPhone: typeof data.feelPhone === "boolean" ? data.feelPhone : null,
+        };
+        set(stored);
+        // The mark used to be kept in here. What this browser wrote that way is
+        // moved to its own key, once. A backup never brings the old field in
+        // (lib/data/backup.ts drops it), so one found here is this device's own.
+        if (data.motionAsked === true) {
+          asked = true;
+          if (saveMotionAsked()) saveAppearance(stored);
+        }
+      }
     } catch {
       /* ignore */
     }
+    if (asked) set({ motionAsked: true });
   },
   reset: () => set({ ...INITIAL }),
 }));
 
 function appearance(s: MascotState): Appearance {
-  return { auraColor: s.auraColor, feelPhone: s.feelPhone, motionAsked: s.motionAsked };
+  return { auraColor: s.auraColor, feelPhone: s.feelPhone };
 }
 
 function clamp01(n: number): number {

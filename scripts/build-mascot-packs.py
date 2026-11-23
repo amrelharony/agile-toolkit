@@ -44,6 +44,11 @@ The companion scenes (docs/mascot/companion-scenes.json) are built by
 scripts/build-mascot-scenes.py as baked scenes, without any of the corrections
 above; this script keeps their packs exactly as they ship.
 
+A sheet with a corrected slot (docs/mascot/refined-patches.json) must be in the folder
+with the correction in: scripts/patch-refined-slots.py puts it there, and this script
+stops if it isn't. A correction drawn with a smaller head than the rest of its sheet
+names a head_scale there, which --as-drawn applies to that frame alone.
+
 Needs Pillow and numpy. The source PNGs never ship; only the packs do.
 """
 
@@ -66,6 +71,7 @@ PUBLIC = ROOT / "public" / "mascot"
 CONTEXT_SPEC = ROOT / "docs" / "mascot" / "context-sheets.json"
 COMPANION_SPEC = ROOT / "docs" / "mascot" / "companion-scenes.json"
 EXPANSION_SPEC = ROOT / "docs" / "mascot" / "expansion-sheets.json"
+PATCHES = ROOT / "docs" / "mascot" / "refined-patches.json"
 MANIFEST = ROOT / "src" / "components" / "agent" / "mascot" / "mascot-packs.ts"
 
 SLOT_W, SLOT_H = 384, 512
@@ -137,6 +143,42 @@ def context_sheets() -> dict:
         ids = [None] + [(slot["id"], slot.get("kind", "feet")) for slot in s["slots"]]
         out[f"{s['sheet']}-{s['pack']}"] = (s["pack"], "feet", ids, s["group"])
     return out
+
+
+def check_patches(src: Path) -> None:
+    """A sheet with a corrected slot (docs/mascot/refined-patches.json) must be in the
+    folder patched, or the build would quietly bring back the frame it replaced."""
+    if not PATCHES.exists():
+        return
+    for p in json.loads(PATCHES.read_text(encoding="utf-8"))["patches"]:
+        path = src / p["file"]
+        if not path.exists():
+            continue
+        rgba = np.ascontiguousarray(np.array(Image.open(path).convert("RGBA")))
+        if hashlib.sha256(rgba.tobytes()).hexdigest() != p["pixels_sha256"]:
+            raise SystemExit(f"{p['file']}: slot {p['slot']} ({p['frame']}) isn't the corrected one;"
+                             " run scripts/patch-refined-slots.py on the folder first")
+
+
+def patch_heads(frames, stances) -> list[str]:
+    """A corrected slot drawn with a smaller head than the rest of its sheet gets its head
+    scaled by the record's head_scale, around its hair, like size_head (as drawn only)."""
+    if not PATCHES.exists():
+        return []
+    notes = []
+    for p in json.loads(PATCHES.read_text(encoding="utf-8"))["patches"]:
+        s, fid = p.get("head_scale"), p["frame"]
+        if not s or fid not in frames:
+            continue
+        pack = SHEETS[Path(p["file"]).stem][0]
+        _, _, h, w = head_box(stances[pack][2])
+        hair = hair_blob(frames[fid][2])
+        if hair is None:
+            raise SystemExit(f"{fid}: no hair found to scale its head around")
+        cx, hair_top = hair
+        frames[fid] = shrunk(frames[fid][2], cx, hair_top + h / 2, max(h, w) / 2, s)
+        notes.append(f"{fid}: head scaled x{s} (refined-patches.json)")
+    return notes
 
 
 def add_context_sheets(src: Path) -> list[str]:
@@ -1040,6 +1082,7 @@ def main() -> None:
     args = sys.argv[1:]
     src = folder_arg(args, ("--preview",))
     preview = Path(args[args.index("--preview") + 1]) if "--preview" in args else None
+    check_patches(src)
     found = add_context_sheets(src)
     total = len(context_sheets())
     print(f"context sheets: {len(found)} of {total}" + (f" ({', '.join(found)})" if found else ""))
@@ -1050,6 +1093,7 @@ def main() -> None:
     notes += align_faces(frames)
     if "--as-drawn" in args:
         print("as drawn: no head sizing, no skin, clothes or hair matching, no side thickening, no sharpening")
+        notes += patch_heads(frames, stances)
         notes += build_talk(frames, reach=AS_DRAWN_TALK_REACH)
         finish(frames, stances, notes, kept, {}, preview)
         return

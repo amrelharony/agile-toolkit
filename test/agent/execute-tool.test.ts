@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { registry } from "@/lib/actions/registry";
-import { executeToolUse } from "@/lib/agent/execute-tool";
+import "@/lib/actions/register-all";
+import { confirmWords, executeToolUse, isDestructiveAction } from "@/lib/agent/execute-tool";
 import type { ToolUseBlock } from "@/lib/agent/types";
 
 /**
@@ -117,7 +118,12 @@ describe("executeToolUse — confirmation gating", () => {
       autoApprove: false,
     });
     expect(confirm).toHaveBeenCalledTimes(1);
-    expect(confirm.mock.calls[0][0]).toContain("__agentexec.do_write");
+    // The card's words, never the action id or JSON.
+    expect(confirm.mock.calls[0][0]).toMatchObject({
+      detail: "Value: “hello”",
+      destructive: false,
+    });
+    expect(JSON.stringify(confirm.mock.calls[0][0])).not.toContain("__agentexec");
     expect(res.is_error).toBeUndefined();
     expect(res.content).toContain('"stored":"hello"');
   });
@@ -452,5 +458,384 @@ describe("executeToolUse — isAllowed (only the tools offered this turn)", () =
       expect(res.content).toContain('"stored":"x"');
       expect(handler).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+/**
+ * The confirm card's words and who is asked. Probes take real catalog ids so
+ * tool-label names them; each replaces whatever holds the id and goes after.
+ */
+describe("executeToolUse — the confirm card (ConfirmPrompt) and the destructive gate", () => {
+  const PROBES: Array<Parameters<typeof registry.register>[0]> = [
+    {
+      id: "tool.retro.add_card",
+      toolId: "tool.retro",
+      name: "add_card",
+      category: "write",
+      requiresConfirmation: false,
+      description: "probe",
+      paramsSchema: z.object({ columnKey: z.string(), text: z.string() }),
+      handler: async () => ({ added: true }),
+    },
+    {
+      id: "tool.retro.delete_card",
+      toolId: "tool.retro",
+      name: "delete_card",
+      category: "write",
+      requiresConfirmation: false,
+      description: "probe",
+      paramsSchema: z.object({ cardId: z.string() }),
+      handler: async () => ({ deleted: true }),
+    },
+    {
+      id: "tool.risk_register.delete",
+      toolId: "tool.risk_register",
+      name: "delete",
+      category: "write",
+      requiresConfirmation: true,
+      confirmLabel: "Delete this risk",
+      description: "probe",
+      paramsSchema: z.object({ id: z.string() }),
+      handler: async () => ({ deleted: true }),
+    },
+    {
+      id: "workspace.sprint.create",
+      toolId: "workspace.sprint",
+      name: "create",
+      category: "write",
+      description: "probe",
+      paramsSchema: z.object({ entity: z.record(z.string(), z.unknown()) }),
+      handler: async () => ({ id: "s1" }),
+    },
+    {
+      id: "tool.prioritizer.set_order",
+      toolId: "tool.prioritizer",
+      name: "set_order",
+      category: "write",
+      requiresConfirmation: true,
+      description: "probe",
+      paramsSchema: z.object({ ids: z.array(z.string()) }),
+      handler: async () => ({ ranked: 3 }),
+    },
+    {
+      id: "tool.decision_log.supersede",
+      toolId: "tool.decision_log",
+      name: "supersede",
+      category: "write",
+      description: "probe",
+      paramsSchema: z.object({
+        id: z.string(),
+        supersededBy: z.string(),
+        reason: z.string().optional(),
+      }),
+      handler: async () => ({ superseded: true }),
+    },
+    {
+      id: "tool.decision_log.decide",
+      toolId: "tool.decision_log",
+      name: "decide",
+      category: "write",
+      description: "probe",
+      paramsSchema: z.object({
+        id: z.string(),
+        chosenOption: z.string().optional(),
+        parentID: z.string().optional(),
+      }),
+      handler: async () => ({ decided: true }),
+    },
+    {
+      id: "workspace.story.create",
+      toolId: "workspace.story",
+      name: "create",
+      category: "write",
+      description: "probe",
+      paramsSchema: z.object({
+        entity: z.object({
+          id: z.string().optional(),
+          title: z.string(),
+          status: z.enum(["todo", "in_progress", "done"]).default("todo"),
+          ticketKey: z.string().optional(),
+        }),
+      }),
+      handler: async () => ({ id: "story_1" }),
+    },
+  ];
+  const handlers = new Map<string, ReturnType<typeof vi.fn>>();
+
+  beforeEach(() => {
+    for (const probe of PROBES) {
+      const handler = vi.fn(probe.handler);
+      handlers.set(probe.id, handler);
+      registry.unregister(probe.id);
+      registry.register({ ...probe, handler });
+    }
+  });
+  afterEach(() => {
+    for (const probe of PROBES) registry.unregister(probe.id);
+  });
+
+  /** The prompt the card got for one call (the visitor's path, so every write asks). */
+  async function promptFor(name: string, input: Record<string, unknown>) {
+    const confirm = vi.fn().mockResolvedValue(false);
+    await executeToolUse(block(name, input), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: false,
+      forceConfirmWrites: true,
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    return confirm.mock.calls[0][0];
+  }
+
+  it("names the tool and the verb, asks a question and says the arguments in words", async () => {
+    const prompt = await promptFor("tool_retro_add_card", {
+      columnKey: "went-well",
+      text: "flaky CI",
+    });
+    expect(prompt).toEqual({
+      verb: "Add card",
+      title: "Retro Board",
+      question: "Add a card to Retro Board?",
+      detail: "Column: Went well · Text: “flaky CI”",
+      destructive: false,
+    });
+    // No id, key name or JSON reaches the card.
+    expect(Object.values(prompt).join(" ")).not.toMatch(/tool[._]retro|columnKey|add_card|[{}]/);
+  });
+
+  it("leaves ids out, reads an entity's own fields, shortens long text and counts the rest", async () => {
+    const prompt = await promptFor("workspace_sprint_create", {
+      entity: {
+        id: "s-123",
+        name: "Sprint 47",
+        goal: "x".repeat(60),
+        capacityPoints: 30,
+        tags: ["api", "ci"],
+      },
+    });
+    expect(prompt.verb).toBe("Create sprint");
+    expect(prompt.title).toBe("Workspace");
+    expect(prompt.question).toBe("Create a sprint in your workspace?");
+    expect(prompt.detail).toBe(
+      `Name: “Sprint 47” · Goal: “${"x".repeat(39)}…” · Capacity points: 30 · 1 more`
+    );
+    expect(prompt.detail).not.toContain("s-123");
+  });
+
+  it("says a list of ids as a count", async () => {
+    const prompt = await promptFor("tool_prioritizer_set_order", { ids: ["a", "b", "c"] });
+    expect(prompt.detail).toBe("Items: 3");
+    expect(prompt.question).toBe("Set the order in Backlog Prioritizer?");
+  });
+
+  it("says an enum's value in words, and keeps a tracker key and free text quoted", async () => {
+    const prompt = await promptFor("workspace_story_create", {
+      entity: { title: "follow-up", status: "in_progress", ticketKey: "PAY-12" },
+    });
+    expect(prompt.question).toBe("Create a story in your workspace?");
+    expect(prompt.detail).toBe("Title: “follow-up” · Status: In progress · Ticket: “PAY-12”");
+  });
+
+  it("says a column key's slug in words but leaves a key that isn't a slug as written", async () => {
+    const slug = await promptFor("tool_retro_add_card", { columnKey: "start", text: "go_live" });
+    // Free text keeps its own spelling, even when it looks like a slug.
+    expect(slug.detail).toBe("Column: Start · Text: “go_live”");
+    const custom = await promptFor("tool_retro_add_card", { columnKey: "Kudos!", text: "x" });
+    expect(custom.detail).toBe("Column: “Kudos!” · Text: “x”");
+  });
+
+  it("leaves out an id held under a key that doesn't say so", async () => {
+    const prompt = await promptFor("tool_decision_log_supersede", {
+      id: "a1b2c3d4",
+      supersededBy: "V1StGXR8",
+      reason: "new vendor",
+    });
+    expect(prompt.detail).toBe("Reason: “new vendor”");
+    expect(prompt.detail).not.toMatch(/a1b2c3d4|V1StGXR8|Superseded/);
+  });
+
+  it("leaves out a UUID under any key and an ID-suffixed key, and keeps an option's text", async () => {
+    const uuid = "3f2a9c1e-5b7d-4e8f-9a0b-1c2d3e4f5a6b";
+    const byId = await promptFor("tool_decision_log_decide", {
+      id: "d1",
+      chosenOption: uuid,
+      parentID: "p-77",
+    });
+    expect(byId.detail).toBe("");
+    const byText = await promptFor("tool_decision_log_decide", {
+      id: "d1",
+      chosenOption: "Move to Fly.io",
+    });
+    expect(byText.detail).toBe("Chosen option: “Move to Fly.io”");
+  });
+
+  it("asks the action's own confirmLabel, and the card's button says it", async () => {
+    const prompt = await promptFor("tool.risk_register.delete", { id: "r1" });
+    expect(prompt).toEqual({
+      verb: "Delete",
+      title: "Risk Register",
+      question: "Delete this risk?",
+      detail: "",
+      destructive: true,
+      confirmLabel: "Delete this risk",
+    });
+  });
+
+  it("works out a label from the checked params, so the button says which way it goes", async () => {
+    const close = await promptFor("tool_audience_wall_set_open", { open: false });
+    expect(close).toMatchObject({
+      title: "Audience Wall",
+      verb: "Open or close the wall",
+      question: "Close the wall?",
+      confirmLabel: "Close the wall",
+    });
+    const open = await promptFor("tool_audience_wall_set_open", { open: true });
+    expect(open).toMatchObject({ question: "Open the wall?", confirmLabel: "Open the wall" });
+  });
+
+  it("asks before a delete even when it declares requiresConfirmation:false", async () => {
+    const confirm = vi.fn().mockResolvedValue(false);
+    const res = await executeToolUse(block("tool_retro_delete_card", { cardId: "c1" }), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: false,
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(confirm.mock.calls[0][0]).toMatchObject({
+      destructive: true,
+      question: "Delete this card from Retro Board?",
+    });
+    expect(res.content).toBe("User denied execution of tool.retro.delete_card.");
+    expect(handlers.get("tool.retro.delete_card")).not.toHaveBeenCalled();
+  });
+
+  it("asks before a destructive change even under Approve all, and runs it once approved", async () => {
+    const confirm = vi.fn().mockResolvedValue(true);
+    const res = await executeToolUse(block("tool_risk_register_delete", { id: "r1" }), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: true,
+    });
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(res.content).toContain('"deleted":true');
+    expect(handlers.get("tool.risk_register.delete")).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets Approve all skip a change that isn't destructive", async () => {
+    const confirm = vi.fn().mockResolvedValue(false);
+    const res = await executeToolUse(block("tool_prioritizer_set_order", { ids: ["a"] }), {
+      userId: TEST_USER,
+      confirm,
+      autoApprove: true,
+    });
+    expect(confirm).not.toHaveBeenCalled();
+    expect(res.content).toContain('"ranked":3');
+  });
+
+  it("counts a write as destructive by the first word of its name only", () => {
+    for (const name of ["delete", "remove_check_in", "reset", "clear_all", "archive_dimension"]) {
+      expect(isDestructiveAction({ name, category: "write" }), name).toBe(true);
+    }
+    expect(isDestructiveAction({ name: "reset", category: "intent" })).toBe(true);
+    for (const name of ["unarchive", "add_card", "deleted_list", "mark_resolved", "set_order"]) {
+      expect(isDestructiveAction({ name, category: "write" }), name).toBe(false);
+    }
+    // A read never asks.
+    expect(isDestructiveAction({ name: "delete_preview", category: "read" })).toBe(false);
+  });
+});
+
+describe("confirmWords — every registered change asks a plain question", () => {
+  /** The question a card asks before `id` runs. */
+  const ask = (id: string) => {
+    const action = registry.get(id);
+    expect(action, id).toBeDefined();
+    return confirmWords(action!).question;
+  };
+
+  it("asks for every write and intent in plain words", () => {
+    const changes = registry.list().filter((a) => a.category !== "read");
+    expect(changes.length).toBeGreaterThan(300);
+    for (const action of changes) {
+      const { question } = confirmWords(action);
+      expect(question, action.id).toMatch(/^[A-Z].*\?$/);
+      // A two-word verb split by an article: "Score this and persist".
+      expect(question, action.id).not.toContain(" this and ");
+      // A word for code, not for a person.
+      expect(question, action.id).not.toMatch(/persist/i);
+      // A word said twice: "Check this in in". "check-in in" is not a repeat.
+      expect(question, action.id).not.toMatch(/(?:^|\s)(\S+) \1(?=[\s?])/i);
+    }
+  });
+
+  it("keeps a verb that is a phrase of its own whole", () => {
+    expect(ask("tool.rice_scoring.score_and_persist")).toBe(
+      "Score and save in RICE Scoring Calculator?"
+    );
+    expect(ask("tool.moscow.classify_and_persist")).toBe("Classify and save in MoSCoW Matrix?");
+    expect(ask("tool.wsjf.persist_to_prioritization")).toBe(
+      "Save to prioritization in WSJF Calculator?"
+    );
+    expect(ask("tool.okrs.check_in")).toBe("Check in on OKR Tracker?");
+    expect(ask("tool.working_agreement.record_check_in")).toBe(
+      "Record a check-in in Working Agreement Builder?"
+    );
+    expect(ask("tool.adkar.step_back")).toBe("Step back in ADKAR Change Tracker?");
+  });
+
+  it("gives a thing of more than one word its article, even one that starts like a participle", () => {
+    expect(ask("workspace.weighted_criterion.create")).toBe(
+      "Create a weighted criterion in your workspace?"
+    );
+    expect(ask("workspace.red_team_finding.delete")).toBe(
+      "Delete this red team finding from your workspace?"
+    );
+    expect(ask("workspace.working_agreement.update")).toBe(
+      "Update this working agreement in your workspace?"
+    );
+    expect(ask("tool.code_review_metrics.set_working_window")).toBe(
+      "Set the working window in Code Review Metrics?"
+    );
+  });
+
+  it("asks the newer tools' changes as a person would, not word for word from the name", () => {
+    expect(ask("tool.team_mixer.next_round")).toBe("Start the next round in Team Mixer?");
+    expect(ask("tool.picker.roll_dice")).toBe("Roll the dice in Picker?");
+    expect(ask("tool.backlog_health.set_gwt")).toBe(
+      "Set the acceptance criteria in Backlog Health?"
+    );
+    expect(ask("tool.audience_wall.scoring")).toBe("Run the scoring in Audience Wall?");
+    // Its label comes from the params (the card's own test); without them,
+    // the question comes from the verb.
+    expect(ask("tool.audience_wall.set_open")).toBe("Open or close the wall in Audience Wall?");
+    const setOpen = registry.get("tool.audience_wall.set_open")!;
+    expect(confirmWords(setOpen, { open: false }).question).toBe("Close the wall?");
+    expect(confirmWords(setOpen, { open: true }).question).toBe("Open the wall?");
+  });
+
+  it("reads a singular in -is or -us as one thing, not a plural", () => {
+    expect(ask("workspace.root_cause_analysis.create")).toBe(
+      "Create a root cause analysis in your workspace?"
+    );
+    expect(ask("workspace.root_cause_analysis.update")).toBe(
+      "Update this root cause analysis in your workspace?"
+    );
+    expect(ask("workspace.root_cause_analysis.delete")).toBe(
+      "Delete this root cause analysis from your workspace?"
+    );
+    expect(ask("tool.hypothesis_tracker.add_hypothesis")).toBe(
+      "Add a hypothesis to Hypothesis Tracker?"
+    );
+    expect(ask("tool.daci.set_status")).toBe("Set the status in DACI Decision Doc?");
+    // A plural still goes bare.
+    expect(ask("tool.picker.add_names")).toBe("Add names to Picker?");
+    expect(ask("tool.kudos.post_kudos")).toBe("Post kudos to Kudos Wall?");
+  });
+
+  it('opens something new with an article for a new one, not "this"', () => {
+    expect(ask("tool.audience_wall.open_round")).toBe("Open a round in Audience Wall?");
+    expect(ask("tool.incident_commander.open_incident")).toBe(
+      "Open an incident in Incident Commander?"
+    );
   });
 });

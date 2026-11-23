@@ -46,3 +46,41 @@ describe("DNA-SPEC motion rules", () => {
     expect(line("- High contrast stays maximally legible")).toContain("no paper grain");
   });
 });
+
+describe("DNA-SPEC cast puppet rules", () => {
+  it("keeps the cast inside the page, calm, and drawn rather than bent", () => {
+    const cast = line("- The cast live inside the page.");
+    for (const clause of [
+      "never fixed, never full-screen, never over a panel, a control or Amr",
+      "Amr keeps the corner",
+      "a head 10° at most, an arm 15°",
+      "never a limb bent into place",
+      "8° at most",
+      "0.9 s at most, rising 12px at most",
+      "a guess has no right or wrong",
+      "three at most on a phone and six on a wider screen",
+      "Reduced motion, Save-Data and 2G show every figure in its rest pose",
+      "High contrast keeps the figures",
+      "print leaves them out",
+      "no balloons and no new lines, Amr's existing intro balloon aside",
+    ]) {
+      expect(cast).toContain(clause);
+    }
+  });
+
+  it("stills the cast under reduced motion and in quiet contexts", () => {
+    expect(line("- Reduced motion turns animation off globally")).toContain(
+      "every cast figure stands in its rest pose"
+    );
+    const quiet = line("- Nothing starts moving by itself in a quiet context");
+    expect(quiet).toContain("the cast stand still");
+    expect(quiet).toContain("a tapped figure, a guess");
+  });
+
+  it("keeps Amr the only celebration and names the cast as the one raster drawing", () => {
+    expect(line("- Ink moments sit beside")).toContain("a reaction, not a celebration");
+    expect(line("- New pictures follow the same pen")).toContain(
+      "The one raster drawing besides the comic's own pictures"
+    );
+  });
+});

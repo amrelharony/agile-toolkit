@@ -83,12 +83,15 @@ python -I scripts/build-mascot-live.py --check <folder with L01-L10>
 
 ## Rebuilding
 
-The refined release: take it in (above), then
+The refined release: take it in (above), put in its single-slot corrections, then build:
 
 ```bash
+python -I scripts/patch-refined-slots.py <sources folder> <patches folder>
 python -I scripts/build-mascot-packs.py <sources folder> --as-drawn --preview <scratch folder>
 python -I scripts/build-mascot-scenes.py <sources folder> --preview <scratch folder>
 ```
+
+The corrections are listed in `docs/mascot/refined-patches.json`: each one is a redrawn 384 × 512 cell for one slot, kept beside the sources (`AMR_Build_Sources_Refined/patches/`, outside git) and checked by its sha256. The builder stops if a corrected sheet in the folder is still the release's, so a rebuild can't bring the old frame back. A correction drawn with a smaller head than the rest of its sheet names a `head_scale`, which the as-drawn build applies to that frame alone. Today there is one: S64 slot 4, `lights.sweep`, redrawn on 17 November 2026 because the release drew his lowered left hand as a claw and the torch without light; its head is scaled ×1.10.
 
 The expansion release comes after them (its packs are kept as they are by both): see [Expansion scenes](#expansion-scenes).
 
@@ -282,7 +285,7 @@ At moments, each from frames already drawn:
 | knocked once                             | jumps                                    |
 | laid flat and left alone, then picked up | tires sooner, then looks about           |
 
-Where the browser asks before it sends motion (iPhones, and browsers that follow them), he asks first: a bubble beside him the first time his panel closes, "Tilt your phone, I'll feel it", with Allow and No thanks. He asks once, ever; the phone icon in his panel stays for a change of mind. Nothing here runs under reduced motion.
+Where the browser asks before it sends motion (iPhones, and browsers that follow them), he asks first: a bubble beside him the first time his panel closes, "Tilt your phone, I'll feel it", with Allow and No thanks. He asks once, ever; the phone icon in his panel stays for a change of mind. That he asked is noted on the phone itself (`agile-toolkit:mascot:motion-asked`) and kept out of backups, so a phone restored from another phone's backup is still asked. An answer is a choice, so it travels with his appearance. Nothing here runs under reduced motion.
 
 To try it without a phone, send the page `deviceorientation` and `devicemotion` events from the console.
 
@@ -299,7 +302,7 @@ He has a little inner state (`src/lib/agent/mascot/brain/state.ts`): five drives
 
 The mood the sprite plays at follows it too, but the hour alone never slows him down.
 
-What he remembers between visits (`memory.ts`) is one small entry in this browser's localStorage, `mascot_memory`: the first and latest day, how many days and how many running, a few counters and the last thirty things he did. It is never sent anywhere. Someone back after a day or more gets a wave; a third or seventh day running, a cheer.
+What he remembers between visits (`memory.ts`) is one small entry in this browser's localStorage, `mascot_memory`: the first and latest day, how many days and how many running, a few counters and the last thirty things he did. It is never sent anywhere, it is not part of a backup, and "Clear data on this browser" forgets it. Someone back after a day or more gets a wave; a third or seventh day running, a cheer.
 
 On a touch screen he had nothing to look at, since his eyes followed the cursor. Now (`engine/attention.ts`) a finger on the screen has his eye, then the phone's tilt, then a field the visitor steps into, then the way the page is scrolled.
 

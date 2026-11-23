@@ -38,6 +38,7 @@ import { useSonificationStore } from "@/lib/stores/sonification-store";
 import { SCRUM_ROLE_LABEL, type SignOutResult } from "@/lib/auth/types";
 import { ActivityDot, useVisibleUnreadCount } from "@/components/notify/activity-dot";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
+import { closeAmrSheet } from "@/lib/layout/amr-sheet";
 import { useNotificationPrefsStore } from "@/lib/stores/notification-prefs-store";
 import { areCelebrationsPaused } from "@/lib/notify/prefs";
 import { useVDnaStore } from "@/lib/stores/vdna-store";
@@ -165,7 +166,7 @@ function VisitorMenu({
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={closeSheetOnOpen}>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
@@ -328,7 +329,7 @@ function OwnerMenu() {
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu onOpenChange={closeSheetOnOpen}>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
@@ -577,6 +578,14 @@ function SoundMenuItem() {
       Interface sounds
     </DropdownMenuCheckboxItem>
   );
+}
+
+/**
+ * The account menu opening over Amr's phone sheet closes the sheet first, so it
+ * and the dialogs it opens (Your data, Clear data, Sign out) never stack on it.
+ */
+function closeSheetOnOpen(open: boolean): void {
+  if (open) closeAmrSheet();
 }
 
 /** The avatar's accessible name, with the unread count (its dot is decorative). */

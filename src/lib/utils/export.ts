@@ -164,33 +164,6 @@ export async function exportToPNG(
   trackExport("png");
 }
 
-export async function copyToClipboard(text: string): Promise<boolean> {
-  // Primary path: async Clipboard API. Requires secure context + activation;
-  // legacy browsers + HTTP contexts fail here.
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // fall through to the textarea trick
-    }
-  }
-  // Fallback path: hidden textarea + execCommand. Deprecated but still the
-  // only thing that works on Safari iOS over HTTP and in some embedded webviews.
-  if (typeof document === "undefined") return false;
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "fixed";
-    ta.style.top = "-9999px";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
-}
+// Lives in its own module so a Copy button needn't load html-to-image and
+// file-saver; kept here too for the pages that already import it from export.
+export { copyToClipboard } from "./clipboard";

@@ -139,6 +139,171 @@ function vtReducedMotion(css) {
   );
 }
 
+/**
+ * One selector or declaration the way the minifier may write it: no quotes in
+ * attribute values, one colon before before/after, no leading zero on a number.
+ */
+function minified(text) {
+  return text
+    .replace(/["']/g, "")
+    .replace(/::(before|after)/g, ":$1")
+    .replace(/(^|[^\d.])0+\.(\d)/g, "$1.$2");
+}
+
+/** Every declaration the rules naming `selector` give it, both sides read as minified. */
+function declsLike(css, selector) {
+  const wanted = minified(selector);
+  return rules(css)
+    .filter((r) => r.selectors.some((s) => minified(s) === wanted))
+    .flatMap((r) => r.body.split(";").map(minified));
+}
+
+/**
+ * `selector`'s ink and paper triangles: `ink` and `paper` hold the declarations
+ * each must have, read as minified too (so `content:""` matches the build's).
+ */
+function tail(selector, ink, paper) {
+  return (css) => {
+    const before = declsLike(css, `${selector}::before`);
+    const after = declsLike(css, `${selector}::after`);
+    return (
+      ink.every((d) => before.includes(minified(d))) &&
+      paper.every((d) => after.includes(minified(d)))
+    );
+  };
+}
+
+/** The right tail, in ink then in the balloon's own paper. */
+const RIGHT_TAIL = {
+  ink: ["left:auto", "right:-.8rem", "border-color:transparenttransparenttransparentvar(--border)"],
+  paper: [
+    "left:auto",
+    "right:-.6rem",
+    "border-color:transparenttransparenttransparentvar(--balloon-fill)",
+  ],
+};
+
+/** The chat panel's down tail, in the panel's own ink (--border) and paper (--card). */
+const PANEL_DOWN_TAIL = {
+  ink: [
+    'content:""',
+    "bottom:-.8rem",
+    "left:var(--tail-at)",
+    "border-width:.8rem.4rem0",
+    "border-color:var(--border)transparenttransparent",
+  ],
+  paper: [
+    'content:""',
+    "bottom:-.6rem",
+    "left:calc(var(--tail-at)+.1rem)",
+    "border-width:.65rem.3rem0",
+    "border-color:var(--card)transparenttransparent",
+  ],
+};
+
+/** The name plate tilts and casts --shadow-1, and high contrast lays it flat. */
+function namePlate(css) {
+  const plate = declsLike(css, ".comic-name-plate");
+  const flat = [".hc.comic-name-plate", "[data-theme=hc].comic-name-plate"].every((selector) => {
+    const decls = declsLike(css, selector);
+    return decls.includes("rotate:none") && decls.includes("box-shadow:none");
+  });
+  return plate.includes("box-shadow:var(--shadow-1)") && plate.includes("rotate:-1deg") && flat;
+}
+
+/**
+ * The chat panel's entrance (mascot-assistant.module.css, hashed to
+ * `…_panelEnter__…` in the build): under prefers-reduced-motion:no-preference, an
+ * opacity and scale transition and an @starting-style block that starts it at
+ * opacity:0 and scale:.96.
+ */
+function panelEntrance(css) {
+  const named = (r) => r.selectors.some((s) => /panelEnter/.test(s));
+  const decls = (r) => r.body.split(";").map(minified);
+  return blocks(css, "@media")
+    .filter((m) => m.params.includes("(prefers-reduced-motion:no-preference)"))
+    .some(
+      (m) =>
+        rules(m.body).some((r) => {
+          if (!named(r)) return false;
+          const transition = decls(r).find((d) => d.startsWith("transition:")) ?? "";
+          return ["opacity", "scale", "var(--dur-surface-in)", "var(--ease-calm)"].every((part) =>
+            transition.includes(part)
+          );
+        }) &&
+        blocks(m.body, "@starting-style").some((s) =>
+          rules(s.body).some(
+            (r) => named(r) && ["opacity:0", "scale:.96"].every((d) => decls(r).includes(d))
+          )
+        )
+    );
+}
+
+/** Rules with where they start, so a fallback can be held before its @supports. */
+function rulesAt(css) {
+  return Array.from(css.matchAll(/([^{};]*)\{([^{}]*)\}/g), (m) => ({
+    at: m.index,
+    selectors: m[1].split(",").map(minified),
+    body: m[2].split(";"),
+  }));
+}
+
+/** The you caption: its outline and plain fallback paper, then the wash inside @supports. */
+function youCaption(css) {
+  const you = minified(".comic-caption[data-voice=you]");
+  const guarded = blocks(css, "@supports")
+    .filter((b) => b.params.includes("color-mix("))
+    .map((b) => ({
+      from: b.at,
+      to: b.at + "@supports".length + b.params.length + 1 + b.body.length,
+    }));
+  const inside = (at) => guarded.some((b) => at > b.from && at < b.to);
+  const mine = rulesAt(css).filter((r) => r.selectors.includes(you));
+  const fallback = mine.find(
+    (r) =>
+      !inside(r.at) &&
+      r.body.includes("background-color:var(--surface)") &&
+      r.body.some(
+        (d) =>
+          d.startsWith("border:") &&
+          ["var(--line-w)", "solid", "var(--border)"].every((part) => d.includes(part))
+      )
+  );
+  return (
+    fallback !== undefined &&
+    mine.some(
+      (r) =>
+        r.at > fallback.at &&
+        inside(r.at) &&
+        r.body.includes("background-color:color-mix(insrgb,var(--accent2)14%,var(--card))")
+    )
+  );
+}
+
+/** The @media (forced-colors:active) blocks. */
+function forcedColorBlocks(css) {
+  return blocks(css, "@media").filter((b) => b.params.includes("(forced-colors:active)"));
+}
+
+/** Forced colours hide the balloon's tails. */
+function tailsHiddenInForcedColors(css) {
+  return forcedColorBlocks(css).some((b) =>
+    ["before", "after"].every((p) => declsLike(b.body, `.balloon::${p}`).includes("display:none"))
+  );
+}
+
+/** Forced colours give the you caption a start edge heavier than narration's --line-w. */
+function youEdgeInForcedColors(css) {
+  return forcedColorBlocks(css).some((b) =>
+    declsLike(b.body, ".comic-caption[data-voice=you]").some((d) => {
+      const [prop, value] = d.split(/:(.*)/);
+      return (
+        prop === "border-inline-start-width" && !!value && !/^(var\(--line-w\)|0)$/.test(value)
+      );
+    })
+  );
+}
+
 /** Markers by PR id. Each `test` gets one file's CSS with all whitespace removed. */
 export const MARKERS = {
   F1: [
@@ -181,6 +346,50 @@ export const MARKERS = {
       test: vtReducedMotion,
     },
   ],
+  AMR: [
+    {
+      name: ".balloon[data-tail=right]: the tail on the right edge, ink in --border and paper in --balloon-fill",
+      test: tail(".balloon[data-tail=right]", RIGHT_TAIL.ink, RIGHT_TAIL.paper),
+    },
+    {
+      name: ".comic-caption[data-voice=you]: a --line-w --border outline on --surface, then the --accent2 color-mix wash inside @supports",
+      test: youCaption,
+    },
+    {
+      name: "the amr alias: [data-amr-side=right] .balloon[data-tail=amr] takes the right tail, [data-amr-edge=top] counts it from the top",
+      test: (css) =>
+        tail(
+          "[data-amr-side=right].balloon[data-tail=amr]",
+          RIGHT_TAIL.ink,
+          RIGHT_TAIL.paper
+        )(css) &&
+        tail(
+          "[data-amr-edge=top].balloon[data-tail=amr]",
+          ["top:var(--tail-at)", "bottom:auto"],
+          ["top:calc(var(--tail-at)+.1rem)", "bottom:auto"]
+        )(css),
+    },
+    {
+      name: "forced colours: display:none on .balloon::before and ::after, in @media (forced-colors:active)",
+      test: tailsHiddenInForcedColors,
+    },
+    {
+      name: "forced colours: .comic-caption[data-voice=you] keeps a border-inline-start-width heavier than --line-w, in @media (forced-colors:active)",
+      test: youEdgeInForcedColors,
+    },
+    {
+      name: ".comic-tailed[data-tail=down]: the panel's tail on its bottom edge at --tail-at, ink in --border and paper in --card",
+      test: tail(".comic-tailed[data-tail=down]", PANEL_DOWN_TAIL.ink, PANEL_DOWN_TAIL.paper),
+    },
+    {
+      name: ".comic-name-plate: box-shadow:var(--shadow-1) and rotate:-1deg, laid flat (rotate:none, box-shadow:none) under .hc and [data-theme=hc]",
+      test: namePlate,
+    },
+    {
+      name: "@starting-style: the chat panel's entrance (panelEnter) starts at opacity:0 and scale:.96 and transitions both, in @media (prefers-reduced-motion:no-preference)",
+      test: panelEntrance,
+    },
+  ],
 };
 
 export function stripWhitespace(css) {
@@ -189,6 +398,8 @@ export function stripWhitespace(css) {
 
 /**
  * @param {string[]} sheets CSS files, whitespace already removed
+ * @param {Record<string, { name: string, test: (css: string) => boolean }[]>} [markers]
+ *   MARKERS, or some of its groups
  * @returns {{ id: string, name: string, ok: boolean }[]} one entry per marker;
  *   a marker passes when any one file has it
  */

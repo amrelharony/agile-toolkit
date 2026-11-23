@@ -23,10 +23,8 @@ import {
 } from "./clips";
 import { HOLD_SCENES, SCENES } from "./scenes";
 
-export const SHEET = { columns: 8, rows: 11, cellW: 192, cellH: 208 } as const;
-/** Rows of the cell Amr's figure stands in (below is empty, above is headroom). */
-export const FIGURE_TOP = 25;
-export const FIGURE_BOTTOM = 202;
+/** The sheet's cell and the figure's rows live in figure-metrics.ts (no imports). */
+export { FIGURE_BOTTOM, FIGURE_TOP, SHEET } from "./figure-metrics";
 
 export type SpritePose =
   | "idle"

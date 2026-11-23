@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState, type ReactNode, type Ref } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowRight, KeyRound, MessageCircle, Search } from "lucide-react";
+import { ArrowRight, ChevronDown, KeyRound, MessageCircle, Search } from "lucide-react";
+import { useAnnounce } from "@/components/a11y/live-announcer";
 import { Button } from "@/components/ui/button";
+import { Eyebrow } from "@/components/ui/eyebrow";
 import { Input } from "@/components/ui/input";
 import { getToolById, getToolByPath } from "@/lib/constants/tools";
 import { searchTools } from "@/lib/search/tool-search";
@@ -14,12 +16,54 @@ import { isVipHidden } from "@/lib/tools/catalog";
 import { getGuide, type ToolGuide } from "@/lib/tools/guides";
 import { useVipHint } from "@/lib/vip/use-vip-hint";
 import { useMascotStore } from "@/lib/agent/mascot/store";
+import { closeAmrSheet } from "@/lib/layout/amr-sheet";
+import { DOCK_END_FULL, useAmrPanel } from "./panel-context";
 
 /** A search with no match, left alone this long, gets a shrug from Amr. */
-const SHRUG_AFTER_MS = 900;
+export const SHRUG_AFTER_MS = 900;
+
+/** How long typing has to stop before the match count is read out. */
+export const SEARCH_ANNOUNCE_MS = 450;
+
+/**
+ * At most this many results. With Amr's AI on, one fewer, so the two-line
+ * rows leave the Ask button and the first rows in a phone's view of the panel.
+ */
+export const RESULTS_CAP = 6;
+export const RESULTS_CAP_WITH_AI = 5;
+
+/** The results list; Enter in the search moves focus to its first link. */
+const RESULTS_ID = "mascot-tool-results";
 
 /** Common jobs, shown before the visitor types anything (same list as the home page). */
 const STARTERS = JOBS.map((job) => ({ label: job.title, toolId: job.primaryToolId }));
+
+/**
+ * What the announcer says once typing stops: plain words, no dashes. `more`
+ * says the list was cut at `count`, so it never names a capped count as the
+ * number of tools that match.
+ */
+export function matchCountNote(count: number, query: string, more = false): string {
+  if (count === 0) return `No tools match “${query}”`;
+  if (more) return `More than ${count} tools match. The best ${count} are shown`;
+  return count === 1 ? "1 tool matches" : `${count} tools match`;
+}
+
+/**
+ * The guide summary's opening sentence, so the "You're in" card stays a few
+ * lines on a phone (the page's own "How this works" panel has the rest). A
+ * very short opener ("Two boards.") takes the next sentence too; a closing
+ * quote or bracket after the stop stays with its sentence, and a stop with no
+ * space after it ("1.5") ends nothing.
+ */
+export function summaryLead(text: string): string {
+  const stop = /[.!?]["”’)]*(?=\s|$)/g;
+  for (let m = stop.exec(text); m; m = stop.exec(text)) {
+    const end = m.index + m[0].length;
+    if (end >= 24) return text.slice(0, end);
+  }
+  return text;
+}
 
 /** The current tool's "How this works" guide, loaded on demand. */
 function useToolGuide(toolId: string | undefined): ToolGuide | null {
@@ -39,24 +83,40 @@ function useToolGuide(toolId: string | undefined): ToolGuide | null {
 }
 
 /**
- * What the mascot's panel shows a visitor.
+ * What the mascot's panel shows a visitor: the tool finder.
  *
  * The agent chat is the owner's (it runs on the owner's server key), so a
  * visitor's panel helps them find the right tool instead: a task search, how
- * to run the current tool's method (its guide), and the bring-your-own-key AI
- * settings that power every tool's built-in prompts. It makes no network
- * requests.
+ * to run the current tool's method (its guide), the common jobs as tiles, and
+ * the bring-your-own-key AI settings that power every tool's built-in prompts.
+ * It makes no network requests.
  *
- * With visitor AI on, VisitorPanel passes `onAskAmr`: the guide then offers to
- * hand the search to Amr's AI ("Ask Amr about '…'", under the results and when
- * nothing matches) and a "Chat with Amr" link. Those only call back; the guide
- * itself still sends nothing.
+ * The search is a `role=search` form. Enter (the phone keyboard's Search key)
+ * moves focus to the first result, which drops the keyboard and lets a screen
+ * reader read the tool's name; with no match it asks Amr (visitor AI on), the
+ * same as the Ask button, or else leaves focus in the box. The match count
+ * is read out through the app's one announcer once typing stops, so the guide
+ * mounts no live region of its own. Escape in a non-empty search clears it
+ * and stops there (`preventDefault`, which the panel's own Escape respects);
+ * only an empty search lets Escape close the panel. An input method's Escape
+ * is left to it.
+ *
+ * With visitor AI on, VisitorPanel passes `onAskAmr`: the guide then shows one
+ * primary Ask button under the search. It reads "Chat with Amr" while the
+ * search is empty, and "Ask Amr about '…'" once something is typed. With
+ * `resumeChat` it reads "Back to chat" instead while the search is empty or
+ * still holds the question that chat opened with (`resumeQuery`), which was
+ * sent already and is never asked twice. It only calls back; the guide itself
+ * still sends nothing.
  */
 export function VisitorGuide({
   onNavigate,
   onAskAmr,
   guideRef,
   note,
+  initialQuery,
+  resumeChat = false,
+  resumeQuery,
 }: {
   onNavigate?: () => void;
   /** Ask Amr's AI instead (visitor AI on); `query` may be empty. */
@@ -68,6 +128,22 @@ export function VisitorGuide({
    * panel it scrolls away with the guide and takes no height from it.
    */
   note?: ReactNode;
+  /**
+   * The search to start with, such as the question a visitor took to the
+   * consent card or the chat and came back from. It is not read out again.
+   */
+  initialQuery?: string;
+  /**
+   * The visitor has a chat with Amr under way: while the search is empty or
+   * still holds `resumeQuery`, the Ask button reads "Back to chat", and
+   * `onAskAmr("")` takes them back to it.
+   */
+  resumeChat?: boolean;
+  /**
+   * The question the chat under way opened with. It was sent already, so a
+   * search that still holds it goes back to the chat instead of asking again.
+   */
+  resumeQuery?: string;
 }) {
   const pathname = usePathname();
   const vip = useVipHint();
@@ -76,22 +152,54 @@ export function VisitorGuide({
   const current = onPath && !isVipHidden(onPath, vip) ? onPath : undefined;
   const guide = useToolGuide(current?.id);
   const openSettings = useLlmUiStore((s) => s.openSettings);
-  const [query, setQuery] = useState("");
+  const announce = useAnnounce();
+  const [query, setQuery] = useState(initialQuery ?? "");
   const trimmed = query.trim();
-  const results = useMemo(() => (trimmed ? searchTools(trimmed, 6) : []), [trimmed]);
-  const signInHref = `/auth/sign-in?next=${encodeURIComponent(pathname || "/")}`;
+  const cap = onAskAmr ? RESULTS_CAP_WITH_AI : RESULTS_CAP;
+  // One more than the cap, to know whether the list was cut.
+  const found = useMemo(() => (trimmed ? searchTools(trimmed, cap + 1) : []), [trimmed, cap]);
+  const more = found.length > cap;
+  const results = useMemo(() => (more ? found.slice(0, cap) : found), [found, more, cap]);
+  // Only what the visitor types is read out: a search the guide opened with
+  // (coming back from the consent card) was theirs already.
+  const [typed, setTyped] = useState(false);
+  // Back to the chat under way, with an empty search or one that still holds
+  // the question that chat opened with: it was sent already, so the Ask button
+  // asks nothing again.
+  const backToChat = resumeChat && (!trimmed || trimmed === (resumeQuery ?? "").trim());
+  const askQuery = backToChat ? "" : trimmed;
 
   // Amr shrugs at a search that finds nothing, once the visitor stops typing.
-  const noMatch = trimmed.length > 0 && results.length === 0;
+  // A search the guide opened with (back from the consent card or the chat)
+  // gets none: the visitor typed nothing.
+  const noMatch = typed && trimmed.length > 0 && results.length === 0;
   useEffect(() => {
     if (!noMatch) return;
     const id = setTimeout(() => useMascotStore.getState().queueReaction("shrug"), SHRUG_AFTER_MS);
     return () => clearTimeout(id);
   }, [noMatch, trimmed]);
+
+  // The count, once typing stops. One polite line through the app's
+  // announcer; each key press starts the wait again.
+  const count = results.length;
+  useEffect(() => {
+    if (!typed || !trimmed) return;
+    const id = setTimeout(() => announce(matchCountNote(count, trimmed, more)), SEARCH_ANNOUNCE_MS);
+    return () => clearTimeout(id);
+  }, [typed, trimmed, count, more, announce]);
+
+  // A tool picked closes the panel: the caller's way, else the panel
+  // context's (its links replace the phone sheet's Back marker, ToolLink).
+  // The settings button opens a dialog, not a page, so it first closes the
+  // phone sheet as a surface opening over it (Back's marker taken out), then
+  // closes the panel this way (nothing left to close in the sheet).
+  const panel = useAmrPanel();
+  const navigate = onNavigate ?? panel.onNavigate;
+
   // Picking a tool: "you've got this".
   const chose = () => {
     useMascotStore.getState().queueReaction("cheer");
-    onNavigate?.();
+    navigate();
   };
 
   return (
@@ -102,98 +210,147 @@ export function VisitorGuide({
       ref={guideRef}
       tabIndex={-1}
       data-testid="mascot-visitor-guide"
-      className="flex h-full flex-col gap-4 overflow-y-auto px-4 py-3 focus:outline-none"
+      // It ends above Amr docked in the phone's sheet: no tile scrolls under him.
+      data-amr-scroll=""
+      // scroll-py-2: Tab scrolls a tile, a result or AI settings 8 px clear of
+      // the scroller's edge, so its focus ring (drawn up to 5 px outside it, the
+      // only sign of focus in forced colours) is never cut off there.
+      className={`flex h-full scroll-py-2 flex-col gap-4 overflow-y-auto overscroll-contain px-4 py-3 focus:outline-none ${DOCK_END_FULL}`}
     >
       {note}
       {/* The search comes first. A phone shows about 360 px of this panel, and
-          the current tool's "How to run it" list alone is longer than that, so
-          the search used to sit two to four screens down. Results show right
-          under the field; the common jobs follow the tool's own card. */}
+          the current tool's card alone can be longer than that, so the search
+          used to sit two to four screens down. The Ask button and the results
+          show right under the field; the common jobs follow the tool's card. */}
       <section className="flex flex-col gap-2">
-        <label htmlFor="mascot-tool-search" className="text-sm font-medium text-text">
-          What do you need to do?
-        </label>
-        <div className="relative">
-          <Search
-            className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sub"
-            aria-hidden="true"
-          />
-          <Input
-            id="mascot-tool-search"
-            type="search"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="e.g. run a retro, prioritize a backlog"
-            className="pl-9"
-            autoComplete="off"
-          />
-        </div>
+        <form
+          role="search"
+          aria-label="Find a tool"
+          // Enter (or the keyboard's Search key): on to the first result. A
+          // link is not a text field, so a phone's keyboard closes and the
+          // results show. With no match and Amr's AI on, it asks him, the same
+          // as the Ask button. With no match and no AI, focus stays in the box
+          // to try again.
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (results.length > 0) {
+              e.currentTarget.ownerDocument
+                .getElementById(RESULTS_ID)
+                ?.querySelector<HTMLAnchorElement>("a[href]")
+                ?.focus();
+            } else if (trimmed && onAskAmr) {
+              onAskAmr(askQuery);
+            }
+          }}
+          className="flex flex-col gap-2"
+        >
+          {/* A lettered section label, not an Amr line. */}
+          <label
+            htmlFor="mascot-tool-search"
+            className="font-display text-base font-semibold text-text"
+          >
+            What do you need to do?
+          </label>
+          <div className="relative">
+            <Search
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-sub"
+              aria-hidden="true"
+            />
+            <Input
+              id="mascot-tool-search"
+              type="search"
+              dir="auto"
+              enterKeyHint="search"
+              value={query}
+              onChange={(e) => {
+                setTyped(true);
+                setQuery(e.target.value);
+              }}
+              // Escape clears a search first; only an empty one lets the
+              // panel close. An input method's Escape cancels its
+              // composition, nothing else.
+              onKeyDown={(e) => {
+                if (e.key !== "Escape") return;
+                if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                if (!query) return;
+                e.preventDefault();
+                setQuery("");
+              }}
+              placeholder="e.g. run a retro, prioritize a backlog"
+              className="pl-9"
+              autoComplete="off"
+            />
+          </div>
+        </form>
+        {onAskAmr && <AskButton query={askQuery} resume={backToChat} onAskAmr={onAskAmr} />}
         {trimmed &&
           (results.length > 0 ? (
-            <>
-              <ul className="flex flex-col gap-1" aria-label="Matching tools">
-                {results.map((tool) => (
-                  <li key={tool.id}>
-                    <ToolLink
-                      href={tool.path}
-                      title={tool.name}
-                      subtitle={tool.description}
-                      onNavigate={chose}
-                    />
-                  </li>
-                ))}
-              </ul>
-              {onAskAmr && <AskAmrButton query={trimmed} onAskAmr={onAskAmr} />}
-            </>
+            <ul id={RESULTS_ID} className="flex flex-col gap-1" aria-label="Matching tools">
+              {results.map((tool) => (
+                <li key={tool.id}>
+                  <ToolLink
+                    href={tool.path}
+                    title={tool.name}
+                    subtitle={tool.description}
+                    onNavigate={chose}
+                  />
+                </li>
+              ))}
+            </ul>
           ) : (
-            <>
-              <p className="text-sm text-sub" role="status">
-                No tools match “{trimmed}”. Try a task like “retro” or “estimate”, or a method like
-                “OKR” or “WSJF”.
-              </p>
-              {onAskAmr && <AskAmrButton query={trimmed} onAskAmr={onAskAmr} />}
-            </>
+            // Not a live region: the announcer reads the count once typing
+            // stops, so this is never said twice.
+            <p className="text-sm text-sub">
+              No tools match “<bdi>{trimmed}</bdi>”. Try a task like “retro” or “estimate”, or a
+              method like “OKR” or “WSJF”.
+            </p>
           ))}
       </section>
 
       {current && (
-        <section
-          aria-label="This tool"
-          className="rounded-lg border border-border bg-card px-3 py-2.5"
-        >
+        <section aria-label="This tool" className="panel px-3 py-2.5">
           <p className="text-xs text-sub">You&apos;re in</p>
-          <p className="text-sm font-semibold text-text">{current.name}</p>
-          <p className="mt-0.5 text-sm text-sub">{guide?.summary ?? current.description}</p>
-          {guide && (
-            <>
-              <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-sub">
-                How to run it
-              </p>
-              <ol className="mt-1 list-decimal space-y-1 pl-5 text-sm text-text">
+          <h3 className="font-display text-base font-semibold text-text">{current.name}</h3>
+          {/* The summary's first sentence only, so the tiles stay in a phone's
+              view. Three lines at most for a long one (no `block` here, which
+              would undo the clamp's own display). */}
+          <p className="mt-0.5 line-clamp-3 text-sm text-sub">
+            {guide ? summaryLead(guide.summary) : current.description}
+          </p>
+          {guide && guide.steps.length > 0 && (
+            // Closed by default: the page's own "How this works" panel has the
+            // same steps, and the open list ran a phone screen long.
+            <details className="group/steps mt-1">
+              <summary className="flex cursor-pointer select-none list-none items-center gap-2 py-1 text-sm font-medium text-text pointer-coarse:min-h-11 [&::-webkit-details-marker]:hidden">
+                {`How to run it (${guide.steps.length} ${guide.steps.length === 1 ? "step" : "steps"})`}
+                <ChevronDown
+                  className="ms-auto h-4 w-4 shrink-0 text-sub group-open/steps:rotate-180"
+                  aria-hidden="true"
+                />
+              </summary>
+              <ol className="mt-1 list-decimal space-y-1 ps-5 text-sm text-text">
                 {guide.steps.map((step) => (
                   <li key={step}>{step}</li>
                 ))}
               </ol>
-            </>
+            </details>
           )}
         </section>
       )}
 
       {!trimmed && (
-        <section className="flex flex-col gap-1">
-          <p
-            id="mascot-popular-tasks"
-            className="text-xs font-semibold uppercase tracking-wide text-sub"
-          >
+        <section className="flex flex-col gap-2">
+          <Eyebrow as="h3" id="mascot-popular-tasks">
             Popular tasks
-          </p>
-          <ul className="flex flex-col gap-1" aria-labelledby="mascot-popular-tasks">
+          </Eyebrow>
+          <ul className="grid grid-cols-2 gap-2" aria-labelledby="mascot-popular-tasks">
             {STARTERS.map((s) => {
               const tool = getToolById(s.toolId);
               if (!tool) return null;
               return (
-                <li key={s.toolId}>
+                <li key={s.toolId} className="min-w-0">
                   <ToolLink
+                    variant="tile"
                     href={tool.path}
                     title={s.label}
                     subtitle={tool.name}
@@ -206,53 +363,47 @@ export function VisitorGuide({
         </section>
       )}
 
-      <section className="mt-auto flex flex-col gap-2 border-t border-border pt-3">
-        {onAskAmr && (
-          <button
-            type="button"
-            onClick={() => onAskAmr("")}
-            className="min-touch-coarse flex items-center gap-1.5 self-start text-sm font-medium text-accent underline-offset-2 hover:underline"
-          >
-            <MessageCircle className="h-4 w-4" aria-hidden="true" />
-            Chat with Amr
-          </button>
-        )}
+      {/* The own-key settings: a quiet footer, not the panel's loudest control. */}
+      <section className="mt-auto flex flex-col items-start gap-1 border-t border-border pt-3">
         <p className="text-xs text-sub">
-          Each tool&apos;s AI prompts can run with your own API key. The key stays in this browser.
+          Each tool&apos;s AI prompts can use your own key. It stays in this browser.
         </p>
-        <div className="flex items-center justify-between gap-2">
-          <Button
-            type="button"
-            variant="toolkit"
-            size="sm"
-            className="pointer-coarse:min-h-11"
-            onClick={() => {
-              onNavigate?.();
-              openSettings();
-            }}
-          >
-            <KeyRound aria-hidden="true" />
-            AI settings
-          </Button>
-          <Link
-            href={signInHref}
-            onClick={onNavigate}
-            className="min-touch-coarse inline-flex items-center justify-end text-xs text-sub underline-offset-2 hover:text-text hover:underline"
-          >
-            Owner sign in
-          </Link>
-        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="text-sub pointer-coarse:min-h-11"
+          onClick={() => {
+            closeAmrSheet();
+            navigate();
+            openSettings();
+          }}
+        >
+          <KeyRound aria-hidden="true" />
+          AI settings
+        </Button>
       </section>
     </div>
   );
 }
 
-/** Hand the visitor's search to Amr's AI. */
-function AskAmrButton({ query, onAskAmr }: { query: string; onAskAmr: (query: string) => void }) {
+/**
+ * The guide's one way into Amr's AI: "Chat with Amr" with an empty search,
+ * "Back to chat" (`resume`, with `query` empty) when it goes back to the chat
+ * under way, and "Ask Amr about '…'" with a new search in it.
+ */
+function AskButton({
+  query,
+  resume,
+  onAskAmr,
+}: {
+  query: string;
+  resume: boolean;
+  onAskAmr: (query: string) => void;
+}) {
   return (
     <Button
       type="button"
-      variant="outline"
       size="sm"
       // The label holds up to 40 characters of the search, wider than the
       // panel on one line: it wraps inside the button instead. Size "sm"
@@ -261,31 +412,85 @@ function AskAmrButton({ query, onAskAmr }: { query: string; onAskAmr: (query: st
       onClick={() => onAskAmr(query)}
     >
       <MessageCircle aria-hidden="true" />
-      Ask Amr about “{query.length > 40 ? `${query.slice(0, 39)}…` : query}”
+      {query ? (
+        <span>
+          Ask Amr about “<bdi>{query.length > 40 ? `${query.slice(0, 39)}…` : query}</bdi>”
+        </span>
+      ) : resume ? (
+        "Back to chat"
+      ) : (
+        "Chat with Amr"
+      )}
     </Button>
   );
 }
 
+/**
+ * A tool to open: a `row` for a search result (name over a two-line
+ * description) or a `tile` for a popular task (the job over its tool's name).
+ * Tiles get the 44 px touch floor; neither presses yet (the site's press for
+ * rows and cards comes with wave P). In the phone's sheet, while its Back
+ * marker is the newest history entry, the tool's page takes its place (the
+ * panel context's replaceOnNavigate), so Back from the tool leaves the site's
+ * page it was opened on, not a marker for a sheet that has gone.
+ */
 function ToolLink({
   href,
   title,
   subtitle,
   onNavigate,
+  variant = "row",
 }: {
   href: string;
   title: string;
   subtitle: string;
   onNavigate?: () => void;
+  variant?: "row" | "tile";
 }) {
+  const { replaceOnNavigate } = useAmrPanel();
+  if (variant === "tile") {
+    return (
+      <Link
+        href={href}
+        replace={replaceOnNavigate}
+        onClick={onNavigate}
+        className="min-touch-coarse group flex h-full min-w-0 flex-col justify-center gap-0.5 rounded-md border border-border bg-card px-2.5 py-2 transition-colors hover:border-accent hover:bg-accent/10 focus-visible:bg-accent/10"
+      >
+        {/* Half the panel wide: a long word (or 200% text) breaks inside the
+            tile rather than run into the next one, and the tool's name takes
+            the lines it needs rather than lose its end to an ellipsis or a
+            clamp (at 200% "Backlog Prioritizer" needs three). */}
+        <span
+          dir="auto"
+          className="break-words text-sm font-medium leading-snug text-text hyphens-auto [overflow-wrap:anywhere] group-hover:text-accent"
+        >
+          {title}
+        </span>
+        <span
+          dir="auto"
+          className="break-words text-xs text-sub hyphens-auto [overflow-wrap:anywhere]"
+        >
+          {subtitle}
+        </span>
+      </Link>
+    );
+  }
   return (
     <Link
       href={href}
+      replace={replaceOnNavigate}
       onClick={onNavigate}
       className="group flex items-center gap-3 rounded-md px-2 py-2 transition-colors hover:bg-accent/10 focus-visible:bg-accent/10"
     >
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-medium text-text group-hover:text-accent">{title}</span>
-        <span className="block truncate text-xs text-sub">{subtitle}</span>
+        <span dir="auto" className="block text-sm font-medium text-text group-hover:text-accent">
+          {title}
+        </span>
+        {/* Two lines: the sentence that tells two similar tools apart. No
+            `block` here, which would undo the clamp's own display. */}
+        <span dir="auto" className="mt-0.5 line-clamp-2 text-xs text-sub">
+          {subtitle}
+        </span>
       </span>
       <ArrowRight
         className="h-4 w-4 shrink-0 text-sub group-hover:text-accent"

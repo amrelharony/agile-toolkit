@@ -1,7 +1,8 @@
 /**
  * What the site tells people about their data, in the words they are shown at
  * the moment it matters: the "Your data" dialog, the consent step before a
- * live room or a vote round, the card before Amr's AI, the note under the
+ * live room or a vote round, the card before Amr's AI and the notice before
+ * a visitor's first dictation in its chat, the note under the
  * comics and kudos pages, the AI settings dialog, and the line under the
  * licence and guestbook forms.
  *
@@ -11,7 +12,12 @@
  * wording lives in this plain one. Change a sentence here and the dialog and
  * the page change together.
  *
- * No imports and no browser or server APIs: safe in either bundle.
+ * One text lives in a module of its own and is re-exported here: the voice
+ * notice's (./voice-disclosure). Several chunks carry this module, the comics
+ * pages' first load among them, and a bundler keeps in it every text some
+ * chunk uses, so a text only a lazily loaded part shows stays apart.
+ *
+ * No other imports and no browser or server APIs: safe in either bundle.
  */
 
 // ── "Your data" (components/data/your-data-dialog.tsx) ────────────────────
@@ -125,8 +131,15 @@ export const VISITOR_AI_CONSENT_TEXT: readonly string[] = [
   VISITOR_AI_KEPT,
   "Amr never changes your work without you accepting it.",
   "Don't share personal or confidential information.",
-  `You get ${VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons (fewer during busy hours). The tools and the offline guide always work without AI.`,
+  `You get ${VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons (fewer during busy hours). The tools and the tool finder always work without AI.`,
 ];
+
+// ── Dictation in Amr's AI chat (components/agent/mascot/voice-notice.tsx) ──
+
+// What the chat's voice notice says before a visitor's first dictation, kept
+// in ./voice-disclosure: only the notice, loaded on the mic's first press,
+// shows it (see the file comment).
+export { VOICE_INPUT_DISCLOSURE } from "./voice-disclosure";
 
 // ── The count note (components/visits/visit-recorder.tsx) ─────────────────
 
