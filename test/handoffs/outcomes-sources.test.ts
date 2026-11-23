@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SOURCE_TOOLS, sourceHref, sourceLabel } from "@/lib/handoffs/registry";
+import { KANBAN_FLOW_DOC } from "@/lib/handoffs/sources";
 
 /**
  * Every tool whose items land elsewhere with its sourceRef gets a "From …"
@@ -171,7 +172,8 @@ describe("the tools plan's phase 2 back-links", () => {
       ["strategy-tree", "From strategy tree", "/strategy-tree?tree=d1", "/strategy-tree"],
       ["improve", "From improvement", "/improve?item=d1", "/improve?item=x1"],
       ["kickoff", "From kickoff", "/kickoff?kickoff=d1", "/kickoff"],
-      ["kanban", "From Kanban board", "/kanban", "/kanban"],
+      // A Sprint-board story names its sprint, which opens that sprint's board.
+      ["kanban", "From Kanban board", "/kanban?sprint=d1", "/kanban"],
     ];
     for (const [tool, label, withDoc, plain] of cases) {
       expect(sourceLabel({ tool, id: "x1", doc: "d1" }), tool).toBe(label);
@@ -180,6 +182,13 @@ describe("the tools plan's phase 2 back-links", () => {
     }
     expect(sourceHref({ tool: "impact-map", id: "x", doc: "map 1" })).toBe(
       "/impact-map?map=map%201"
+    );
+    // A Flow-board card opens the Flow board, which a running sprint would otherwise hide.
+    expect(sourceHref({ tool: "kanban", id: "c1", doc: KANBAN_FLOW_DOC })).toBe(
+      "/kanban?board=flow"
+    );
+    expect(sourceHref({ tool: "kanban", id: "s", doc: "sprint 7" })).toBe(
+      "/kanban?sprint=sprint%207"
     );
   });
 });

@@ -41,6 +41,7 @@ import { openSpellIndex, withSpellNote, type SpellNote } from "@/lib/flow/block-
 import { blockNotedPayload } from "@/lib/kanban/workflow";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
 import { sendHandoff, type HandoffLinkStore } from "@/lib/handoffs/send";
+import { KANBAN_FLOW_DOC } from "@/lib/handoffs/sources";
 import { isExampleId } from "@/lib/utils/example-id";
 import { undoable } from "@/lib/utils/undoable";
 import { SELECT_CLASS } from "./workflow/fields";
@@ -51,6 +52,8 @@ export interface BlockableItem {
   title: string;
   blocked?: boolean;
   blockLog?: BlockSpell[];
+  /** A Sprint-board story's sprint: an impediment logged from it links back to that board. */
+  sprintId?: string;
 }
 
 export const SIDE_LABEL: Record<BlockSide, string> = {
@@ -298,12 +301,15 @@ function BlockNoteForm({
         writeNote({ sentTo: update(realLinks()) });
       },
     };
+    // The board it is on, so the impediment's "From Kanban board" opens that
+    // board: /kanban alone opens the Sprint board while a sprint is active.
+    const doc = idKey === "cardId" ? KANBAN_FLOW_DOC : item.sprintId;
     const link = sendHandoff(
       "impediment",
       {
         title: item.title,
         ...(cause.trim() ? { description: cause.trim() } : {}),
-        sourceRef: { tool: "kanban", id: item.id },
+        sourceRef: { tool: "kanban", id: item.id, ...(doc ? { doc } : {}) },
       },
       store
     );

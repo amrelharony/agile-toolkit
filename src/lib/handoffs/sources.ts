@@ -100,6 +100,13 @@ export const SOURCE_TOOLS: Readonly<Record<string, { name: string; href: string 
   kanban: { name: "Kanban board", href: "/kanban" },
 };
 
+/**
+ * The `doc` a Flow-board card's sends name, so the link back opens the Flow
+ * board; a Sprint-board story's name its sprint instead. /kanban opens the
+ * Sprint board while a sprint is active, where a Flow card isn't.
+ */
+export const KANBAN_FLOW_DOC = "flow";
+
 /** Phase 43's tools that open the document an item came from, and the query key each reads. */
 const DOC_PARAMS: Readonly<Record<string, string>> = {
   "example-mapping": "map",
@@ -150,6 +157,13 @@ export function sourceHref(ref: HandoffRef | undefined): string | null {
   }
   if (ref?.tool === "improve") {
     return `${tool.href}?item=${encodeURIComponent(ref.doc ?? ref.id)}`;
+  }
+  // A blocked card or story opens the board it is on: the Flow board
+  // (?board=flow), or the story's sprint (?sprint=, which opens its Sprint board).
+  if (ref?.tool === "kanban" && ref.doc) {
+    return ref.doc === KANBAN_FLOW_DOC
+      ? `${tool.href}?board=flow`
+      : `${tool.href}?sprint=${encodeURIComponent(ref.doc)}`;
   }
   const docParam =
     ref && Object.prototype.hasOwnProperty.call(DOC_PARAMS, ref.tool)
