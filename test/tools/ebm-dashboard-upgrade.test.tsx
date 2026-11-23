@@ -624,6 +624,24 @@ describe("more of the contract", () => {
     expect(logs.at(-1)).toMatchObject({ action: EBM_DASHBOARD_ACTIONS.READING_ADDED });
   });
 
+  it("deletes a reading with Undo, in Improve's words, and keeps focus in the panel", async () => {
+    useWorkspaceStore.setState({ productMetrics: [measured()] });
+    renderPage();
+    const cv = await screen.findByRole("region", { name: "Current Value" });
+    fireEvent.click(within(cv).getByRole("button", { name: "Reading for “Renewals”" }));
+    const panel = screen.getByRole("region", { name: "Readings for Renewals" });
+    fireEvent.click(
+      within(panel).getByRole("button", { name: "Delete the reading for 2026-10-01" })
+    );
+    expect(metrics()[0].readings).toEqual([]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Deleted the reading for 2026-10-01");
+    await waitFor(() =>
+      expect(within(panel).getByRole("button", { name: "Paste readings" })).toHaveFocus()
+    );
+    undoLast();
+    expect(metrics()[0].readings.map((r) => r.id)).toEqual(["r"]);
+  });
+
   it("edits a measure and keeps the views it sits in", async () => {
     useWorkspaceStore.setState({ productMetrics: [measured()] });
     renderPage();

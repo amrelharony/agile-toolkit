@@ -3,10 +3,12 @@
 /**
  * Readings for one metric: add one (a second on the same day replaces the
  * first), paste up to 52 lines of "YYYY-MM-DD, value" with bad lines named
- * inline, and remove one with Undo. The page does the writes.
+ * inline, and delete one with Undo. The page does the writes. After a
+ * delete, focus goes to the next reading's delete, or, with none left, to
+ * "Paste readings" (the Day field while the paste box is open).
  */
 
-import { useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";
@@ -30,6 +32,12 @@ import {
 
 /** Characters a paste box takes: 52 lines with room for notes and spaces. */
 const PASTE_MAX = PASTE_LINES_MAX * 60;
+
+/** Where focus goes once no reading is left to delete. */
+const NO_READING_LEFT = "none";
+
+/** A reading's delete button: the same words in Product Metrics, EBM and Improve. */
+const deleteReadingLabel = (date: string) => `Delete the reading for ${date}`;
 
 export function ReadingPanel({
   metric,
@@ -57,6 +65,28 @@ export function ReadingPanel({
   });
   const { draft, update, errors } = form;
   const recent = sortedReadings(metric).slice(-6).reverse();
+
+  const ids = useId();
+  const deleteId = (id: string) => `${ids}-reading-${id}-delete`;
+  const pasteRef = useRef<HTMLButtonElement>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  // The deleted row's button is gone with it: keyboard focus would fall to the page.
+  useEffect(() => {
+    if (!focusId) return;
+    const target =
+      focusId === NO_READING_LEFT
+        ? (pasteRef.current ?? form.formRef.current?.querySelector<HTMLElement>("input"))
+        : document.getElementById(focusId);
+    target?.focus();
+    setFocusId(null);
+  }, [focusId, form.formRef]);
+
+  const remove = (at: number) => {
+    const reading = recent[at];
+    const next = recent[at + 1] ?? recent[at - 1];
+    onRemove(reading);
+    setFocusId(next ? deleteId(next.id) : NO_READING_LEFT);
+  };
 
   const importPaste = () => {
     const parsed = parseReadingsPaste(paste, today);
@@ -159,22 +189,29 @@ export function ReadingPanel({
           </div>
         </div>
       ) : (
-        <Button type="button" size="sm" variant="outline" onClick={() => setPasting(true)}>
+        <Button
+          ref={pasteRef}
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => setPasting(true)}
+        >
           Paste readings
         </Button>
       )}
       {recent.length > 0 && (
         <ul className="divide-y divide-border text-sm" aria-label="Latest readings">
-          {recent.map((r) => (
+          {recent.map((r, at) => (
             <li key={r.id} className="flex items-center justify-between gap-2 py-1">
               <span className="min-w-0 break-words">
                 <span className="font-data">{r.date}</span>: {formatMetric(r.value, metric.unit)}
                 {r.note ? ` · ${r.note}` : ""}
               </span>
               <IconButton
-                label={`Remove the reading of ${r.date}`}
+                id={deleteId(r.id)}
+                label={deleteReadingLabel(r.date)}
                 icon={<Trash2 className="h-4 w-4" aria-hidden="true" />}
-                onClick={() => onRemove(r)}
+                onClick={() => remove(at)}
               />
             </li>
           ))}

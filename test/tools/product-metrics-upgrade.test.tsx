@@ -619,14 +619,49 @@ describe("more of the contract", () => {
     seed([metric({ role: "north-star", readings: [{ id: "r1", date: "2026-10-01", value: 9 }] })]);
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Reading for “Weekly teams”" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove the reading of 2026-10-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete the reading for 2026-10-01" }));
     expect(metrics()[0].readings).toEqual([]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Deleted the reading for 2026-10-01");
+    // None left: focus goes to Paste readings, not the page.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Paste readings" })).toHaveFocus()
+    );
     expect(logs.at(-1)).toMatchObject({
       action: PRODUCT_METRICS_ACTIONS.READING_REMOVED,
       payload: { date: "2026-10-01" },
     });
     undoLast();
     expect(metrics()[0].readings).toHaveLength(1);
+  });
+
+  it("moves focus to the next reading's delete after a delete, then the one before", async () => {
+    seed([
+      metric({
+        role: "north-star",
+        readings: [
+          { id: "r1", date: "2026-10-01", value: 9 },
+          { id: "r2", date: "2026-10-08", value: 10 },
+          { id: "r3", date: "2026-10-15", value: 11 },
+        ],
+      }),
+    ]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Reading for “Weekly teams”" }));
+    // Newest first: deleting the middle one lands on the older one below it.
+    fireEvent.click(screen.getByRole("button", { name: "Delete the reading for 2026-10-08" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Delete the reading for 2026-10-01" })
+      ).toHaveFocus()
+    );
+    // The last row: focus goes to the one above it.
+    fireEvent.click(screen.getByRole("button", { name: "Delete the reading for 2026-10-01" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Delete the reading for 2026-10-15" })
+      ).toHaveFocus()
+    );
+    expect(metrics()[0].readings.map((r) => r.id)).toEqual(["r3"]);
   });
 
   it("logs nothing for the example's own rows", async () => {

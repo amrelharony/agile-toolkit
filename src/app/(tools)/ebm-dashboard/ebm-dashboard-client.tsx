@@ -371,7 +371,7 @@ export function EbmDashboardClient() {
     const before = currentMetrics().find((x) => x.id === m.id);
     if (!before) return;
     undoable({
-      label: `Removed the reading of ${r.date}`,
+      label: `Deleted the reading for ${r.date}`,
       apply: () => putMetrics([withoutReading(before, r.id, new Date().toISOString())]),
       revert: () => putMetrics([before]),
     });

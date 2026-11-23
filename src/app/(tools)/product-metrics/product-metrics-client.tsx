@@ -289,7 +289,7 @@ export function ProductMetricsClient() {
     const before = current().find((m) => m.id === metric.id);
     if (!before) return;
     undoable({
-      label: `Removed the reading of ${reading.date}`,
+      label: `Deleted the reading for ${reading.date}`,
       apply: () => put([withoutReading(before, reading.id, new Date().toISOString())]),
       revert: () => put([before]),
     });
