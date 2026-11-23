@@ -328,7 +328,8 @@ describe("send_bugs", () => {
       text: "The map pin is off",
     };
     const s = withBugs();
-    server.rows.set("workspace:testSession/tsess_a", { ...s, notes: [...s.notes, third] });
+    const seeded: TestSession = { ...s, notes: [...s.notes, third] };
+    server.rows.set("workspace:testSession/tsess_a", seeded);
     server.failBugAfter = 1;
     await expect(run("tool.test_sessions.send_bugs", { id: "tsess_a" }, true)).rejects.toThrow(
       "A transient write error"
