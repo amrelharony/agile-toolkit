@@ -60,7 +60,7 @@ vi.mock("@/components/shared/export-button", () => ({
 
 import { BugTriageClient } from "@/app/(tools)/bug-triage/bug-triage-client";
 import { buildExample } from "@/app/(tools)/bug-triage/example";
-import { toMarkdown } from "@/app/(tools)/bug-triage/markdown";
+import { bugsCsv, toMarkdown } from "@/app/(tools)/bug-triage/markdown";
 
 const DAY = 24 * 60 * 60 * 1000;
 const ago = (days: number) => new Date(Date.now() - days * DAY).toISOString();
@@ -745,6 +745,32 @@ describe("the export", () => {
     expect(md).toContain("over target");
     expect(md).not.toContain("example");
     expect(screen.getByTestId("export-csv-rows")).toHaveTextContent("1");
+  });
+
+  it("dates a send and the CSV's Logged column by the local day, not the UTC one", async () => {
+    // Pinned east of UTC so this holds on a UTC runner too: 20:30 UTC on
+    // the 20th is early on the 21st in Tokyo, where a UTC slice says the 20th.
+    const zone = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    process.env.TZ = "Asia/Tokyo";
+    try {
+      const at = "2026-10-20T20:30:00.000Z";
+      expect(new Date(at).getDate()).toBe(21);
+      const sent = placed({
+        createdAt: at,
+        sentTo: [{ route: "backlog-story", targetId: "story_gone", at }],
+      });
+      const csv = bugsCsv([sent], { stories: [], interrupts: [] }, "2026-10-22");
+      expect(csv.rows[0][csv.headers.indexOf("Logged")]).toBe("2026-10-21");
+      seed([sent]);
+      window.history.replaceState(null, "", "/bug-triage?bug=bug_a");
+      renderPage();
+      await waitFor(() => expect(detail()).not.toBeNull());
+      const panel = detail();
+      expect(within(panel).getByText(/^Sent to the backlog 21 Oct/)).toBeInTheDocument();
+      expect(within(panel).queryByText(/20 Oct/)).toBeNull();
+    } finally {
+      process.env.TZ = zone;
+    }
   });
 
   it("caps the open bugs it lists at 100, counting the rest", () => {

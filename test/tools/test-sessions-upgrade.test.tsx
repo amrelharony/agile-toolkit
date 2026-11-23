@@ -63,6 +63,7 @@ vi.mock("@/components/shared/export-button", () => ({
 }));
 
 import { TestSessionsClient } from "@/app/(tools)/test-sessions/test-sessions-client";
+import { sessionsCsv } from "@/app/(tools)/test-sessions/markdown";
 import { DockedTimer } from "@/components/timer/docked-timer";
 
 const MIN = 60 * 1000;
@@ -557,6 +558,19 @@ describe("the page", () => {
     expect(logged(TEST_SESSIONS_ACTIONS.SESSION_REMOVED)).toHaveLength(1);
     undoLast();
     expect(stored("tsess_b")).toBeDefined();
+  });
+
+  it("dates the CSV's Planned column by the local day, not the UTC one", () => {
+    // Pinned east of UTC so this holds on a UTC runner too: 20:30 UTC on
+    // the 20th is early on the 21st in Tokyo, where a UTC slice says the 20th.
+    const zone = process.env.TZ ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+    process.env.TZ = "Asia/Tokyo";
+    try {
+      const csv = sessionsCsv([session({ createdAt: "2026-10-20T20:30:00.000Z" })]);
+      expect(csv.rows[0][csv.headers.indexOf("Planned")]).toBe("2026-10-21");
+    } finally {
+      process.env.TZ = zone;
+    }
   });
 
   it("exports the sessions with their charters, counting the team's own", async () => {

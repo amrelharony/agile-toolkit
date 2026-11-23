@@ -6,6 +6,7 @@ import { CheckCircle2, ListPlus, Pencil, RotateCcw, Trash2, X, Zap } from "lucid
 import { Button } from "@/components/ui/button";
 import { SourceLink } from "@/components/handoff/source-link";
 import { getHandoffRoute } from "@/lib/handoffs/registry";
+import { localDay } from "@/lib/sprints/series";
 import {
   BUG_CLOSE_REASONS,
   type BugCloseReason,
@@ -336,7 +337,8 @@ export function BugDetail({
         <ul className="space-y-1 text-sm" aria-label="Where it went">
           {links.map(({ link, state }) => (
             <li key={`${link.route}:${link.targetId}`} className="text-sub">
-              Sent to {ROUTE_PLACE[link.route as BugRoute]} {dayText(link.at.slice(0, 10))}:{" "}
+              Sent to {ROUTE_PLACE[link.route as BugRoute]}{" "}
+              {dayText(localDay(link.at) ?? link.at.slice(0, 10))}:{" "}
               {state === "gone" ? (
                 STATE_TEXT[state]
               ) : (

@@ -5,6 +5,7 @@
  * for importing into a tracker.
  */
 
+import { localDay } from "@/lib/sprints/series";
 import type { BugReport } from "@/lib/stores/workspace-types";
 import { BUG_CLOSE_REASONS, BUG_PRIORITIES, BUG_SEVERITIES } from "@/lib/stores/workspace-types";
 import {
@@ -160,7 +161,8 @@ export function bugsCsv(
       overTarget(b, today) ? "yes" : "",
       wentText(b, slices),
       b.closeReason ? CLOSE_REASON_LABEL[b.closeReason] : "",
-      b.createdAt.slice(0, 10),
+      // The day it was logged where the person is, as its age counts it.
+      localDay(b.createdAt) ?? "",
     ]),
   };
 }

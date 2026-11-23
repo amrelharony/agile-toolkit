@@ -6,6 +6,7 @@
  * limit.
  */
 
+import { localDay } from "@/lib/sprints/series";
 import type { BugReport, Story, TestSession } from "@/lib/stores/workspace-types";
 import { TEST_NOTE_KINDS } from "@/lib/stores/workspace-types";
 import {
@@ -120,7 +121,8 @@ export function sessionsCsv(sessions: readonly TestSession[]): {
       s.coverage ? COVERAGE_LABEL[s.coverage] : "",
       s.notes.length,
       notesOfKind(s, "bug").length,
-      s.createdAt.slice(0, 10),
+      // The day it was planned where the person is.
+      localDay(s.createdAt) ?? "",
     ]),
   };
 }
