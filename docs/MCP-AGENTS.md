@@ -175,6 +175,12 @@ The Plan tools read and write the same data as their pages:
 }}}
 ```
 
+#### Epic Roadmap — `tool.epic_roadmap.*`
+
+One document, `epicRoadmap:current`. `list_state` also reports each epic's place on the Now, Next, Later board: `horizonShown` (`now`, `next`, `later` or `done`) and `horizonFrom` (`done`; `set` by hand; `quarters`: started → now, starting within 2 quarters → next, else later; `none`: no valid quarters → later), plus `byHorizon` counts. Every epic still has quarters.
+
+- **`set_horizon`** (write) `{epicId, horizon: now | next | later | null}` — moves an epic by hand, or back to its quarters with `null`; quarters never change, and a done epic still shows under Done. Returns `{updated: true, horizon, from}` (where it now shows, and why) or `{updated: false, reason: not_found}`.
+
 ### Run the sprint with the Run tools
 
 The Run tools read and write the same data as their pages:
@@ -931,6 +937,37 @@ One record per canvas (`workspace.product_canvas`, ids `pcanvas_…`), in one of
 - **`update_item`** (write) `{canvasId, itemId, text?, detail?: string | null, evidence?: fact | assumption | null, links?}` — changes a list line's words, a question's answer, its fact-or-guess mark or its links. Links replace the line's links and are checked against the boxes it may link to (a pain an ease takes away, a gain it adds, a Lean UX hypothesis's learn-first or test). A one-line or paragraph box (the launch date among them) is set with `set_field`, and new words for one through `update_item` are refused as `not_a_list`. Returns `{updated: true}` or `{updated: false, reason: not_found | not_a_list | blank | too_long | bad_field | too_big, message}`.
 - **`set_field`** (write) `{canvasId, field, text | null}` — a one-line or paragraph box; `null` or empty clears it. A launch date is a day (YYYY-MM-DD), today or later. Returns `{set: true, cleared}` or `{set: false, reason: not_found | unknown_section | not_an_answer | too_long | bad_date | canvas_full | too_big, message}`.
 - Rename or delete a canvas with `workspace.product_canvas.*`; its write guard refuses a changed format, a box the format lacks and anything the page would drop. Sends to the Hypothesis Tracker are made on the page, with Undo.
+
+#### Impact Map — `tool.impact_map.*`
+
+Impact maps are `workspace.strategy_map` rows with `format: impact-map` (the same entity holds the Strategy Tree's trees, which these verbs never touch): one root at level 0, the goal (why); level 1 actors (who), level 2 impacts (how they must act differently: start, stop, more or less of something), level 3 deliverables (what to build or do), and a deliverable holds nothing. An actor may link a Persona Library persona; one impact per map is the focus. Example maps are read but never added to or sent.
+
+- **`list_state`** (read) `{}` — `{totals {maps, actors, impacts, deliverables} (examples left out), examples, maps[{id, title, example, goal {id, text, measure} | null, targetDate, productGoal {id, status} | {id, gone: true} | null, counts, focus {id, text} | null, checks, nodes[{id, parentId, level, text, detail?, measure?, personaId?, focus?, sentTo?[{route, targetId, at, target: live | done | gone}]}], updatedAt}]}`, newest first.
+- **`create_map`** (write) `{goal? (≤200), measure? (≤200), targetDate? (YYYY-MM-DD), fromProductGoal?}` — `fromProductGoal: true` takes the active Product Goal's statement, first measure and date and links the map; a goal given still wins. Returns `{created: true, id, goalId, productGoalId}` or `{created: false, reason: no_product_goal | bad_date | rules | too_big, message}`.
+- **`add_node`** (write) `{mapId, parentId, text (≤200), detail? (≤1,000), measure?, personaId?}` — the level comes from the parent. Returns `{added: true, id, level, kind}` or `{added: false, reason: not_found | parent_not_found | example | leaf | full | blank | persona_level | unknown_persona | measure_level | rules | too_big, message?}`.
+- **`set_focus`** (write) `{mapId, impactId | null}` — one per map; `null` clears it. Returns `{updated: true, focus, previous}` or `{updated: false, reason: not_found | example | node_not_found | not_impact | unchanged | rules | too_big}`.
+- **`send_deliverable`** (write) `{mapId, nodeId, to: backlog-story | epic}` — a backlog story, or an epic on the Epic Roadmap next quarter, linked back, its description naming the actor, the impact and the goal; once per route while the target exists (one deleted there can be sent again). A map whose row can't hold the link sends nothing. Returns `{sent: true, route, targetId, title}` or `{sent: false, reason: not_found | example | level | already_sent (targetId) | blank | too_big, message?}`.
+- **`test_impact`** (write) `{mapId, nodeId}` — a drafted hypothesis: its deliverables will lead the actor to change (or the actor will), measured by the goal's measure. Same returns, route `hypothesis`.
+- Edits and deletes of parts go through `workspace.strategy_map.update` / `.delete` with the whole `nodes` list; a write that breaks the tree rules, changes the format or passes the row size is refused.
+
+#### Strategy Tree — `tool.strategy_tree.*`
+
+Trees are `workspace.strategy_map` rows with `format` `dibb` (data, insight, belief, bet), `lean-value-tree` (vision, goals, bets, initiatives) or `hoshin` (breakthrough objective, annual objectives, improvement priorities, targets); impact maps live in `tool.impact_map`. One root at level 0, each part one level below its parent, never past level 3. Every part is proposed, agreed, questioned (Has questions, the question as its `note`: Hoshin's catchball) or dropped. A measure only where the level has one (a DIBB bet; a Lean Value Tree goal, bet or initiative; a Hoshin annual objective or target), an owner only on a Lean Value Tree initiative or a Hoshin priority or target. Example trees are read but never added to or sent.
+
+- **`list_state`** (read) `{}` — `{total (examples left out), examples, trees[{id, format, title, example, levels, counts, statuses {proposed, agreed, questioned, dropped}, agreed, checks, nodes[{id, parentId, level, text, detail?, measure?, owner?, status, note?, sentTo?}], updatedAt}]}`, newest first.
+- **`create_tree`** (write) `{format, root (≤200), measure?, title?}` — the root starts proposed; a second Hoshin breakthrough objective is a second tree. `measure` is not used at the root of any shape. Returns `{created: true, id, rootId, format}` or `{created: false, reason: blank | rules | too_big, message?}`.
+- **`add_node`** (write) `{treeId, parentId, text (≤200), measure?, owner?, status?}` — the level is the parent's + 1; the status defaults to proposed. Returns `{added: true, id, level, kind}` or `{added: false, reason: not_found | parent_not_found | example | leaf | full | blank | field_level | rules | too_big, message?}`.
+- **`set_status`** (write) `{treeId, nodeId, status, note? (≤1,000)}` — `''` removes the note. Returns `{updated: true, status, previous, treeAgreed}` (`treeAgreed`: this change made every part not dropped agreed) or `{updated: false, reason: not_found | example | node_not_found | rules | too_big}`.
+- **`send`** (write) `{treeId, nodeId, to: hypothesis | epic}` — hypothesis from a DIBB bet or a Lean Value Tree bet or initiative; epic from a Lean Value Tree initiative or a Hoshin improvement priority (next quarter, "Part of: …" and its owner); linked both ways; once per route while the target exists; never an example or a dropped part. Returns `{sent: true, route, targetId, title}` or `{sent: false, reason: not_found | example | level | already_sent (targetId) | blank | too_big, message?}`.
+- Edits and deletes of parts go through `workspace.strategy_map.update` / `.delete`, as for impact maps.
+
+#### Persona Library — `tool.persona_library.*`
+
+Personas are workspace rows (`workspace.persona.*` renames, edits and deletes them; ids `persona_…`). A persona has a made-up name, a role, a tier (`primary` main, `secondary` also served, `anti` who the product is not for), evidence (`assumed`, `some`, `researched`), goals, pains (frustrations) and behaviours (habits) of at most 8 short points each, a quote, context, tags and the User Interview Log interviews it comes from.
+
+- **`list_state`** (read) `{}` — `{personas: {id, name, role, summary, tier, evidence, goals, pains, behaviours, quote, context, tags, example, usedOn: {id, title}[], interviews: {linked, missing}}[], counts: {tiers, evidence}, interviewsLogged}`, main personas first; `usedOn` lists the impact maps whose actors name the persona, and `interviews.missing` counts linked interviews since deleted.
+- **`add_persona`** (write) `{name (≤200), role (≤200), tier?, evidence?, summary? (≤1,000), goals?, pains?, behaviours?, quote? (≤200), context? (≤1,000), tags?}` — a name already in the library (any case) is refused with `duplicate_name`; the tier defaults to `primary` only while the library has no main persona, else `secondary`, and the evidence to `assumed`. Blanks and repeats in a list are dropped. Returns `{added: true, id, tier}` or `{added: false, reason: duplicate_name, message}`.
+- **`add_points`** (write) `{personaId, list: goals | pains | behaviours, items (1–8)}` — within the list's cap of 8; a point already on it (any case) is skipped. Returns `{updated: true, added, skipped}` or `{updated: false, reason: not_found | full | unchanged, message}`.
 
 #### Risk Register — `tool.risk_register.*`
 
