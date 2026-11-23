@@ -17,7 +17,6 @@ import {
   coachStepsFor,
   nextLookProblem,
   type CoachAnswers,
-  type CoachRefusal,
   type CoachStepId,
 } from "@/lib/improve/coaching";
 import { hasCondition, isDay, lastExperiment } from "@/lib/improve/model";
@@ -25,7 +24,7 @@ import { latestCheckInDay } from "@/lib/okrs/progress";
 import { isoDayNumber, isoFromDayNumber } from "@/lib/sprints/calendar";
 import { todayIso } from "@/lib/sprints/series";
 import { FieldLabel, parseValue } from "./fields";
-import { COACH_REFUSAL_TEXT, short } from "./use-item-actions";
+import { COACH_REFUSAL_TEXT, short, type CoachSaveRefusal } from "./use-item-actions";
 
 /** The day `n` days after `day`. */
 function daysAfter(day: string, n: number): string {
@@ -118,8 +117,8 @@ export function CoachWalk({
   onClose,
 }: {
   item: Improvement;
-  /** Save the talk; the refusal (which step, why), or null once saved. */
-  onSave: (answers: CoachAnswers) => CoachRefusal | null;
+  /** Save the talk; the refusal (which step, if one, and why), or null once saved. */
+  onSave: (answers: CoachAnswers) => CoachSaveRefusal | null;
   /** Leave the walk (after a save, or without one). */
   onClose: (saved: boolean) => void;
 }) {

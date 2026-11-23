@@ -14,6 +14,7 @@ import { nanoid } from "nanoid";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { cheer } from "@/lib/celebrate/cheer";
 import { findLink, withoutLink } from "@/lib/handoffs/links";
+import { getHandoffRoute } from "@/lib/handoffs/registry";
 import { sendHandoff } from "@/lib/handoffs/send";
 import { IMPROVE_ACTIONS } from "@/lib/history/event-actions";
 import { latestCheckInDay } from "@/lib/okrs/progress";
@@ -84,13 +85,20 @@ export type Log = (action: string, payload?: Record<string, unknown>) => void;
 /** The text fields edited in place. */
 export type TextField = "background" | "analysis" | "check" | "followUp";
 
+/**
+ * Why a coaching talk wasn't saved: one of its answers (the walk goes back
+ * to that step), or the talk would grow the Kata past one synced row.
+ */
+export type CoachSaveRefusal = CoachRefusal | { step?: undefined; reason: "too_big" };
+
 /** What the coaching talk's refusals say, by step. */
-export const COACH_REFUSAL_TEXT: Record<CoachRefusal["reason"], string> = {
+export const COACH_REFUSAL_TEXT: Record<CoachSaveRefusal["reason"], string> = {
   ...READING_REFUSAL_TEXT,
   blank: "Say what you'll try.",
   needs_expect: "Say what you expect before you try.",
   list_full: "This Kata's list is full: remove an old row first.",
   past_date: "Pick today or a later day.",
+  too_big: TOO_BIG,
 };
 
 /** Links added by a change (the send itself, not its Undo). */
@@ -98,6 +106,18 @@ const added = (before: readonly HandoffLink[] | undefined, after: readonly Hando
   after.filter(
     (l) => !(before ?? []).some((b) => b.route === l.route && b.targetId === l.targetId)
   );
+
+/** Whether `next` may replace `cur`: it fits one synced row, or it doesn't grow the row. */
+const fits = (cur: Improvement, next: Improvement) =>
+  fitsRow(next) || jsonBytes(next) <= jsonBytes(cur);
+
+/**
+ * A send whose link couldn't be saved (the row is full): take back what it
+ * made in the other tool, so nothing is left there unlinked to be sent twice.
+ */
+const takeBackUnsaved = (links: readonly HandoffLink[]) => {
+  for (const link of links) getHandoffRoute(link.route).remove(link.targetId);
+};
 
 export function useItemActions(itemId: string, log: Log) {
   const announce = useAnnounce();
@@ -107,15 +127,20 @@ export function useItemActions(itemId: string, log: Log) {
     if (!example) log(action, { itemId, ...payload });
   };
 
+  /** Say in place that a change would grow the record past one synced row. */
+  const refuseTooBig = () => {
+    setRowError(TOO_BIG);
+    announce(TOO_BIG);
+  };
+
   /** Change the improvement through the store, stamped; the saved one, or null. */
   const write = (fn: (cur: Improvement, now: string) => Improvement | null): Improvement | null => {
     const cur = freshImprovement(itemId);
     if (!cur) return null;
     const next = fn(cur, nowIso());
     if (!next) return null;
-    if (!fitsRow(next) && jsonBytes(next) > jsonBytes(cur)) {
-      setRowError(TOO_BIG);
-      announce(TOO_BIG);
+    if (!fits(cur, next)) {
+      refuseTooBig();
       return null;
     }
     setRowError(null);
@@ -175,6 +200,11 @@ export function useItemActions(itemId: string, log: Log) {
     const stepId = nanoid(8);
     const check = withStep(cur, input, stepId, nowIso());
     if (!check.ok) return STEP_REFUSAL_TEXT[check.reason];
+    // Checked before an accepted idea's Undo toast, so a refused write raises none.
+    if (!fits(cur, check.item)) {
+      refuseTooBig();
+      return TOO_BIG;
+    }
     const noun = cur.method === "kata" ? "experiment" : "countermeasure";
     let refused: string | null = null;
     const apply = () => {
@@ -246,7 +276,10 @@ export function useItemActions(itemId: string, log: Log) {
       after = update(before);
       return withStepLinks(c, stepId, after, now);
     });
-    if (!saved) return;
+    if (!saved) {
+      takeBackUnsaved(added(before, after));
+      return;
+    }
     for (const link of added(before, after)) {
       logIt(IMPROVE_ACTIONS.STEP_SENT, { stepId, route: link.route, targetId: link.targetId });
     }
@@ -308,7 +341,10 @@ export function useItemActions(itemId: string, log: Log) {
       after = update(before);
       return withObstacleLinks(c, obstacleId, after, now);
     });
-    if (!saved) return;
+    if (!saved) {
+      takeBackUnsaved(added(before, after));
+      return;
+    }
     for (const link of added(before, after)) {
       logIt(IMPROVE_ACTIONS.OBSTACLE_SENT, {
         obstacleId,
@@ -359,9 +395,15 @@ export function useItemActions(itemId: string, log: Log) {
     pastTargets: c.pastTargets,
   });
 
-  const reachTarget = () => {
+  /** Reached it, with Undo; the refusal in words, or null. */
+  const reachTarget = (): string | null => {
     const before = freshImprovement(itemId);
-    if (!before || !withTargetReached(before, nowIso())) return;
+    const next = before ? withTargetReached(before, nowIso()) : null;
+    if (!before || !next) return null;
+    if (!fits(before, next)) {
+      refuseTooBig();
+      return TOO_BIG;
+    }
     const snapshot = targetSnapshot(before);
     undoable({
       label: "Target reached",
@@ -376,6 +418,7 @@ export function useItemActions(itemId: string, log: Log) {
       },
       revert: () => write((c, now) => touched(c, snapshot, now)),
     });
+    return null;
   };
 
   const removePastTarget = (index: number) => {
@@ -395,14 +438,22 @@ export function useItemActions(itemId: string, log: Log) {
 
   /* ── Coaching ── */
 
-  /** Save a coaching talk in one write with one Undo; the refusal, or null. */
-  const saveCoaching = (answers: CoachAnswers): CoachRefusal | null => {
+  /**
+   * Save a coaching talk in one write with one Undo; the refusal, or null.
+   * A talk the row can't hold is refused before its toast, so the walk
+   * stays open with its answers.
+   */
+  const saveCoaching = (answers: CoachAnswers): CoachSaveRefusal | null => {
     const before = freshImprovement(itemId);
     if (!before) return null;
     const ids = { reading: nanoid(8), obstacle: nanoid(8), step: nanoid(8) };
     const today = todayIso();
     const check = withCoaching(before, answers, ids, nowIso(), { today, latestDay: latestDay() });
     if (!check.ok) return check.refusal;
+    if (!fits(before, check.outcome.item)) {
+      refuseTooBig();
+      return { reason: "too_big" };
+    }
     undoable({
       label: "Coaching talk saved",
       kind: "success",
@@ -471,9 +522,11 @@ export function useItemActions(itemId: string, log: Log) {
       },
       {
         getLinks: () => freshImprovement(itemId)?.sentTo,
-        setLinks: (update) =>
-          write((c, now) => {
+        setLinks: (update) => {
+          let made: HandoffLink[] = [];
+          const saved = write((c, now) => {
             const links = update(c.sentTo);
+            made = added(c.sentTo, links);
             return touched(
               c,
               {
@@ -482,21 +535,28 @@ export function useItemActions(itemId: string, log: Log) {
               },
               now
             );
-          }),
+          });
+          if (!saved) takeBackUnsaved(made);
+        },
       }
     );
-    if (link) {
+    if (link && freshImprovement(itemId)?.rootCauseId === link.targetId) {
       logIt(IMPROVE_ACTIONS.ITEM_UPDATED, { field: "rootCauseId", route: "root-cause" });
       announce("Opened a Root Cause analysis of it. Find the cause there, then use it here.");
     }
     return link?.targetId ?? null;
   };
 
-  /** Fill "Why it happens" from the linked analysis's root cause, with Undo. */
-  const applyRootCause = (rootCause: string) => {
-    const before = freshImprovement(itemId)?.analysis;
+  /** Fill "Why it happens" from the linked analysis's root cause, with Undo; the refusal, or null. */
+  const applyRootCause = (rootCause: string): string | null => {
+    const cur = freshImprovement(itemId);
     const text = cleanText(rootCause, TOOL_TEXT_MAX.text);
-    if (!text) return;
+    if (!cur || !text) return null;
+    if (!fits(cur, touched(cur, { analysis: text }, nowIso()))) {
+      refuseTooBig();
+      return TOO_BIG;
+    }
+    const before = cur.analysis;
     undoable({
       label: "Filled in why it happens",
       description: `“${short(text)}”`,
@@ -508,6 +568,7 @@ export function useItemActions(itemId: string, log: Log) {
       },
       revert: () => write((c, now) => touched(c, { analysis: before }, now)),
     });
+    return null;
   };
 
   return {

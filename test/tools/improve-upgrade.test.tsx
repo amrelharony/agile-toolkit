@@ -72,6 +72,7 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/app/(tools)/improve/readings-chart", () => ({ ReadingsChart: () => null }));
 
 import { ImproveClient } from "@/app/(tools)/improve/improve-client";
+import { CoachWalk } from "@/app/(tools)/improve/coach-walk";
 import { buildExample } from "@/app/(tools)/improve/example";
 import { improveToMarkdown } from "@/app/(tools)/improve/markdown";
 import { validateStepDraft } from "@/app/(tools)/improve/step-list";
@@ -80,6 +81,7 @@ import { validateObstacleDraft } from "@/app/(tools)/improve/obstacle-list";
 import { useItemActions } from "@/app/(tools)/improve/use-item-actions";
 import { fallbackCountermeasures } from "@/lib/ai/tasks/root-cause.lite";
 import { fallbackExperiments } from "@/lib/ai/tasks/improve.lite";
+import { sendHandoff } from "@/lib/handoffs/send";
 import { RETRO_BOARD_ID } from "@/lib/handoffs/targets/retro-board";
 import { IMPROVE_ACTIONS } from "@/lib/history/event-actions";
 import { TOO_BIG } from "@/lib/improve/model";
@@ -650,6 +652,95 @@ describe("an A3", () => {
     });
     expect(byId("improve_a3")!.title).toBe("Shorter title");
     expect(result.current.rowError).toBeNull();
+  });
+});
+
+describe("a change the row can't hold is refused before its Undo toast", () => {
+  // 45 steps of four 1,000-character fields in 3-byte text: about 540 KB, over one row.
+  const big = "界".repeat(TOOL_TEXT_MAX.text);
+  const giantSteps = () =>
+    Array.from({ length: 45 }, (_, i) =>
+      step(`s${i}`, { text: big, expect: big, result: big, learned: big, status: "dropped" })
+    );
+  const hook = (id: string) =>
+    renderHook(() => useItemActions(id, () => undefined), {
+      wrapper: ({ children }: { children: ReactNode }) => (
+        <LiveAnnouncerProvider>{children}</LiveAnnouncerProvider>
+      ),
+    });
+
+  it("an accepted idea, a root cause used and Reached it: no toast, the refusal said", () => {
+    useWorkspaceStore.setState({
+      improvements: [
+        a3({ steps: giantSteps() }),
+        kata({ id: "improve_big_k", steps: giantSteps(), obstacles: [] }),
+      ],
+    });
+    const { result } = hook("improve_a3");
+    let why: string | null = null;
+    act(() => {
+      why = result.current.addStep({ text: "One more", expect: "It works" }, { fromAi: true });
+    });
+    expect(why).toBe(TOO_BIG);
+    act(() => {
+      why = result.current.applyRootCause("A manual regression pass");
+    });
+    expect(why).toBe(TOO_BIG);
+    expect(result.current.rowError).toBe(TOO_BIG);
+    expect(byId("improve_a3")!.steps).toHaveLength(45);
+    expect(byId("improve_a3")!.analysis).toBeUndefined();
+    const kataHook = hook("improve_big_k");
+    act(() => {
+      why = kataHook.result.current.reachTarget();
+    });
+    expect(why).toBe(TOO_BIG);
+    expect(byId("improve_big_k")!.pastTargets).toBeUndefined();
+    expect(undo.all).toEqual([]);
+    expect(logs).toEqual([]);
+  });
+
+  it("a coaching talk is refused as too big, saving nothing, with no toast", () => {
+    useWorkspaceStore.setState({ improvements: [kata({ steps: giantSteps(), obstacles: [] })] });
+    const { result } = hook("improve_k");
+    let refusal: unknown = null;
+    act(() => {
+      refusal = result.current.saveCoaching({
+        nextTry: { text: "Cap PRs at 300 lines", expect: "Reviews start sooner" },
+      });
+    });
+    expect(refusal).toEqual({ reason: "too_big" });
+    expect(byId("improve_k")!.steps).toHaveLength(45);
+    expect(undo.all).toEqual([]);
+  });
+
+  it("the coaching walk stays open with its answers when the talk is too big", () => {
+    const onClose = vi.fn();
+    render(<CoachWalk item={kata()} onSave={() => ({ reason: "too_big" })} onClose={onClose} />);
+    fireEvent.change(screen.getByLabelText("What you saw"), {
+      target: { value: "It fell to 15 h" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save and stop" }));
+    expect(screen.getByRole("alert")).toHaveTextContent(TOO_BIG);
+    expect(screen.getByLabelText("What you saw")).toHaveValue("It fell to 15 h");
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("takes back a sent action whose link the row can't hold, so it can't be sent twice", () => {
+    useWorkspaceStore.setState({ improvements: [a3({ steps: giantSteps() })] });
+    const { result } = hook("improve_a3");
+    act(() => {
+      sendHandoff(
+        "retro-action",
+        { title: "Automate checks", sourceRef: { tool: "improve", id: "s0", doc: "improve_a3" } },
+        {
+          getLinks: () => byId("improve_a3")!.steps[0].sentTo,
+          setLinks: (update) => result.current.stepLinks("s0", update),
+        }
+      );
+    });
+    expect(retroCards()).toEqual([]);
+    expect(byId("improve_a3")!.steps[0].sentTo).toBeUndefined();
+    expect(result.current.rowError).toBe(TOO_BIG);
   });
 });
 
