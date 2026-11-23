@@ -436,6 +436,37 @@ describe("How we work: the definition", () => {
     expect(def()).toBeUndefined();
     expect(screen.getByLabelText("Review: Leaves when")).toHaveValue("");
   });
+
+  it("adds every suggestion in one save, with one Undo that takes them all back", async () => {
+    seed({ defs: [{ id: WORKFLOW_DEFINITION_ID, board: "flow", pullPolicy: "Oldest first" }] });
+    const before = def();
+    renderBoard();
+    await section();
+    fireEvent.click(screen.getByRole("button", { name: "Start from a template" }));
+    toastSpy.mockClear();
+    fireEvent.click(screen.getByRole("button", { name: /^Add all \d+$/ }));
+    // Four stages, the start, the finish and the blocker policy.
+    expect(toastSpy).toHaveBeenCalledTimes(1);
+    expect(lastToast()[0]).toBe("Added 7 suggestions");
+    expect(def()?.policies?.map((p) => p.stage)).toEqual([
+      "backlog",
+      "ready",
+      "in_progress",
+      "review",
+    ]);
+    expect(def()).toMatchObject({
+      startPoint: expect.any(String),
+      blockerPolicy: expect.any(String),
+    });
+    expect(logged(KANBAN_ACTIONS.WORKFLOW_UPDATED)).toEqual([
+      [
+        KANBAN_ACTIONS.WORKFLOW_UPDATED,
+        { parts: ["policies", "basics", "blockers"], source: "fallback" },
+      ],
+    ]);
+    undoLast();
+    expect(def()).toEqual(before);
+  });
 });
 
 /* ── STATIK ─────────────────────────────────────────────────────────── */

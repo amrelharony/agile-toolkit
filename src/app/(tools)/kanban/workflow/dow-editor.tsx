@@ -100,6 +100,35 @@ const SUGGESTION_TITLE: Record<Exclude<Suggestion["kind"], "policy">, string> = 
   blockerPolicy: "Blocker policy",
 };
 
+/** The history part an accepted suggestion changes. */
+const partOf = (item: Suggestion) =>
+  item.kind === "policy" ? "policies" : item.kind === "blockerPolicy" ? "blockers" : "basics";
+
+/**
+ * `base` with one accepted suggestion: a stage policy fills the entry or
+ * exit it brings and keeps the other one written; a text replaces its
+ * field. A definition with no board yet describes the one in the editor.
+ */
+function withSuggestion(
+  base: WorkflowDefinition,
+  item: Suggestion,
+  board: WorkflowBoard
+): WorkflowDefinition {
+  if (item.kind === "policy") {
+    const others = (base.policies ?? []).filter((p) => p.stage !== item.stage);
+    const had = (base.policies ?? []).find((p) => p.stage === item.stage);
+    const policy = {
+      stage: item.stage,
+      ...(item.enter || had?.enter ? { enter: item.enter ?? had?.enter } : {}),
+      ...(item.exit || had?.exit ? { exit: item.exit ?? had?.exit } : {}),
+    };
+    return mergeWorkflow(base, { board: base.board ?? board, policies: [...others, policy] });
+  }
+  const patch: WorkflowPatch = { board: base.board ?? board };
+  patch[item.kind] = item.text;
+  return mergeWorkflow(base, patch);
+}
+
 /**
  * The Definition of Workflow tab: which board it describes, what one work
  * item is, start and finish, entry and exit policies per stage (Done is
@@ -197,34 +226,38 @@ export function DowEditor({
     );
   };
 
-  const accept = (item: Suggestion) => {
+  const titleOf = (item: Suggestion) =>
+    item.kind === "policy"
+      ? `the ${stages.find((s) => s.id === item.stage)?.label ?? item.stage} policy`
+      : `the ${SUGGESTION_TITLE[item.kind].toLowerCase()}`;
+
+  /**
+   * Add accepted suggestions in one save: one Undo toast and one history
+   * row, whether it is one item or "Add all" (whose Undo then takes back
+   * every one of them).
+   */
+  const accept = (items: Suggestion[]) => {
+    if (items.length === 0) return;
     const label =
-      item.kind === "policy"
-        ? `Added the ${stages.find((s) => s.id === item.stage)?.label ?? item.stage} policy`
-        : `Added the ${SUGGESTION_TITLE[item.kind].toLowerCase()}`;
-    const saved = controller.save((cur) => {
-      const base: WorkflowDefinition = cur ?? { id: WORKFLOW_DEFINITION_ID };
-      if (item.kind === "policy") {
-        const others = (base.policies ?? []).filter((p) => p.stage !== item.stage);
-        const had = (base.policies ?? []).find((p) => p.stage === item.stage);
-        const policy = {
-          stage: item.stage,
-          ...(item.enter || had?.enter ? { enter: item.enter ?? had?.enter } : {}),
-          ...(item.exit || had?.exit ? { exit: item.exit ?? had?.exit } : {}),
-        };
-        return mergeWorkflow(base, { board: base.board ?? board, policies: [...others, policy] });
-      }
-      const patch: WorkflowPatch = { board: base.board ?? board };
-      patch[item.kind] = item.text;
-      return mergeWorkflow(base, patch);
-    }, label);
-    if (item.kind === "policy") {
-      forget([draftKeys.enterKey(item.stage), draftKeys.exitKey(item.stage)]);
-    } else forget([item.kind]);
+      items.length === 1 ? `Added ${titleOf(items[0])}` : `Added ${items.length} suggestions`;
+    const saved = controller.save(
+      (cur) =>
+        items.reduce<WorkflowDefinition>(
+          (base, item) => withSuggestion(base, item, board),
+          cur ?? { id: WORKFLOW_DEFINITION_ID }
+        ),
+      label
+    );
+    forget(
+      items.flatMap((item) =>
+        item.kind === "policy"
+          ? [draftKeys.enterKey(item.stage), draftKeys.exitKey(item.stage)]
+          : [item.kind]
+      )
+    );
     if (saved) {
-      const part =
-        item.kind === "policy" ? "policies" : item.kind === "blockerPolicy" ? "blockers" : "basics";
-      logged({ parts: [part], source: suggested?.source ?? "fallback" });
+      const parts = Array.from(new Set(items.map(partOf)));
+      logged({ parts, source: suggested?.source ?? "fallback" });
     }
   };
 
@@ -364,7 +397,8 @@ export function DowEditor({
                     }
                   : { title: SUGGESTION_TITLE[item.kind], detail: item.text }
               }
-              onAccept={(item) => accept(item)}
+              onAccept={(item) => accept([item])}
+              onAcceptAll={(items) => accept(items)}
               onDismiss={() => setSuggested(null)}
               returnFocus={() =>
                 aiRef.current?.querySelector<HTMLElement>("[data-testid=ai-button]")
