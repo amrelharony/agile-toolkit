@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { getNextStepRule, loadAllNextStepRules } from "@/lib/tools/next-steps";
+import { currentQuarter } from "@/lib/roadmap/quarters";
 import type {
   CapacityPlan,
   DependencyMap,
@@ -339,6 +340,31 @@ describe("release-planner, jtbd-mapper and epic-roadmap", () => {
         stories: [story({ epicId: "e1" }), story({ id: "b", epicId: "e2" })],
       })
     ).toEqual([]);
+  });
+
+  it("epic-roadmap: Now holds 4 or more epics", () => {
+    // Today's quarter, so the case can't go red on a later date.
+    const q = currentQuarter();
+    const epics = ["a", "b", "c", "d"].map((id) => ({
+      id,
+      title: id,
+      startQuarter: q,
+      endQuarter: q,
+      progress: 0,
+    }));
+    const stories = epics.map((e) => story({ id: `s-${e.id}`, epicId: e.id, status: "todo" }));
+    const epicRoadmaps = [{ id: "epicRoadmap:current", epics }];
+    const out = steps("epic-roadmap", { epicRoadmaps, stories });
+    expect(out.map((s) => s.id)).toEqual(["epics-now-crowded"]);
+    expect(out[0].detail).toBe("Now holds 4 epics on the Now, Next, Later board.");
+    // A done epic leaves Now, and three is not crowded.
+    const oneDone = stories.map((s, i) => (i === 0 ? { ...s, status: "done" as const } : s));
+    expect(ids("epic-roadmap", { epicRoadmaps, stories: oneDone })).toEqual([]);
+    // Example epics don't count.
+    const examples = [
+      { id: "epicRoadmap:current", epics: epics.map((e) => ({ ...e, id: `example-${e.id}` })) },
+    ];
+    expect(ids("epic-roadmap", { epicRoadmaps: examples, stories: [] })).toEqual([]);
   });
 });
 

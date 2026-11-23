@@ -69,6 +69,8 @@ import {
   quarterBounds,
   quarterLabel,
 } from "@/lib/roadmap/quarters";
+import { NOW_CROWDED, horizonColumns } from "@/lib/roadmap/horizons";
+import { epicRollup, linkedStories } from "@/lib/roadmap/rollup";
 import { RELEASE_DOC_ID } from "@/lib/releases/gates";
 import { releaseNotesSteps } from "@/lib/releases/notes-steps";
 import { isValueCheck, valueCheckSteps } from "@/lib/hypotheses/value-steps";
@@ -1627,16 +1629,31 @@ const RULES: Record<string, NextStepRule<object>> = {
           .filter(Boolean)
       );
       const bare = epics.filter((e) => !linked.has(e.id)).length;
-      return bare === 0
-        ? []
-        : [
-            {
-              id: "epics-break-down",
-              label: "Break epics into stories",
-              detail: `${plural(bare, "epic")} ${bare === 1 ? "has" : "have"} no linked stories, so ${bare === 1 ? "its" : "their"} progress is typed by hand.`,
-              href: "/story-mapper",
-            },
-          ];
+      const steps: NextStep[] =
+        bare === 0
+          ? []
+          : [
+              {
+                id: "epics-break-down",
+                label: "Break epics into stories",
+                detail: `${plural(bare, "epic")} ${bare === 1 ? "has" : "have"} no linked stories, so ${bare === 1 ? "its" : "their"} progress is typed by hand.`,
+                href: "/story-mapper",
+              },
+            ];
+      // The Now, Next, Later board's crowded note, as a step: the board's own count.
+      const realStories = real(stories);
+      const inNow = horizonColumns(
+        epics.map((e) => ({ epic: e, done: epicRollup(e, linkedStories(e.id, realStories)).done })),
+        new Date()
+      ).now.length;
+      if (inNow >= NOW_CROWDED)
+        steps.push({
+          id: "epics-now-crowded",
+          label: "Finish epics in Now before starting more",
+          detail: `Now holds ${inNow} epics on the Now, Next, Later board.`,
+          href: "/epic-roadmap",
+        });
+      return steps;
     },
   }),
 
