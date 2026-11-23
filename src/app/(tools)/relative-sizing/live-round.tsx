@@ -27,12 +27,15 @@ export function LiveRound({
   board,
   onSave,
   onStart,
+  onLiveChange,
   crypto,
 }: {
   board: SizingBoard;
   onSave: SaveVoteRound;
   /** A live room opened, asking about this many stories (for the history log). */
   onStart?: (stories: number) => void;
+  /** The room opened (true), or ended or the panel went (false): the page holds the board meanwhile. */
+  onLiveChange?: (live: boolean) => void;
   /** Tests inject a fake (undefined: WebCrypto). */
   crypto?: VoteCrypto | null;
 }) {
@@ -108,6 +111,7 @@ export function LiveRound({
         onSave={onSave}
         onLiveChange={(room) => {
           setHosting(room !== null);
+          onLiveChange?.(room !== null);
           if (room) onStart?.(questionnaire?.questions.length ?? 0);
         }}
         renderResults={(result) => <SizingResults result={result} board={board} />}
