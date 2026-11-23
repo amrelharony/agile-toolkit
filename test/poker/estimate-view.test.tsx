@@ -128,7 +128,7 @@ describe("the estimator's page", () => {
     fireEvent.change(screen.getByLabelText(/Your name/), { target: { value: "Lee" } });
     const pay = storyItem("Pay by phone");
     fireEvent.click(within(pay).getByRole("radio", { name: "5" }));
-    fireEvent.click(within(pay).getByRole("button", { name: "Add a note" }));
+    fireEvent.click(within(pay).getByRole("button", { name: "Add a note on “Pay by phone”" }));
     fireEvent.change(within(pay).getByRole("textbox", { name: "Note on “Pay by phone”" }), {
       target: { value: "Needs the bank's API" },
     });
@@ -181,9 +181,13 @@ describe("the estimator's page", () => {
     openLink({ ...ROUND, stories });
     render(<EstimateView />);
     for (let i = 0; i < 5; i++) {
-      fireEvent.click(within(storyItem(`Story ${i}`)).getByRole("button", { name: "Add a note" }));
+      fireEvent.click(
+        within(storyItem(`Story ${i}`)).getByRole("button", { name: `Add a note on “Story ${i}”` })
+      );
     }
-    const sixth = within(storyItem("Story 5")).getByRole("button", { name: "Add a note" });
+    const sixth = within(storyItem("Story 5")).getByRole("button", {
+      name: "Add a note on “Story 5”",
+    });
     expect((sixth as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/5 notes is the most/)).toBeTruthy();
   });

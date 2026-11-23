@@ -457,6 +457,16 @@ describe("talking about it live", () => {
     });
   });
 
+  it("names each story's “Talk about it live” box after its story", () => {
+    render(<AsyncRoundCard round={revealed()} hostName="Priya" log={h.log} onTalkLive={vi.fn()} />);
+    const pay = screen.getByRole("checkbox", { name: "Talk about it live: Pay by phone" });
+    const refund = screen.getByRole("checkbox", { name: "Talk about it live: Refund a payment" });
+    expect([(pay as HTMLInputElement).checked, (refund as HTMLInputElement).checked]).toEqual([
+      true,
+      false,
+    ]);
+  });
+
   it("waits while a session is open", () => {
     const onTalkLive = vi.fn();
     render(

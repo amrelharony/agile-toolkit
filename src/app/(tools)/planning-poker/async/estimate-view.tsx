@@ -279,6 +279,7 @@ function EstimateForm({ pack }: { pack: AsyncPack }) {
                         className="self-start gap-1.5 pointer-coarse:min-h-11"
                         disabled={notesFull}
                         onClick={() => openNote(index)}
+                        aria-label={`Add a note on “${title}”`}
                       >
                         <StickyNote aria-hidden="true" />
                         Add a note

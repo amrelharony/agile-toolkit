@@ -768,7 +768,10 @@ function RevealedRound({
                     checked={Boolean(r.story.discuss)}
                     onChange={(e) => flag(r.story.id, e.target.checked)}
                   />
-                  Talk about it live
+                  <span>
+                    Talk about it live
+                    <span className="sr-only">: {r.story.title}</span>
+                  </span>
                 </label>
               </>
             )}
