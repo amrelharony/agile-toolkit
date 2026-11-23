@@ -400,6 +400,7 @@ registry.register({
   name: "mark_resolved",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Mark this debt resolved",
   description:
     "Mark a tech-debt item resolved (paid down) on a day: resolvedAt YYYY-MM-DD, default today; backdate it, never in the future, never before it was raised (a timestamp is read as its date). An item already resolved is re-dated. Its age in sprints stops at that day. Returns {updated: true, resolvedAt} or {updated: false, reason: 'not_found' | 'not_a_day' | 'future_day' | 'before_raised'}. Reopen it on the page (Undo) or with workspace.tech_debt.update {id, patch: {resolvedAt: \"\"}} (an empty resolvedAt reads as open).",
   paramsSchema: MarkResolvedSchema,
@@ -497,6 +498,7 @@ registry.register({
   name: "delete",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Delete this debt item",
   description:
     "Delete a tech-debt item, as the page's delete does (canvas cards pinned to it are unpinned; a backlog story made from it stays). Final for an agent (the page offers Undo): confirm with the user first. Params: id. Returns {deleted: true, id, title} or {deleted: false, reason: 'not_found' | 'pending_move', message?} or {deleted: false, confirmed: false}. 'pending_move': a row of the old Tech Debt page not moved in yet; open Tech Debt once, then delete it.",
   paramsSchema: z.object({ id: z.string().min(1) }),

@@ -10,7 +10,8 @@ import { describe, expect, it } from "vitest";
 import { render } from "@testing-library/react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { InkMoment, type MomentMark } from "@/components/ink/ink-moment";
-import { DONE_STAMP, STAR } from "@/lib/ink/drawings/marks";
+import { InkTick } from "@/components/ink/ink-tick";
+import { DONE_STAMP, STAR, TICK } from "@/lib/ink/drawings/marks";
 import { ring, turn } from "@/lib/ink/pen";
 
 const ink = (c: ParentNode, name: string) => c.querySelector(`[data-ink="${name}"]`);
@@ -52,6 +53,48 @@ describe("InkMoment", () => {
     const cls = ink(container, "flourish")!.getAttribute("class")!;
     expect(cls).toContain("w-24");
     expect(cls).not.toContain("w-20");
+  });
+});
+
+describe("InkTick", () => {
+  const tick = (c: ParentNode) => ink(c, "tick")! as SVGSVGElement;
+  const delays = (svg: SVGSVGElement) =>
+    Array.from(svg.querySelectorAll("path.ink-line")).map((p) =>
+      (p as SVGPathElement).style.getPropertyValue("--ink-delay")
+    );
+
+  it("inks in by default, in a fixed box, decorative", () => {
+    const svg = tick(render(<InkTick />).container);
+    expect(svg).not.toBeNull();
+    expect(svg).toHaveAttribute("aria-hidden", "true");
+    expect(svg.classList.contains("ink-still")).toBe(false);
+    expect(svg.classList.contains("ink-boil")).toBe(false);
+    expect(svg.getAttribute("class")).toMatch(/\bh-5\b/);
+    expect(svg.getAttribute("class")).toMatch(/\bw-5\b/);
+    expect(svg.querySelectorAll("path.ink-line")).toHaveLength(TICK.strokes.length);
+  });
+
+  it("passes still through, so a tick shown again is drawn finished", () => {
+    const svg = tick(render(<InkTick still />).container);
+    expect(svg.classList.contains("ink-still")).toBe(true);
+    // The same strokes and box: only the ink-in is skipped.
+    expect(svg.querySelectorAll("path.ink-line")).toHaveLength(TICK.strokes.length);
+    expect(svg.getAttribute("class")).toMatch(/\bh-5\b/);
+    const live = tick(render(<InkTick still={false} />).container);
+    expect(live.classList.contains("ink-still")).toBe(false);
+  });
+
+  it("keeps its delay and the site's classes beside still", () => {
+    const svg = tick(render(<InkTick still delay={400} className="text-success" />).container);
+    expect(svg.classList.contains("ink-still")).toBe(true);
+    expect(svg.classList.contains("text-success")).toBe(true);
+    expect(delays(svg)[0]).toBe("400ms");
+    expect(delays(tick(render(<InkTick />).container))[0]).toBe("120ms");
+  });
+
+  it("is server-safe either way", () => {
+    expect(renderToStaticMarkup(<InkTick still />)).toContain("ink-still");
+    expect(renderToStaticMarkup(<InkTick />)).not.toContain("ink-still");
   });
 });
 

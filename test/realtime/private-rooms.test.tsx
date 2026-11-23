@@ -62,8 +62,8 @@ vi.mock("@/lib/auth/supabase-browser", () => ({
 }));
 
 vi.mock("@/lib/agent/persist", () => ({
-  listConversations: async () => [],
-  loadMessages: async () => [],
+  listConversations: async () => ({ ok: true, data: [] }),
+  loadMessages: async () => ({ ok: true, data: [] }),
   deleteConversation: async () => {},
   renameConversation: async () => {},
   conversationToMarkdown: () => "",

@@ -975,6 +975,7 @@ registry.register({
   name: "delete",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Delete this decision",
   description:
     "Delete a decision record of any form, as the page's delete does: removes the id from the records and from the old DACI and RAPID collections, so an old row can't come back. Use this, not workspace.decision.delete (which removes only the workspace row, so an old DACI or RAPID row reads back in). Final for an agent (the page offers Undo): confirm with the user first. Params: id. Returns {deleted: true, id, label} or {deleted: false, reason: 'not_found' | 'pending_move', message?} or {deleted: false, confirmed: false}. 'pending_move': a row of the old Decision Log page not moved in yet; open the Decision Log once, then delete it.",
   paramsSchema: z.object({ id: z.string().min(1) }),

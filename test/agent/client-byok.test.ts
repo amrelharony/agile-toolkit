@@ -127,6 +127,22 @@ describe("BYOK owner turns", () => {
     }
     expect(posts[10].body.max_tokens).toBe(4096);
   });
+
+  it("say GLM turned the key down, not that the owner is signed out, on a 401", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      queue = [Response.json({ error: { code: "1000", message: "bad key" } }, { status: 401 })];
+      await sendUserMessage("hi", { userId: "owner-1", toolId: null });
+      expect(useAgentStore.getState().notice).toEqual({
+        tone: "error",
+        kind: "key_refused",
+        text: "The AI service turned down the GLM key in AI Settings. Check the key there, then try again.",
+      });
+      expect(warn.mock.calls[0]?.[0]).toBe("[agent] the request was refused (401):");
+    } finally {
+      warn.mockRestore();
+    }
+  });
 });
 
 describe("BYOK generateTitle", () => {

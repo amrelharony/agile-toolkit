@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 
 /**
  * A phone has no spare margin, so space is kept for Amr at the bottom: main's
  * padding and the pinned bars clear him. He stays a full figure rather than
  * shrinking to a launcher, and nothing is drawn behind him: an opaque strip there
- * read as a bar across the bottom of the screen (8 November 2026).
+ * read as a bar across the bottom of the screen (8 November 2026). He and his
+ * space stay while a page field has the keyboard (chat revamp PR 8: he used to
+ * step off the page then), and behind the open phone sheet.
  */
 
 vi.mock("@/lib/auth/auth-provider", () => ({
@@ -57,11 +59,54 @@ describe("Amr's space on phones", () => {
     // Tall enough for the 104 px box's figure, not a launcher-sized sliver.
     expect(parseInt(published.match(/\d+/)![0], 10)).toBeGreaterThan(80);
     // He's still there, clear of the home indicator.
-    const button = screen.getByRole("button", { name: "Open assistant" });
+    const button = screen.getByRole("button", { name: "Ask Amr" });
     expect(button.style.bottom).toContain("safe-area-inset-bottom");
 
     unmount();
     expect(document.documentElement.style.getPropertyValue("--amr-band-bottom")).toBe("");
+  });
+
+  it("keeps his space, and him, while a page field has the keyboard: nothing shifts as one types", () => {
+    stubWidth(true);
+    render(
+      <>
+        <input aria-label="Retro card" />
+        <MascotAssistant />
+      </>
+    );
+    const before = document.documentElement.style.getPropertyValue("--amr-band-bottom");
+    const button = screen.getByRole("button", { name: "Ask Amr" });
+    const field = screen.getByLabelText("Retro card");
+    act(() => field.focus());
+    // He used to step off the page here, and his space with him.
+    expect(screen.getByRole("button", { name: "Ask Amr" })).toBe(button);
+    expect(document.documentElement.style.getPropertyValue("--amr-band-bottom")).toBe(before);
+    expect(button.style.bottom).toContain("safe-area-inset-bottom");
+    act(() => field.blur());
+    expect(screen.getByRole("button", { name: "Ask Amr" })).toBe(button);
+    expect(document.documentElement.style.getPropertyValue("--amr-band-bottom")).toBe(before);
+  });
+
+  it("keeps his space behind the open phone sheet, where he stands docked", () => {
+    stubWidth(true);
+    window.innerWidth = 360;
+    window.innerHeight = 640;
+    try {
+      render(<MascotAssistant />);
+      const before = document.documentElement.style.getPropertyValue("--amr-band-bottom");
+      act(() => useAgentStore.setState({ open: true }));
+      expect(screen.getByRole("dialog", { name: "Amr" })).toHaveAttribute(
+        "data-amr-layout",
+        "sheet"
+      );
+      expect(screen.getByRole("button", { name: "Ask Amr" })).toHaveAttribute("data-amr-docked");
+      // The page's padding under the sheet doesn't move while it is open.
+      expect(document.documentElement.style.getPropertyValue("--amr-band-bottom")).toBe(before);
+    } finally {
+      act(() => useAgentStore.setState({ open: false }));
+      window.innerWidth = 1024;
+      window.innerHeight = 768;
+    }
   });
 
   it("leaves wider screens alone", () => {

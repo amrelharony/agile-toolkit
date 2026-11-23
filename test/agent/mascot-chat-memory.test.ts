@@ -85,4 +85,30 @@ describe("what a chat leaves in Amr's memory", () => {
 
     expect(saved()).toMatchObject({ chatted: 1, thanked: 1 });
   });
+
+  it("a thread opened from History is not counted again", () => {
+    renderHook(() => useMascotChatReactions());
+
+    act(() =>
+      useAgentStore.getState().setActiveConversation(
+        {
+          id: "c1",
+          title: "Retro help",
+          toolId: null,
+          createdAt: "2026-11-10T08:00:00.000Z",
+          updatedAt: "2026-11-10T08:00:00.000Z",
+          lastMessageAt: "2026-11-10T08:00:00.000Z",
+        },
+        [
+          message("user", "Thanks! How do I run a retro?"),
+          message("assistant", "Start with what went well."),
+        ]
+      )
+    );
+    vi.advanceTimersByTime(5000);
+
+    const counts = loadMemory(localStorage)?.counts ?? {};
+    expect(counts.chatted).toBeUndefined();
+    expect(counts.thanked).toBeUndefined();
+  });
 });
