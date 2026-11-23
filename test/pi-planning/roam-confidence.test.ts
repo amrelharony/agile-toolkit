@@ -22,6 +22,7 @@ import {
   confidenceRule,
   countsFrom,
   latestVote,
+  scopeInText,
   scopeLabel,
   voteAverage,
 } from "@/lib/pi-planning/confidence";
@@ -175,6 +176,10 @@ describe("the confidence vote", () => {
     expect(scopeLabel(s, TRAIN_SCOPE)).toBe("Whole train");
     expect(scopeLabel(s, "b", "Old name")).toBe("Payments");
     expect(scopeLabel(s, "gone", "Mobile")).toBe("Mobile");
+    // Inside a sentence the train reads in lower case; a team keeps its name.
+    expect(scopeInText(s, TRAIN_SCOPE, "Whole train")).toBe("the whole train");
+    expect(scopeInText(s, "b")).toBe("Payments");
+    expect(scopeInText(s, "gone", "Mobile")).toBe("Mobile");
   });
 
   it("finds the latest vote, for any scope or one", () => {

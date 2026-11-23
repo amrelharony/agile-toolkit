@@ -441,7 +441,8 @@ export function PredictabilitySection({
   const closePi = () => {
     const record = recordFrom(state, {
       id: nanoid(8),
-      name: state.name?.trim() || `PI closed ${dayLabel(today, true)}`,
+      // An unnamed PI is named by its last day ("Closed PI ending 23 Nov 2026").
+      name: state.name?.trim() || `PI ending ${dayLabel(today, true)}`,
       closedAt: new Date().toISOString(),
     });
     if (!record) return;

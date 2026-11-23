@@ -17,6 +17,7 @@ import {
   averageText,
   confidenceRule,
   confidenceVotes,
+  scopeInText,
   scopeLabel,
   votesUnderThree,
 } from "@/lib/pi-planning/confidence";
@@ -78,7 +79,7 @@ export function SavedVotes({ state, update }: { state: PiState; update: Update }
   const remove = (vote: PiConfidenceVote) => {
     let index = -1;
     undoable({
-      label: `Deleted the ${scopeLabel(state, vote.scope, vote.scopeName)} vote`,
+      label: `Deleted the vote for ${scopeInText(state, vote.scope, vote.scopeName)}`,
       apply: () =>
         update((s) => {
           const list = s.confidence ?? [];
@@ -96,7 +97,7 @@ export function SavedVotes({ state, update }: { state: PiState; update: Update }
   };
 
   const deleteLabel = (v: PiConfidenceVote) =>
-    `Delete the ${scopeLabel(state, v.scope, v.scopeName)} vote from ${dayLabel(localDayOf(v.at))}`;
+    `Delete the vote for ${scopeInText(state, v.scope, v.scopeName)} from ${dayLabel(localDayOf(v.at))}`;
 
   const voteLine = (v: PiConfidenceVote) =>
     `${scopeLabel(state, v.scope, v.scopeName)} · ${dayLabel(localDayOf(v.at), true)} · ${

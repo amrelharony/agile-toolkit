@@ -531,8 +531,9 @@ describe("Confidence vote", () => {
     expect(stored().history).toEqual([]);
     undoLast();
     expect(stored().history?.map((r) => r.id)).toEqual(["h1"]);
-    fireEvent.click(screen.getByRole("button", { name: /^Delete the Checkout vote/ }));
+    fireEvent.click(screen.getByRole("button", { name: /^Delete the vote for Checkout from / }));
     expect(stored().confidence).toEqual([]);
+    expect(lastToast()[0]).toBe("Deleted the vote for Checkout");
     undoLast();
     expect(stored().confidence?.map((v) => v.id)).toEqual(["v1"]);
   });
@@ -554,8 +555,12 @@ describe("Confidence vote", () => {
       })
     );
     renderBoard();
-    fireEvent.click(await screen.findByRole("button", { name: /^Delete the Whole train vote/ }));
+    // In a sentence the train reads in lower case.
+    fireEvent.click(
+      await screen.findByRole("button", { name: /^Delete the vote for the whole train from / })
+    );
     expect(stored().confidence).toEqual([]);
+    expect(lastToast()[0]).toBe("Deleted the vote for the whole train");
     undoLast();
     expect(stored().confidence?.map((v) => v.id)).toEqual(["v1"]);
   });
@@ -628,6 +633,22 @@ describe("Predictability", () => {
 
     undoLast();
     expect(stored().history).toEqual([]);
+  });
+
+  it("names an unnamed PI by the day it closes", () => {
+    const s = scoredBoard();
+    delete s.name;
+    s.objectives![0].actualBusinessValue = 9;
+    seedBoard(s);
+    renderBoard();
+    fireEvent.click(
+      within(section("Predictability")).getByRole("button", { name: "Close this PI" })
+    );
+    fireEvent.click(
+      within(screen.getByRole("dialog")).getByRole("button", { name: "Close this PI" })
+    );
+    expect(stored().history?.[0].name).toMatch(/^PI ending \d{1,2} \w{3} \d{4}$/);
+    expect(lastToast()[0]).toMatch(/^Closed PI ending \d/);
   });
 
   it("warns before closing an unchanged PI a second time", () => {

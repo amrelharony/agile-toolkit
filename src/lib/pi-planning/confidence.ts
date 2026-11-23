@@ -56,6 +56,18 @@ export function scopeLabel(
   return state.teams.find((t) => t.id === scope)?.name || savedName || "A team";
 }
 
+/**
+ * What a scope is called inside a sentence: "the whole train" (the label
+ * "Whole train" is for a list or a table cell), or the team's name.
+ */
+export function scopeInText(
+  state: Pick<PiState, "teams">,
+  scope: string,
+  savedName?: string
+): string {
+  return scope === TRAIN_SCOPE ? "the whole train" : scopeLabel(state, scope, savedName);
+}
+
 /** The average answer, 1 to 5; null for no votes. */
 export function voteAverage(counts: readonly number[]): number | null {
   const n = counts.reduce((a, c) => a + c, 0);
