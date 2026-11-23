@@ -482,6 +482,15 @@ async function send(store: NotesStore, params: z.infer<typeof SendParams>): Prom
   const item = note.items.find((i) => i.id === params.itemId);
   if (!item) return { sent: false, reason: "item_not_found" };
   if (isExampleId(note.id)) return { sent: false, reason: "example" };
+  // As on the page: a dropped item isn't sent until it is opened again.
+  if (item.status === "dropped") {
+    return {
+      sent: false,
+      reason: "dropped",
+      message:
+        "It was dropped: open it again first (its status back to open, through workspace.meeting_note.update).",
+    };
+  }
   const route = routeOf(item.kind);
   if (!route) {
     return {
@@ -531,7 +540,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Send a kept item where its kind goes, as the page's Send does: an action to Retro Actions with its owner and due date (retro-action; a retro is started if none is open), a decision to the Decision Log as a proposed record whose recommendation is what the meeting agreed, numbered next in the log (decision), a blocker to Impediments (impediment), a story to the backlog (backlog-story), a bug to Bug Triage (bug). The quote is never sent. The new item links back (sourceRef notes-to-actions) and the item turns 'sent'. Questions and example notes are never sent. Params: noteId, itemId, route. Returns {sent: true, route, targetId, href, place, noteDone} or {sent: false, reason: 'not_found' | 'item_not_found' | 'example' | 'question' | 'wrong_route' | 'already_sent', message?, targetId?}.",
+    "Send a kept item where its kind goes, as the page's Send does: an action to Retro Actions with its owner and due date (retro-action; a retro is started if none is open), a decision to the Decision Log as a proposed record whose recommendation is what the meeting agreed, numbered next in the log (decision), a blocker to Impediments (impediment), a story to the backlog (backlog-story), a bug to Bug Triage (bug). The quote is never sent. The new item links back (sourceRef notes-to-actions) and the item turns 'sent'. Questions and example notes are never sent, and a dropped item isn't sent until it is opened again. Params: noteId, itemId, route. Returns {sent: true, route, targetId, href, place, noteDone} or {sent: false, reason: 'not_found' | 'item_not_found' | 'example' | 'dropped' | 'question' | 'wrong_route' | 'already_sent', message?, targetId?}.",
   paramsSchema: SendParams,
   handler: async (params) => send(browserStore, params),
   mcpHandler: async (params, ctx) => send(serverStore(ctx.userId), params),

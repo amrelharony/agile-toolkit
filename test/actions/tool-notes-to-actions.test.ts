@@ -307,6 +307,28 @@ describe("send", () => {
       })
     ).toMatchObject({ sent: false, reason: "example" });
   });
+
+  it("refuses a dropped item, as the page does, and sends it once opened again", async () => {
+    const dropped = note({ items: [item("b1", { kind: "bug", status: "dropped" })] });
+    useWorkspaceStore.setState({ meetingNotes: [dropped] });
+    server.rows.set("workspace:meetingNote/mnote_a", dropped);
+    const params = { noteId: "mnote_a", itemId: "b1", route: "bug" };
+    expect(await run("tool.notes_to_actions.send", params, true)).toMatchObject({
+      sent: false,
+      reason: "dropped",
+      message: expect.stringMatching(/open it again first/),
+    });
+    expect(await run("tool.notes_to_actions.send", params)).toMatchObject({
+      sent: false,
+      reason: "dropped",
+    });
+    expect(ws().bugReports ?? []).toEqual([]);
+    expect(storedItem("b1")?.status).toBe("dropped");
+    useWorkspaceStore.setState({
+      meetingNotes: [note({ items: [item("b1", { kind: "bug", status: "open" })] })],
+    });
+    expect(await run("tool.notes_to_actions.send", params)).toMatchObject({ sent: true });
+  });
 });
 
 describe("drop, answer and forget", () => {
