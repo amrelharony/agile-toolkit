@@ -1764,6 +1764,39 @@ describe("P2.8 kickoffs", () => {
     );
     await expect(updateOverMcp(T, KICKOFF, { sections })).rejects.toThrow(/too big to save/);
   });
+
+  it("refuse what the kickoff's format doesn't take, on both transports", async () => {
+    const offFormat: [Record<string, unknown>, RegExp][] = [
+      [
+        { sections: { ...KICKOFF.sections, people: [item("p", { owner: "Ana" })] } },
+        /“people” isn't a section of the Inception deck format/,
+      ],
+      [
+        { sections: { ...KICKOFF.sections, why: [item("y", { owner: "Ana" })] } },
+        /Lines in “why” have no owner/,
+      ],
+      [
+        { sections: { ...KICKOFF.sections, needs: [item("n", { likelihood: 3 })] } },
+        /Lines in “needs” aren't rated/,
+      ],
+      [
+        { sections: { ...KICKOFF.sections, "in-scope": [item("s", { covers: "w1" })] } },
+        /Lines in “in-scope” can't cover a worry/,
+      ],
+      [{ format: "team-canvas", sections: {} }, /The Team Canvas format has no trade-off sliders/],
+    ];
+    for (const [patch, message] of offFormat) {
+      await expect(update(T, "kickoffs", KICKOFF, patch)).rejects.toThrow(message);
+      await expect(updateOverMcp(T, KICKOFF, patch)).rejects.toThrow(message);
+    }
+    await expect(create(T, { ...KICKOFF, id: undefined, format: "team-canvas" })).rejects.toThrow(
+      /isn't a section of the Team Canvas format.*Nothing was saved/
+    );
+    expect(upsertEntity).not.toHaveBeenCalled();
+    // A cover whose worry is gone (deleted, its Undo still open) is kept.
+    const undoing = { sections: { ...KICKOFF.sections, worries: [] } };
+    expect((await update(T, "kickoffs", KICKOFF, undoing))?.sections).toEqual(undoing.sections);
+  });
 });
 
 describe("P2.9 Team Time people", () => {

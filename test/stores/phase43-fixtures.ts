@@ -697,18 +697,16 @@ export const RETRO_WITH_DAYS: RetroBoard = {
 
 /* P2.8 */
 
+/** An Inception deck: only what its format takes (the CRUD refuses the rest). */
 export const KICKOFF: Kickoff = {
   id: "kickoff_1",
   title: "Payments team liftoff",
-  format: "team-canvas",
+  format: "inception",
   brief: "A new team for card payments.",
   date: "2026-11-16",
   participants: ["Ana", "Bo"],
   sections: {
-    people: [
-      { id: "p1", text: "", owner: "Ana" },
-      { id: "p2", text: "Product Owner", owner: "Bo" },
-    ],
+    why: [{ id: "y1", text: "Shop owners take card payments on their own phone." }],
     worries: [
       {
         id: "w1",
@@ -718,7 +716,7 @@ export const KICKOFF: Kickoff = {
         sentTo: [{ route: "risk", targetId: "risk_1", at: LATER }],
       },
     ],
-    rules: [{ id: "r1", text: "Pair on anything risky", covers: "w1" }],
+    needs: [{ id: "n1", text: "A contact at the bank", owner: "Bo", covers: "w1" }],
   },
   sliders: [
     { id: "sl1", label: "Quality", position: 1, note: "Payments can't break" },
