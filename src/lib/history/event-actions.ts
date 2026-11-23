@@ -1421,8 +1421,6 @@ export const IMPACT_MAP_ACTIONS = {
 export const STRATEGY_TREE_ACTIONS = {
   /** Payload: treeId and the format (dibb, lean-value-tree or hoshin). */
   TREE_CREATED: "tree_created",
-  /** Payload: treeId. */
-  TREE_UPDATED: "tree_updated",
   /** Payload: treeId and the format. */
   TREE_REMOVED: "tree_removed",
   /** Payload: treeId, nodeId and its level. */
@@ -1471,8 +1469,6 @@ export const PRODUCT_METRICS_ACTIONS = {
   FUNNEL_PERIOD_ADDED: "funnel_period_added",
   /** Payload: metricId. */
   NORTH_STAR_SET: "north_star_set", // milestone
-  /** Payload: how many metrics were removed. */
-  METRICS_RESET: "metrics_reset",
 } as const;
 
 /** A/B Calculator. Payloads hold ids, sizes, days and verdicts. */
@@ -1487,8 +1483,6 @@ export const AB_CALCULATOR_ACTIONS = {
   COUNTS_RECORDED: "counts_recorded",
   /** Ship, keep or rerun. Payload: testId and the decision. */
   DECISION_SET: "decision_set", // milestone
-  /** Payload: how many tests were removed. */
-  TESTS_RESET: "tests_reset",
 } as const;
 
 /** EBM Dashboard. Payloads hold ids, value areas, days and counts, never the goal's text. */
@@ -1505,8 +1499,6 @@ export const EBM_DASHBOARD_ACTIONS = {
   STRATEGIC_GOAL_SET: "strategic_goal_set",
   /** Payload: reviewId, the area to focus on next and how many areas were measured. */
   REVIEW_RECORDED: "review_recorded", // milestone
-  /** Payload: how many measures and reviews were removed. */
-  EBM_RESET: "ebm_reset",
 } as const;
 
 /** Flow Insights. Payloads hold ids, types and counts. */
