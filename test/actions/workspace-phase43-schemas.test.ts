@@ -53,6 +53,7 @@ import {
   TOOL_TEXT_MAX,
   type ExampleMap,
   type Improvement,
+  type Kickoff,
   type ProductCanvas,
   type Workspace,
   WORKFLOW_DEFINITION_KIND,
@@ -1795,7 +1796,8 @@ describe("P2.8 kickoffs", () => {
     expect(upsertEntity).not.toHaveBeenCalled();
     // A cover whose worry is gone (deleted, its Undo still open) is kept.
     const undoing = { sections: { ...KICKOFF.sections, worries: [] } };
-    expect((await update(T, "kickoffs", KICKOFF, undoing))?.sections).toEqual(undoing.sections);
+    const kept = (await update(T, "kickoffs", KICKOFF, undoing)) as Kickoff | undefined;
+    expect(kept?.sections).toEqual(undoing.sections);
   });
 });
 
