@@ -22,6 +22,7 @@ import {
 } from "@/lib/ai/tasks/persona-library";
 import { personaFromNotesTask as personaFromNotesRef } from "@/lib/ai/tasks/persona-library.lite";
 import { personaFromNotesPrompt } from "@/lib/ai/tasks/persona-library.server";
+import { validatePersona, withDraft, emptyFields } from "@/app/(tools)/persona-library/form";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 
 const task = personaFromNotesTask;
@@ -58,6 +59,24 @@ describe("persona-library.from_notes", () => {
     };
     expect(task.input.safeParse(input).success).toBe(true);
     expect(jsonBytes({ task: task.id, input })).toBeLessThanOrEqual(TOOL_AI_BODY_BUDGET);
+  });
+
+  it("reads a typical model answer into a draft the form saves", () => {
+    const answer =
+      'Here is a persona:\n```json\n{"name":"Noor","role":"Night-shift nurse","summary":"Cooks for her family around a changing rota.","goals":["Dinner sorted before she gets home"],"pains":["Recipes that need things she lacks"],"behaviours":["Orders on Sunday"],"quote":"I want dinner to be one less thing.","context":"Plans on her phone during breaks.","tags":["shifts","family"]}\n```';
+    const parsed = parseAnswer(answer, task.output);
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.data).toMatchObject({ name: "Noor", role: "Night-shift nurse" });
+    const { fields } = withDraft(emptyFields("primary"), parsed.data);
+    const checked = validatePersona(fields);
+    expect(checked.ok).toBe(true);
+    if (checked.ok)
+      expect(checked.values).toMatchObject({
+        name: "Noor",
+        goals: ["Dinner sorted before she gets home"],
+        tags: ["shifts", "family"],
+      });
   });
 
   it("salvages a partly bad answer and refuses one with no persona", () => {

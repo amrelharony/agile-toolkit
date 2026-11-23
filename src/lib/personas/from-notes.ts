@@ -167,8 +167,9 @@ export function roleFromNotes(notes: string): string | null {
   for (const re of patterns) {
     const m = notes.match(re);
     if (!m) continue;
-    // "a nurse and I work nights" → "nurse"; "a parent who works shifts" stays whole.
-    const phrase = m[1].replace(/\s+(?:and|but|so|because)\b.*$/i, "").trim();
+    // "a nurse and I work nights" and "a nurse on nights I plan…" → the role alone;
+    // "a parent who works shifts" stays whole.
+    const phrase = m[1].replace(/\s+(?:and|but|so|because|I|we|she|he|they)\b.*$/i, "").trim();
     const words = phrase.toLowerCase().split(/\s+/);
     if (!phrase || NOT_A_ROLE.has(words[0])) continue;
     if (words.length === 1 && NOT_A_ROLE_ALONE.has(words[0])) continue;
