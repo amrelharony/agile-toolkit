@@ -61,6 +61,7 @@ import {
 import { ReferenceStoriesField } from "./reference-stories";
 import { isScaleAtDefaults, restoreScale, withScaleReset, type ScaleMaps } from "./scale-reset";
 import { useEstimationGuideStore } from "./store";
+import { ThreePointCard } from "./three-point-card";
 import { guideCoverage, guideVerdict } from "./verdict";
 
 /**
@@ -536,6 +537,8 @@ export function EstimationGuideClient() {
           />
         </div>
       </div>
+
+      <ThreePointCard scale={activeScale} />
 
       {exampleShown && <ExampleNotice onClear={clearExample} />}
 

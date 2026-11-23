@@ -59,6 +59,7 @@ import { AcceptEstimate } from "./accept-estimate";
 import { AddStoryForm } from "./add-story-form";
 import { CardReferencePanel } from "./card-reference";
 import type { CardReferenceLookup } from "./use-card-references";
+import { SimilarStories, type SimilarSource } from "@/components/stories/similar-stories";
 import { PlayingCard, VotingDeck } from "./voting-deck";
 import {
   addPlayers,
@@ -125,6 +126,12 @@ interface Props {
   /** The Estimation Guide's notes for a card, shown under the deck. Owner
    *  side only; guests and visitor rooms pass nothing. */
   references?: CardReferenceLookup;
+  /**
+   * "Like this one": finished stories to compare the story with, shown to
+   * the host after Reveal only (before it, a size on screen would anchor
+   * the votes). Owner side only; guests and visitor rooms pass nothing.
+   */
+  similar?: SimilarSource;
   /** "Save to backlog" for the stories typed into this session. Owner side
    *  only, and never in a visitor room (nothing from it is kept). */
   backlog?: {
@@ -284,6 +291,7 @@ export function SessionScreen({
   onRemoveParticipant,
   recordHistory = true,
   references,
+  similar,
   backlog,
   revealAtZero = null,
 }: Props) {
@@ -988,16 +996,34 @@ export function SessionScreen({
                         deck={session.scale}
                         suggested={consensus?.suggested ?? null}
                         onAccept={saveEstimate}
-                      >
-                        {(pick) =>
-                          references && (
-                            <CardReferencePanel
-                              card={pick}
-                              reference={pick === null ? null : references(pick)}
-                              prompt="Pick a card to see what it means in your Estimation Guide."
-                            />
-                          )
+                        votes={castVotes(session.participants)}
+                        onThreePointUsed={(card, expected) =>
+                          log(PLANNING_POKER_ACTIONS.THREE_POINT_USED, {
+                            card,
+                            expected: Math.round(expected * 10) / 10,
+                          })
                         }
+                      >
+                        {(pick) => (
+                          <>
+                            {references && (
+                              <CardReferencePanel
+                                card={pick}
+                                reference={pick === null ? null : references(pick)}
+                                prompt="Pick a card to see what it means in your Estimation Guide."
+                              />
+                            )}
+                            {similar && currentStory && (
+                              <SimilarStories
+                                target={{
+                                  title: currentStory.title,
+                                  notes: currentStory.description,
+                                }}
+                                source={similar}
+                              />
+                            )}
+                          </>
+                        )}
                       </AcceptEstimate>
                     )}
                   </motion.div>

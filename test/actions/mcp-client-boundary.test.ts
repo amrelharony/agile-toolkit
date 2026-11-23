@@ -72,6 +72,9 @@ describe("what the MCP handlers call", () => {
   it("imports no client module, React DOM, zustand or the store", () => {
     const { seen, packages, clients } = walk(
       [
+        "src/app/(tools)/estimation-guide/references.ts",
+        "src/lib/estimation/similar.ts",
+        "src/lib/estimation/three-point.ts",
         "src/lib/parking-lot/model.ts",
         "src/lib/parking-lot/route-rules.ts",
         "src/lib/handoffs/links.ts",
@@ -97,6 +100,7 @@ describe("the action files", () => {
   it.each([
     // One tool id per line, so tools added side by side merge cleanly.
     "parking-lot",
+    "planning-poker",
     "example-mapping",
     "facilitator-timers",
     "relative-sizing",

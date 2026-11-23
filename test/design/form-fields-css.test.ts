@@ -111,6 +111,7 @@ describe("native selects styled to match <Input>", () => {
     "src/app/(tools)/user-interviews/quote-card.tsx",
     "src/app/(tools)/epic-roadmap/epic-stories.tsx",
     "src/app/(tools)/jtbd-mapper/job-form.tsx",
+    "src/app/(tools)/planning-poker/three-point-check.tsx",
     "src/app/(tools)/premortem/components/premortem-form.tsx",
     "src/app/(tools)/premortem/premortem-client.tsx",
     "src/components/shared/quarter-picker.tsx",
