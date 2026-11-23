@@ -62,6 +62,8 @@ export interface ReleaseCardProps {
   onReopen: (r: Release) => void;
   onSave: (r: Release, values: ReleaseValues) => void;
   onRemove: (r: Release) => void;
+  /** Its stories and release notes (release-notes.tsx), under the gates. */
+  notesPanel?: ReactNode;
 }
 
 type Dialog = "ship" | "rollback" | null;
@@ -81,6 +83,7 @@ export function ReleaseCard({
   onReopen,
   onSave,
   onRemove,
+  notesPanel,
 }: ReleaseCardProps) {
   const [editing, setEditing] = useState(false);
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -252,6 +255,8 @@ export function ReleaseCard({
           </Link>
         </p>
       )}
+
+      {notesPanel}
 
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-2">
         {planning && (

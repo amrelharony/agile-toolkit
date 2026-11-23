@@ -38,6 +38,14 @@ import {
   withShipPlans,
 } from "@/lib/releases/auto-gates";
 import { RELEASE_DOC_ID, teamGates } from "@/lib/releases/gates";
+import {
+  linkedIds,
+  releaseNotesMarkdown,
+  suggestReleaseStories,
+  type NotesAudience,
+} from "@/lib/releases/notes";
+import { EPIC_ROADMAP_ID } from "@/lib/roadmap/epic-source";
+import type { AiSource } from "@/lib/ai/task-types";
 import { releaseStats, shipEvents } from "@/lib/releases/model";
 import { RETRO_CURRENT_ID } from "@/lib/retro/board";
 import { todayIso } from "@/lib/sprints/series";
@@ -62,7 +70,7 @@ import {
   skippedRows,
   trendSentence,
 } from "./analysis";
-import { buildExample, type ReleaseReadinessExample } from "./example";
+import { buildExample, buildNotesExample, type ReleaseReadinessExample } from "./example";
 import {
   EMPTY_RELEASE,
   applyRelease,
@@ -75,6 +83,7 @@ import {
 import { GatesEditor } from "./gates-editor";
 import { toMarkdown } from "./markdown";
 import { ReleaseCard } from "./release-card";
+import { ReleaseNotesPanel } from "./release-notes";
 import { ReleaseFields } from "./release-fields";
 import { STATUS_LABEL, dayLabel, nameOf } from "./text";
 import { nextRelease, overallVerdict, releaseVerdict } from "./verdict";
@@ -187,6 +196,27 @@ export function ReleaseReadinessClient() {
   const dod = example?.dod ?? storedDod;
   // The example's releases link no stories: its gate reads its DoD's ticks.
   const stories = preview ? undefined : storedStories;
+  const roadmaps = useWorkspaceStore((s) => s.epicRoadmaps);
+  // The release notes read their own stories in the example (its releases'
+  // links live there, so the gates above stay as they were).
+  const notesExample = useMemo(() => (preview ? buildNotesExample(today) : null), [preview, today]);
+  const notesStories = notesExample?.stories ?? storedStories;
+  const notesDoc: ReleaseReadiness = useMemo(
+    () =>
+      notesExample
+        ? {
+            ...doc,
+            releases: doc.releases.map((r) =>
+              r.storyIds ? r : { ...r, storyIds: notesExample.links[r.id] }
+            ),
+          }
+        : doc,
+    [doc, notesExample]
+  );
+  const epicTitles = useMemo(() => {
+    const epics = (roadmaps ?? []).find((d) => d.id === EPIC_ROADMAP_ID)?.epics ?? [];
+    return new Map(epics.map((e) => [e.id, e.title]));
+  }, [roadmaps]);
 
   // Fixed for the render an edit starts in, so its Undo goes back to the
   // same place even if the example is loaded or cleared in between. The
@@ -235,6 +265,10 @@ export function ReleaseReadinessClient() {
     stats,
     skipped,
     gates: teamGates(doc).map(describedGate),
+    // One release's notes keep the share link short: the newest that has them.
+    notes: releaseNotesMarkdown(
+      doc.releases.find((r) => r.releaseNotes?.text.trim()) ?? { name: "", releaseNotes: undefined }
+    ),
   });
 
   /* ── Changes ──────────────────────────────────────────────────────── */
@@ -347,6 +381,64 @@ export function ReleaseReadinessClient() {
             (el) => el.getAttribute("data-release-delete") === near.id
           )
         : addRef.current?.querySelector<HTMLElement>("input")
+    );
+  };
+
+  /* ── Stories and release notes ───────────────────────────────────── */
+
+  /** What a release links as the notes read it (the example's own links in the example). */
+  const linkedOf = (r: Release) => linkedIds(notesDoc.releases.find((x) => x.id === r.id) ?? r);
+
+  const linkStories = (r: Release, ids: string[]) => {
+    const all = Array.from(new Set([...linkedOf(r), ...ids]));
+    const added = all.length - linkedOf(r).length;
+    if (added === 0) return;
+    change(
+      r,
+      { ...r, storyIds: all },
+      `Linked ${plural(added, "story", "stories")} to “${nameOf(r)}”`,
+      () => record(RELEASE_READINESS_ACTIONS.STORIES_LINKED, { releaseId: r.id, count: added })
+    );
+  };
+
+  const unlinkStory = (r: Release, story: Story) => {
+    const rest = linkedOf(r).filter((id) => id !== story.id);
+    const next: Release = { ...r };
+    if (rest.length > 0) next.storyIds = rest;
+    else delete next.storyIds;
+    // In the example an empty list stays, so its default links don't come back.
+    if (preview) next.storyIds = rest;
+    change(
+      r,
+      next,
+      `Unlinked “${story.title || "the story"}” from “${nameOf(r)}”`,
+      () => undefined
+    );
+  };
+
+  const notesDrafted = (r: Release, audience: NotesAudience, source: AiSource) => {
+    record(RELEASE_READINESS_ACTIONS.NOTES_DRAFTED, {
+      releaseId: r.id,
+      audience,
+      source: source === "ai" ? "ai" : "template",
+    });
+  };
+
+  const saveNotes = (r: Release, notes: { audience: NotesAudience; text: string } | null) => {
+    const next: Release = { ...r };
+    if (notes) next.releaseNotes = { ...notes, updatedAt: new Date().toISOString() };
+    else delete next.releaseNotes;
+    change(
+      r,
+      next,
+      notes
+        ? `Saved the release notes for “${nameOf(r)}”`
+        : `Cleared the release notes for “${nameOf(r)}”`,
+      () =>
+        record(RELEASE_READINESS_ACTIONS.NOTES_SAVED, {
+          releaseId: r.id,
+          audience: notes?.audience ?? r.releaseNotes?.audience ?? "customers",
+        })
     );
   };
 
@@ -565,6 +657,26 @@ export function ReleaseReadinessClient() {
                   onReopen={reopen}
                   onSave={save}
                   onRemove={remove}
+                  notesPanel={
+                    <ReleaseNotesPanel
+                      release={release}
+                      linkedIds={linkedOf(release)}
+                      stories={notesStories}
+                      suggestions={suggestReleaseStories(
+                        notesDoc.releases.find((x) => x.id === release.id) ?? release,
+                        notesDoc,
+                        notesStories,
+                        today
+                      )}
+                      today={today}
+                      preview={preview}
+                      epicTitle={(id) => (id ? epicTitles.get(id) : undefined)}
+                      onLink={linkStories}
+                      onUnlink={unlinkStory}
+                      onDrafted={notesDrafted}
+                      onSave={saveNotes}
+                    />
+                  }
                 />
               </li>
             ))}
