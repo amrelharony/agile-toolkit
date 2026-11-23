@@ -411,15 +411,30 @@ registry.register({
 
 /* ── tool.team_time.create_poll ──────────────────────────────────────── */
 
+/**
+ * An ISO date-time with Z or a UTC offset. Without one, Date.parse reads it
+ * on the machine's clock, so the browser and the server would store
+ * different instants for the same call.
+ */
+const InstantParam = z
+  .string()
+  .max(40)
+  .regex(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/,
+    'An ISO date-time with Z or an offset, such as "2026-11-25T14:00:00Z".'
+  );
+
 const CreatePollParams = z
   .object({
     title: z.string().trim().min(1).max(TOOL_TEXT_MAX.short).describe("What the poll is for."),
     minutes: z.number().int().min(MEETING_MINUTES.min).max(MEETING_MINUTES.max),
     slots: z
-      .array(z.string().max(40))
+      .array(InstantParam)
       .max(TEAM_TIME_MAX.slots)
       .optional()
-      .describe("The times to offer, ISO instants in the future."),
+      .describe(
+        'The times to offer, ISO date-times in the future with Z or an offset ("2026-11-25T14:00:00Z").'
+      ),
     fromSuggestions: z
       .number()
       .int()
@@ -481,7 +496,7 @@ registry.register({
   name: "create_poll",
   category: "write",
   requiresConfirmation: false,
-  description: `Create a Team Time poll for a meeting time, as the page's Find a time tab does: a title, the meeting's length (${MEETING_MINUTES.min}–${MEETING_MINUTES.max} minutes) and either slots (up to ${TEAM_TIME_MAX.slots} ISO instants, each in the future and different) or fromSuggestions (1–${QUICK_VOTE_SLOTS} of find_times's best times). The facilitator then records who can make each time (record_answers) and chooses one (choose_slot). Returns {created: true, poll: {id, slots: {id, start, label}[]}} or {created: false, reason: 'invalid' | 'no_people', problems?}.`,
+  description: `Create a Team Time poll for a meeting time, as the page's Find a time tab does: a title, the meeting's length (${MEETING_MINUTES.min}–${MEETING_MINUTES.max} minutes) and either slots (up to ${TEAM_TIME_MAX.slots} ISO date-times with Z or an offset, each in the future and different) or fromSuggestions (1–${QUICK_VOTE_SLOTS} of find_times's best times). The facilitator then records who can make each time (record_answers) and chooses one (choose_slot). Returns {created: true, poll: {id, slots: {id, start, label}[]}} or {created: false, reason: 'invalid' | 'no_people', problems?}.`,
   paramsSchema: CreatePollParams,
   handler: async (p) => createPoll(browserStore, p),
   mcpHandler: async (p, ctx) => createPoll(serverStore(ctx.userId), p),

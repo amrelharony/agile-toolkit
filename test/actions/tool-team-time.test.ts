@@ -254,6 +254,18 @@ describe("polls", () => {
     expect(past.created).toBe(false);
   });
 
+  it("refuses a time with no Z or offset, which each machine would read on its own clock", () => {
+    const schema = registry.get("tool.team_time.create_poll")!.paramsSchema;
+    const ok = (slot: string) =>
+      schema.safeParse({ title: "R", minutes: 60, slots: [slot] }).success;
+    expect(ok("2031-03-04T14:00:00")).toBe(false);
+    expect(ok("Mar 4 2031 14:00")).toBe(false);
+    expect(ok("2031-03-04")).toBe(false);
+    expect(ok(FAR)).toBe(true);
+    expect(ok("2031-03-04T14:00Z")).toBe(true);
+    expect(ok("2031-03-04T09:00:00-05:00")).toBe(true);
+  });
+
   it("takes either slots or suggestions, not both", async () => {
     const schema = registry.get("tool.team_time.create_poll")!.paramsSchema;
     expect(schema.safeParse({ title: "R", minutes: 60 }).success).toBe(false);
