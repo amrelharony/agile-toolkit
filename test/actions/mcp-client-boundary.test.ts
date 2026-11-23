@@ -135,6 +135,12 @@ describe("what the MCP handlers call", () => {
         "src/lib/strategy-map/model.ts",
         "src/lib/strategy-map/rules.ts",
         "src/lib/strategy-map/send.ts",
+        "src/lib/team-time/model.ts",
+        "src/lib/team-time/next-step.ts",
+        "src/lib/team-time/note.ts",
+        "src/lib/team-time/rotation.ts",
+        "src/lib/team-time/sun.ts",
+        "src/lib/team-time/validate.ts",
         "src/lib/test-sessions/model.ts",
         "src/lib/trees/parent-tree.ts",
       ].map(abs)
@@ -178,6 +184,7 @@ describe("the action files", () => {
     "retro",
     "root-cause",
     "strategy-tree",
+    "team-time",
     "test-sessions",
   ])("%s reaches no client module but the workspace store", (tool) => {
     const { seen, clients } = walk([abs(`src/lib/actions/tools/${tool}.ts`)]);

@@ -40,6 +40,7 @@ import { categoriesTask, countermeasureTask, loopLinksTask, nextWhyTask } from "
 import { notebookTagTask, notebookWeeklySummaryTask } from "./sm-notebook";
 import { sprintRiskNoteTask } from "./sprint";
 import { strategyTreeDraftTask } from "./strategy-tree";
+import { teamTimeScheduleNoteTask } from "./team-time";
 import { testSessionsChartersTask } from "./test-sessions";
 
 // `any` here only erases each task's own input/output types for the list; the
@@ -93,5 +94,6 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   notebookTagTask,
   sprintRiskNoteTask,
   strategyTreeDraftTask,
+  teamTimeScheduleNoteTask,
   testSessionsChartersTask,
 ];
