@@ -17,6 +17,7 @@ import { notesToActionsExtractTask } from "./notes-to-actions";
 import { parkingRouteTask } from "./parking-lot";
 import { themeNamesTask } from "./picker";
 import { productGoalDraftTask } from "./product-goal";
+import { releaseReadinessNotesTask } from "./release-readiness";
 import { groupTopicsTask, surprisePlanTask } from "./retro";
 import { retroActionsThemesTask } from "./retro-actions";
 import { categoriesTask, countermeasureTask, nextWhyTask } from "./root-cause";
@@ -42,6 +43,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   parkingRouteTask,
   themeNamesTask,
   productGoalDraftTask,
+  releaseReadinessNotesTask,
   surprisePlanTask,
   groupTopicsTask,
   retroActionsThemesTask,

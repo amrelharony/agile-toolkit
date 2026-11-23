@@ -17,6 +17,7 @@ import { notesToActionsExtractPrompt } from "./notes-to-actions.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
 import { themeNamesPrompt } from "./picker.server";
 import { productGoalDraftPrompt } from "./product-goal.server";
+import { releaseReadinessNotesPrompt } from "./release-readiness.server";
 import { groupTopicsPrompt, surprisePlanPrompt } from "./retro.server";
 import { retroActionsThemesPrompt } from "./retro-actions.server";
 import { categoriesPrompt, countermeasurePrompt, nextWhyPrompt } from "./root-cause.server";
@@ -41,6 +42,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   parkingRoutePrompt,
   themeNamesPrompt,
   productGoalDraftPrompt,
+  releaseReadinessNotesPrompt,
   surprisePlanPrompt,
   groupTopicsPrompt,
   retroActionsThemesPrompt,
