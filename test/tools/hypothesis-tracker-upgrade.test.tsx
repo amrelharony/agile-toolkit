@@ -1083,13 +1083,13 @@ describe("value checks, the A/B line and the kind filter", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     expect(
-      screen.getByText("Value validated: no check has a result yet (1 open)")
+      screen.getByText("Value validated: no check has a decisive result yet (1 open)")
     ).toBeInTheDocument();
     expect(
       within(card("a checklist gets new teams to their first sprint sooner")).queryByText("Due")
     ).toBeNull();
     expect(screen.getByTestId("export-markdown").textContent).toContain(
-      "Value validated: no check has a result yet (1 open)."
+      "Value validated: no check has a decisive result yet (1 open)."
     );
   });
 });

@@ -512,7 +512,17 @@ describe("the summary", () => {
     expect(valueSummaryText(s)).toBe("Value validated: 2 of 3 decisive (67%)");
     expect(valueSummary(rows, TODAY, { includeExamples: true }).total).toBe(5);
     expect(valueSummaryText(valueSummary([hyp("d", { shipped })], TODAY))).toBe(
-      "Value validated: no check has a result yet (1 open)"
+      "Value validated: no check has a decisive result yet (1 open)"
+    );
+  });
+
+  it("names only the parts there are while nothing is decisive", () => {
+    const inconclusive = hyp("i", { shipped, status: "inconclusive", resolvedAt: "2026-11-19" });
+    expect(valueSummaryText(valueSummary([inconclusive], TODAY))).toBe(
+      "Value validated: no check has a decisive result yet (1 inconclusive)"
+    );
+    expect(valueSummaryText(valueSummary([inconclusive, hyp("d", { shipped })], TODAY))).toBe(
+      "Value validated: no check has a decisive result yet (1 open, 1 inconclusive)"
     );
   });
 });

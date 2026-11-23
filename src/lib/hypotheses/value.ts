@@ -502,10 +502,20 @@ export function valueSummary(
   };
 }
 
-/** "Value validated: 2 of 3 decisive (67%)", or "… no check has a result yet (1 open)". */
+/**
+ * "Value validated: 2 of 3 decisive (67%)", or, with nothing decisive,
+ * "… no check has a decisive result yet (1 open, 1 inconclusive)", naming
+ * only the parts there are: an inconclusive check has a result, just not
+ * one that says yes or no.
+ */
 export function valueSummaryText(s: ValueSummary): string {
   if (s.rate === null) {
-    return `Value validated: no check has a result yet (${s.open} open${s.inconclusive > 0 ? `, ${s.inconclusive} inconclusive` : ""})`;
+    const parts = [
+      s.open > 0 ? `${s.open} open` : "",
+      s.inconclusive > 0 ? `${s.inconclusive} inconclusive` : "",
+    ].filter(Boolean);
+    const tail = parts.length > 0 ? ` (${parts.join(", ")})` : "";
+    return `Value validated: no check has a decisive result yet${tail}`;
   }
   return `Value validated: ${s.validated} of ${s.decisive} decisive (${Math.round(s.rate * 100)}%)`;
 }
