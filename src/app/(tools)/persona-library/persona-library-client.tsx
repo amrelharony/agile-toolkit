@@ -22,6 +22,7 @@ import {
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
+import { focusAfterClearingExample } from "@/components/tool-frame/after-clear-example";
 import { generatePersonaLibraryPrompts } from "@/lib/ai-prompts/persona-library";
 import type { PersonaFromNotesOutput } from "@/lib/ai/tasks/persona-library.lite";
 import type { AiSource } from "@/lib/ai/task-types";
@@ -411,8 +412,21 @@ export function PersonaLibraryClient() {
     for (const p of buildExample(new Date())) savePersona(p);
   };
   const clearExample = () => {
-    for (const p of currentPersonas()) if (isExampleId(p.id)) removePersona(p.id);
+    let removed: Persona[] = [];
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        removed = currentPersonas()
+          .filter((p) => isExampleId(p.id))
+          .map((p) => removePersona(p.id))
+          .filter((p): p is Persona => p !== null);
+      },
+      revert: () => {
+        for (const p of removed) if (!findPersona(p.id)) savePersona(p);
+      },
+    });
     if (editingId && isExampleId(editingId)) cancelEdit();
+    focusAfterClearingExample();
   };
 
   const markdown = useMemo(

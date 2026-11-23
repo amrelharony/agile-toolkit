@@ -26,6 +26,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { SectionCard } from "@/components/shared/section-card";
 import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
+import { focusAfterClearingExample } from "@/components/tool-frame/after-clear-example";
 import { WallViewButton } from "@/components/presentation/wall-view";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { Button } from "@/components/ui/button";
@@ -402,10 +403,23 @@ export function ProductMetricsClient() {
     done("The example is loaded.");
   };
   const clearExample = () => {
-    for (const m of current()) if (isMetricsExample(m.id)) store().removeProductMetric(m.id);
+    let removed: ProductMetric[] = [];
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        removed = current().filter((m) => isMetricsExample(m.id));
+        for (const m of removed) store().removeProductMetric(m.id);
+      },
+      revert: () => {
+        const kept = current();
+        put(removed.filter((m) => !kept.some((x) => x.id === m.id)));
+      },
+    });
     setReadingFor(null);
     setEditing(null);
-    done("The example is cleared.");
+    // The Undo toast says it; a status line would stay after an Undo.
+    done("");
+    focusAfterClearingExample();
   };
 
   /* ── View ───────────────────────────────────────────────────────── */

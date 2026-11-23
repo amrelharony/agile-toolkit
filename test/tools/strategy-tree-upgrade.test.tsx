@@ -220,6 +220,24 @@ describe("empty state and examples", () => {
     expect(trees().map((t) => t.id)).toEqual(["example-impact-map"]);
   });
 
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Load an example/ }));
+    const loaded = trees().map((t) => t.id);
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(trees()).toEqual([]);
+    expect(lastToast().label).toBe("Cleared the example");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Load an example/ })).toHaveFocus()
+    );
+    lastToast().undo();
+    expect(
+      trees()
+        .map((t) => t.id)
+        .sort()
+    ).toEqual([...loaded].sort());
+  });
+
   it("builds three examples that keep the rules, in example ids", () => {
     const ex = buildExamples(new Date("2026-11-20T00:00:00Z"));
     expect(ex.map((t) => t.format)).toEqual(["dibb", "lean-value-tree", "hoshin"]);

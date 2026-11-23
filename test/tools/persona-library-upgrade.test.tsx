@@ -210,6 +210,21 @@ describe("Persona Library first run", () => {
     expect(h.logs).toEqual([]);
   });
 
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Load an example" }));
+    const loaded = stored().map((p) => p.id);
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(stored()).toEqual([]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Cleared the example");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Load an example" })).toHaveFocus()
+    );
+    undoLast();
+    expect(stored().map((p) => p.id)).toEqual(loaded);
+    expect(h.logs).toEqual([]);
+  });
+
   it("shows the name hint and Decision D4's line by the notes draft", async () => {
     renderPage();
     expect(await screen.findByText(NAME_HINT)).toBeInTheDocument();

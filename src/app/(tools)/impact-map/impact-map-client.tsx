@@ -35,6 +35,7 @@ import {
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
+import { focusAfterClearingExample } from "@/components/tool-frame/after-clear-example";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { Textarea } from "@/components/ui/textarea";
@@ -481,11 +482,21 @@ export function ImpactMapClient() {
   };
   const clearExample = () => {
     // The Strategy Tree's examples share the collection; they are that tool's to clear.
-    for (const m of ws().strategyMaps ?? []) {
-      if (isExampleId(m.id) && isImpactMap(m)) ws().removeStrategyMap(m.id);
-    }
+    let removed: StrategyMap[] = [];
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        removed = (ws().strategyMaps ?? []).filter((m) => isExampleId(m.id) && isImpactMap(m));
+        for (const m of removed) ws().removeStrategyMap(m.id);
+      },
+      revert: () => {
+        const kept = ws().strategyMaps ?? [];
+        for (const m of removed) if (!kept.some((x) => x.id === m.id)) ws().upsertStrategyMap(m);
+      },
+    });
     setOpenId(null);
     setSuggested(null);
+    focusAfterClearingExample();
   };
 
   /* ── Exports and prompts ── */

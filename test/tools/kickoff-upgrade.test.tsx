@@ -199,6 +199,24 @@ describe("the empty state and the example", () => {
     expect(logs).toEqual([]);
   });
 
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /Load an example/ }));
+    const loaded = rows().map((k) => k.id);
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(rows()).toEqual([]);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Load an example/ })).toHaveFocus()
+    );
+    undo("Cleared the example");
+    expect(
+      rows()
+        .map((k) => k.id)
+        .sort()
+    ).toEqual([...loaded].sort());
+    expect(logs).toEqual([]);
+  });
+
   it("never sends the example's lines, and offers it no room", () => {
     seed(...buildExample());
     renderPage();

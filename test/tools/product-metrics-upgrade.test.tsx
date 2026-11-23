@@ -171,6 +171,25 @@ describe("empty state and the example", () => {
     expect(metrics().map((m) => m.id)).toEqual(["example-ebm-nps"]);
     expect(screen.queryByText("Example data.")).toBeNull();
   });
+
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Load an example/ }));
+    const loaded = metrics().map((m) => m.id);
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(metrics()).toEqual([]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Cleared the example");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Load an example/ })).toHaveFocus()
+    );
+    undoLast();
+    expect(
+      metrics()
+        .map((m) => m.id)
+        .sort()
+    ).toEqual([...loaded].sort());
+    expect(logs).toEqual([]);
+  });
 });
 
 describe("the metric form", () => {

@@ -280,6 +280,24 @@ describe("empty state, example and starting one", () => {
     expect(stored().map((i) => i.id)).toEqual(["improve_own"]);
   });
 
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    const loaded = stored().map((i) => i.id);
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(stored()).toEqual([]);
+    expect(lastUndo().label).toBe("Cleared the example");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Load an example" })).toHaveFocus()
+    );
+    act(() => lastUndo().revert());
+    expect(
+      stored()
+        .map((i) => i.id)
+        .sort()
+    ).toEqual([...loaded].sort());
+  });
+
   it("shows no AI buttons and no sends on the example, and never logs its edits", () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));

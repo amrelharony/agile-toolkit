@@ -241,6 +241,19 @@ describe("empty state and example", () => {
     expect(maps().map((m) => m.id)).toEqual(treeExamples.map((t) => t.id));
   });
 
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Load an example" }));
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(maps()).toEqual([]);
+    expect(lastToast().label).toBe("Cleared the example");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Load an example" })).toHaveFocus()
+    );
+    lastToast().undo();
+    expect(maps().map((m) => m.id)).toEqual([EXAMPLE_MAP_ID]);
+  });
+
   it("builds an example that keeps the rules, in example ids, with one focus and no persona", () => {
     const ex = buildExample(new Date("2026-11-20T00:00:00Z"));
     expect(strategyMapProblems(ex, undefined)).toEqual([]);

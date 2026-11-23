@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -906,6 +906,24 @@ describe("the example", () => {
     expect(screen.getByText(/Shop owners take every in-person payment/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
     expect(stored()).toEqual([]);
+  });
+
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /Load an example/ }));
+    const loaded = stored().map((c) => c.id);
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(stored()).toEqual([]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Cleared the example");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Load an example/ })).toHaveFocus()
+    );
+    undoLast();
+    expect(
+      stored()
+        .map((c) => c.id)
+        .sort()
+    ).toEqual([...loaded].sort());
   });
 
   it("is never sent and never logged", () => {

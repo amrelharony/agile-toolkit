@@ -35,6 +35,7 @@ import {
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
+import { focusAfterClearingExample } from "@/components/tool-frame/after-clear-example";
 import { Button } from "@/components/ui/button";
 import { IMPROVE_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -362,10 +363,22 @@ export function ImproveClient() {
     setSelectedId(null);
   };
   const clearExample = () => {
-    for (const item of ws().improvements ?? []) {
-      if (isExampleId(item.id)) ws().removeImprovement(item.id);
-    }
+    let removed: Improvement[] = [];
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        removed = (ws().improvements ?? []).filter((item) => isExampleId(item.id));
+        for (const item of removed) ws().removeImprovement(item.id);
+      },
+      revert: () => {
+        const kept = ws().improvements ?? [];
+        for (const item of removed) {
+          if (!kept.some((x) => x.id === item.id)) ws().upsertImprovement(item);
+        }
+      },
+    });
     setSelectedId(null);
+    focusAfterClearingExample();
   };
 
   const analysisTitle = (id: string) => allAnalyses.find((a) => a.id === id)?.title;

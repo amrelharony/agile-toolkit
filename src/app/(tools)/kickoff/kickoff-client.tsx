@@ -39,6 +39,7 @@ import {
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
+import { focusAfterClearingExample } from "@/components/tool-frame/after-clear-example";
 import { Button } from "@/components/ui/button";
 import { useProductGoalPrefs } from "@/app/(tools)/product-goal/store";
 import { generateKickoffPrompts } from "@/lib/ai-prompts/kickoff";
@@ -250,9 +251,19 @@ export function KickoffClient() {
   };
   // The kickoff shown stays unless it was an example (then the newest left shows).
   const clearExample = () => {
-    for (const k of ws().kickoffs ?? []) {
-      if (isExampleId(k.id)) ws().removeKickoff(k.id);
-    }
+    let removed: Kickoff[] = [];
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        removed = (ws().kickoffs ?? []).filter((k) => isExampleId(k.id));
+        for (const k of removed) ws().removeKickoff(k.id);
+      },
+      revert: () => {
+        const kept = ws().kickoffs ?? [];
+        for (const k of removed) if (!kept.some((x) => x.id === k.id)) ws().upsertKickoff(k);
+      },
+    });
+    focusAfterClearingExample();
   };
 
   /** The live room on the kickoff shown says when it opens, holds unsaved answers, or ends. */
