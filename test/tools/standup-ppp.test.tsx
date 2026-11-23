@@ -236,6 +236,27 @@ describe("the form", () => {
     expect(stored()[0]).not.toHaveProperty("handoff");
   });
 
+  it("asks before 'Post for' replaces a draft that holds only a hand-over", () => {
+    useWorkspaceStore.setState({
+      teamTimePeople: PEOPLE,
+      teamMembers: [
+        { id: "m1", name: "Sky" },
+        { id: "m2", name: "Ana" },
+      ],
+    });
+    renderStandup();
+    fireEvent.change(memberInput(), { target: { value: "Sky" } });
+    fireEvent.change(field(/^Hand over to the next shift/), {
+      target: { value: "Build is on staging" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Post for Ana" }));
+    expect(
+      screen.getByText("These notes are for Sky. Save them, or start Ana's.")
+    ).toBeInTheDocument();
+    expect(memberInput()).toHaveValue("Sky");
+    expect(field(/^Hand over to the next shift/)).toHaveValue("Build is on staging");
+  });
+
   it("an edit follows the entry's format, and a cleared DRI is gone after the save", () => {
     useWorkspaceStore.setState({
       standupEntries: [

@@ -104,13 +104,15 @@ function currentEntries(): StandupEntry[] {
   return allStandupEntries(s.standupEntries, s.asyncUpdates);
 }
 
-/** Nothing typed yet beyond the suggested "yesterday". */
+/** Nothing typed yet beyond the suggested "yesterday" (a hand-over or a DRI counts as typed). */
 function isPristine(d: EntryDraft, suggestion: YesterdaySuggestion | null): boolean {
   const y = d.yesterday.trim();
   return (
     !d.today.trim() &&
     !d.blockers.trim() &&
     !d.notes.trim() &&
+    !(d.handoff ?? "").trim() &&
+    !(d.dri ?? "").trim() &&
     (!y || y === (suggestion?.text.trim() ?? ""))
   );
 }
