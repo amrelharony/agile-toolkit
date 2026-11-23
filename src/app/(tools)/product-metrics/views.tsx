@@ -417,7 +417,10 @@ export function FunnelPanel({
     rows: funnel.stages.map((s) => [
       AARRR_LABEL[s.stage],
       s.count ?? "—",
-      s.stage === "acquisition" ? "—" : pctText(s.ofBefore),
+      s.stage === "acquisition"
+        ? "—"
+        : // Referral and Revenue are shares of Retention, not of the stage listed before them.
+          `${pctText(s.ofBefore)}${s.stage === "referral" || s.stage === "revenue" ? " of Retention" : ""}`,
       pctText(s.ofAcquired),
     ]),
   };

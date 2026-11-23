@@ -347,6 +347,22 @@ describe("the funnel", () => {
     );
   });
 
+  it("says in the chart's table that Referral and Revenue are shares of Retention", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Load an example/ }));
+    view("AARRR funnel");
+    fireEvent.click(screen.getByRole("button", { name: /View as table/ }));
+    const table = screen.getByRole("table");
+    for (const stage of ["Referral", "Revenue"]) {
+      expect(within(table).getByRole("row", { name: new RegExp(`^${stage}`) })).toHaveTextContent(
+        /\d+% of Retention/
+      );
+    }
+    expect(within(table).getByRole("row", { name: /^Activation/ })).not.toHaveTextContent(
+      /of Retention/
+    );
+  });
+
   it("sets up the missing stages, then adds a period, each with Undo", async () => {
     seed([metric({ id: "metric_acq", name: "Visitors", aarrr: "acquisition" })]);
     renderPage();
