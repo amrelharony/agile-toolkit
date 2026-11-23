@@ -161,11 +161,12 @@ describe("the funnel", () => {
     expect(f.date).toBe(TODAY);
     expect(f.nested).toBe(true);
     const by = Object.fromEntries(f.stages.map((s) => [s.stage, s]));
-    expect(Math.round(by.activation.ofBefore * 100)).toBe(35);
-    expect(Math.round(by.retention.ofBefore * 100)).toBe(50);
-    expect(Math.round(by.referral.ofBefore * 100)).toBe(17);
-    expect(Math.round(by.revenue.ofBefore * 100)).toBe(13);
-    expect(Math.round(by.revenue.ofAcquired * 1000)).toBe(23);
+    const pct = (n: number | null, scale = 100) => Math.round((n ?? Number.NaN) * scale);
+    expect(pct(by.activation.ofBefore)).toBe(35);
+    expect(pct(by.retention.ofBefore)).toBe(50);
+    expect(pct(by.referral.ofBefore)).toBe(17);
+    expect(pct(by.revenue.ofBefore)).toBe(13);
+    expect(pct(by.revenue.ofAcquired, 1000)).toBe(23);
     expect(f.leakiest).toBe("activation");
     expect(pointsText(by.activation.change)).toBe("up 1 point");
   });
