@@ -732,7 +732,8 @@ async function addValueCheck(store: TrackerStore, p: z.infer<typeof AddValueChec
     unit: p.target?.unit ?? "",
     baseline: p.target?.baseline !== undefined ? String(p.target.baseline) : "",
   };
-  const checked = validateValueCheck(draft, latestDay(today, store.onServer), sources);
+  // Raised on the real today; only the latest day allowed moves on the server.
+  const checked = validateValueCheck(draft, today, sources, latestDay(today, store.onServer));
   if (!checked.ok) {
     const errors = Object.fromEntries(
       Object.entries(checked.errors).map(([k, v]) => [

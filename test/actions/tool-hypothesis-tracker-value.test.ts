@@ -293,7 +293,44 @@ describe("list_value_candidates and add_value_check", () => {
     expect(serverDoc()[0]).toMatchObject({
       id: r.id,
       measuredBy: { kind: "words", note: "fewer tickets" },
+      // Raised on the server's own today, never the day after it allows.
+      raisedAt: TODAY,
     });
+  });
+
+  it("over MCP allows the user's tomorrow as the ship day, still raised today", async () => {
+    const tomorrow = addDays(TODAY, 1) as string;
+    server.rows.set("workspace:epicRoadmap/epicRoadmap:current", {
+      id: "epicRoadmap:current",
+      epics: [
+        { id: "e1", title: "Pay", startQuarter: "2026-Q4", endQuarter: "2026-Q4", progress: 100 },
+      ],
+    } as unknown as { id: string });
+    const r = await run<{ added: boolean; id: string }>(
+      "add_value_check",
+      {
+        kind: "epic",
+        id: "e1",
+        doneAt: tomorrow,
+        measuredBy: { kind: "words", note: "fewer failed payments" },
+      },
+      true
+    );
+    expect(r.added).toBe(true);
+    expect(serverDoc()[0]).toMatchObject({
+      raisedAt: TODAY,
+      shipped: { kind: "epic", id: "e1", doneAt: tomorrow },
+    });
+    // In the browser the user's today is the latest day.
+    seed([], { epicRoadmaps: [server.rows.get("workspace:epicRoadmap/epicRoadmap:current")] });
+    const local = await run<{ added: boolean; errors: Record<string, string> }>("add_value_check", {
+      kind: "epic",
+      id: "e1",
+      doneAt: tomorrow,
+      measuredBy: { kind: "words", note: "fewer failed payments" },
+    });
+    expect(local.added).toBe(false);
+    expect(Object.values(local.errors).join(" ")).toMatch(/hasn't happened yet/);
   });
 });
 

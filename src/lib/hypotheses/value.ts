@@ -292,21 +292,27 @@ export function measuredByOf(
 
 /**
  * Check the "Check its value" form. The four lines and the target are
- * judged by validateHypothesis, as a running hypothesis raised today; the
- * ship day is a real day, not in the future; "Look after" is one of the
- * offered days, so the check day is never before the ship day; a check
+ * judged by validateHypothesis, as a running hypothesis raised `today`;
+ * the ship day is a real day, not after `latest`; "Look after" is one of
+ * the offered days, so the check day is never before the ship day; a check
  * measured by a metric or a key result needs a target (a measured result
  * needs one to be judged against).
+ *
+ * `today` is the day the check is raised on and `latest` the latest day
+ * allowed. The page passes its today for both. Over MCP the server's day
+ * can be behind the user's, so the verb allows the day after (latestDay)
+ * while the check is still raised on the server's own today.
  */
 export function validateValueCheck(
   d: ValueCheckDraft,
   today: string,
-  sources: ValueCheckSources
+  sources: ValueCheckSources,
+  latest: string = today
 ): Validation<ValueCheckValues, ValueCheckField> {
   const errors: FormErrors<ValueCheckField> = {};
   if (!d.shippedOn.trim()) errors.shippedOn = "Pick the day it shipped.";
   else if (!isDay(d.shippedOn)) errors.shippedOn = "Pick a date from the calendar.";
-  else if (d.shippedOn > today)
+  else if (d.shippedOn > latest)
     errors.shippedOn = "It can't ship on a day that hasn't happened yet.";
   if (!(VALUE_CHECK_DAYS as readonly number[]).includes(d.lookAfter)) {
     errors.lookAfter = "Pick when to look.";
@@ -338,7 +344,7 @@ export function validateValueCheck(
       baseline: d.baseline,
       actual: "",
     },
-    today
+    latest
   );
   if (!lines.ok) {
     for (const key of [

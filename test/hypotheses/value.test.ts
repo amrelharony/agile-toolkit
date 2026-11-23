@@ -254,6 +254,25 @@ describe("the Check its value form", () => {
     }
   });
 
+  it("raises the check on today, whatever later day it allows", () => {
+    // Over MCP the verb allows the server's tomorrow (the user's today):
+    // the ship day may be that day, and the check is still raised today.
+    const d = valueCheckDraft(candidate, TODAY);
+    const r = validateValueCheck(
+      { ...d, note: "x", shippedOn: "2026-11-21" },
+      TODAY,
+      sources,
+      "2026-11-21"
+    );
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.values.hypothesis.raisedAt).toBe(TODAY);
+      expect(r.values.shipped.doneAt).toBe("2026-11-21");
+    }
+    const page = validateValueCheck({ ...d, note: "x" }, TODAY, sources);
+    expect(page.ok && page.values.hypothesis.raisedAt).toBe(TODAY);
+  });
+
   it("fills a picked metric's direction, unit, baseline on or before the ship day, and a target past it", () => {
     expect(measureDefaults({ kind: "metric", metricId: "m1" }, sources, "2026-11-10")).toEqual({
       direction: "increase",
