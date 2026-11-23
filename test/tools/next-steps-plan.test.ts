@@ -4,6 +4,7 @@ import { currentQuarter } from "@/lib/roadmap/quarters";
 import type {
   CapacityPlan,
   DependencyMap,
+  PokerAsyncRound,
   Sprint,
   Story,
   Workspace,
@@ -191,11 +192,72 @@ describe("estimation, refinement and poker", () => {
     ).toEqual([]);
   });
 
+  const asyncRound = (over: Partial<PokerAsyncRound> = {}): PokerAsyncRound => ({
+    id: "async_round000001",
+    title: "Checkout stories",
+    scaleType: "fibonacci",
+    deck: ["1", "2", "3", "5", "8"],
+    stories: [{ id: "s1", title: "Pay by phone" }],
+    expected: ["Ana"],
+    dueDate: "2099-01-01",
+    replies: [
+      {
+        id: "r1",
+        name: "Ana",
+        votes: [{ storyId: "s1", card: "5" }],
+        at: "2026-11-20T10:00:00.000Z",
+      },
+    ],
+    status: "open",
+    createdAt: "2026-11-20T10:00:00.000Z",
+    updatedAt: "2026-11-20T10:00:00.000Z",
+    ...over,
+  });
+
+  it("planning-poker: reveal a round without a meeting once it's due or everyone replied", () => {
+    expect(ids("planning-poker", { pokerAsyncRounds: [asyncRound()] })).toEqual([
+      "poker-async-reveal-async_round000001",
+    ]);
+    expect(steps("planning-poker", { pokerAsyncRounds: [asyncRound()] })[0].label).toBe(
+      "Reveal “Checkout stories”: 1 of 1 replied"
+    );
+    expect(ids("planning-poker", { pokerAsyncRounds: [asyncRound({ replies: [] })] })).toEqual([]);
+    expect(
+      ids("planning-poker", { pokerAsyncRounds: [asyncRound({ id: "example-async-1" })] })
+    ).toEqual([]);
+    expect(
+      ids("planning-poker", { pokerAsyncRounds: [asyncRound({ status: "revealed" })] })
+    ).toEqual([]);
+  });
+
   it("estimation-guide: estimate a waiting queue", () => {
     expect(
       ids("estimation-guide", { pokerEstimationLogs: log([{ id: "q", title: "A" }]) })
     ).toEqual(["guide-poker"]);
     expect(ids("estimation-guide", { pokerEstimationLogs: log([]) })).toEqual([]);
+  });
+
+  it("estimation-guide: a queued story an async round holds isn't waiting", () => {
+    const held = { id: "q", title: "A", sessionStoryId: "s1" };
+    expect(
+      ids("estimation-guide", {
+        pokerEstimationLogs: log([held]),
+        pokerAsyncRounds: [asyncRound()],
+      })
+    ).toEqual([]);
+    expect(
+      steps("estimation-guide", {
+        pokerEstimationLogs: log([held, { id: "q2", title: "B" }]),
+        pokerAsyncRounds: [asyncRound()],
+      })[0].detail
+    ).toMatch(/^1 story is waiting\./);
+    // A closed round holds nothing.
+    expect(
+      ids("estimation-guide", {
+        pokerEstimationLogs: log([held]),
+        pokerAsyncRounds: [asyncRound({ status: "closed" })],
+      })
+    ).toEqual(["guide-poker"]);
   });
 
   it("refinement: estimate the queue, then plan the ready stories", () => {
