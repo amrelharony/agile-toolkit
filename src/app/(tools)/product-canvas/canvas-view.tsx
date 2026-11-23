@@ -47,6 +47,20 @@ const PressReleasePanel = dynamic(
   () => import("./panels/press-release-panel").then((m) => m.PressReleasePanel),
   { ssr: false }
 );
+const IntakePanel = dynamic(() => import("./panels/intake-panel").then((m) => m.IntakePanel), {
+  ssr: false,
+});
+const DecisionPanel = dynamic(
+  () => import("./panels/decision-panel").then((m) => m.DecisionPanel),
+  { ssr: false }
+);
+const AppetitePanel = dynamic(
+  () => import("./panels/appetite-panel").then((m) => m.AppetitePanel),
+  { ssr: false }
+);
+const BetPanel = dynamic(() => import("./panels/bet-panel").then((m) => m.BetPanel), {
+  ssr: false,
+});
 
 /** Each group's heading on the page. */
 const GROUP_TITLE: Record<string, string> = {
@@ -56,6 +70,9 @@ const GROUP_TITLE: Record<string, string> = {
   release: "Press release",
   faq: "Questions and answers",
   tests: "Hypotheses and tests",
+  scope: "Scope",
+  costs: "Start small, and what it costs",
+  limits: "Limits",
 };
 
 /** The format's boxes in runs of one group, the Open questions left for last. */
@@ -117,10 +134,12 @@ export interface CanvasViewProps {
   draftContext: Omit<DraftContext, "brief">;
   gapContext: GapContext;
   onRemove: () => void;
+  /** Show the betting table (a Shape Up pitch's link to it). */
+  onOpenTable?: () => void;
 }
 
 export const CanvasView = forwardRef<HTMLSpanElement, CanvasViewProps>(function CanvasView(
-  { handle, goal, draftContext, gapContext, onRemove },
+  { handle, goal, draftContext, gapContext, onRemove, onOpenTable },
   headingRef
 ) {
   const { canvas, write, log } = handle;
@@ -134,8 +153,19 @@ export const CanvasView = forwardRef<HTMLSpanElement, CanvasViewProps>(function 
     if (canvas.format === "vision-board" && group === "pitch")
       return <VisionPanel handle={handle} />;
     if (canvas.format === "pr-faq" && group === "faq") return <PressReleasePanel handle={handle} />;
+    if (canvas.format === "shape-up" && group === "problem")
+      return <AppetitePanel handle={handle} />;
     return null;
   };
+  /** The format's own panel before its boxes (an idea's intake) and after them (a decision, a bet). */
+  const before =
+    canvas.format === "idea" ? <IntakePanel key={`intake-${canvas.id}`} handle={handle} /> : null;
+  const after =
+    canvas.format === "business-case" ? (
+      <DecisionPanel handle={handle} />
+    ) : canvas.format === "shape-up" ? (
+      <BetPanel handle={handle} onOpenTable={onOpenTable} />
+    ) : null;
 
   const body =
     format.layout === "two-sides" ? (
@@ -189,7 +219,7 @@ export const CanvasView = forwardRef<HTMLSpanElement, CanvasViewProps>(function 
         <div className="flex flex-wrap items-end justify-between gap-2">
           <div className="min-w-0 basis-full space-y-1 sm:basis-0 sm:flex-1">
             <label htmlFor={`pc-title-${canvas.id}`} className="block text-xs font-medium text-sub">
-              Canvas name
+              {canvas.format === "idea" ? "The idea" : "Canvas name"}
             </label>
             <BlurInput
               id={`pc-title-${canvas.id}`}
@@ -215,7 +245,7 @@ export const CanvasView = forwardRef<HTMLSpanElement, CanvasViewProps>(function 
             className="gap-1.5 text-sub hover:text-danger"
           >
             <Trash2 className="h-4 w-4" aria-hidden="true" />
-            Delete canvas
+            {canvas.format === "idea" ? "Delete idea" : "Delete canvas"}
           </Button>
         </div>
         <SectionCreditLine credit={format.credit} />
@@ -228,11 +258,15 @@ export const CanvasView = forwardRef<HTMLSpanElement, CanvasViewProps>(function 
         </ProductGoalLine>
       </div>
 
+      {before}
+
       <SectionCard title="Draft with Amr" titleSize="sm">
         <DraftPanel handle={handle} context={draftContext} />
       </SectionCard>
 
       {body}
+
+      {after}
 
       {questions && (
         <CanvasBox key={`${canvas.id}:${questions.id}`} handle={handle} def={questions} />

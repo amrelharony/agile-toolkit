@@ -1,6 +1,9 @@
 /**
- * The example: one canvas per format, all about the payments product of
- * Product Goal's own example, under a made-up name ("Tapline"). It is
+ * The example: a canvas per format (three ideas in the inbox, one merged
+ * into another, and two Shape Up pitches, one out of time in Cycle 4), all
+ * about the payments product of Product Goal's own example, under a
+ * made-up name ("Tapline"). Who asked for an idea is a role, never a
+ * person's name. It is
  * stored like the team's canvases (upserted on Load example, removed by
  * its example ids on Clear example), but never sent and never logged, and
  * Ask Amr reads Product Goal's example goal, vision and backlog with it,
@@ -224,5 +227,190 @@ export function buildExample(now: Date = new Date()): ProductCanvas[] {
     ...stamp(0),
   };
 
-  return [visionBoard, valueProposition, leanUx, prFaq];
+  // The idea inbox: requesters are roles, never people's names.
+  const ideaTips: ProductCanvas = {
+    id: exampleId("pc-idea-tips"),
+    format: "idea",
+    title: "Tips on the payment screen",
+    sections: {
+      problem: [
+        line(
+          "pci-tips-problem",
+          "Buyers at food stalls want to leave a tip, and the payment screen has no way to."
+        ),
+      ],
+      idea: [line("pci-tips-idea", "Offer three tip amounts before the buyer taps")],
+      who: [
+        line("pci-tips-who", "Food and coffee stalls at weekend markets", { evidence: "fact" }),
+      ],
+      today: [
+        line("pci-tips-today", "A tip jar by the till, for buyers who carry cash", {
+          evidence: "fact",
+        }),
+      ],
+      signal: [
+        line("pci-tips-signal", "Food stall payments with a tip: from none to 15%", {
+          evidence: "assumption",
+        }),
+      ],
+    },
+    intake: {
+      requesters: ["Market organiser", "Support inbox", "Food stall holder"],
+      source: "customer",
+      demand: 4,
+      status: "assessing",
+    },
+    ...stamp(-9),
+  };
+
+  const ideaSplit: ProductCanvas = {
+    id: exampleId("pc-idea-split"),
+    format: "idea",
+    title: "Split a bill between two cards",
+    sections: {
+      problem: [
+        line(
+          "pci-split-problem",
+          "Two friends buying one thing want to pay half each, and a stall takes only one card."
+        ),
+      ],
+    },
+    intake: {
+      requesters: ["Support inbox", "Sales team"],
+      source: "customer",
+      demand: 2,
+      status: "new",
+    },
+    ...stamp(-8),
+  };
+
+  const ideaTwoCards: ProductCanvas = {
+    id: exampleId("pc-idea-two-cards"),
+    format: "idea",
+    title: "Pay with two cards",
+    sections: {},
+    intake: {
+      requesters: ["Sales team"],
+      source: "stakeholder",
+      demand: 1,
+      status: "merged",
+      mergedInto: exampleId("pc-idea-split"),
+    },
+    ...stamp(-10),
+  };
+
+  const businessCase: ProductCanvas = {
+    id: exampleId("pc-case"),
+    format: "business-case",
+    title: "Card-machine-free shops",
+    sections: {
+      epic: [line("pcc-epic", "Every in-person payment on the shop owner's own phone")],
+      expect: [
+        line(
+          "pcc-expect",
+          "Shops that rent a card machine today stop renting it within a year, and take more card payments than before, because a buyer can pay anywhere in the shop."
+        ),
+      ],
+      signs: [
+        line(
+          "pcc-sign-1",
+          "Ten pilot shops take half their card payments on the phone by week four"
+        ),
+      ],
+      outcomes: [line("pcc-outcome-1", "Shops with no card machine: from 40% to 70%")],
+      "must-be-true": [line("pcc-true-1", "Card schemes keep allowing payments taken on a phone")],
+      "in-scope": [line("pcc-in-1", "Tap to pay, refunds and receipts on the phone")],
+      "out-of-scope": [line("pcc-out-1", "Online payments and invoices")],
+      mvp: [
+        line(
+          "pcc-mvp",
+          "Tap to pay with next-morning payouts, for ten shops in one town, for six weeks."
+        ),
+      ],
+      risks: [
+        line(
+          "pcc-risk-1",
+          "Older phones can't take tap payments: found out by asking the pilot shops which phones they use"
+        ),
+      ],
+    },
+    ...stamp(-5),
+  };
+
+  // Cycle 4 ran six weeks and ended two days ago: the refund pitch is out of time.
+  const cycleWeeks = 6;
+  const refundPitch: ProductCanvas = {
+    id: exampleId("pc-pitch-refund"),
+    format: "shape-up",
+    title: "Refund from the phone",
+    sections: {
+      problem: [
+        line(
+          "pcs-ref-problem",
+          "When a buyer brings something back, the stall holder has to phone us to refund the card payment. On a busy Saturday that means a queue at the stall and a long wait on the line."
+        ),
+      ],
+      solution: [
+        line(
+          "pcs-ref-solution",
+          "A Refund button on each payment in the day's list. It refunds the whole payment, asks once to be sure, and shows the refund in the list."
+        ),
+      ],
+      "rabbit-holes": [line("pcs-ref-hole-1", "Part refunds: we'll refund the whole payment only")],
+      "no-gos": [line("pcs-ref-nogo-1", "No refunds of payments older than 30 days")],
+      scopes: [
+        line("pcs-ref-scope-1", "Refund a whole payment from the day's list"),
+        line("pcs-ref-scope-2", "Show refunds in the day's takings"),
+        line("pcs-ref-scope-3", "Send the buyer a refund receipt by text", { niceToHave: true }),
+      ],
+    },
+    appetiteWeeks: 2,
+    bet: {
+      status: "bet",
+      cycle: 4,
+      start: day(-2 - (cycleWeeks * 7 - 1)),
+      weeks: cycleWeeks,
+      decidedAt: at(-45),
+    },
+    ...stamp(-3),
+  };
+
+  const receiptsPitch: ProductCanvas = {
+    id: exampleId("pc-pitch-receipts"),
+    format: "shape-up",
+    title: "Receipts by text",
+    sections: {
+      problem: [
+        line(
+          "pcs-rec-problem",
+          "Buyers ask for a receipt, and a stall has no printer. Some walk away unsure the payment went through."
+        ),
+      ],
+      solution: [
+        line(
+          "pcs-rec-solution",
+          "After a payment, the stall holder can type the buyer's phone number, and the receipt goes by text."
+        ),
+      ],
+      scopes: [
+        line("pcs-rec-scope-1", "Send a receipt by text after a payment"),
+        line("pcs-rec-scope-2", "Resend a receipt from the day's list", { niceToHave: true }),
+      ],
+    },
+    appetiteWeeks: 6,
+    ...stamp(-1),
+  };
+
+  return [
+    visionBoard,
+    valueProposition,
+    leanUx,
+    prFaq,
+    ideaTips,
+    ideaSplit,
+    ideaTwoCards,
+    businessCase,
+    refundPitch,
+    receiptsPitch,
+  ];
 }
