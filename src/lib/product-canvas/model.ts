@@ -4,6 +4,12 @@
  * fit meter, the hypothesis sentence, the press release's words, the hard
  * questions, the gaps).
  *
+ * Three formats carry fields beside their boxes (lib/product-canvas/fields):
+ * an idea its intake, a business case its decision, a Shape Up pitch its
+ * appetite and bet. Each is read and written here only on its own format;
+ * the writes that span several canvases (merging ideas, a cycle's dates)
+ * are in intake.ts and bets.ts, built on these.
+ *
  * A canvas is one `ProductCanvas` record: its format's boxes, keyed by the
  * format's section ids (the sectioned kit, lib/sectioned). Every write goes
  * through here, so the page, Amr and the CRUD's write guard agree:
@@ -43,6 +49,11 @@ import {
   type ProductCanvasEvidence,
   type ProductCanvasFormat,
   type ProductCanvasItem,
+  type ProductCaseVerdict,
+  type ProductIdeaIntake,
+  type ProductIdeaSource,
+  type ProductIdeaStatus,
+  type ProductPitchBet,
 } from "@/lib/stores/workspace-types";
 import { linkedTest } from "@/lib/hypotheses/model";
 import { isIsoDay } from "@/lib/product-goal/model";
@@ -51,6 +62,24 @@ import { isExampleId } from "@/lib/utils/example-id";
 import type { Validation } from "@/lib/utils/form";
 import { cardWords, stem } from "@/app/(tools)/retro/themes";
 import { TOO_BIG_TO_SAVE, fitsEntity } from "./bytes";
+import {
+  DEMAND_MAX,
+  NEW_INTAKE,
+  NOTE_MAX,
+  REQUESTERS_MAX,
+  REQUESTER_MAX,
+  WEEKS_MAX,
+  cleanRequesters,
+  cycleEnd,
+  isOpenStatus,
+  isOutOfTime,
+  likelyDuplicates,
+  readBet,
+  readDecision,
+  readIntake,
+  readWeeks,
+  type IdeaLike,
+} from "./fields";
 import {
   CANVAS_ITEMS_MAX,
   FEATURE_WORDS,
@@ -219,10 +248,48 @@ export function readSections(raw: unknown, format: ProductFormat): Sections<Prod
 }
 
 /**
+ * The fields a format keeps beside its boxes, read from a raw row: an
+ * idea's intake (every idea has one), a business case's decision, a Shape
+ * Up pitch's appetite and bet. Other formats keep none.
+ */
+function formatFields(
+  format: ProductCanvasFormat,
+  raw: Record<string, unknown>,
+  id: string
+): Partial<Pick<ProductCanvas, "intake" | "decision" | "appetiteWeeks" | "bet">> {
+  if (format === "idea") return { intake: readIntake(raw.intake, id) };
+  if (format === "business-case") {
+    const decision = readDecision(raw.decision);
+    return decision ? { decision } : {};
+  }
+  if (format === "shape-up") {
+    const out: Partial<Pick<ProductCanvas, "appetiteWeeks" | "bet">> = {};
+    const appetite = readWeeks(raw.appetiteWeeks);
+    if (appetite !== undefined) out.appetiteWeeks = appetite;
+    const bet = readBet(raw.bet);
+    if (bet) out.bet = bet;
+    return out;
+  }
+  return {};
+}
+
+/** Which of the canvas-level fields each format keeps. */
+const FIELDS_OF: Record<ProductCanvasFormat, readonly (keyof ProductCanvas)[]> = {
+  "vision-board": [],
+  "value-proposition": [],
+  idea: ["intake"],
+  "lean-ux": [],
+  "pr-faq": [],
+  "business-case": ["decision"],
+  "shape-up": ["appetiteWeeks", "bet"],
+};
+
+/**
  * A stored or received canvas, for every read and before every write: null
  * for anything without an id, or in a format this build doesn't offer.
  * The name falls back to the format's; fields the format doesn't use (an
- * inbox's intake on a Vision Board) are left out.
+ * inbox's intake on a Vision Board) are left out, and the ones it does use
+ * are read through lib/product-canvas/fields (an idea always has an intake).
  */
 export function readCanvas(raw: unknown): ProductCanvas | null {
   if (!isRecord(raw)) return null;
@@ -236,6 +303,7 @@ export function readCanvas(raw: unknown): ProductCanvas | null {
     format: format.id,
     title: cleanLine(raw.title, TITLE_MAX) || format.name,
     sections: readSections(raw.sections, format),
+    ...formatFields(format.id, raw, id),
     createdAt: typeof raw.createdAt === "string" ? raw.createdAt : updatedAt,
     updatedAt,
   };
@@ -311,7 +379,17 @@ export type CanvasRefusal =
   | "too_big"
   | "blank"
   | "too_long"
-  | "bad_field";
+  | "bad_field"
+  /** A field of another format: a decision on a pitch, a bet on an idea. */
+  | "wrong_format"
+  /** A declined idea says why. */
+  | "needs_note"
+  /** The idea was merged into another: the ask, the triage or the merge belongs there. */
+  | "merged"
+  /** An idea merged into itself, or into an idea merged into it. */
+  | "self_merge"
+  /** A bet whose cycle, start or weeks don't hold together, or disagree with its cycle. */
+  | "bad_bet";
 
 /** A write's result: the canvas as it would be saved, or why it can't be. */
 export type CanvasWrite =
@@ -326,8 +404,12 @@ const refuse = (reason: CanvasRefusal, message: string): CanvasWrite => ({
 
 export const CANVAS_FULL = `A canvas holds ${CANVAS_ITEMS_MAX} lines in all. Delete one to add another.`;
 
+/** A format's name with its article, to start a sentence: "A Vision Board", "An Idea intake". */
+export const aFormat = (format: Pick<ProductFormat, "name">) =>
+  `${/^[aeiou]/i.test(format.name) ? "An" : "A"} ${format.name}`;
+
 const unknownBox = (format: ProductFormat, sectionId: string) =>
-  refuse("unknown_section", `A ${format.name} has no box called "${sectionId}".`);
+  refuse("unknown_section", `${aFormat(format)} has no box called "${sectionId}".`);
 
 const fullBox = (def: ProductSectionDef) =>
   refuse(
@@ -352,6 +434,27 @@ function finish(canvas: ProductCanvas, sections: Sections<ProductCanvasItem>, no
     : refuse("too_big", TOO_BIG_TO_SAVE);
 }
 
+/** A refused write: why, in a code and a sentence. */
+export type CanvasRefused = Extract<CanvasWrite, { ok: false }>;
+
+/**
+ * Several canvases written together (a merge, a cycle's new dates), each
+ * read again and stamped as one write is: all of them, or the first
+ * refusal and none.
+ */
+export function finishAll(
+  canvases: readonly ProductCanvas[],
+  now: string
+): { ok: true; canvases: ProductCanvas[] } | CanvasRefused {
+  const out: ProductCanvas[] = [];
+  for (const c of canvases) {
+    const done = finish(c, c.sections, now);
+    if (!done.ok) return done as CanvasRefused;
+    out.push(done.canvas);
+  }
+  return { ok: true, canvases: out };
+}
+
 /** A new canvas, its boxes read against the format. */
 export function newCanvas(opts: {
   id: string;
@@ -368,6 +471,7 @@ export function newCanvas(opts: {
     format: format.id,
     title: cleanLine(opts.title, TITLE_MAX) || format.name,
     sections: readSections(opts.sections ?? {}, format),
+    ...(format.id === "idea" ? { intake: { ...NEW_INTAKE, requesters: [] } } : {}),
     createdAt: opts.now,
     updatedAt: opts.now,
   };
@@ -756,6 +860,239 @@ export function withDraftLines(
   return { write: finish(canvas, sections, now), added: kept, skipped };
 }
 
+/* ── An idea, a business case, a Shape Up pitch ───────────────────── */
+
+const wrongFormat = (what: string) => refuse("wrong_format", what);
+
+/** What an idea is logged with: its title, who asked, where from, and the problem. */
+export interface IdeaDraft {
+  title: string;
+  requester?: string;
+  source?: ProductIdeaSource;
+  problem?: string;
+}
+
+/** A new idea's words: a title, and a requester and a problem within their caps. */
+export function validateIdea(
+  draft: IdeaDraft
+): Validation<
+  { title: string; requester: string; problem: string },
+  "title" | "requester" | "problem"
+> {
+  const title = oneLine(draft.title);
+  const requester = oneLine(draft.requester ?? "");
+  const problem = oneLine(draft.problem ?? "");
+  const errors: { title?: string; requester?: string; problem?: string } = {};
+  if (!title) errors.title = "Write the idea first.";
+  else if (title.length > TITLE_MAX) errors.title = `Keep the idea to ${TITLE_MAX} characters.`;
+  if (requester.length > REQUESTER_MAX) {
+    errors.requester = `Keep who asked to ${REQUESTER_MAX} characters.`;
+  }
+  if (problem.length > ITEM_MAX) errors.problem = `Keep the problem to ${ITEM_MAX} characters.`;
+  if (errors.title || errors.requester || errors.problem) return { ok: false, errors };
+  return { ok: true, values: { title, requester, problem } };
+}
+
+/**
+ * A new idea in the inbox: asked for once (demand 1), status new, with who
+ * asked when given and where it came from ("other" when not said). The
+ * problem, when given, fills its box.
+ */
+export function newIdea(
+  opts: IdeaDraft & { id: string; now: string; productGoalId?: string }
+): CanvasWrite {
+  const v = validateIdea(opts);
+  if (!v.ok) {
+    if (!oneLine(opts.title)) return refuse("blank", "Write the idea first.");
+    return refuse("too_long", v.errors.title ?? v.errors.requester ?? v.errors.problem ?? "");
+  }
+  const { title, requester, problem } = v.values;
+  const canvas = newCanvas({
+    id: opts.id,
+    format: "idea",
+    title,
+    now: opts.now,
+    ...(opts.productGoalId ? { productGoalId: opts.productGoalId } : {}),
+    ...(problem ? { sections: { problem: [{ id: newItemId(), text: problem }] } } : {}),
+  });
+  canvas.intake = {
+    ...NEW_INTAKE,
+    requesters: requester ? [requester] : [],
+    source: opts.source ?? NEW_INTAKE.source,
+  };
+  return fitsEntity(canvas) ? { ok: true, canvas } : refuse("too_big", TOO_BIG_TO_SAVE);
+}
+
+/** An idea's intake as it is now (every idea has one when read). */
+const intakeOf = (canvas: ProductCanvas) => canvas.intake ?? { ...NEW_INTAKE, requesters: [] };
+
+/**
+ * Someone asked for the idea again: its demand goes up by one (to
+ * DEMAND_MAX at most), and who asked joins its requesters when named, new
+ * (case aside) and there is room (REQUESTERS_MAX); past that only the
+ * demand grows. Refused for a merged idea: the ask counts on the idea it
+ * went into.
+ */
+export function withAskedAgain(
+  canvas: ProductCanvas,
+  requester: string | undefined,
+  now: string
+): CanvasWrite {
+  if (canvas.format !== "idea") return wrongFormat("Only an idea in the inbox is asked for again.");
+  const intake = intakeOf(canvas);
+  if (intake.status === "merged") {
+    return refuse("merged", "This idea was merged into another: count the ask there.");
+  }
+  const name = oneLine(requester ?? "");
+  if (name.length > REQUESTER_MAX) {
+    return refuse("too_long", `Keep who asked to ${REQUESTER_MAX} characters.`);
+  }
+  const requesters =
+    name && intake.requesters.length < REQUESTERS_MAX
+      ? cleanRequesters([...intake.requesters, name])
+      : intake.requesters;
+  return finish(
+    {
+      ...canvas,
+      intake: { ...intake, demand: Math.min(DEMAND_MAX, intake.demand + 1), requesters },
+    },
+    canvas.sections,
+    now
+  );
+}
+
+/** The statuses triage sets on one idea; a merge goes through intake.ts's `mergeIdeas`. */
+export type TriageStatus = Exclude<ProductIdeaStatus, "merged">;
+
+/**
+ * An idea's status set by triage: new, assessing, accepted or declined
+ * (with a note saying why). A note left out stays as it was; a blank one
+ * clears it, but a declined idea keeps its reason. Setting a merged idea's
+ * status takes it out of the idea it went into (its demand stays counted
+ * there). Nothing is sent: acceptance hands the idea on from the page.
+ */
+export function withIdeaStatus(
+  canvas: ProductCanvas,
+  status: TriageStatus,
+  note: string | undefined,
+  now: string
+): CanvasWrite {
+  if (canvas.format !== "idea") return wrongFormat("Only an idea in the inbox is triaged.");
+  const intake = intakeOf(canvas);
+  const typed = note === undefined ? undefined : note.trim();
+  if (typed !== undefined && typed.length > NOTE_MAX) {
+    return refuse("too_long", `Keep the note to ${NOTE_MAX} characters.`);
+  }
+  const kept = typed === undefined ? intake.note : typed || undefined;
+  if (status === "declined" && !kept) {
+    return refuse("needs_note", "Say why it's declined: the note answers whoever asks again.");
+  }
+  const next: ProductIdeaIntake = {
+    requesters: intake.requesters,
+    source: intake.source,
+    demand: intake.demand,
+    status,
+  };
+  if (kept) next.note = kept;
+  return finish({ ...canvas, intake: next }, canvas.sections, now);
+}
+
+/**
+ * A business case's verdict, with a note: `decidedAt` is stamped when the
+ * verdict changes. A note left out stays; null or blank clears it.
+ */
+export function withDecision(
+  canvas: ProductCanvas,
+  verdict: ProductCaseVerdict,
+  note: string | null | undefined,
+  now: string
+): CanvasWrite {
+  if (canvas.format !== "business-case") {
+    return wrongFormat("Only a Business case takes a decision.");
+  }
+  const before = canvas.decision;
+  const typed = note === undefined ? undefined : (note ?? "").trim();
+  if (typed !== undefined && typed.length > NOTE_MAX) {
+    return refuse("too_long", `Keep the note to ${NOTE_MAX} characters.`);
+  }
+  const kept = typed === undefined ? before?.note : typed || undefined;
+  const decision: NonNullable<ProductCanvas["decision"]> = { verdict };
+  if (kept) decision.note = kept;
+  const changed = (before?.verdict ?? "pending") !== verdict;
+  const decidedAt = changed ? now : before?.decidedAt;
+  if (decidedAt) decision.decidedAt = decidedAt;
+  return finish({ ...canvas, decision }, canvas.sections, now);
+}
+
+/** A Shape Up pitch's appetite in whole weeks, 1 to WEEKS_MAX; null clears it. */
+export function withAppetite(
+  canvas: ProductCanvas,
+  weeks: number | null,
+  now: string
+): CanvasWrite {
+  if (canvas.format !== "shape-up") return wrongFormat("Only a Shape Up pitch has an appetite.");
+  if (weeks === null) {
+    const next = { ...canvas };
+    delete next.appetiteWeeks;
+    return finish(next, canvas.sections, now);
+  }
+  if (readWeeks(weeks) === undefined) {
+    return refuse("bad_field", `Set the appetite in whole weeks, 1 to ${WEEKS_MAX}.`);
+  }
+  return finish({ ...canvas, appetiteWeeks: weeks }, canvas.sections, now);
+}
+
+/**
+ * A Shape Up pitch's bet set as it is given (null: back on the table, with
+ * no bet), read through `readBet`. Only this canvas's own rules are checked
+ * here: a bet needs its cycle, start day and weeks. Whether they agree with
+ * the other bets in the cycle is bets.ts's `placeBet`, which writes through
+ * this. `decidedAt` is stamped when the status or the cycle changes.
+ */
+export function withBet(
+  canvas: ProductCanvas,
+  bet: ProductPitchBet | null,
+  now: string
+): CanvasWrite {
+  if (canvas.format !== "shape-up")
+    return wrongFormat("Only a Shape Up pitch goes on the betting table.");
+  const before = canvas.bet;
+  const next = bet ? readBet(bet) : undefined;
+  if (bet && !next) return refuse("bad_bet", "That isn't a place on the betting table.");
+  if (next?.status === "bet" && (next.cycle === undefined || !cycleEnd(next.start, next.weeks))) {
+    return refuse("bad_bet", "A bet needs its cycle, the day the cycle starts and its weeks.");
+  }
+  const out = { ...canvas };
+  // On the table is the same as no bet: the cycle goes with it.
+  if (!next || next.status === "table") delete out.bet;
+  else {
+    const changed = before?.status !== next.status || before?.cycle !== next.cycle;
+    const decidedAt = changed ? now : (before?.decidedAt ?? next.decidedAt);
+    const placed: ProductPitchBet = { ...next };
+    delete placed.decidedAt;
+    if (decidedAt) placed.decidedAt = decidedAt;
+    out.bet = placed;
+  }
+  return finish(out, canvas.sections, now);
+}
+
+/**
+ * Where the whole canvas was sent (an accepted idea's backlog story and
+ * opportunity, a business case's record in the Decision Log), one link per
+ * route; an empty list clears them.
+ */
+export function withCanvasSentTo(
+  canvas: ProductCanvas,
+  sentTo: readonly HandoffLink[] | undefined,
+  now: string
+): CanvasWrite {
+  const links = cleanSentTo(sentTo);
+  const next = { ...canvas };
+  if (links) next.sentTo = links;
+  else delete next.sentTo;
+  return finish(next, canvas.sections, now);
+}
+
 /* ── Checks for forms and Amr ─────────────────────────────────────── */
 
 /** A new canvas's name: something, within the cap. */
@@ -1092,8 +1429,14 @@ export interface GapView {
   /** The list boxes that hold lines, by id. */
   lists: Record<string, GapLine[]>;
   goal?: { statement: string; why: string };
-  /** YYYY-MM-DD, for the launch date. */
+  /** YYYY-MM-DD, for the launch date and a bet's cycle. */
   today?: string;
+  /** A Shape Up pitch's appetite in weeks. */
+  appetiteWeeks?: number;
+  /** A Shape Up bet still running after its cycle: the cycle's last day. */
+  cycleEnded?: string;
+  /** An open idea: the titles of other open ideas that look like it. */
+  similar?: string[];
 }
 
 /** One thing a canvas still lacks: in a box, or about the whole canvas. */
@@ -1106,6 +1449,8 @@ export interface GapContext {
   goal?: { statement: string; why?: string } | null;
   hypotheses?: readonly HypothesisRow[];
   today?: string;
+  /** The inbox's ideas, for an idea's look-alikes (it is left out of them itself). */
+  ideas?: readonly IdeaLike[];
 }
 
 /** A canvas as the gap rules read it (see `GapView`). */
@@ -1152,6 +1497,15 @@ export function gapViewOf(canvas: ProductCanvas, ctx: GapContext = {}): GapView 
   const statement = ctx.goal?.statement.trim();
   if (statement) view.goal = { statement, why: ctx.goal?.why?.trim() ?? "" };
   if (ctx.today) view.today = ctx.today;
+  if (canvas.format === "shape-up") {
+    if (canvas.appetiteWeeks !== undefined) view.appetiteWeeks = canvas.appetiteWeeks;
+    const end = cycleEnd(canvas.bet?.start, canvas.bet?.weeks);
+    if (ctx.today && end && isOutOfTime(canvas.bet, ctx.today)) view.cycleEnded = end;
+  }
+  if (canvas.format === "idea" && isOpenStatus(canvas.intake?.status ?? "new") && ctx.ideas) {
+    const similar = likelyDuplicates(canvas.title, ctx.ideas, { exclude: canvas.id });
+    if (similar.length > 0) view.similar = similar.map((i) => i.title);
+  }
   return view;
 }
 
@@ -1171,7 +1525,11 @@ const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? o
  * - Value Proposition: pains nothing eases, offer lines linked to nothing;
  * - Lean UX: a hypothesis with no smallest test, or not yet sent;
  * - PR/FAQ: the launch date missing or past, a long release or headline,
- *   hard questions not asked or not answered.
+ *   hard questions not asked or not answered;
+ * - an idea: no way to know it worked, an open idea that looks like it;
+ * - a business case: no early signs, no smallest version or its cost;
+ * - a Shape Up pitch: no appetite, rabbit holes or no-gos, and the
+ *   circuit breaker once its cycle has ended.
  */
 export function gapsOf(view: GapView): CanvasGap[] {
   const format = productFormat(view.format);
@@ -1348,6 +1706,68 @@ export function gapsOf(view: GapView): CanvasGap[] {
       });
     }
   }
+
+  const listed = (id: string) => list(id).some((l) => l.text.trim());
+
+  if (view.format === "idea") {
+    if (!listed("signal")) {
+      out.push({
+        sectionId: "signal",
+        text: "Say how you'd know it worked before you accept it.",
+      });
+    }
+    const similar = view.similar ?? [];
+    if (similar.length === 1) {
+      out.push({
+        text: `“${short(similar[0])}” looks like the same idea. Merge them, or say how they differ.`,
+      });
+    } else if (similar.length > 1) {
+      out.push({
+        text: `${similar.length} ideas in the inbox look like this one. Merge them, or say how they differ.`,
+      });
+    }
+  }
+
+  if (view.format === "business-case") {
+    if (!listed("signs")) {
+      out.push({
+        sectionId: "signs",
+        text: "No early signs yet: say what you'd see in the first weeks if it works.",
+      });
+    }
+    if (!field("mvp")) {
+      out.push({ sectionId: "mvp", text: "Say the smallest version you could build to test it." });
+    }
+    if (!field("mvp-cost")) {
+      out.push({
+        sectionId: "mvp-cost",
+        text: "Say what the smallest version costs, so the first go can be a small one.",
+      });
+    }
+  }
+
+  if (view.format === "shape-up") {
+    if (view.appetiteWeeks === undefined) {
+      out.push({ text: "Set the appetite: how many weeks this problem is worth." });
+    }
+    if (!listed("rabbit-holes")) {
+      out.push({
+        sectionId: "rabbit-holes",
+        text: "Name the rabbit holes: the parts that could swallow the time.",
+      });
+    }
+    if (!listed("no-gos")) {
+      out.push({
+        sectionId: "no-gos",
+        text: "Say what's out: a pitch with no no-gos tends to grow.",
+      });
+    }
+    if (view.cycleEnded) {
+      out.push({
+        text: `Its cycle ended on ${view.cycleEnded}. Out of time: ship what's done or cut it.`,
+      });
+    }
+  }
   return out;
 }
 
@@ -1360,6 +1780,34 @@ export function canvasGaps(canvas: ProductCanvas, ctx: GapContext = {}): CanvasG
 
 const FORMAT_FIELDS = ["appetiteWeeks", "intake", "decision", "bet"] as const;
 
+/** What the page would change in an idea's intake, a pitch's bet: the format fields' own rules. */
+function fieldProblems(next: ProductCanvas): string[] {
+  const out: string[] = [];
+  if (next.format === "idea" && isRecord(next.intake)) {
+    const raw = next.intake;
+    const read = readIntake(raw, next.id);
+    if (raw.status === "merged" && read.status !== "merged") {
+      out.push("A merged idea names the idea it was merged into, and never itself.");
+    }
+    if (raw.mergedInto !== undefined && raw.status !== "merged") {
+      out.push("Only a merged idea names the idea it was merged into.");
+    }
+    if (Array.isArray(raw.requesters) && read.requesters.length !== raw.requesters.length) {
+      out.push("Each requester is named once, and none is blank.");
+    }
+  }
+  if (next.format === "shape-up" && isRecord(next.bet)) {
+    const { status, cycle, start, weeks } = next.bet;
+    if (status === "bet" && (cycle === undefined || !cycleEnd(start, weeks))) {
+      out.push("A bet needs its cycle, the day the cycle starts and its weeks.");
+    }
+    if (status === "table" && (cycle !== undefined || start !== undefined || weeks !== undefined)) {
+      out.push("A pitch on the table has no cycle: take the cycle out, or bet on it.");
+    }
+  }
+  return out;
+}
+
 /**
  * The reasons a write through the workspace CRUD would lose something the
  * next time the page saves the canvas, in plain sentences; empty when the
@@ -1367,12 +1815,13 @@ const FORMAT_FIELDS = ["appetiteWeeks", "intake", "decision", "bet"] as const;
  * every format shares; this adds the format's own rules: the same format
  * as before, only the format's boxes, each within its `max` and its text
  * cap, the product fields only where a box takes them, links to lines that
- * are there, unique line ids, and no field the format doesn't use.
- *
- * A canvas in one of the entity's formats this build doesn't offer yet
- * (the idea inbox, the business case, the Shape Up pitch: P2.3b's) passes
- * as it is: the page leaves such a row alone, so nothing of it is lost,
- * and P2.3b's catalog checks it once the page offers the format.
+ * are there, unique line ids, and no field the format doesn't use (an
+ * intake only on an idea, a decision only on a business case, an appetite
+ * and a bet only on a Shape Up pitch), each as the page reads it: a merged
+ * idea names the idea it went into, requesters once each, and a bet its
+ * cycle, start and weeks. Whether a bet agrees with the other bets in its
+ * cycle needs the other rows: Amr's `place_bet` checks that, and the
+ * betting table shows a cycle's dates from its earliest bet.
  */
 export function productCanvasWriteProblems(
   next: ProductCanvas,
@@ -1391,9 +1840,13 @@ export function productCanvasWriteProblems(
     }
     return out;
   }
+  const own = FIELDS_OF[format.id];
   for (const field of FORMAT_FIELDS) {
-    if (next[field] !== undefined) out.push(`A ${format.name} has no ${field}.`);
+    if (next[field] !== undefined && !own.includes(field)) {
+      out.push(`${aFormat(format)} has no ${field}.`);
+    }
   }
+  out.push(...fieldProblems(next));
   const sections = isRecord(next.sections) ? next.sections : {};
   const ids = new Set<string>();
   const known = new Map<string, Set<string>>();
@@ -1408,7 +1861,7 @@ export function productCanvasWriteProblems(
   for (const [sectionId, items] of Object.entries(sections)) {
     const def = sectionDef(format, sectionId);
     if (!def) {
-      out.push(`A ${format.name} has no box called "${sectionId}".`);
+      out.push(`${aFormat(format)} has no box called "${sectionId}".`);
       continue;
     }
     if (!Array.isArray(items)) continue;

@@ -129,13 +129,13 @@ describe("tool.product_canvas: registration", () => {
     }
   });
 
-  it("offers only the formats P2.3a builds", () => {
-    expect(parses("tool.product_canvas.create_canvas", { format: "lean-ux", title: "Q" })).toBe(
-      true
-    );
-    for (const format of ["idea", "business-case", "shape-up"]) {
-      expect(parses("tool.product_canvas.create_canvas", { format, title: "Q" })).toBe(false);
+  it("offers every format in the catalog, and no other", () => {
+    for (const format of ["lean-ux", "idea", "business-case", "shape-up"]) {
+      expect(parses("tool.product_canvas.create_canvas", { format, title: "Q" })).toBe(true);
     }
+    expect(parses("tool.product_canvas.create_canvas", { format: "lean-canvas", title: "Q" })).toBe(
+      false
+    );
   });
 
   it("mints canvas ids with the prefix the CRUD uses", async () => {
@@ -181,7 +181,7 @@ describe("tool.product_canvas.list_state", () => {
           title: "Queue",
           updatedAt: "2026-11-22T09:00:00.000Z",
         }),
-        { id: "pcanvas_bad", format: "idea" } as unknown as ProductCanvas,
+        { id: "pcanvas_bad", format: "lean-canvas" } as unknown as ProductCanvas,
       ],
     });
     const out = await run<{
@@ -203,8 +203,11 @@ describe("tool.product_canvas.list_state", () => {
     expect(out.formats.map((f) => f.id)).toEqual([
       "vision-board",
       "value-proposition",
+      "idea",
       "lean-ux",
       "pr-faq",
+      "business-case",
+      "shape-up",
     ]);
     expect(out.canvases.map((c) => c.id)).toEqual(["pcanvas_new", "example-pc", "pcanvas_old"]);
     expect(out.canvases.find((c) => c.id === "example-pc")?.example).toBe(true);

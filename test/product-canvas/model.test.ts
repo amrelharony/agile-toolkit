@@ -123,7 +123,7 @@ describe("readCanvas", () => {
   it("refuses rows with no id, and formats this build doesn't offer", () => {
     expect(readCanvas(null)).toBeNull();
     expect(readCanvas({ ...canvas("vision-board"), id: "" })).toBeNull();
-    expect(readCanvas({ ...canvas("vision-board"), format: "idea" })).toBeNull();
+    expect(readCanvas({ ...canvas("vision-board"), format: "lean-canvas" })).toBeNull();
     expect(readCanvas({ ...canvas("vision-board"), format: "nope" })).toBeNull();
   });
 
@@ -277,7 +277,9 @@ describe("new canvases and the id prefix", () => {
       updatedAt: NOW,
       productGoalId: "g1",
     });
-    expect(() => newCanvas({ id: "x", format: "idea", title: "x", now: NOW })).toThrow();
+    expect(() =>
+      newCanvas({ id: "x", format: "lean-canvas" as ProductCanvasFormat, title: "x", now: NOW })
+    ).toThrow();
   });
 });
 
@@ -962,22 +964,29 @@ describe("productCanvasWriteProblems (the CRUD's guard, wired at landing)", () =
       "A canvas keeps its format. Make a new PR/FAQ canvas instead.",
     ]);
     expect(productCanvasWriteProblems(canvas("shape-up"), canvas("idea"))).toEqual([
-      "A canvas keeps its format. Make a new shape-up canvas instead.",
+      "A canvas keeps its format. Make a new Shape Up pitch canvas instead.",
     ]);
     expect(productCanvasWriteProblems(canvas("lean-canvas" as ProductCanvasFormat), null)).toEqual([
       '"lean-canvas" isn\'t a Product Canvas format.',
     ]);
   });
 
-  it("passes a canvas in a format still to come as it is: the page leaves that row alone", () => {
-    // P2.3b's formats: no catalog to check them against yet, and nothing a save would drop.
-    const later = canvas("shape-up", {
+  it("checks the Shape Up pitch's boxes too, now that the catalog holds it", () => {
+    // P2.3b's formats are offered: a write is checked against their boxes and fields.
+    const pitch = canvas("shape-up", {
       problem: [item("p1", "Refunds need a call", { detail: "40 calls a week" })],
     });
     expect(
-      productCanvasWriteProblems({ ...later, appetiteWeeks: 6, bet: { status: "bet" } }, null)
-    ).toEqual([]);
-    expect(readCanvas(later)).toBeNull();
+      productCanvasWriteProblems(
+        {
+          ...pitch,
+          appetiteWeeks: 6,
+          bet: { status: "bet", cycle: 4, start: "2026-12-01", weeks: 6 },
+        },
+        null
+      )
+    ).toEqual(['"The problem" holds no answers.']);
+    expect(readCanvas(pitch)?.sections.problem).toEqual([item("p1", "Refunds need a call")]);
   });
 
   it("names what the page would drop: boxes, caps, marks, answers, links, ids and fields", () => {

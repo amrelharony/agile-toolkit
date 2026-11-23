@@ -3,15 +3,17 @@
  * with its own boxes, in our own words. A box that holds one line is a
  * `single` section, a paragraph box a `long` one, and the rest are lists.
  *
- * P2.3a builds four of the seven format ids the entity knows (Vision Board,
- * Value Proposition, Lean UX canvas and PR/FAQ). The idea inbox, the lean
- * business case and the Shape Up pitch come with P2.3b, which adds their
- * entries here: the page, the AI tasks and Amr's verbs offer only the
- * formats this catalog holds.
+ * All seven format ids the entity knows: the Vision Board, the Value
+ * Proposition, the idea inbox (each idea a canvas of its own, with its
+ * intake), the Lean UX canvas, the PR/FAQ, the lean business case (with its
+ * decision) and the Shape Up pitch (with its appetite and its bet). The
+ * page, the AI tasks and Amr's verbs offer only the formats this catalog
+ * holds.
  *
- * The formats follow published methods, named in each one's credit. Every
- * label, prompt, hint, starter line, hard question and word list here is
- * our own wording.
+ * Most formats follow a published method, named in its credit; the idea
+ * inbox follows none and has no credit, and the business case's credit
+ * names no framework (Decision D5). Every label, prompt, hint, starter
+ * line, hard question and word list here is our own wording.
  *
  * Pure and server-safe: no zod, no React, no "use client" imports.
  */
@@ -53,7 +55,13 @@ export interface ProductSectionDef extends SectionDef {
 export interface ProductFormat extends SectionFormat<ProductSectionDef> {
   id: ProductCanvasFormat;
   layout: ProductLayout;
+  /** The start button's words, when "Start a {name}" doesn't read well ("Log an idea"). */
+  startLabel?: string;
 }
+
+/** The words that start a canvas in `format`. */
+export const startLabelOf = (format: ProductFormat) =>
+  format.startLabel ?? `Start a ${format.name}`;
 
 /** The box every format ends with. */
 export const QUESTIONS_SECTION = "questions";
@@ -500,14 +508,308 @@ const PR_FAQ: ProductFormat = {
 };
 
 /**
- * Every format this build offers, by id. P2.3b adds the idea inbox, the
- * lean business case and the Shape Up pitch.
+ * One idea in the inbox, and the check of whether it is worth doing. The
+ * inbox itself is every idea canvas, by status and demand; each idea's
+ * intake (who asked, where from, how many) lives beside its boxes.
  */
+const IDEA: ProductFormat = {
+  id: "idea",
+  name: "Idea intake",
+  startLabel: "Log an idea",
+  useWhen:
+    "Ideas and requests pile up, and you want to see which keep coming back and which to look at first.",
+  time: "A minute to log one, about 15 to check it",
+  layout: "inbox",
+  lead: "problem",
+  sections: [
+    {
+      id: "problem",
+      label: "The problem",
+      prompt: "What goes wrong for people today, as they would say it. Not the fix.",
+      kind: "single",
+      max: 1,
+      required: true,
+      starter: "[Who] can't [do what] when [situation]",
+    },
+    {
+      id: "idea",
+      label: "Our idea",
+      prompt: "What we might do about it, in a sentence.",
+      kind: "single",
+      max: 1,
+      required: true,
+      starter: "[What we could make or change]",
+    },
+    {
+      id: "who",
+      label: "Who has it",
+      prompt: "The people who run into this problem, and roughly how many.",
+      kind: "list",
+      max: 8,
+      required: false,
+      evidence: true,
+      starter: "[A group of people] who [are in what situation]",
+    },
+    {
+      id: "today",
+      label: "How they cope today",
+      prompt: "What they do instead now: a workaround, another product, or nothing.",
+      kind: "list",
+      max: 8,
+      required: false,
+      evidence: true,
+      starter: "They [do what] instead",
+    },
+    {
+      id: "gain",
+      label: "What they'd gain",
+      prompt: "What gets better for them if we solve it.",
+      kind: "list",
+      max: 8,
+      required: false,
+      evidence: true,
+      starter: "[What gets better] for [who]",
+    },
+    {
+      id: "signal",
+      label: "How we'd know it worked",
+      prompt: "What we would see people do, and the number that would move.",
+      kind: "list",
+      max: 6,
+      required: false,
+      evidence: true,
+      starter: "[Measure] goes from [today] to [target]",
+    },
+    {
+      id: "why-us",
+      label: "Why it matters to us",
+      prompt: "How it serves the Product Goal or the business.",
+      kind: "list",
+      max: 6,
+      required: false,
+      evidence: true,
+      starter: "It helps us [reach what]",
+    },
+    {
+      id: "cost",
+      label: "What it might cost",
+      prompt: "A rough size: people, weeks, money, or what we would stop doing.",
+      kind: "list",
+      max: 6,
+      required: false,
+      evidence: true,
+      starter: "About [how many people] for [how long]",
+    },
+    questions,
+  ],
+};
+
+const BUSINESS_CASE: ProductFormat = {
+  id: "business-case",
+  name: "Business case",
+  useWhen:
+    "A big piece of work needs a go or a no-go, and you want to test it small before betting on all of it.",
+  time: "About 45 minutes",
+  layout: "document",
+  lead: "epic",
+  // Decision D5: a generic idea, so the credit names no framework.
+  credit: { text: "A lean business case" },
+  sections: [
+    {
+      id: "epic",
+      label: "The epic",
+      prompt: "The big piece of work this case is for, in a line.",
+      kind: "single",
+      max: 1,
+      required: true,
+      starter: "[What we would build] for [who]",
+    },
+    {
+      id: "expect",
+      label: "What we expect",
+      prompt: "What changes for customers and for the business if it goes ahead.",
+      kind: "long",
+      max: 1,
+      required: true,
+      fromGoal: "statement",
+      starter: "If we build [what], [who] will [do what], and we'll see [what change].",
+    },
+    {
+      id: "signs",
+      label: "Early signs it's working",
+      prompt: "What you'd see in the first weeks if it works: what people do, and a number.",
+      kind: "list",
+      max: 8,
+      required: false,
+      starter: "[Who] starts to [do what] within [how long]",
+    },
+    {
+      id: "outcomes",
+      label: "Business outcomes",
+      prompt: "The results that would make it worth it, with a number where you can.",
+      kind: "list",
+      max: 8,
+      required: false,
+      fromGoal: "measures",
+      starter: "[Measure] moves from [today] to [target]",
+    },
+    {
+      id: "must-be-true",
+      label: "Must also be true",
+      prompt: "What else has to hold for this to work: a partner, a rule, a skill.",
+      kind: "list",
+      max: 8,
+      required: false,
+      starter: "[Something outside the work] stays [how]",
+    },
+    {
+      id: "in-scope",
+      label: "In scope",
+      prompt: "What the work covers.",
+      kind: "list",
+      max: 10,
+      required: false,
+      group: "scope",
+      starter: "[A part the work covers]",
+    },
+    {
+      id: "out-of-scope",
+      label: "Out of scope",
+      prompt: "What it leaves out on purpose.",
+      kind: "list",
+      max: 10,
+      required: false,
+      group: "scope",
+      starter: "[A part we leave out]",
+    },
+    {
+      id: "mvp",
+      label: "Smallest version to test it",
+      prompt: "The least you could build to see whether what you expect comes true.",
+      kind: "long",
+      max: 1,
+      required: false,
+      group: "costs",
+      starter: "[A small version] for [how many people] over [how long]",
+    },
+    {
+      id: "mvp-cost",
+      label: "Cost of that version",
+      prompt: "What the small version takes: people, weeks and money.",
+      kind: "long",
+      max: 1,
+      required: false,
+      group: "costs",
+      starter: "About [how many people] for [how many weeks], and [how much money]",
+    },
+    {
+      id: "full-cost",
+      label: "Cost if it all goes ahead",
+      prompt: "A rough size for the whole epic, so the go is made with eyes open.",
+      kind: "long",
+      max: 1,
+      required: false,
+      group: "costs",
+      starter: "About [how many people] for [how many months], and [how much money]",
+    },
+    {
+      id: "risks",
+      label: "Risks",
+      prompt: "What could go wrong, and how you'd find out early.",
+      kind: "list",
+      max: 10,
+      required: false,
+      starter: "[What could go wrong], found out by [how]",
+    },
+    {
+      id: "options",
+      label: "Other ways we considered",
+      prompt: "Other ways to get the same result, doing nothing among them.",
+      kind: "list",
+      max: 8,
+      required: false,
+      starter: "[Another way], set aside because [why]",
+    },
+    questions,
+  ],
+};
+
+const SHAPE_UP: ProductFormat = {
+  id: "shape-up",
+  name: "Shape Up pitch",
+  useWhen:
+    "You have a problem worth solving and want to shape it into a pitch with a fixed time budget, ready to bet on.",
+  time: "About 45 minutes to shape, then the betting table",
+  layout: "document",
+  lead: "problem",
+  credit: { text: "After Basecamp's Shape Up" },
+  sections: [
+    {
+      id: "problem",
+      label: "The problem",
+      prompt: "What goes wrong today, and for whom, told as a short story. Why now?",
+      kind: "long",
+      max: 1,
+      required: true,
+      group: "problem",
+      starter: "[Who] has to [do what] because [what's missing], which costs [what].",
+    },
+    {
+      id: "solution",
+      label: "The solution",
+      prompt:
+        "Rough as a sketch: the main parts and how they connect. Leave the details to the team.",
+      kind: "long",
+      max: 1,
+      required: true,
+      group: "solution",
+      starter: "[The main parts], so that [who] can [do what].",
+    },
+    {
+      id: "rabbit-holes",
+      label: "Rabbit holes",
+      prompt: "Parts that could swallow the time, and how the pitch steers round them.",
+      kind: "list",
+      max: 8,
+      required: false,
+      group: "limits",
+      starter: "[A risky part]: we'll [how we steer round it]",
+    },
+    {
+      id: "no-gos",
+      label: "No-gos",
+      prompt: "What this pitch leaves out on purpose, so the time holds.",
+      kind: "list",
+      max: 8,
+      required: false,
+      group: "limits",
+      starter: "No [what we won't do] this time",
+    },
+    {
+      id: "scopes",
+      label: "Scopes",
+      prompt:
+        "The pieces of work to build, each one able to ship on its own. Mark the nice-to-haves.",
+      kind: "list",
+      max: 12,
+      required: false,
+      niceToHave: true,
+      group: "scopes",
+      starter: "[A piece of work that can ship on its own]",
+    },
+    questions,
+  ],
+};
+
+/** Every format this build offers, by id: all seven of the entity's. */
 export const PRODUCT_FORMATS: Readonly<Partial<Record<ProductCanvasFormat, ProductFormat>>> = {
   "vision-board": VISION_BOARD,
   "value-proposition": VALUE_PROPOSITION,
+  idea: IDEA,
   "lean-ux": LEAN_UX,
   "pr-faq": PR_FAQ,
+  "business-case": BUSINESS_CASE,
+  "shape-up": SHAPE_UP,
 };
 
 /** The formats on offer, in the entity's order. */
