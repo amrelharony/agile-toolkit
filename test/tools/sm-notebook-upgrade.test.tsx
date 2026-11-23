@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -67,6 +67,13 @@ import {
 } from "@/app/(tools)/sm-notebook/form";
 import { validateSummary } from "@/app/(tools)/sm-notebook/week-view";
 import { NOTE_TEMPLATES } from "@/lib/notebook/templates";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 const TODAY = todayLocalISO();
 const MONDAY = weekStartOf(TODAY);

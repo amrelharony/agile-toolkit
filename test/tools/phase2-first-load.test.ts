@@ -149,4 +149,33 @@ describe("what a tool page's first load leaves out", () => {
       expect(reached, lazy).not.toContain(lazy);
     }
   });
+
+  it.each([
+    ["the Standup and the Async Standup", "src/app/(tools)/standup/standup-client.tsx"],
+    ["the Product Canvas", "src/app/(tools)/product-canvas/product-canvas-client.tsx"],
+    ["the Working Agreement", "src/app/(tools)/working-agreement/working-agreement-client.tsx"],
+  ])("%s draw Send to… without the hand-off registry, which loads with its items", (_, page) => {
+    const reached = firstLoad(page);
+    expect(reached).toContain("src/components/handoff/send-to-menu.tsx");
+    for (const lazy of [
+      "src/components/handoff/send-to-menu-items.tsx",
+      "src/lib/handoffs/send.ts",
+      "src/lib/handoffs/registry.ts",
+    ]) {
+      expect(reached, lazy).not.toContain(lazy);
+    }
+  });
+
+  it("Kickoff's Send to… loads its items and the sender when the menu is near; the reasons keep the registry", () => {
+    const reached = firstLoad("src/app/(tools)/kickoff/kickoff-client.tsx");
+    expect(reached).toContain("src/app/(tools)/kickoff/send-menu.tsx");
+    // A line's reason for an off route reads the route's own check as the page draws.
+    expect(reached).toContain("src/lib/handoffs/registry.ts");
+    for (const lazy of [
+      "src/components/handoff/send-to-menu-items.tsx",
+      "src/lib/handoffs/send.ts",
+    ]) {
+      expect(reached, lazy).not.toContain(lazy);
+    }
+  });
 });

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -77,6 +77,13 @@ import {
   wornAfterMove,
   wornAfterRemove,
 } from "@/app/(tools)/six-hats/session";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 const ws = () => useWorkspaceStore.getState();
 const sessions = () => ws().sixHatsSessions ?? [];

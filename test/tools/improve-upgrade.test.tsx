@@ -91,6 +91,13 @@ import { STEP_REFUSAL_TEXT, TOO_BIG, readImprovement } from "@/lib/improve/model
 import { isoDayNumber, isoFromDayNumber } from "@/lib/sprints/calendar";
 import { todayIso } from "@/lib/sprints/series";
 import { isExampleId } from "@/lib/utils/example-id";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 beforeAll(() => {
   vi.stubGlobal(

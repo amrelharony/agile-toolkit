@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -73,6 +73,13 @@ import { editDateError, validateItem } from "@/app/(tools)/cycle-time/form";
 import { scatterText } from "@/app/(tools)/cycle-time/chart-text";
 import { blockedTitle } from "@/app/(tools)/cycle-time/components/ageing-table";
 import type { CycleRow, CycleSource } from "@/app/(tools)/cycle-time/types";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 const TODAY = todayIso();
 const day = (n: number) => addDays(TODAY, -n) as string;

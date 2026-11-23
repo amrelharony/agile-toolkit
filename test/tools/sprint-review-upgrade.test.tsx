@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
@@ -94,6 +94,13 @@ import {
 import { numbersClause, reviewVerdict } from "@/app/(tools)/sprint-review/verdict";
 import { validateDemo } from "@/app/(tools)/sprint-review/components/demo-form";
 import { validateFeedback } from "@/app/(tools)/sprint-review/components/feedback-form";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 // ─── Fixtures ───────────────────────────────────────────────────────────────
 

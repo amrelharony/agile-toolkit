@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -60,6 +60,13 @@ import { validateFormatName } from "@/app/(tools)/quick-vote/save-format-form";
 import { cardFace, faceBigClass, gridBigClass } from "@/app/(tools)/quick-vote/hold-up-cards";
 import { quickVoteHref } from "@/app/(tools)/picker/names-panel";
 import "@/lib/actions/tools/quick-vote";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 /* ── Helpers ────────────────────────────────────────────────────────── */
 

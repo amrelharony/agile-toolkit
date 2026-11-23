@@ -12,7 +12,7 @@
  */
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { SearchParamsContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -81,6 +81,13 @@ import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 import { keepInExport } from "@/lib/utils/export-skip";
 import { nearlyFull } from "../strategy-map/near-full";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 const AT = "2026-11-20T09:00:00.000Z";
 const node = (

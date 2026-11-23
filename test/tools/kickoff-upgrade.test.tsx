@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -64,6 +64,13 @@ import { normalizeKickoff, statementFrom } from "@/lib/kickoff/model";
 import { todayIso } from "@/lib/sprints/series";
 import { exampleId } from "@/lib/utils/example-id";
 import { WA_ID } from "@/lib/working-agreement/model";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 /** jsdom has no ResizeObserver; the send menu's popper measures with one. */
 function stubResizeObserver() {

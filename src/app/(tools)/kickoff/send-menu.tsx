@@ -13,7 +13,7 @@
  */
 
 import { Check, Send } from "lucide-react";
-import { SendToMenuItems } from "@/components/handoff/send-to-menu";
+import { SendToMenuItems, preloadSendToMenuItems } from "@/components/handoff/send-to-menu";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -77,6 +77,9 @@ export function KickoffSendMenu({
           // Rows repeat this button, so its name says which line.
           aria-label={`Send to… ${title}${sent ? " (sent)" : ""}`.trim()}
           className="min-touch-coarse h-7 gap-1.5 px-2 text-xs text-sub hover:text-accent"
+          // The items (and the hand-off registry) load as a pointer or focus gets here.
+          onPointerEnter={preloadSendToMenuItems}
+          onFocus={preloadSendToMenuItems}
         >
           {sent ? (
             <Check className="text-success" aria-hidden="true" />

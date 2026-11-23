@@ -62,6 +62,13 @@ import { cycleEnd } from "@/lib/product-canvas/fields";
 import { readPollLink } from "@/lib/quick-vote/link";
 import { todayIso } from "@/lib/sprints/series";
 import { addDays } from "@/lib/flow/days";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 /** jsdom has no ResizeObserver; the send menu's popper measures with one. */
 function stubResizeObserver() {

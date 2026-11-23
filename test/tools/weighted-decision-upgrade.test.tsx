@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -65,6 +65,13 @@ import { matrixToMarkdown, totalsChartText } from "@/app/(tools)/weighted-decisi
 import { validateCriterion } from "@/app/(tools)/weighted-decision/criteria-panel";
 import "@/lib/actions/tools/weighted-decision";
 import "@/lib/actions/tools/decision-log";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 /* ── Fixtures ───────────────────────────────────────────────────────── */
 

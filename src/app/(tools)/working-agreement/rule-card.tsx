@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/select";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
-import { sourceHref, sourceLabel } from "@/lib/handoffs/registry";
+import { sourceHref, sourceLabel } from "@/lib/handoffs/sources";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import type {
   CharterCheckInResult,

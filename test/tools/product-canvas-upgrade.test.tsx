@@ -63,6 +63,13 @@ import { PRODUCT_CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { HYPOTHESIS_TRACKER_ID } from "@/lib/hypotheses/model";
 import { ITEM_MAX, readCanvas } from "@/lib/product-canvas/model";
 import { VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION } from "@/lib/visitor-ai/consent";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 /** jsdom has no ResizeObserver; the send menu's popper measures with one. */
 function stubResizeObserver() {

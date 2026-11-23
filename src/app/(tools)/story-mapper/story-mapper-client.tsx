@@ -38,7 +38,7 @@ import type {
   HandoffLink,
   HandoffRouteId,
 } from "@/lib/stores/workspace-types";
-import { SendToMenuItems } from "@/components/handoff/send-to-menu";
+import { SendToMenuItems, preloadSendToMenuItems } from "@/components/handoff/send-to-menu";
 import { EditableName } from "@/components/shared/editable-name";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { STORY_MAPPER_ACTIONS } from "@/lib/history/event-actions";
@@ -624,6 +624,9 @@ function CardMoveMenu({
           // The menu sends the card (Planning Poker, the backlog) as well as moving it.
           title="Send or move"
           aria-label={`Send or move ${card.title}`}
+          // The menu's send items load as a pointer or focus gets here.
+          onPointerEnter={preloadSendToMenuItems}
+          onFocus={preloadSendToMenuItems}
         >
           <ArrowRightLeft className="w-3.5 h-3.5" aria-hidden="true" />
         </button>
