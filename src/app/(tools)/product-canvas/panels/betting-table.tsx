@@ -210,17 +210,15 @@ export function BettingTable({
                       <li key={c.id} className="space-y-2 rounded-md border border-border p-2">
                         <div className="flex flex-wrap items-baseline gap-2">
                           {key && (
-                            <span
-                              className="font-mono text-xs text-sub"
-                              aria-label={`Poll option ${key}`}
-                            >
+                            <span className="font-mono text-xs text-sub">
+                              <span className="sr-only">Poll option </span>
                               {key}
                             </span>
                           )}
                           <button
                             type="button"
                             onClick={() => onOpen(c.id)}
-                            className="min-w-0 break-words text-left text-sm font-medium text-text underline-offset-2 hover:underline"
+                            className="min-touch-coarse min-w-0 break-words text-left text-sm font-medium text-text underline-offset-2 hover:underline"
                           >
                             {c.title}
                           </button>

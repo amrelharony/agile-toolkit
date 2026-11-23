@@ -521,7 +521,7 @@ export function BugTriageClient() {
                               <button
                                 type="button"
                                 data-cell-bug-title={b.id}
-                                className="break-words text-left text-sm font-medium text-text hover:text-accent hover:underline"
+                                className="min-touch-coarse break-words text-left text-sm font-medium text-text hover:text-accent hover:underline"
                                 onClick={() => openBug(b.id)}
                               >
                                 {b.title}
