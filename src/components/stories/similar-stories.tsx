@@ -31,7 +31,7 @@ import {
   type PokerSimilarOutput,
 } from "@/lib/ai/tasks/planning-poker.lite";
 import type { AiSource } from "@/lib/ai/task-types";
-import { formatPoints } from "@/lib/estimation/three-point";
+import { formatPoints, isNumericDeck } from "@/lib/estimation/three-point";
 import { similarHint, type ReferencePins, type SimilarTarget } from "@/lib/estimation/similar";
 import type { Story } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
@@ -112,6 +112,9 @@ export function SimilarStories({
 
   const byId = useMemo(() => new Map(stories.map((s) => [s.id, s])), [stories]);
   const canAsk = input.candidates.length > 0 && input.story.title !== "";
+  // The guide pins reference stories on points cards only, so a T-shirt
+  // deck gets no advice it can't follow.
+  const canPin = references !== undefined && isNumericDeck(references.cards);
   // Nothing to compare with and nothing to ask about: no panel at all.
   if (hint.kind === "none" && !canAsk) return null;
 
@@ -208,7 +211,7 @@ export function SimilarStories({
             ))}
           </ul>
         </div>
-      ) : (
+      ) : canPin ? (
         <p className="mt-2 text-xs text-sub">
           No finished story reads like this one yet. Pin reference stories in the{" "}
           <Link href="/estimation-guide" className="text-accent underline-offset-4 hover:underline">
@@ -216,6 +219,8 @@ export function SimilarStories({
           </Link>{" "}
           to compare with.
         </p>
+      ) : (
+        <p className="mt-2 text-xs text-sub">No finished story reads like this one yet.</p>
       )}
     </section>
   );

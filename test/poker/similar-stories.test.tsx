@@ -217,6 +217,53 @@ describe("the fallbacks", () => {
     expect(items()[0]).toMatch(/Both mention/);
   });
 
+  it("points to pinning reference stories on a points deck with none pinned", () => {
+    const similar: SimilarSource = {
+      stories: STORIES,
+      references: { cards: ["1", "2", "3", "5", "8", "13", "21"], lookup: () => ({ stories: [] }) },
+    };
+    render(
+      <Harness
+        initial={makeSession({
+          stories: [{ id: "p-1", title: "Dark mode toggle", finalEstimate: null }],
+        })}
+        similar={similar}
+      />
+    );
+    expect(panel()).toHaveTextContent(
+      "No finished story reads like this one yet. Pin reference stories in the Estimation Guide to compare with."
+    );
+    expect(within(panel()!).getByRole("link", { name: "Estimation Guide" })).toHaveAttribute(
+      "href",
+      "/estimation-guide"
+    );
+  });
+
+  it("gives no pinning advice on a T-shirt deck, where the guide pins nothing", () => {
+    const similar: SimilarSource = {
+      stories: STORIES,
+      references: { cards: ["XS", "S", "M", "L", "XL", "XXL"], lookup: () => ({ stories: [] }) },
+    };
+    render(
+      <Harness
+        initial={makeSession({
+          scale: ["XS", "S", "M", "L", "XL", "XXL", "?"],
+          scaleType: "tshirt",
+          participants: seats("S", "L"),
+          stories: [{ id: "p-1", title: "Dark mode toggle", finalEstimate: null }],
+        })}
+        similar={similar}
+      />
+    );
+    expect(panel()).toHaveTextContent("No finished story reads like this one yet.");
+    expect(panel()).not.toHaveTextContent(/Pin reference stories/);
+    expect(within(panel()!).queryByRole("link", { name: "Estimation Guide" })).toBeNull();
+    // Amr can still be asked.
+    expect(
+      within(panel()!).getByRole("button", { name: "Find similar without AI" })
+    ).toBeInTheDocument();
+  });
+
   it("offers Amr the stories even when no word matches", () => {
     render(
       <Harness
