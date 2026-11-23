@@ -9,7 +9,14 @@
  */
 
 import { AlertTriangle } from "lucide-react";
-import { liftText, pText, percentText, pointsText, rateText } from "@/lib/experiments/ab";
+import {
+  analysisPText,
+  liftText,
+  percentText,
+  pointsText,
+  rateText,
+  splitPText,
+} from "@/lib/experiments/ab";
 import { countText, type ResultReading } from "@/lib/experiments/model";
 import { cn } from "@/lib/utils";
 
@@ -133,7 +140,7 @@ export function ResultView({
         <div className="min-w-0">
           <dt className="text-xs text-sub">{r.sided === "one" ? "p (one-sided)" : "p"}</dt>
           <dd className="text-text">
-            {pText(r.p)}{" "}
+            {analysisPText(r)}{" "}
             <span className="text-sub">
               {r.significant
                 ? `significant at ${percentText(r.confidence)}`
@@ -143,7 +150,7 @@ export function ResultView({
         </div>
       </dl>
       <p className="text-xs text-sub">
-        Split check: p {pText(r.split.p)}
+        Split check: p {splitPText(r.split)}
         {r.split.flagged
           ? ", further from even than chance would make it."
           : ", as even as planned."}

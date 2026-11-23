@@ -1,11 +1,12 @@
 import type { AbTest } from "@/lib/stores/workspace-types";
 import {
   HOW_TO_READ,
+  analysisPText,
   liftText,
-  pText,
   percentText,
   pointsText,
   rateText,
+  splitPText,
 } from "@/lib/experiments/ab";
 import { DECISION_LABEL, STATUS_LABEL, countText, testSummary } from "@/lib/experiments/model";
 
@@ -100,12 +101,12 @@ function testLines(t: AbTest): string[] {
         `${liftText(r.analysis.lift)} (${level} interval ${liftText(ll)} to ${liftText(lh)})`
       );
     }
-    item("p", `${pText(r.analysis.p)}${r.analysis.sided === "one" ? " (one-sided)" : ""}`);
+    item("p", `${analysisPText(r.analysis)}${r.analysis.sided === "one" ? " (one-sided)" : ""}`);
     item("Verdict", r.verdict);
     if (r.note) item("Note", r.note);
     item(
       "Split check",
-      r.splitWarning ?? `p ${pText(r.analysis.split.p)}: the split is as even as planned.`
+      r.splitWarning ?? `p ${splitPText(r.analysis.split)}: the split is as even as planned.`
     );
   } else {
     item("Result", "No counts yet.");

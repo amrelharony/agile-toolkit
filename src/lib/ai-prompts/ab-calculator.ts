@@ -2,7 +2,7 @@ import type { PromptDefinition } from "./types";
 import { buildPreamble, formatTable, truncateData, wrapUserContent } from "./prompt-utils";
 import type { AbTest } from "../stores/workspace-types";
 import { DECISION_LABEL, STATUS_LABEL, countText, testSummary } from "../experiments/model";
-import { HOW_TO_READ, percentText, pointsText, pText, rateText } from "../experiments/ab";
+import { HOW_TO_READ, analysisPText, percentText, pointsText, rateText } from "../experiments/ab";
 
 /**
  * Copyable prompts over the A/B tests as the page reads them: each test's
@@ -60,7 +60,7 @@ export function generateAbCalculatorPrompts(tests: readonly AbTest[]): PromptDef
         r
           ? `${pointsText(r.analysis.difference)} points (${percentText(r.analysis.level)} interval ${pointsText(r.analysis.differenceInterval[0])} to ${pointsText(r.analysis.differenceInterval[1])})`
           : "-",
-        r ? pText(r.analysis.p) : "-",
+        r ? analysisPText(r.analysis) : "-",
         r ? (r.early.met ? "yes" : "not yet") : "-",
         t.decision ? DECISION_LABEL[t.decision] : "-",
         t.question || "-",

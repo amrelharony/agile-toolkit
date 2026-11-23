@@ -9,6 +9,9 @@
 
 import { describe, expect, it } from "vitest";
 import {
+  SPLIT_FLAG_P,
+  alphaOf,
+  analysisPText,
   analyzeConversion,
   criticalZ,
   detectableEffect,
@@ -276,6 +279,40 @@ describe("in words", () => {
     expect(pText(0.00453)).toBe("0.0045");
     expect(pText(0.4321)).toBe("0.43");
     expect(pText(0.00002)).toBe("< 0.0001");
+  });
+
+  it("gives a p next to α the digits that show which side of it p is", () => {
+    const alpha = alphaOf(0.95);
+    // Two digits would print both as 0.05, one significant and one not.
+    expect(pText(0.0499)).toBe("0.05");
+    expect(pText(0.0504)).toBe("0.05");
+    expect(pText(0.0499, alpha)).toBe("0.0499");
+    expect(pText(0.0504, alpha)).toBe("0.0504");
+    expect(pText(0.04996, alpha)).toBe("0.04996");
+    expect(pText(0.05, alpha)).toBe("< 0.05");
+    expect(pText(0.0500001, alpha)).toBe("0.0500001");
+    expect(pText(0.05000001, alpha)).toBe("≥ 0.05");
+    // Away from the line, and at 90% and 99%, two digits as before.
+    expect(pText(0.043, alpha)).toBe("0.043");
+    expect(pText(0.0996, alphaOf(0.9))).toBe("0.0996");
+    expect(pText(0.0101, alphaOf(0.99))).toBe("0.0101");
+    expect(pText(0.00002, alpha)).toBe("< 0.0001");
+    // The split check reads against its own line.
+    expect(pText(0.000996, SPLIT_FLAG_P)).toBe("0.000996");
+
+    const base = analyzeConversion(
+      { visitors: 1000, conversions: 100 },
+      { visitors: 1000, conversions: 125 },
+      { confidence: 0.95, sided: "two" }
+    );
+    const won = { ...base, p: 0.0499, significant: true };
+    const missed = { ...base, p: 0.0504, significant: false };
+    expect(analysisPText(won)).toBe("0.0499");
+    expect(resultSentence(won)).toContain("; p = 0.0499)");
+    expect(resultSentence(won)).toMatch(/significant at 95% confidence\.$/);
+    expect(resultSentence(missed)).toContain("; p = 0.0504)");
+    expect(resultSentence(missed)).toMatch(/not significant at 95% confidence\.$/);
+    expect(resultSentence({ ...base, p: 0.05, significant: true })).toContain("; p < 0.05)");
   });
 });
 

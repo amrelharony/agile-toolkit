@@ -302,11 +302,35 @@ export const liftText = (fraction: number) => `${pointsText(fraction)}%`;
 /** A rate as a percentage with one decimal: "12.0%". */
 export const rateText = (fraction: number) => `${(Math.round(fraction * 1000) / 10).toFixed(1)}%`;
 
-/** A p value as people read it: "0.0045", "0.43", "< 0.0001". */
-export function pText(p: number): string {
+/**
+ * A p value as people read it: "0.0045", "0.43", "< 0.0001". With `line`
+ * (the α it is judged against), a p that two digits would print as the
+ * line itself gets the digits that show which side it is on: 0.0499 and
+ * 0.0504, never "0.05" for both a significant and a not significant
+ * result. Past six digits it reads "< 0.05" or "≥ 0.05".
+ */
+export function pText(p: number, line?: number): string {
   if (!Number.isFinite(p)) return "—";
   if (p < 0.0001) return "< 0.0001";
-  return String(Number(p.toPrecision(2)));
+  const at = (digits: number) => Number(p.toPrecision(digits));
+  if (line === undefined) return String(at(2));
+  const shown = Number(line.toPrecision(2));
+  for (let digits = 2; digits <= 6; digits++) {
+    if (at(digits) !== shown) return String(at(digits));
+  }
+  return p < line ? `< ${shown}` : `≥ ${shown}`;
+}
+
+/** The p of a reading, judged against its own α (see pText). */
+export const analysisPText = (r: Pick<ConversionAnalysis, "p" | "confidence">) =>
+  pText(r.p, alphaOf(r.confidence));
+
+/** The split check's p, judged against SPLIT_FLAG_P (see pText). */
+export const splitPText = (s: Pick<SplitCheck, "p">) => pText(s.p, SPLIT_FLAG_P);
+
+/** "p = 0.0045", "p < 0.0001", "one-sided p ≥ 0.05": a p with its relation. */
+function pClause(label: string, text: string): string {
+  return /^[<≥]/.test(text) ? `${label} ${text}` : `${label} = ${text}`;
 }
 
 /**
@@ -318,7 +342,7 @@ export function resultSentence(r: ConversionAnalysis): string {
   const level = percentText(r.level);
   const [lo, hi] = r.differenceInterval;
   const pLabel = r.sided === "one" ? "one-sided p" : "p";
-  const pPart = r.p < 0.0001 ? `${pLabel} < 0.0001` : `${pLabel} = ${pText(r.p)}`;
+  const pPart = pClause(pLabel, analysisPText(r));
   const detail = `(${level} interval ${pointsText(lo)} to ${pointsText(hi)} points; ${pPart})`;
   const conf = percentText(r.confidence);
   const size = Math.abs(Math.round(r.difference * 1000) / 10).toFixed(1);
