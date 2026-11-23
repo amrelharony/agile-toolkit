@@ -21,10 +21,12 @@ import type {
   HypothesisTracker,
   MetricDirection,
 } from "@/lib/stores/workspace-types";
+import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
 import type { HandoffSource } from "@/lib/handoffs/types";
 import { isExampleId } from "@/lib/utils/example-id";
 import { isBlank, parseNumber, type FormErrors, type Validation } from "@/lib/utils/form";
 import { isIsoDate } from "@/lib/sprints/calendar";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 /**
  * The tracker's one document id: the page, tool.hypothesis_tracker, the
@@ -293,6 +295,19 @@ export function withHypothesis(doc: HypothesisTracker | null, h: Hypothesis): Hy
     hypotheses: known ? list.map((x) => (x.id === h.id ? h : x)) : [h, ...list],
   };
 }
+
+/**
+ * Whether the tracker still fits its one synced row (hypothesisTracker:
+ * current, up to ENTITY_ROW_MAX_BYTES of JSON): every hypothesis lives in
+ * it, so a write that grows it (a value check, an A/B result, a hand-off)
+ * checks the row it would save first. Past the limit the database refuses
+ * the row, and every later tracker write would then fail to sync.
+ */
+export const trackerFits = (doc: HypothesisTracker) => jsonBytes(doc) <= ENTITY_ROW_MAX_BYTES;
+
+/** Why a write that would take the tracker past its row did nothing, in the page's words. */
+export const TRACKER_FULL =
+  "The Hypothesis Tracker is full: delete some old value checks or hypotheses first. Nothing was saved.";
 
 /* ── The form ────────────────────────────────────────────────────────── */
 

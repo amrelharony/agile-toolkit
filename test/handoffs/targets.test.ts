@@ -9,7 +9,10 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { HandoffLink, RetroBoard } from "@/lib/stores/workspace-types";
+import type { HandoffLink, HypothesisTracker, RetroBoard } from "@/lib/stores/workspace-types";
+import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
+import { TRACKER_FULL } from "@/lib/hypotheses/model";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import { collectRetroActions } from "@/lib/retro/actions";
 import { registry } from "@/lib/actions/registry";
@@ -324,6 +327,36 @@ describe("hypothesis", () => {
     for (const key of ["believe", "toLearn", "willDo", "experiment", "successMetric"] as const) {
       expect(h[key]).toHaveLength(HYPOTHESIS_TEXT_MAX);
     }
+  });
+
+  it("refuses a send the tracker's one row can't hold, and makes nothing", () => {
+    const filler = (believe: string): HypothesisTracker => ({
+      id: HYPOTHESIS_TRACKER_ID,
+      hypotheses: [
+        {
+          id: "h0",
+          believe,
+          willDo: "",
+          toLearn: "",
+          successMetric: "",
+          status: "running",
+          raisedAt: "2026-10-01",
+        },
+      ],
+    });
+    // Ten bytes short of the row: no new hypothesis fits beside it.
+    const room = ENTITY_ROW_MAX_BYTES - jsonBytes(filler("")) - 10;
+    ws().upsertHypothesisTracker(filler("x".repeat(room)));
+    const route = getHandoffRoute("hypothesis");
+    expect(route.problem?.(src())).toBe(TRACKER_FULL);
+    const links = linkStore();
+    expect(sendHandoff("hypothesis", src(), links)).toBeNull();
+    expect(hypotheses().map((h) => h.id)).toEqual(["h0"]);
+    expect(links.links).toEqual([]);
+    // With room again, the same send goes ahead.
+    ws().upsertHypothesisTracker(filler("x"));
+    expect(route.problem?.(src())).toBeNull();
+    expect(sendHandoff("hypothesis", src(), linkStore())).not.toBeNull();
   });
 
   it("is done once tested either way", () => {
