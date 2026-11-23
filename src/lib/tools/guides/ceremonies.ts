@@ -498,7 +498,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "Paste the notes and name the meeting.",
-      "Find the actions: Ask Amr reads the notes and lists what it finds, each with the line it came from. Find without AI picks the lines that start like an action or a decision.",
+      "Find the actions: Ask Amr to find the actions lists what Amr finds in the notes, each with the line it came from. Find them without AI picks the lines that start like an action or a decision.",
       "Keep or drop each item, and fix its words, owner and due date.",
       "Send actions to Retro Actions, decisions to the Decision Log as proposed, blockers to Impediments, stories to the backlog and bugs to Bug Triage, each with Undo.",
       "Once you're done, forget the pasted text and keep only the items.",
