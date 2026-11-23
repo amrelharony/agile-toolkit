@@ -8,6 +8,15 @@ import {
   suggestionText,
   type ValidationRate,
 } from "@/lib/hypotheses/model";
+import {
+  isDue,
+  isValueCheck,
+  measuredByText,
+  shippedText,
+  valueSummaryText,
+  type ValueCheckSources,
+  type ValueSummary,
+} from "@/lib/hypotheses/value";
 import { STATUS_LABEL, missingText, rateText, targetText } from "./view";
 
 const oneLine = (s: string) => s.replace(/\s*[\r\n]+\s*/g, " ").trim();
@@ -19,7 +28,11 @@ const oneLine = (s: string) => s.replace(/\s*[\r\n]+\s*/g, " ").trim();
  * result and the verdict it suggests, what was learned, its days, where
  * it came from and what it still needs.
  */
-export function hypothesesToMarkdown(list: readonly Hypothesis[], rate: ValidationRate): string {
+export function hypothesesToMarkdown(
+  list: readonly Hypothesis[],
+  rate: ValidationRate,
+  extra: { sources?: ValueCheckSources; today?: string; value?: ValueSummary } = {}
+): string {
   const lines = ["# Hypothesis Tracker", ""];
   if (list.length === 0) {
     lines.push("No hypotheses yet.");
@@ -42,12 +55,25 @@ export function hypothesesToMarkdown(list: readonly Hypothesis[], rate: Validati
   for (const [label, rows] of groups) {
     if (rows.length === 0) continue;
     lines.push(`## ${label} (${rows.length})`, "");
-    for (const h of rows) lines.push(...hypothesisLines(h), "");
+    for (const h of rows) lines.push(...hypothesisLines(h, extra.sources), "");
+  }
+  // Did the shipped work deliver? Only when there are checks.
+  const checks = list.filter((h) => isValueCheck(h));
+  if (checks.length > 0) {
+    lines.push(`## Value checks (${checks.length})`, "");
+    if (extra.value) lines.push(`${valueSummaryText(extra.value)}.`, "");
+    for (const h of checks) {
+      const due = extra.today && isDue(h, extra.today) ? " (due)" : "";
+      lines.push(
+        `- ${oneLine(shippedText(h) ?? "")}${due}: ${STATUS_LABEL[h.status as keyof typeof STATUS_LABEL] ?? h.status}`
+      );
+    }
+    lines.push("");
   }
   return `${lines.join("\n").trimEnd()}\n`;
 }
 
-function hypothesisLines(h: Hypothesis): string[] {
+function hypothesisLines(h: Hypothesis, sources?: ValueCheckSources): string[] {
   const out = [`### We believe ${oneLine(h.believe || "(untitled)")}`];
   const item = (term: string, value: string | undefined) => {
     const text = oneLine(value ?? "");
@@ -64,6 +90,11 @@ function hypothesisLines(h: Hypothesis): string[] {
   if (suggestion) item("Suggested", suggestion);
   item("Experiment", h.experiment);
   item("Context", h.description);
+  item("Shipped", shippedText(h) ?? undefined);
+  item(
+    "Measured by",
+    measuredByText(h.measuredBy, sources ?? { metrics: [], okrs: [] }) ?? undefined
+  );
   item("What we learned", h.outcome);
   const days = [
     h.raisedAt ? `raised ${h.raisedAt.slice(0, 10)}` : null,

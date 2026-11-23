@@ -73,9 +73,12 @@ describe("what the MCP handlers call", () => {
     const { seen, packages, clients } = walk(
       [
         "src/app/(tools)/estimation-guide/references.ts",
+        "src/lib/analytics/distributions.ts",
         "src/lib/bug-triage/model.ts",
         "src/lib/estimation/similar.ts",
         "src/lib/estimation/three-point.ts",
+        "src/lib/experiments/ab.ts",
+        "src/lib/experiments/model.ts",
         "src/lib/parking-lot/model.ts",
         "src/lib/parking-lot/route-rules.ts",
         "src/lib/handoffs/links.ts",
@@ -86,6 +89,8 @@ describe("what the MCP handlers call", () => {
         "src/lib/ebm/model.ts",
         "src/lib/ebm/sources.ts",
         "src/lib/hill-chart/model.ts",
+        "src/lib/hypotheses/value.ts",
+        "src/lib/hypotheses/value-steps.ts",
         "src/lib/notes-to-actions/due.ts",
         "src/lib/notes-to-actions/extract.ts",
         "src/lib/notes-to-actions/model.ts",
@@ -125,6 +130,7 @@ describe("what the MCP handlers call", () => {
 describe("the action files", () => {
   it.each([
     // One tool id per line, so tools added side by side merge cleanly.
+    "ab-calculator",
     "bug-triage",
     "parking-lot",
     "planning-poker",
@@ -133,6 +139,7 @@ describe("the action files", () => {
     "facilitator-timers",
     "epic-roadmap",
     "hill-chart",
+    "hypothesis-tracker",
     "impact-map",
     "notes-to-actions",
     "persona-library",

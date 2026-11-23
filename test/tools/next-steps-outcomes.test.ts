@@ -380,6 +380,33 @@ describe("hypothesis-tracker", () => {
     };
     expect(steps("hypothesis-tracker", ws)).toEqual([]);
   });
+
+  // Value checks (P2.5): a check follows shipped work and gets its own step once it is due.
+  const shipped = { kind: "story" as const, id: "s1", title: "Checklist", doneAt: "2026-10-01" };
+  const target = { direction: "increase" as const, value: 12, unit: "%" };
+
+  it("doesn't ask for a new value check's result on its first day", () => {
+    const hypothesisTrackers = trackers([
+      hypothesis("h1", { shipped, checkOn: "2026-10-31", target, raisedAt: "2026-10-26" }),
+    ]);
+    expect(steps("hypothesis-tracker", { hypothesisTrackers })).toEqual([]);
+  });
+
+  it("gives a due value check one step of its own, and no Record the result", () => {
+    const hypothesisTrackers = trackers([
+      hypothesis("h1", { shipped, checkOn: "2026-10-20", target }),
+      hypothesis("h2", { shipped: { ...shipped, title: "Second" }, checkOn: "2026-10-25", target }),
+    ]);
+    expect(steps("hypothesis-tracker", { hypothesisTrackers })).toEqual([
+      {
+        id: "hypothesis-tracker-value-check",
+        label: "Check the value of “Checklist”",
+        detail:
+          "Its check was due on 2026-10-20. Type the measured result on its card. 1 other value check is due too.",
+        href: "/hypothesis-tracker",
+      },
+    ]);
+  });
 });
 
 describe("riskiest-assumption", () => {

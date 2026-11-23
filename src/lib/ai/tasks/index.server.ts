@@ -6,6 +6,7 @@
 import "server-only";
 import type { AiTaskPrompt } from "../task-types";
 import { suggestOptionsPrompt } from "./_example.server";
+import { abPlanCheckPrompt } from "./ab-calculator.server";
 import { clusterPrompt, mergeQuestionsPrompt, toBacklogPrompt } from "./audience-wall.server";
 import { backlogHealthReviewPrompt } from "./backlog-health.server";
 import { bugTriageSeverityPrompt } from "./bug-triage.server";
@@ -39,6 +40,7 @@ import { testSessionsChartersPrompt } from "./test-sessions.server";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   suggestOptionsPrompt,
+  abPlanCheckPrompt,
   clusterPrompt,
   mergeQuestionsPrompt,
   toBacklogPrompt,
