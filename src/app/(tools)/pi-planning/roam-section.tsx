@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { ClipboardList, Pencil, ShieldAlert } from "lucide-react";
 import { AiButton, AiSuggestions } from "@/components/ai";
@@ -19,8 +19,9 @@ import {
   type RoamOutput,
 } from "@/lib/ai/tasks/pi-planning.lite";
 import type { AiSource } from "@/lib/ai/task-types";
-import { liveLink } from "@/lib/handoffs/registry";
-import { sendHandoff, type HandoffLinkStore } from "@/lib/handoffs/send";
+import { findLink } from "@/lib/handoffs/links";
+import type { HandoffLinkStore } from "@/lib/handoffs/send";
+import { riskRoute } from "@/lib/handoffs/targets/risk";
 import { PI_PLANNING_ACTIONS } from "@/lib/history/event-actions";
 import {
   ROAM_NOTE_MAX,
@@ -64,6 +65,32 @@ function withField<K extends keyof PiItem>(item: PiItem, key: K, value: PiItem[K
 const short = (text: string, max = 40) => {
   const t = text.trim();
   return t.length > max ? `${cutText(t, max - 1).trimEnd()}…` : t;
+};
+
+/**
+ * The hand-off sender, loaded when a risk's rating form opens rather than
+ * with the board: it brings the whole registry and every target, and the
+ * Risk Register is ROAM's only send. Once loaded it is called at once; a
+ * failed load is tried again.
+ */
+type SendModule = typeof import("@/lib/handoffs/send");
+let sendModule: Promise<SendModule> | null = null;
+let sendLoaded: SendModule | null = null;
+function loadSend(): Promise<SendModule> {
+  sendModule ??= import("@/lib/handoffs/send").then(
+    (m) => (sendLoaded = m),
+    (error: unknown) => {
+      sendModule = null;
+      throw error;
+    }
+  );
+  return sendModule;
+}
+
+/** The risk's live link to the Risk Register (as lib/handoffs liveLink reads it), or undefined. */
+const registerLink = (risk: PiItem) => {
+  const link = findLink(risk.sentTo, "risk");
+  return link && riskRoute.exists(link.targetId) ? link : undefined;
 };
 
 /* ── Owner and note ─────────────────────────────────────────────────── */
@@ -193,15 +220,24 @@ function RatingFields({ form }: { form: ItemFormState<RatingDraft, keyof RatingD
 function RiskLogForm({
   onSend,
   onCancel,
+  problem,
 }: {
   onSend: (v: RatingValues) => void;
   onCancel: () => void;
+  /** Why the last send didn't go (the sender failed to load), or null. */
+  problem: string | null;
 }) {
   const form = useItemForm<RatingDraft, RatingValues, keyof RatingDraft>({
     initial: { likelihood: null, impact: null },
     validate: validateRiskRatings,
     onSave: onSend,
+    // A send closes the form; one that didn't go keeps the ratings to try again.
+    resetOnSave: false,
   });
+  // Fetched as the form opens, so the send doesn't wait on it.
+  useEffect(() => {
+    loadSend().catch(() => {});
+  }, []);
   return (
     <ItemForm
       form={form}
@@ -213,6 +249,9 @@ function RiskLogForm({
         The Risk Register rates every risk, so rate this one first. Its owner and note go with it.
       </p>
       <RatingFields form={form} />
+      <p role="status" className="text-xs text-sub empty:hidden">
+        {problem ?? ""}
+      </p>
     </ItemForm>
   );
 }
@@ -256,6 +295,7 @@ export function RoamSection({
   const total = ROAM_GROUPS.reduce((a, g) => a + groups[g].length, 0);
   const [editing, setEditing] = useState<string | null>(null);
   const [logging, setLogging] = useState<string | null>(null);
+  const [logProblem, setLogProblem] = useState<string | null>(null);
   const [suggested, setSuggested] = useState<{ items: RoamSuggestion[]; source: AiSource } | null>(
     null
   );
@@ -298,6 +338,18 @@ export function RoamSection({
   });
 
   const sendToRegister = (risk: PiItem, v: RatingValues) => {
+    setLogProblem(null);
+    if (sendLoaded) {
+      sendWith(sendLoaded, risk, v);
+      return;
+    }
+    loadSend().then(
+      (sender) => sendWith(sender, risk, v),
+      () => setLogProblem("Couldn't add it just now. Try again.")
+    );
+  };
+
+  const sendWith = ({ sendHandoff }: SendModule, risk: PiItem, v: RatingValues) => {
     const team = teamName(risk.teamId);
     const link = sendHandoff(
       "risk",
@@ -421,7 +473,7 @@ export function RoamSection({
           <ul className="space-y-2">
             {groups[g].map((risk) => {
               const name = risk.title || "Untitled risk";
-              const sent = liveLink(risk.sentTo, "risk");
+              const sent = registerLink(risk);
               const example = isExampleId(risk.id);
               return (
                 <li
@@ -471,6 +523,7 @@ export function RoamSection({
                   ) : logging === risk.id ? (
                     <RiskLogForm
                       onSend={(v) => sendToRegister(risk, v)}
+                      problem={logProblem}
                       onCancel={() => {
                         setLogging(null);
                         returnTo(`roam-log:${risk.id}`);
@@ -514,6 +567,7 @@ export function RoamSection({
                             aria-label={`Log ${name} in the Risk Register`}
                             onClick={() => {
                               setEditing(null);
+                              setLogProblem(null);
                               setLogging(risk.id);
                             }}
                           >

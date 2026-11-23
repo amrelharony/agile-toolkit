@@ -101,6 +101,15 @@ describe("what a tool page's first load leaves out", () => {
     }
   });
 
+  it("PI Planning's ROAM section reads the Risk Register's link without the hand-off registry", () => {
+    const reached = firstLoad("src/app/(tools)/pi-planning/pi-planning-client.tsx");
+    expect(reached).toContain("src/app/(tools)/pi-planning/roam-section.tsx");
+    expect(reached).toContain("src/lib/handoffs/targets/risk.ts");
+    for (const lazy of ["src/lib/handoffs/send.ts", "src/lib/handoffs/registry.ts"]) {
+      expect(reached, lazy).not.toContain(lazy);
+    }
+  });
+
   it("Kanban's boards and export read the workflow's light helpers, not the Definition of Workflow engine", () => {
     const reached = firstLoad("src/app/(tools)/kanban/kanban-client.tsx");
     expect(reached).toContain("src/app/(tools)/kanban/markdown.ts");
