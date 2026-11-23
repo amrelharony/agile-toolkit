@@ -10,6 +10,7 @@ import { clusterTask, mergeQuestionsTask, toBacklogTask } from "./audience-wall"
 import { backlogHealthReviewTask } from "./backlog-health";
 import { bugTriageSeverityTask } from "./bug-triage";
 import { cardForMoodTask, generateCardsTask } from "./card-decks";
+import { ebmMeasuresTask } from "./ebm-dashboard";
 import { mapExamplesTask, mapQuestionsTask, mapRulesTask } from "./example-mapping";
 import { agendaTask } from "./facilitator-timers";
 import { hillChartUpdateNoteTask } from "./hill-chart";
@@ -23,6 +24,7 @@ import { themeNamesTask } from "./picker";
 import { pokerSimilarTask } from "./planning-poker";
 import { productCanvasDraftTask, productCanvasGapsTask } from "./product-canvas";
 import { productGoalDraftTask } from "./product-goal";
+import { productMetricsSuggestTask } from "./product-metrics";
 import { sizingDiscussTask, sizingSplitTask } from "./relative-sizing";
 import { releaseReadinessNotesTask } from "./release-readiness";
 import { groupTopicsTask, surprisePlanTask } from "./retro";
@@ -45,6 +47,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   bugTriageSeverityTask,
   generateCardsTask,
   cardForMoodTask,
+  ebmMeasuresTask,
   mapRulesTask,
   mapExamplesTask,
   mapQuestionsTask,
@@ -61,6 +64,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   productCanvasDraftTask,
   productCanvasGapsTask,
   productGoalDraftTask,
+  productMetricsSuggestTask,
   sizingDiscussTask,
   sizingSplitTask,
   releaseReadinessNotesTask,
