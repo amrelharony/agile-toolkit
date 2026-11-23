@@ -1,9 +1,8 @@
+import type { Metadata } from "next";
+import { toolMetadata } from "@/lib/seo/tool-metadata";
 import { EpicRoadmapClient } from "./epic-roadmap-client";
 
-export const metadata = {
-  title: "Epic Roadmap",
-  description: "Timeline view of epics across quarters with progress bars and milestone markers.",
-};
+export const metadata: Metadata = toolMetadata("epic-roadmap");
 
 export default function Page() {
   return <EpicRoadmapClient />;

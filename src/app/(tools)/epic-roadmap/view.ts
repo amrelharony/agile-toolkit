@@ -1,5 +1,6 @@
-import type { Epic, Story } from "@/lib/stores/workspace-types";
+import type { Epic, Story, StrategyMap } from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/components/tool-frame/example-data";
+import { sourcePath } from "@/lib/strategy-map/path";
 import { listAnd, plural } from "@/lib/charts/chart-text";
 import { EXAMPLE_STORIES } from "./example";
 import { epicColorKey, type EpicColorKey } from "@/lib/roadmap/palette";
@@ -175,4 +176,39 @@ export function timelineSummary(
       ? ` This quarter is ${quarterLabel(nowIndex)}.`
       : "";
   return `${plural(shown, "epic")} from ${from} to ${to}.${here}`;
+}
+
+/* ── The Now, Next, Later board ─────────────────────────────────────── */
+
+/** An epic as the board places it (lib/roadmap/horizons reads `epic` and `done`). */
+export interface BoardItem {
+  epic: Epic;
+  done: boolean;
+  view: EpicView;
+}
+
+/** The views as board items, earliest start first, as the Epics list orders them. */
+export function boardItems(views: readonly EpicView[]): BoardItem[] {
+  return [...views]
+    .sort(byStart)
+    .map((view) => ({ epic: view.epic, done: view.rollup.done, view }));
+}
+
+/**
+ * An epic's "Why:" line when it came from an Impact Map or a Strategy Tree:
+ * the parts above it on its map, root first ("Fewer refund calls → Shop
+ * owners → Refund without calling"). Null for any other epic, or when the
+ * map or its part is gone.
+ */
+export function whyLine(
+  epic: Pick<Epic, "sourceRef">,
+  maps: readonly StrategyMap[]
+): string | null {
+  const found = sourcePath(maps, epic.sourceRef);
+  if (!found) return null;
+  const above = found.path
+    .slice(0, -1)
+    .map((n) => (n.text ?? "").replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+  return above.length > 0 ? above.join(" → ") : null;
 }

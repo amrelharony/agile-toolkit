@@ -18,6 +18,7 @@ import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
 import { notesToActionsExtractPrompt } from "./notes-to-actions.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
+import { personaFromNotesPrompt } from "./persona-library.server";
 import { themeNamesPrompt } from "./picker.server";
 import { pokerSimilarPrompt } from "./planning-poker.server";
 import { productCanvasDraftPrompt, productCanvasGapsPrompt } from "./product-canvas.server";
@@ -53,6 +54,7 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   meetingAuditSuggestPrompt,
   notesToActionsExtractPrompt,
   parkingRoutePrompt,
+  personaFromNotesPrompt,
   themeNamesPrompt,
   pokerSimilarPrompt,
   productCanvasDraftPrompt,

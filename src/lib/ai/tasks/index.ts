@@ -18,6 +18,7 @@ import { interruptClassifyTask } from "./interrupt-buffer";
 import { meetingAuditSuggestTask } from "./meeting-audit";
 import { notesToActionsExtractTask } from "./notes-to-actions";
 import { parkingRouteTask } from "./parking-lot";
+import { personaFromNotesTask } from "./persona-library";
 import { themeNamesTask } from "./picker";
 import { pokerSimilarTask } from "./planning-poker";
 import { productCanvasDraftTask, productCanvasGapsTask } from "./product-canvas";
@@ -54,6 +55,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   meetingAuditSuggestTask,
   notesToActionsExtractTask,
   parkingRouteTask,
+  personaFromNotesTask,
   themeNamesTask,
   pokerSimilarTask,
   productCanvasDraftTask,
