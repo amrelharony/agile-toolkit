@@ -20,6 +20,7 @@ import {
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { PHONE_MEDIA_QUERY } from "@/lib/layout/breakpoints";
+import { closeAmrSheet } from "@/lib/layout/amr-sheet";
 import { useActivityUiStore } from "@/lib/stores/activity-ui-store";
 import { useInboxStore } from "@/lib/notify/inbox-store";
 import { groupInbox, type InboxGroup, type InboxItem } from "@/lib/notify/inbox";
@@ -101,8 +102,12 @@ export function ActivityPanel() {
     if (open) shownRef.current = visible.map((i) => i.id);
   }, [open, visible]);
 
+  // Opening, from the XP bar or the account menu: Amr's phone sheet closes
+  // first, so two full-screen surfaces never stack.
   useEffect(() => {
-    if (open) useInboxStore.getState().prune();
+    if (!open) return;
+    closeAmrSheet();
+    useInboxStore.getState().prune();
   }, [open]);
 
   // Mark read on the open-to-closed change itself, however it closes:

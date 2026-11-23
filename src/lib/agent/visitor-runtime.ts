@@ -12,26 +12,52 @@
 
 // Populate the tool action registry before any agent code reads it.
 import "@/lib/actions/register-all";
-import { abortInFlight, sendUserMessage } from "./client";
+import {
+  abortInFlight,
+  canRetryLastTurn,
+  goOn,
+  retryLastTurn,
+  sendUserMessage,
+  type StreamOptions,
+} from "./client";
 
 /** The id a visitor's tool calls run under (their own browser data; no account). */
 const VISITOR_USER_ID = "visitor";
 
-/**
- * Send one visitor message and run the turn to its end: the visitor route
- * answers, and any tool Amr calls runs here, asking first before a change.
- * `toolId` is the open page's tool (an id or a path), or null.
- */
-export function sendVisitorMessage(
-  text: string,
-  opts: { toolId: string | null; signal?: AbortSignal }
-): Promise<void> {
-  return sendUserMessage(text, {
+/** What a visitor's turn is told: the open page's tool (an id or a path), or null. */
+export interface VisitorTurnOptions {
+  toolId: string | null;
+  signal?: AbortSignal;
+}
+
+function visitorStream(opts: VisitorTurnOptions): StreamOptions {
+  return {
     userId: VISITOR_USER_ID,
     profile: "visitor",
     toolId: opts.toolId,
     signal: opts.signal,
-  });
+  };
 }
 
-export { abortInFlight };
+/**
+ * Send one visitor message and run the turn to its end: the visitor route
+ * answers, and any tool Amr calls runs here, asking first before a change.
+ */
+export function sendVisitorMessage(text: string, opts: VisitorTurnOptions): Promise<void> {
+  return sendUserMessage(text, visitorStream(opts));
+}
+
+/**
+ * The visitor's "Try again": the chat's last question runs again, only when
+ * its turn ran no change (canRetryLastTurn). False when it may not.
+ */
+export function retryVisitorTurn(opts: VisitorTurnOptions): Promise<boolean> {
+  return retryLastTurn(visitorStream(opts));
+}
+
+/** The visitor's "Go on": sends their own "Go on" message. False while a turn runs. */
+export function visitorGoOn(opts: VisitorTurnOptions): Promise<boolean> {
+  return goOn(visitorStream(opts));
+}
+
+export { abortInFlight, canRetryLastTurn };

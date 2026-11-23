@@ -118,6 +118,19 @@ export interface MascotDrag {
 /** The corner Amr is parked in (he can be dragged to any of the four). */
 export type MascotCorner = "topLeft" | "topRight" | "bottomLeft" | "bottomRight";
 
+/**
+ * Where his figure is drawn once the page has been laid out: the side of the
+ * screen and the edge he stands against. Usually his corner's, but the other
+ * side when he has stepped aside for one of the page's controls.
+ */
+export interface MascotPlacement {
+  side: "left" | "right";
+  edge: "top" | "bottom";
+}
+
+/** How his chat panel is laid out on this screen (amr-geometry's panelLayout). */
+export type MascotPanelLayout = "float" | "sheet" | "side";
+
 interface MascotState {
   /** True once the sprite sheet has loaded and Amr is on screen. */
   ready: boolean;
@@ -149,8 +162,20 @@ interface MascotState {
   feelPhone: boolean | null;
   /** He has offered to feel the phone once (the bubble beside him); he doesn't ask twice. */
   motionAsked: boolean;
-  /** Where he's parked, so things shown beside him (the moment chip) can follow. */
+  /**
+   * The corner he was put in (by a drop, Move Amr or an arrow key). Things
+   * shown beside him follow `placed` and `lift` instead, where he is drawn.
+   */
   corner: MascotCorner;
+  /**
+   * Where he is actually drawn (see MascotPlacement). `corner` stays the corner
+   * he was put in; things beside him (his bubble, the moment chip) follow this.
+   */
+  placed: MascotPlacement;
+  /** How far (px) he has stepped up off his edge: his bubble and chips rise this much with him. */
+  lift: number;
+  /** The layout his chat panel is open in, null while it is closed: the toaster keeps off it. */
+  panel: MascotPanelLayout | null;
 }
 
 interface MascotActions {
@@ -180,6 +205,14 @@ interface MascotActions {
   setMotionAsked(): void;
   /** Report the corner he's parked in (the assistant calls it). */
   setCorner(c: MascotCorner): void;
+  /**
+   * Report where he is drawn and how far he has stepped off his edge (the
+   * assistant calls it whenever it places him and his panel). A lift that
+   * isn't a positive number counts as 0. Unchanged values change nothing.
+   */
+  setPlacement(placed: MascotPlacement, lift: number): void;
+  /** Report the layout his panel is open in, or null as it closes (the assistant calls it). */
+  setPanel(panel: MascotPanelLayout | null): void;
   /** Load the persisted aura and motion choice from localStorage. */
   hydrateAppearance(): void;
   reset(): void;
@@ -200,6 +233,9 @@ const INITIAL: MascotState = {
   feelPhone: null,
   motionAsked: false,
   corner: "bottomRight",
+  placed: { side: "right", edge: "bottom" },
+  lift: 0,
+  panel: null,
 };
 
 const APPEARANCE_KEY = "mascot_appearance";
@@ -271,6 +307,13 @@ export const useMascotStore = create<MascotState & MascotActions>()((set, get) =
     saveAppearance(appearance(get()));
   },
   setCorner: (corner) => set((s) => (s.corner === corner ? s : { corner })),
+  setPlacement: ({ side, edge }, lift) =>
+    set((s) => {
+      const up = Number.isFinite(lift) && lift > 0 ? lift : 0;
+      if (s.placed.side === side && s.placed.edge === edge && s.lift === up) return s;
+      return { placed: { side, edge }, lift: up };
+    }),
+  setPanel: (panel) => set((s) => (s.panel === panel ? s : { panel })),
   hydrateAppearance: () => {
     try {
       const raw = localStorage.getItem(APPEARANCE_KEY);

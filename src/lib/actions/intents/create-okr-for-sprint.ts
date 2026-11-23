@@ -60,6 +60,7 @@ registry.register({
   toolId: "intent",
   name: "create_okr_for_sprint",
   category: "intent",
+  confirmLabel: "Create an OKR for the sprint",
   description:
     "Create a new OKR for a sprint's quarter. Quarter is derived from the sprint's startDate ('2026 Q2', the OKR page's form). Accepts 1–3 key result titles which become KRs counted from a baseline of 0 to target=1 (current=0). It links nothing to the sprint: link the OKR from the sprint's goal with tool.sprint_goal.link_okr.",
   paramsSchema: z.object({

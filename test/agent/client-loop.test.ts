@@ -17,13 +17,21 @@
  * real registry's tool sets are pinned in client-tools.test.ts).
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import { z } from "zod";
 
 const h = vi.hoisted(() => ({
   recordChatUsage: vi.fn<(tokens: number, model: string) => Promise<void>>(async () => {}),
   appendMessages: vi.fn<(conversationId: string, msgs: unknown[]) => Promise<void>>(async () => {}),
-  executeToolUse: vi.fn(async (tu: { id: string }) => ({
+  deleteMessagesBetween: vi.fn<
+    (conversationId: string, afterIso: string, throughIso: string) => Promise<void>
+  >(async () => {}),
+  executeToolUse: vi.fn<
+    (
+      tu: { id: string; input?: Record<string, unknown> },
+      opts?: { confirm: (prompt: ConfirmPrompt) => Promise<boolean> }
+    ) => Promise<{ type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }>
+  >(async (tu) => ({
     type: "tool_result" as const,
     tool_use_id: tu.id,
     content: '{"ok":true}',
@@ -35,6 +43,7 @@ vi.mock("@/lib/agent/persist", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/agent/persist")>()),
   recordChatUsage: h.recordChatUsage,
   appendMessages: h.appendMessages,
+  deleteMessagesBetween: h.deleteMessagesBetween,
 }));
 vi.mock("@/lib/agent/execute-tool", () => ({ executeToolUse: h.executeToolUse }));
 vi.mock("@/lib/tools/guides", async (importOriginal) => {
@@ -46,11 +55,24 @@ vi.mock("@/lib/tools/guides", async (importOriginal) => {
   };
 });
 
+import { renderHook } from "@testing-library/react";
 import { registry } from "@/lib/actions/registry";
 import { getToolById } from "@/lib/constants/tools";
-import { roundLimitNote, sendUserMessage, usageTotal } from "@/lib/agent/client";
+import {
+  NOTICE_TEXT,
+  canRetryLastTurn,
+  endNoteFor,
+  goOn,
+  ownerRefusalNotice,
+  retryLastTurn,
+  roundLimitNote,
+  roundLimitNotice,
+  sendUserMessage,
+  usageTotal,
+  WRAP_UP_INSTRUCTION,
+} from "@/lib/agent/client";
 import { useAgentStore } from "@/lib/agent/store";
-import type { ChatMessage } from "@/lib/agent/types";
+import type { ChatMessage, ConfirmPrompt, ConversationMeta, ToolUseBlock } from "@/lib/agent/types";
 
 const PROBE_TOOL = "tool_loop_probe_read_state";
 registry.register({
@@ -110,7 +132,8 @@ function toolTurn(id: string, extra: unknown[] = []): Response {
   );
 }
 
-let queue: Response[];
+/** Each POST takes the next response, or builds it from the request (to see its signal). */
+let queue: Array<Response | ((init: RequestInit) => Response)>;
 let posts: Body[];
 
 beforeEach(() => {
@@ -119,6 +142,7 @@ beforeEach(() => {
   h.guideFails = false;
   h.recordChatUsage.mockClear();
   h.appendMessages.mockClear();
+  h.deleteMessagesBetween.mockClear();
   h.executeToolUse.mockClear();
   useAgentStore.getState().reset();
   useAgentStore.setState({ lastTurnTokens: null });
@@ -131,7 +155,7 @@ beforeEach(() => {
       posts.push(JSON.parse(String(init.body)) as Body);
       const next = queue.shift();
       if (!next) throw new Error("unexpected POST");
-      return next;
+      return typeof next === "function" ? next(init) : next;
     })
   );
 });
@@ -256,6 +280,15 @@ function everyToolCallAnswered(body: Body): boolean {
 }
 
 describe("a round that doesn't finish", () => {
+  /** The failure's own words go to the console, never to the chat. */
+  let warn: MockInstance<typeof console.warn>;
+  beforeEach(() => {
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
   it("drops a tool call whose stream failed before its finish, so the next turn is valid", async () => {
     queue = [brokenStream(probeCall("call_cut"))];
     // The call did stream in whole before the failure.
@@ -266,7 +299,7 @@ describe("a round that doesn't finish", () => {
     await send("read the probe state", null);
     unsub();
     expect(seen).toContain("call_cut");
-    expect(useAgentStore.getState().error).toContain("upstream_idle_timeout");
+    expect(useAgentStore.getState().error).toBe(NOTICE_TEXT.streamFailed);
     expect(h.executeToolUse).not.toHaveBeenCalled();
     // Nothing to show was left: no empty bubble, no orphan tool_use.
     expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user"]);
@@ -283,18 +316,20 @@ describe("a round that doesn't finish", () => {
     expect(lastAssistant()?.content).toEqual([{ type: "text", text: "Reading it now." }]);
   });
 
-  it("shows the owner the failure's own words, with no console line of the visitor's", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    try {
-      queue = [brokenStream(delta({ content: "Reading it now." }))];
-      await send("read the probe state", null);
-      expect(useAgentStore.getState().error).toBe("upstream_idle_timeout");
-      // The plain-words note and the console line behind it are a visitor's only.
-      const visitorLines = warn.mock.calls.filter((c) => String(c[0]).includes("[visitor-ai]"));
-      expect(visitorLines).toEqual([]);
-    } finally {
-      warn.mockRestore();
-    }
+  it("tells the owner in plain words, with the failure's own words in an [agent] console line", async () => {
+    queue = [brokenStream(delta({ content: "Reading it now." }))];
+    await send("read the probe state", null);
+    const s = useAgentStore.getState();
+    expect(s.notice).toEqual({
+      tone: "error",
+      kind: "stream_failed",
+      text: "Amr couldn't finish answering. Try again, and check your connection if it keeps happening.",
+    });
+    expect(s.error).toBe(NOTICE_TEXT.streamFailed);
+    // What did arrive stays.
+    expect(textOf(lastAssistant())).toBe("Reading it now.");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith("[agent] the answer stopped:", "upstream_idle_timeout");
   });
 
   // The connection can go down right after the stream's own [DONE]: the round
@@ -323,7 +358,7 @@ describe("a round that doesn't finish", () => {
     queue = [brokenStream(probeCall("call_cut"), delta({}, "tool_calls"))];
     await send("read the probe state", null);
     expect(h.executeToolUse).not.toHaveBeenCalled();
-    expect(useAgentStore.getState().error).toBe("upstream_idle_timeout");
+    expect(useAgentStore.getState().error).toBe(NOTICE_TEXT.streamFailed);
     expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user"]);
   });
 
@@ -491,7 +526,11 @@ describe("round-limit wrap-up", () => {
     const wrapUp = posts[10];
     expect(wrapUp.tool_choice).toBe("auto");
     expect(wrapUp.tools!.map((t) => t.function.name)).toContain(PROBE_TOOL);
-    expect(String(wrapUp.messages[0].content)).toContain("You cannot call any more tools");
+    const wrapUpSystem = String(wrapUp.messages[0].content);
+    expect(wrapUpSystem).toContain("You cannot call any more tools");
+    // Its answer is the reply, so the instruction has no dashes for the model to copy.
+    expect(wrapUpSystem.endsWith(`\n\n${WRAP_UP_INSTRUCTION}`)).toBe(true);
+    expect(WRAP_UP_INSTRUCTION).not.toMatch(/[–—]/);
     // Still ends on a tool result, so the route doesn't meter it as a new turn.
     expect(wrapUp.messages.at(-1)?.role).toBe("tool");
     expect(posts.every((p) => p.tool_choice !== "none")).toBe(true);
@@ -500,12 +539,16 @@ describe("round-limit wrap-up", () => {
     expect(lastAssistant()?.content).toEqual([
       { type: "text", text: "Summary: read the state ten times." },
     ]);
-    expect(useAgentStore.getState().error).toBe(
-      "Reached tool-use round limit (10). Send a follow-up if more is needed."
-    );
+    // A gentle note, in the third person: never an error, so Amr doesn't frown.
+    expect(useAgentStore.getState().notice).toEqual({
+      tone: "note",
+      kind: "round_limit",
+      text: "Amr reached his limit of 10 tool rounds for one request. Send a follow-up and he'll carry on.",
+    });
+    expect(useAgentStore.getState().error).toBeNull();
   });
 
-  const NOTE_START = "I used all 10 tool rounds for this request";
+  const NOTE_START = "Amr used all 10 tool rounds for this request before he could sum up.";
 
   it("shows and saves a local note when the wrap-up answers with only a tool call", async () => {
     tenRoundsThen(
@@ -524,6 +567,8 @@ describe("round-limit wrap-up", () => {
 
     const last = lastAssistant()!;
     expect(last.content).toHaveLength(1);
+    // Marked as narration, so the chat draws it as a caption, not Amr's balloon.
+    expect(last.content[0]).toMatchObject({ type: "text", note: true });
     const note = (last.content[0] as { text: string }).text;
     expect(note.startsWith(NOTE_START)).toBe(true);
     expect(note).toContain("10 tool calls; none failed");
@@ -531,7 +576,11 @@ describe("round-limit wrap-up", () => {
     for (const m of useAgentStore.getState().messages) expect(m.content.length).toBeGreaterThan(0);
     const saved = h.appendMessages.mock.calls.at(-1)![1] as ChatMessage[];
     expect(saved).toEqual([last]);
-    expect(useAgentStore.getState().error).toContain("Reached tool-use round limit");
+    // The note keeps to the facts; the notice under it says once that a
+    // follow-up carries on, beside its Go on.
+    expect(note.endsWith("This turn ran 10 tool calls; none failed.")).toBe(true);
+    expect(note).not.toContain("Send a follow-up");
+    expect(useAgentStore.getState().notice).toEqual(roundLimitNotice());
   });
 
   it("shows the note when the wrap-up's reasoning uses up its tokens", async () => {
@@ -539,6 +588,8 @@ describe("round-limit wrap-up", () => {
     await send("keep reading the probe state");
     const text = (lastAssistant()!.content[0] as { text: string }).text;
     expect(text.startsWith(NOTE_START)).toBe(true);
+    expect(text).not.toContain("Send a follow-up");
+    expect(useAgentStore.getState().notice).toEqual(roundLimitNotice());
   });
 
   it("shows the note when the wrap-up request itself fails", async () => {
@@ -548,6 +599,8 @@ describe("round-limit wrap-up", () => {
     expect(text.startsWith(NOTE_START)).toBe(true);
     // The note answers after the last tool result.
     expect(useAgentStore.getState().messages.at(-1)?.role).toBe("assistant");
+    // The turn ends on the round limit, not on the wrap-up's own refusal.
+    expect(useAgentStore.getState().notice?.kind).toBe("round_limit");
   });
 
   it("names the actions that failed", async () => {
@@ -587,5 +640,876 @@ describe("roundLimitNote", () => {
       at("t1", "tool", [{ type: "tool_result", tool_use_id: "c1", content: "ok" }]),
     ];
     expect(roundLimitNote(msgs)).toContain("This turn ran 1 tool call; none failed.");
+  });
+
+  it("names a failure from its own round's call when a later round reuses the id", () => {
+    const msgs = [
+      at("u1", "user", [{ type: "text", text: "now" }]),
+      at("a1", "assistant", [{ type: "tool_use", id: "tc_0", name: PROBE_TOOL, input: {} }]),
+      at("t1", "tool", [
+        { type: "tool_result", tool_use_id: "tc_0", content: "x", is_error: true },
+      ]),
+      at("a2", "assistant", [{ type: "tool_use", id: "tc_0", name: "tool_gone_away", input: {} }]),
+      at("t2", "tool", [{ type: "tool_result", tool_use_id: "tc_0", content: "ok" }]),
+    ];
+    expect(roundLimitNote(msgs)).toContain("2 tool calls; 1 failed (`tool.loop_probe.read_state`)");
+  });
+});
+
+/**
+ * A streamed response the test feeds by hand. Like a real one, its body fails
+ * with an AbortError once its request is aborted.
+ */
+function manualStream() {
+  const enc = new TextEncoder();
+  let ctl!: ReadableStreamDefaultController<Uint8Array>;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      ctl = c;
+    },
+  });
+  const quietly = (fn: () => void) => {
+    try {
+      fn();
+    } catch {
+      /* the reader already let go of the stream */
+    }
+  };
+  return {
+    respond(init: RequestInit): Response {
+      init.signal?.addEventListener(
+        "abort",
+        () => quietly(() => ctl.error(Object.assign(new Error("aborted"), { name: "AbortError" }))),
+        { once: true }
+      );
+      return new Response(stream, {
+        status: 200,
+        headers: { "content-type": "text/event-stream" },
+      });
+    },
+    /** Events as one network chunk ("[DONE]" passes through). */
+    send(...events: unknown[]) {
+      const text = events
+        .map((e) => `data: ${typeof e === "string" ? e : JSON.stringify(e)}\n\n`)
+        .join("");
+      quietly(() => ctl.enqueue(enc.encode(text)));
+    },
+    end() {
+      quietly(() => ctl.close());
+    },
+  };
+}
+
+const textOf = (m: ChatMessage | undefined) =>
+  (m?.content ?? []).map((c) => (c.type === "text" ? c.text : "")).join("");
+
+const at = (id: string, role: ChatMessage["role"], content: ChatMessage["content"]) =>
+  ({ id, role, content, createdAt: "" }) as ChatMessage;
+
+const meta = (id: string): ConversationMeta => ({
+  id,
+  title: id,
+  toolId: null,
+  createdAt: "",
+  updatedAt: "",
+  lastMessageAt: "",
+});
+
+/** Every message saved to `conversationId`, in order. */
+const savedTo = (conversationId: string) =>
+  h.appendMessages.mock.calls
+    .filter((c) => c[0] === conversationId)
+    .flatMap((c) => c[1] as ChatMessage[]);
+
+/** Let the stream's pending read and everything after it run. */
+const tick = () => new Promise<void>((r) => setTimeout(r, 0));
+
+const sendIn = (conversationId: string, text: string, toolId: string | null = null) =>
+  sendUserMessage(text, { userId: "owner-1", toolId, conversationId });
+
+const otherThread = () => [
+  at("o1", "user", [{ type: "text", text: "what is WSJF?" }]),
+  at("o2", "assistant", [{ type: "text", text: "Weighted shortest job first." }]),
+];
+
+describe("a turn stays in its own thread", () => {
+  it("New chat mid-answer stops the turn and writes nothing into the fresh chat", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const turn = sendIn("conv-1", "tell me about retros");
+    body.send(delta({ content: "Retros are" }));
+    await vi.waitFor(() => expect(textOf(lastAssistant())).toBe("Retros are"));
+    // The turn's abort is with the store while it runs.
+    expect(useAgentStore.getState().abortHook).toBeTypeOf("function");
+
+    useAgentStore.getState().reset();
+    body.send(delta({ content: " a team's look back." }), delta({}, "stop"), "[DONE]");
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.messages).toEqual([]);
+    expect(s.streaming).toBe(false);
+    expect(s.streamingMessageId).toBeNull();
+    expect(s.notice).toBeNull();
+    expect(s.abortHook).toBeNull();
+    expect(posts).toHaveLength(1);
+    // Only the question was saved: the cut reply reaches no conversation.
+    expect(savedTo("conv-1").map((m) => m.role)).toEqual(["user"]);
+
+    // The fresh chat answers at once, with nothing of the old turn in it.
+    queue = [textTurn("Hello")];
+    await send("hi", null);
+    expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(posts[1].messages.slice(1)).toEqual([{ role: "user", content: "hi" }]);
+  });
+
+  it("opening another thread mid-answer leaves that thread's last reply as it was", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const turn = sendIn("conv-1", "tell me about retros");
+    body.send(delta({ content: "Retros are" }));
+    await vi.waitFor(() => expect(textOf(lastAssistant())).toBe("Retros are"));
+
+    const other = otherThread();
+    useAgentStore.getState().setActiveConversation(meta("conv-2"), other);
+    body.send(delta({ content: " a team's look back." }), delta({}, "stop"), "[DONE]");
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.activeConversationId).toBe("conv-2");
+    expect(s.messages).toEqual(otherThread());
+    expect(s.streaming).toBe(false);
+    expect(s.notice).toBeNull();
+    expect(savedTo("conv-1").map((m) => m.role)).toEqual(["user"]);
+    expect(savedTo("conv-2")).toEqual([]);
+  });
+
+  it("opening another thread while a change waits denies it, keeps its saved thread whole and shows nothing in the other", async () => {
+    h.executeToolUse.mockImplementationOnce(async (tu, opts) => {
+      const ok = await opts!.confirm({
+        verb: "Read",
+        title: "Loop probe",
+        question: "Read in Loop probe?",
+        detail: "",
+        destructive: false,
+      });
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: ok ? '{"ok":true}' : "The user declined.",
+        ...(ok ? {} : { is_error: true }),
+      };
+    });
+    queue = [toolTurn("call_1")];
+    const turn = sendIn("conv-1", "read the probe state", "loop-probe");
+    await vi.waitFor(() => expect(useAgentStore.getState().pendingToolUse).not.toBeNull());
+
+    useAgentStore.getState().setActiveConversation(meta("conv-2"), otherThread());
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.messages).toEqual(otherThread());
+    expect(s.pendingToolUse).toBeNull();
+    expect(s.streaming).toBe(false);
+    expect(s.notice).toBeNull();
+    // No next round went out from the other thread.
+    expect(posts).toHaveLength(1);
+    // The turn's own thread was saved with the call and its (denied) result.
+    const saved = savedTo("conv-1");
+    expect(saved.map((m) => m.role)).toEqual(["user", "assistant", "tool"]);
+    expect(saved[2].content).toEqual([
+      expect.objectContaining({ tool_use_id: "call_1", is_error: true }),
+    ]);
+    expect(savedTo("conv-2")).toEqual([]);
+  });
+
+  it("Stop through the store ends the answer where it is, with no error and no note", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const turn = sendIn("conv-1", "tell me about retros");
+    body.send(delta({ content: "Retros are" }));
+    await vi.waitFor(() => expect(textOf(lastAssistant())).toBe("Retros are"));
+
+    useAgentStore.getState().abortTurn("stop");
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(textOf(lastAssistant())).toBe("Retros are");
+    expect(s.streaming).toBe(false);
+    expect(s.notice).toBeNull();
+    expect(s.abortHook).toBeNull();
+    expect(posts).toHaveLength(1);
+  });
+});
+
+describe("a turn outlives the panel", () => {
+  it("closing the panel mid-answer, and its views unmounting, lets the reply finish in the store", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    useAgentStore.getState().openSheet();
+    // Stands in for the panel's views, which read the chat from the store.
+    const view = renderHook(() => useAgentStore((s) => s.messages));
+    const turn = sendIn("conv-1", "tell me about retros");
+    body.send(delta({ content: "Retros are" }));
+    await vi.waitFor(() => expect(textOf(view.result.current.at(-1))).toBe("Retros are"));
+
+    useAgentStore.getState().closeSheet();
+    view.unmount();
+    body.send(delta({ content: " a team's look back." }), delta({}, "stop"), "[DONE]");
+    body.end();
+    await turn;
+
+    const s = useAgentStore.getState();
+    expect(s.open).toBe(false);
+    expect(textOf(lastAssistant())).toBe("Retros are a team's look back.");
+    expect(s.streaming).toBe(false);
+    expect(s.notice).toBeNull();
+    expect(savedTo("conv-1").map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(textOf(savedTo("conv-1")[1])).toBe("Retros are a team's look back.");
+  });
+});
+
+describe("the owner's history on the wire", () => {
+  it("sends every tool call with its result and every result with its call, leaving orphans out", async () => {
+    const call = (id: string): ToolUseBlock => ({
+      type: "tool_use",
+      id,
+      name: PROBE_TOOL,
+      input: {},
+    });
+    useAgentStore.setState({
+      messages: [
+        at("u0", "user", [{ type: "text", text: "first" }]),
+        // A call that never got its result (a turn stopped between the two).
+        at("a0", "assistant", [{ type: "text", text: "Checking." }, call("lost_call")]),
+        at("u1", "user", [{ type: "text", text: "second" }]),
+        at("a1", "assistant", [call("call_ok"), call("no_result")]),
+        at("t1", "tool", [
+          { type: "tool_result", tool_use_id: "call_ok", content: "ok" },
+          // Results that answer nothing this message called, or answer it twice.
+          { type: "tool_result", tool_use_id: "stray", content: "?" },
+          { type: "tool_result", tool_use_id: "call_ok", content: "again" },
+        ]),
+        at("a2", "assistant", [{ type: "text", text: "Done." }]),
+        // A result whose call is an earlier message's, not the one before it.
+        at("t2", "tool", [{ type: "tool_result", tool_use_id: "call_ok", content: "late" }]),
+        // A message whose only call has no result wires to nothing at all.
+        at("a3", "assistant", [call("only_orphan")]),
+      ],
+    });
+    queue = [textTurn("Hello")];
+    await send("third", null);
+
+    expect(posts[0].messages.slice(1)).toEqual([
+      { role: "user", content: "first" },
+      { role: "assistant", content: "Checking." },
+      { role: "user", content: "second" },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [
+          { id: "call_ok", type: "function", function: { name: PROBE_TOOL, arguments: "{}" } },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_ok", content: "ok" },
+      { role: "assistant", content: "Done." },
+      { role: "user", content: "third" },
+    ]);
+    expect(everyToolCallAnswered(posts[0])).toBe(true);
+  });
+});
+
+describe("streamed writes", () => {
+  /** Frames asked for and not yet run, by id. */
+  let frames: Map<number, FrameRequestCallback>;
+  let raf: ReturnType<typeof vi.fn<(cb: FrameRequestCallback) => number>>;
+  let caf: ReturnType<typeof vi.fn<(id: number) => void>>;
+
+  beforeEach(() => {
+    frames = new Map();
+    let next = 0;
+    raf = vi.fn((cb: FrameRequestCallback) => {
+      frames.set(++next, cb);
+      return next;
+    });
+    caf = vi.fn((id: number) => {
+      frames.delete(id);
+    });
+    vi.stubGlobal("requestAnimationFrame", raf);
+    vi.stubGlobal("cancelAnimationFrame", caf);
+  });
+
+  const runFrames = () => {
+    const due = Array.from(frames.values());
+    frames.clear();
+    for (const cb of due) cb(performance.now());
+  };
+
+  /** The streamed reply's text at each store write that changed its content. */
+  function recordWrites(): { writes: string[]; stop: () => void } {
+    const writes: string[] = [];
+    const stop = useAgentStore.subscribe((s, prev) => {
+      const now = s.messages.find((m) => m.role === "assistant");
+      const before = now && prev.messages.find((m) => m.id === now.id);
+      if (now && before && now.content !== before.content) writes.push(textOf(now));
+    });
+    return { writes, stop };
+  }
+
+  it("writes the reply at most once per animation frame, and its final state at once at the end", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const { writes, stop } = recordWrites();
+    const turn = send("hi", null);
+    await vi.waitFor(() => expect(lastAssistant()).toBeDefined());
+    expect(useAgentStore.getState().streamingMessageId).toBe(lastAssistant()!.id);
+
+    body.send(delta({ content: "One" }), delta({ content: " two" }), delta({ content: " three" }));
+    await tick();
+    expect(raf).toHaveBeenCalledTimes(1);
+    expect(writes).toEqual([]);
+    // More text before the frame comes rides on the same frame.
+    body.send(delta({ content: " four" }));
+    await tick();
+    expect(raf).toHaveBeenCalledTimes(1);
+    runFrames();
+    expect(writes).toEqual(["One two three four"]);
+
+    body.send(delta({ content: " five" }));
+    await tick();
+    expect(raf).toHaveBeenCalledTimes(2);
+    // The stream ends before that frame: its last state is written at once,
+    // and the frame is called off, so nothing writes after the reply settles.
+    body.send(delta({}, "stop"), "[DONE]");
+    body.end();
+    await turn;
+    stop();
+
+    expect(writes).toEqual(["One two three four", "One two three four five"]);
+    expect(caf).toHaveBeenCalled();
+    expect(frames.size).toBe(0);
+    expect(useAgentStore.getState().streamingMessageId).toBeNull();
+  });
+
+  it("asks for no write for reasoning, or for arguments still streaming in", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const turn = send("hi", null);
+    await vi.waitFor(() => expect(lastAssistant()).toBeDefined());
+
+    body.send(delta({ reasoning_content: "hmm" }));
+    await tick();
+    expect(raf).not.toHaveBeenCalled();
+    // A new call shows up (with the marker), once.
+    body.send(
+      delta({
+        tool_calls: [
+          {
+            index: 0,
+            id: "call_a",
+            type: "function",
+            function: { name: PROBE_TOOL, arguments: "" },
+          },
+        ],
+      })
+    );
+    await tick();
+    expect(raf).toHaveBeenCalledTimes(1);
+    runFrames();
+    body.send(
+      delta({ reasoning_content: "more" }),
+      delta({ tool_calls: [{ index: 0, function: { arguments: '{"a"' } }] }),
+      delta({ tool_calls: [{ index: 0, function: { arguments: ":1}" } }] })
+    );
+    await tick();
+    expect(raf).toHaveBeenCalledTimes(1);
+    body.send(delta({}, "stop"), "[DONE]");
+    body.end();
+    await turn;
+  });
+
+  it("waits 50 ms instead of a frame while the tab is hidden", async () => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => true });
+    try {
+      const body = manualStream();
+      queue = [(init) => body.respond(init)];
+      const turn = send("hi", null);
+      body.send(delta({ content: "Hello" }));
+      // No frame comes in a hidden tab (and none runs here): a timer writes.
+      await vi.waitFor(() => expect(textOf(lastAssistant())).toBe("Hello"));
+      expect(raf).not.toHaveBeenCalled();
+      body.send(delta({}, "stop"), "[DONE]");
+      body.end();
+      await turn;
+    } finally {
+      Reflect.deleteProperty(document, "hidden");
+    }
+    expect(document.hidden).toBe(false);
+  });
+});
+
+describe("a tool call's arguments", () => {
+  const toolUses = () =>
+    (lastAssistant()?.content ?? []).filter((c): c is ToolUseBlock => c.type === "tool_use");
+
+  it("show a cheap marker while they stream, and are parsed once the call's block closes", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init), textTurn("Done.")];
+    const inputs: unknown[] = [];
+    const stop = useAgentStore.subscribe((s) => {
+      for (const m of s.messages) {
+        for (const c of m.content) if (c.type === "tool_use") inputs.push(c.input);
+      }
+    });
+    const turn = send("read the probe state twice", null);
+
+    body.send(
+      delta({
+        tool_calls: [
+          {
+            index: 0,
+            id: "call_a",
+            type: "function",
+            function: { name: PROBE_TOOL, arguments: '{"te' },
+          },
+        ],
+      })
+    );
+    await vi.waitFor(() => expect(toolUses().map((c) => c.input)).toEqual([{ _partial: true }]));
+    body.send(delta({ tool_calls: [{ index: 0, function: { arguments: 'xt":"hi"}' } }] }));
+    // The next call starting closes the first one.
+    body.send(
+      delta({
+        tool_calls: [
+          {
+            index: 1,
+            id: "call_b",
+            type: "function",
+            function: { name: PROBE_TOOL, arguments: "{" },
+          },
+        ],
+      })
+    );
+    await vi.waitFor(() =>
+      expect(toolUses().map((c) => c.input)).toEqual([{ text: "hi" }, { _partial: true }])
+    );
+    body.send(
+      delta({ tool_calls: [{ index: 1, function: { arguments: "}" } }] }),
+      delta({}, "tool_calls"),
+      "[DONE]"
+    );
+    body.end();
+    await turn;
+    stop();
+
+    expect(h.executeToolUse.mock.calls.map((c) => c[0].input)).toEqual([{ text: "hi" }, {}]);
+    // The store never held the arguments as they streamed in, only the marker.
+    for (const input of inputs) {
+      const partial = (input as Record<string, unknown>)._partial;
+      expect(partial === undefined || partial === true).toBe(true);
+    }
+    expect(everyToolCallAnswered(posts[1])).toBe(true);
+  });
+
+  it("that never parse keep the marker, so the call never runs", async () => {
+    queue = [
+      sse(
+        delta({
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_bad",
+              type: "function",
+              function: { name: PROBE_TOOL, arguments: '{"text": "cut' },
+            },
+          ],
+        }),
+        delta({}, "tool_calls"),
+        "[DONE]"
+      ),
+    ];
+    await send("read the probe state", null);
+    expect(h.executeToolUse).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(toolUses().map((c) => c.input)).toEqual([{ _partial: true }]);
+    // Nothing ran and nothing came back: the turn says so rather than end silently.
+    expect(useAgentStore.getState().notice).toEqual({
+      tone: "note",
+      kind: "no_answer",
+      text: NOTICE_TEXT.noAnswer,
+    });
+    expect(useAgentStore.getState().error).toBeNull();
+  });
+
+  it("that never parse after some text say the answer may have been cut off", async () => {
+    queue = [
+      sse(
+        delta({ content: "Let me check the probe" }),
+        delta({
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_bad",
+              type: "function",
+              function: { name: PROBE_TOOL, arguments: '{"text": "cut' },
+            },
+          ],
+        }),
+        delta({}, "tool_calls"),
+        "[DONE]"
+      ),
+    ];
+    await send("read the probe state", null);
+    expect(h.executeToolUse).not.toHaveBeenCalled();
+    expect(useAgentStore.getState().notice).toEqual({
+      tone: "note",
+      kind: "cut_off",
+      text: NOTICE_TEXT.mayBeCut,
+    });
+    expect(useAgentStore.getState().error).toBeNull();
+  });
+});
+
+describe("the owner's end notes", () => {
+  it("says an answer cut by its length was cut short: a note, not an error", async () => {
+    queue = [sse(delta({ content: "Retros are" }), delta({}, "length"), "[DONE]")];
+    await send("tell me about retros", null);
+    const s = useAgentStore.getState();
+    expect(textOf(lastAssistant())).toBe("Retros are");
+    expect(s.notice).toEqual({ tone: "note", kind: "cut_off", text: NOTICE_TEXT.cutShort });
+    // Amr frowns only at errors: a note leaves the store's error clear.
+    expect(s.error).toBeNull();
+  });
+
+  it("says so when the whole budget went on reasoning, instead of ending on nothing", async () => {
+    queue = [sse(delta({ reasoning_content: "hmm" }), delta({}, "length"), "[DONE]")];
+    await send("tell me about retros", null);
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(s.notice).toEqual({ tone: "note", kind: "no_answer", text: NOTICE_TEXT.noRoom });
+  });
+
+  it("says he didn't manage an answer when the round ends with nothing to show", async () => {
+    // A "stop" that still carried a call: the call goes, and nothing is left.
+    queue = [sse(probeCall("call_x"), delta({}, "stop"), "[DONE]")];
+    await send("read the probe state", null);
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+    expect(s.notice).toEqual({ tone: "note", kind: "no_answer", text: NOTICE_TEXT.noAnswer });
+    expect(h.executeToolUse).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["the stream just ends, with neither a finish nor [DONE]", [delta({ content: "Retros are" })]],
+    [
+      "the model's side stops it early",
+      [delta({ content: "Retros are" }), delta({}, "content_filter"), "[DONE]"],
+    ],
+  ])("says an answer may be cut off when %s", async (_what, events) => {
+    queue = [sse(...events)];
+    await send("tell me about retros", null);
+    expect(textOf(lastAssistant())).toBe("Retros are");
+    expect(useAgentStore.getState().notice).toEqual({
+      tone: "note",
+      kind: "cut_off",
+      text: NOTICE_TEXT.mayBeCut,
+    });
+  });
+
+  it("says nothing after a finished answer", async () => {
+    queue = [textTurn("Retros are a team's look back.")];
+    await send("tell me about retros", null);
+    expect(useAgentStore.getState().notice).toBeNull();
+  });
+
+  it("keeps the visitor route's time-limit words for visitors", () => {
+    const timeLimit = { hasText: true, finishReason: "time_limit", cut: false };
+    expect(endNoteFor({ ...timeLimit, visitor: true })?.text).toBe(NOTICE_TEXT.timeCut);
+    expect(endNoteFor({ ...timeLimit, visitor: false })).toBeNull();
+    expect(endNoteFor({ ...timeLimit, hasText: false, visitor: false })?.text).toBe(
+      NOTICE_TEXT.noAnswer
+    );
+  });
+
+  it("calls an action that kept failing a note, and stops", async () => {
+    const failing = async (tu: { id: string }) => ({
+      type: "tool_result" as const,
+      tool_use_id: tu.id,
+      content: "Invalid input for tool.loop_probe.read_state: bad",
+      is_error: true,
+    });
+    h.executeToolUse.mockImplementationOnce(failing).mockImplementationOnce(failing);
+    queue = [toolTurn("call_1"), toolTurn("call_2")];
+    await send("read the probe state");
+    const s = useAgentStore.getState();
+    expect(posts).toHaveLength(2);
+    expect(s.notice).toEqual({
+      tone: "note",
+      kind: "repeated_failure",
+      text: "An action kept failing the same way, so Amr stopped. Try asking another way.",
+    });
+    expect(s.error).toBeNull();
+  });
+});
+
+describe("a refusal of the owner's request", () => {
+  let warn: MockInstance<typeof console.warn>;
+  beforeEach(() => {
+    warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  const RATE_HEADERS = { "x-ratelimit-daily": "50", "x-ratelimit-daily-max": "50" };
+  const SERVICE_ERROR = "Amr's AI service hit an error. Try again in a moment.";
+
+  it.each([
+    [413, { error: "payload_too_large" }, "too_large", NOTICE_TEXT.tooLarge],
+    [401, { error: "unauthorized" }, "signed_out", NOTICE_TEXT.signedOut],
+    [403, { error: "forbidden" }, "signed_out", NOTICE_TEXT.signedOut],
+    [429, { error: "rate_limited" }, "usage_limit", NOTICE_TEXT.usageLimit],
+    [
+      429,
+      { error: "upstream" },
+      "upstream_busy",
+      "Amr's AI service is busy. Try again in a minute.",
+    ],
+    [401, { error: "upstream" }, "request_failed", NOTICE_TEXT.requestFailed],
+    [500, { error: "upstream" }, "upstream_error", SERVICE_ERROR],
+    [502, { error: "upstream_unreachable" }, "upstream_error", SERVICE_ERROR],
+    [
+      504,
+      { error: "upstream_timeout" },
+      "timeout",
+      "Amr's AI service took too long to answer. Try again in a moment.",
+    ],
+    [400, { error: "invalid_body" }, "request_failed", NOTICE_TEXT.requestFailed],
+  ] as const)(
+    "turns a %i (%o) into plain words, with the detail for the console only",
+    async (status, body, kind, text) => {
+      queue = [Response.json(body, { status, headers: RATE_HEADERS })];
+      await send("tell me about retros", null);
+      const s = useAgentStore.getState();
+      expect(s.notice).toEqual({ tone: "error", kind, text });
+      expect(s.error).toBe(text);
+      // No status code, no JSON, no "agent" or "assistant" in what the owner reads.
+      expect(text).not.toMatch(/\d|\{|\bagent\b|\bassistant\b/i);
+      expect(s.messages.map((m) => m.role)).toEqual(["user"]);
+      expect(s.streaming).toBe(false);
+      expect(warn).toHaveBeenCalledWith(
+        `[agent] the request was refused (${status}):`,
+        JSON.stringify(body)
+      );
+    }
+  );
+
+  it("marks the usage bar limited only for the route's own 429", async () => {
+    queue = [Response.json({ error: "rate_limited" }, { status: 429, headers: RATE_HEADERS })];
+    await send("tell me about retros", null);
+    expect(useAgentStore.getState().rateLimit?.limited).toBe(true);
+
+    queue = [Response.json({ error: "upstream" }, { status: 429, headers: RATE_HEADERS })];
+    await send("tell me about retros", null);
+    expect(useAgentStore.getState().rateLimit?.limited).toBe(false);
+  });
+
+  it("says nothing of a refusal that lands after Stop", async () => {
+    let release: ((r: Response) => void) | null = null;
+    vi.mocked(fetch).mockImplementation(async (_url, init) => {
+      if (!init || init.method === "GET")
+        return Response.json({ mode: "server", model: "openclaw" });
+      return new Promise<Response>((r) => (release = r));
+    });
+    const turn = send("tell me about retros", null);
+    await vi.waitFor(() => expect(release).not.toBeNull());
+    useAgentStore.getState().abortTurn("stop");
+    release!(Response.json({ error: "upstream" }, { status: 502 }));
+    await turn;
+    expect(useAgentStore.getState().notice).toBeNull();
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("names a key of the owner's own, not the sign-in, when GLM turns it down", () => {
+    expect(ownerRefusalNotice(401, true)).toMatchObject({ tone: "error", kind: "key_refused" });
+    expect(ownerRefusalNotice(403, true).text).toBe(NOTICE_TEXT.keyRefused);
+    expect(ownerRefusalNotice(429, true).kind).toBe("upstream_busy");
+    expect(ownerRefusalNotice(413, true).kind).toBe("too_large");
+  });
+});
+
+describe("Try again", () => {
+  const WRITE_PROBE = "tool_loop_probe_write_state";
+  beforeEach(() => {
+    if (!registry.resolve(WRITE_PROBE)) {
+      registry.register({
+        id: "tool.loop_probe.write_state",
+        toolId: "tool.loop_probe",
+        name: "write_state",
+        category: "write",
+        description: "Change the loop probe's state.",
+        paramsSchema: z.object({}),
+        handler: async () => ({}),
+      });
+    }
+  });
+
+  const opts = { userId: "owner-1", toolId: null, conversationId: "conv-1" };
+  const question = (id = "u1") => at(id, "user", [{ type: "text", text: "change the probe" }]);
+  const callTo = (name: string, id = "c1") =>
+    at(`a_${id}`, "assistant", [{ type: "tool_use", id, name, input: {} }]);
+  const resultOf = (content: string, is_error?: boolean, id = "c1") =>
+    at(`t_${id}`, "tool", [
+      { type: "tool_result", tool_use_id: id, content, ...(is_error ? { is_error } : {}) },
+    ]);
+
+  it("runs the question again after a refusal, without a second copy of it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      queue = [new Response("bad gateway", { status: 502 })];
+      await sendIn("conv-1", "read the probe state");
+      expect(useAgentStore.getState().notice?.kind).toBe("upstream_error");
+      expect(canRetryLastTurn(useAgentStore.getState().messages)).toBe(true);
+
+      queue = [textTurn("The probe is empty.")];
+      expect(await retryLastTurn(opts)).toBe(true);
+      const s = useAgentStore.getState();
+      expect(posts).toHaveLength(2);
+      expect(posts[1].messages.slice(1)).toEqual([
+        { role: "user", content: "read the probe state" },
+      ]);
+      expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+      expect(s.notice).toBeNull();
+      // The question was saved once; the new answer joins it.
+      expect(savedTo("conv-1").map((m) => m.role)).toEqual(["user", "assistant"]);
+      expect(h.deleteMessagesBetween).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("drops what a read-only turn left, here and in the saved thread, and asks again", async () => {
+    queue = [
+      toolTurn("call_1"),
+      sse(delta({ content: "The probe" }), delta({}, "length"), "[DONE]"),
+    ];
+    await sendIn("conv-1", "read the probe state", "loop-probe");
+    const before = useAgentStore.getState().messages;
+    expect(before.map((m) => m.role)).toEqual(["user", "assistant", "tool", "assistant"]);
+    expect(useAgentStore.getState().notice?.kind).toBe("cut_off");
+
+    queue = [textTurn("The probe is empty.")];
+    expect(await retryLastTurn({ ...opts, toolId: "loop-probe" })).toBe(true);
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant"]);
+    expect(s.messages[0]).toBe(before[0]);
+    expect(textOf(s.messages[1])).toBe("The probe is empty.");
+    expect(posts[2].messages.slice(1)).toEqual([{ role: "user", content: "read the probe state" }]);
+    // Everything after the question, up to the last of it, goes from the saved thread.
+    const latest = Math.max(...before.slice(1).map((m) => Date.parse(m.createdAt)));
+    expect(h.deleteMessagesBetween).toHaveBeenCalledWith(
+      "conv-1",
+      new Date(Date.parse(before[0].createdAt)).toISOString(),
+      new Date(latest).toISOString()
+    );
+  });
+
+  it("is refused once the turn ran a change, and sends nothing", async () => {
+    const msgs = [question(), callTo(WRITE_PROBE), resultOf('{"ok":true}')];
+    useAgentStore.setState({ messages: msgs });
+    expect(canRetryLastTurn(msgs)).toBe(false);
+    expect(await retryLastTurn(opts)).toBe(false);
+    expect(posts).toHaveLength(0);
+    expect(useAgentStore.getState().messages).toBe(msgs);
+  });
+
+  it("counts a change that failed inside its handler as run, and one denied or never valid as not", () => {
+    const after = (content: string, is_error?: boolean) => [
+      question(),
+      callTo(WRITE_PROBE),
+      resultOf(content, is_error),
+    ];
+    expect(canRetryLastTurn(after("Handler error: half way", true))).toBe(false);
+    expect(
+      canRetryLastTurn(after("User denied execution of tool.loop_probe.write_state.", true))
+    ).toBe(true);
+    expect(
+      canRetryLastTurn(after("Invalid input for tool.loop_probe.write_state: bad", true))
+    ).toBe(true);
+    // Reads may run again; an action the registry doesn't know may not.
+    expect(canRetryLastTurn([question(), callTo(PROBE_TOOL), resultOf("{}")])).toBe(true);
+    expect(canRetryLastTurn([question(), callTo("tool_gone_away"), resultOf("{}")])).toBe(false);
+    // Only the last turn counts, and there has to be one.
+    expect(
+      canRetryLastTurn([question("u0"), callTo(WRITE_PROBE), resultOf("{}"), question("u1")])
+    ).toBe(true);
+    expect(canRetryLastTurn([])).toBe(false);
+  });
+
+  it("reads each result against the calls just before it when an id comes back", () => {
+    // A gateway that sends no ids gets `tc_0` every round.
+    const round = (n: number, name: string, content: string) => [
+      at(`a${n}`, "assistant", [{ type: "tool_use", id: "tc_0", name, input: {} }]),
+      at(`t${n}`, "tool", [{ type: "tool_result", tool_use_id: "tc_0", content }]),
+    ];
+    // A change that ran stays a change when a later round's read takes its id.
+    expect(
+      canRetryLastTurn([
+        question(),
+        ...round(1, WRITE_PROBE, '{"ok":true}'),
+        ...round(2, PROBE_TOOL, "{}"),
+      ])
+    ).toBe(false);
+    expect(
+      canRetryLastTurn([
+        question(),
+        ...round(1, PROBE_TOOL, "{}"),
+        ...round(2, WRITE_PROBE, '{"ok":true}'),
+      ])
+    ).toBe(false);
+    expect(
+      canRetryLastTurn([question(), ...round(1, PROBE_TOOL, "{}"), ...round(2, PROBE_TOOL, "{}")])
+    ).toBe(true);
+  });
+
+  it("does nothing while a turn is running", async () => {
+    const body = manualStream();
+    queue = [(init) => body.respond(init)];
+    const turn = send("tell me about retros", null);
+    await vi.waitFor(() => expect(lastAssistant()).toBeDefined());
+    expect(await retryLastTurn(opts)).toBe(false);
+    expect(await goOn(opts)).toBe(false);
+    body.send(delta({ content: "Retros are" }), delta({}, "stop"), "[DONE]");
+    body.end();
+    await turn;
+    expect(posts).toHaveLength(1);
+    expect(useAgentStore.getState().messages.filter((m) => m.role === "user")).toHaveLength(1);
+  });
+});
+
+describe("Go on", () => {
+  it("sends a real user message, once, after an answer cut short", async () => {
+    queue = [sse(delta({ content: "Retros are" }), delta({}, "length"), "[DONE]")];
+    await sendIn("conv-1", "tell me about retros");
+    expect(useAgentStore.getState().notice?.kind).toBe("cut_off");
+
+    queue = [textTurn("a team's look back.")];
+    expect(await goOn({ userId: "owner-1", toolId: null, conversationId: "conv-1" })).toBe(true);
+    const s = useAgentStore.getState();
+    expect(s.messages.map((m) => m.role)).toEqual(["user", "assistant", "user", "assistant"]);
+    expect(textOf(s.messages[2])).toBe("Go on");
+    expect(posts[1].messages.slice(1)).toEqual([
+      { role: "user", content: "tell me about retros" },
+      { role: "assistant", content: "Retros are" },
+      { role: "user", content: "Go on" },
+    ]);
+    expect(s.notice).toBeNull();
+    expect(savedTo("conv-1").map((m) => m.role)).toEqual([
+      "user",
+      "assistant",
+      "user",
+      "assistant",
+    ]);
   });
 });

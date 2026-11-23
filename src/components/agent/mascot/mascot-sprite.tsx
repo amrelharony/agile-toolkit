@@ -35,6 +35,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type RefObject } from "react";
 import { cn } from "@/lib/utils";
+import { themed } from "@/lib/utils/theme-color";
 import { useAgentStore } from "@/lib/agent/store";
 import { useMascotStore, type MascotReaction } from "@/lib/agent/mascot/store";
 import { useSonificationStore } from "@/lib/stores/sonification-store";
@@ -133,6 +134,16 @@ function animClass(shot: Shot, take: number): string | undefined {
   if (shot.anim === "spin") return styles.spinTurn;
   if (shot.anim === "wiggle") return styles.wiggleShake;
   return undefined;
+}
+
+/**
+ * His aura's filter: a hard 2px offset in `color`, with no blur, like the
+ * neon 2px offset shadows. A brand hex is mapped onto its theme token, so the
+ * aura follows the theme; a token (the Konami sweep's) or any other colour
+ * passes through. Exported for tests.
+ */
+export function auraFilter(color: string): string {
+  return `drop-shadow(2px 2px 0 ${themed(color)})`;
 }
 
 function whenIdle(fn: () => void): void {
@@ -738,12 +749,16 @@ export default function MascotSprite({
         data-amr-lean
         style={{ transformOrigin: `50% ${((FIGURE_BOTTOM / SHEET.cellH) * 100).toFixed(1)}%` }}
       >
+        {/* His aura is a hard 2px offset in its colour, never a glow (DNA-SPEC
+            §1); a brand hex follows the theme through themed(). The module CSS
+            turns it off in high contrast through data-amr-aura. */}
         <div
           ref={swingRef}
           className={styles.swing}
+          data-amr-aura={auraColor ? "" : undefined}
           style={{
             transformOrigin: `50% ${((FIGURE_TOP / SHEET.cellH) * 100).toFixed(1)}%`,
-            ...(auraColor ? { filter: `drop-shadow(0 0 10px ${auraColor})` } : {}),
+            ...(auraColor ? { filter: auraFilter(auraColor) } : {}),
           }}
         >
           <div ref={bodyRef} className={styles.body}>

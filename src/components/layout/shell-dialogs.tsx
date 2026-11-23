@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from "react";
 import { useLlmUiStore } from "@/lib/stores/llm-ui-store";
+import { closeAmrSheet } from "@/lib/layout/amr-sheet";
 import { DeferredDialog } from "./deferred-dialog";
 import { useCommandPaletteShortcut } from "./use-command-palette-shortcut";
 
@@ -61,6 +62,13 @@ export function ShellDialogs({
   const closeSettings = useLlmUiStore((s) => s.closeSettings);
   const warm = useWarmOnFinePointer();
   useCommandPaletteShortcut(useCallback(() => setSearchOpen((open) => !open), [setSearchOpen]));
+  // However one of them opens (the header, Ctrl/Cmd+K, the account menu, the
+  // AI chip), Amr's phone sheet closes first, so two never stack. An update
+  // from a tap or a key runs this before the screen is painted.
+  const anyOpen = searchOpen || trophyOpen || settingsOpen;
+  useEffect(() => {
+    if (anyOpen) closeAmrSheet();
+  }, [anyOpen]);
 
   return (
     <>

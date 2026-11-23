@@ -7,17 +7,29 @@
  *    its tail on the edge it names, or toward the real Amr for `amr`;
  *  - the caption voices: narration, you (with its outline) and scene, plus the
  *    error tone;
+ *  - the chat panel's own tail (.comic-tailed[data-tail]): the balloon's
+ *    triangles in the panel's ink and paper, on the edge it names, and none
+ *    without a side;
+ *  - the name plate (.comic-name-plate): lettered, a 1px hard shadow and a
+ *    slight tilt, a token focus outline, a launcher variant, flat in high
+ *    contrast;
  *  - forced colours hide the tails, which are drawn from transparent borders,
- *    and give the you caption a heavier start edge, so it never reads as
- *    narration once both fills turn to Canvas;
+ *    hold the plate's outline, and give the you caption a heavier start edge,
+ *    so it never reads as narration once both fills turn to Canvas;
+ *  - the panel's entrance (.panelEnter, mascot-assistant.module.css): opacity
+ *    and the scale property from its tail (the phone's sheet slides up from its
+ *    edge on translate instead), never transform, and nothing at all under
+ *    reduced motion;
  *  - the page scrolls smoothly only for readers who haven't asked for less motion.
- * The last block builds globals.css the way Next does (Tailwind, then its
- * minifier) and runs the AMR markers of scripts/check-built-css.mjs on it.
+ * The last block builds globals.css and the module the way Next does (Tailwind
+ * or CSS modules, then its minifier) and runs the AMR markers of
+ * scripts/check-built-css.mjs on them.
  */
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import postcss from "postcss";
+import type { AtRule, Rule as CssRule, Declaration } from "postcss";
 import tailwindcss from "tailwindcss";
 import loadConfig from "tailwindcss/loadConfig";
 import { describe, expect, it } from "vitest";
@@ -27,6 +39,11 @@ const ROOT = path.resolve(__dirname, "../..");
 const SOURCE = readFileSync(path.join(ROOT, "src/app/globals.css"), "utf8");
 const COMMENTS = /\/\*[\s\S]*?\*\//g;
 const CSS = SOURCE.replace(COMMENTS, "");
+/** Amr's CSS module, which holds his chat panel's entrance. */
+const MODULE_SOURCE = readFileSync(
+  path.join(ROOT, "src/components/agent/mascot/mascot-assistant.module.css"),
+  "utf8"
+);
 
 /** A block's custom properties, as theme-contrast.test.ts reads them. */
 function tokens(selector: string): Record<string, string> {
@@ -358,29 +375,35 @@ describe("captions", () => {
   });
 });
 
+const COLOUR = /(^|-)colou?r$|^background$|^border(-(top|right|bottom|left))?$/;
+const KEYWORDS = ["transparent", "solid", "color-mix", "in", "srgb"];
+
+/** Every declaration in `found` that writes a colour other than a token. */
+function rawColours(found: Rule[]): string[] {
+  const raw: string[] = [];
+  for (const r of found) {
+    for (const [prop, value] of Object.entries(r.body)) {
+      if (/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i.test(value)) raw.push(`${r.selectors[0]} ${prop}`);
+      if (!COLOUR.test(prop)) continue;
+      const words = value
+        .replace(/var\(--[\w-]+\)/g, " ")
+        .replace(/-?\d[\w.%]*/g, " ")
+        .split(/[\s,/()]+/)
+        .filter((w) => w && !KEYWORDS.includes(w));
+      if (words.length > 0) raw.push(`${r.selectors[0]} ${prop}: ${value}`);
+    }
+  }
+  return raw;
+}
+
 describe("the balloon and caption rules", () => {
   const ours = PANEL_RULES.filter((r) =>
     r.selectors.some((s) => s.includes(".balloon") || s.includes(".comic-caption"))
   );
-  const COLOUR = /(^|-)colou?r$|^background$|^border(-(top|right|bottom|left))?$/;
-  const KEYWORDS = ["transparent", "solid", "color-mix", "in", "srgb"];
 
   it("take every colour from a token", () => {
     expect(ours.length).toBeGreaterThan(10);
-    const raw: string[] = [];
-    for (const r of ours) {
-      for (const [prop, value] of Object.entries(r.body)) {
-        if (/#[0-9a-f]{3,8}\b|rgba?\(|hsla?\(/i.test(value)) raw.push(`${r.selectors[0]} ${prop}`);
-        if (!COLOUR.test(prop)) continue;
-        const words = value
-          .replace(/var\(--[\w-]+\)/g, " ")
-          .replace(/-?\d[\w.%]*/g, " ")
-          .split(/[\s,/()]+/)
-          .filter((w) => w && !KEYWORDS.includes(w));
-        if (words.length > 0) raw.push(`${r.selectors[0]} ${prop}: ${value}`);
-      }
-    }
-    expect(raw).toEqual([]);
+    expect(rawColours(ours)).toEqual([]);
   });
 
   it("add no shadow, filter, motion or capitals", () => {
@@ -395,6 +418,218 @@ describe("the balloon and caption rules", () => {
       ]) {
         expect(r.body[prop], `${r.selectors[0]} ${prop}`).toBeUndefined();
       }
+    }
+  });
+});
+
+/**
+ * The chat panel's ink (::before) and paper (::after) triangles: the shared
+ * rule, then each variant's in turn.
+ */
+function panelTriangles(...variants: string[]) {
+  const of = (pseudo: "before" | "after") => {
+    const out: Record<string, string> = {};
+    for (const selector of [".comic-tailed", ...variants]) {
+      for (const r of naming(`${selector}::${pseudo}`)) Object.assign(out, r.body);
+    }
+    return out;
+  };
+  return { ink: of("before"), paper: of("after") };
+}
+
+const SIDES = ["down", "up", "left", "right"] as const;
+
+describe("the panel tail", () => {
+  it("declares its own --tail-at, on the bare class only, so the panel's `fixed` still wins", () => {
+    const tailed = style(".comic-tailed");
+    expect(tailed["--tail-at"]).toBe("1rem");
+    expect(tailed.position).toBe("relative");
+    // A rule on the panel itself with an attribute in it would outrank the
+    // panel's position utility; only the pseudo-elements carry attributes.
+    const onPanel = PANEL_RULES.filter((r) =>
+      r.selectors.some((s) => s.startsWith(".comic-tailed") && !s.includes("::"))
+    );
+    expect(onPanel.flatMap((r) => r.selectors)).toEqual([".comic-tailed"]);
+  });
+
+  it("draws nothing without a side: no data-tail, none, or a value it doesn't know", () => {
+    // Only the four side rules give the triangles content.
+    const giving = PANEL_RULES.filter(
+      (r) => r.body.content === '""' && r.selectors.some((s) => s.startsWith(".comic-tailed"))
+    ).flatMap((r) => r.selectors);
+    expect(giving.sort()).toEqual(
+      SIDES.flatMap((side) =>
+        ["after", "before"].map((p) => `.comic-tailed[data-tail="${side}"]::${p}`)
+      ).sort()
+    );
+    const bare = panelTriangles();
+    expect(bare.ink.content).toBeUndefined();
+    expect(bare.paper.content).toBeUndefined();
+    const none = panelTriangles('.comic-tailed[data-tail="none"]');
+    expect(none.ink.content).toBe("none");
+    expect(none.paper.content).toBe("none");
+  });
+
+  it("puts each side's tail on its edge, ink in the panel's line and paper in its card", () => {
+    const want = {
+      down: {
+        edge: "bottom",
+        along: "left",
+        ink: "var(--border) transparent transparent",
+        paper: "var(--card) transparent transparent",
+      },
+      up: {
+        edge: "top",
+        along: "left",
+        ink: "transparent transparent var(--border)",
+        paper: "transparent transparent var(--card)",
+      },
+      left: {
+        edge: "left",
+        along: "bottom",
+        ink: "transparent var(--border) transparent transparent",
+        paper: "transparent var(--card) transparent transparent",
+      },
+      right: {
+        edge: "right",
+        along: "bottom",
+        ink: "transparent transparent transparent var(--border)",
+        paper: "transparent transparent transparent var(--card)",
+      },
+    } as const;
+    for (const side of SIDES) {
+      const { ink, paper } = panelTriangles(`.comic-tailed[data-tail="${side}"]`);
+      const w = want[side];
+      expect(ink.content, side).toBe('""');
+      expect(paper.content, side).toBe('""');
+      expect(ink.position).toBe("absolute");
+      expect(ink["pointer-events"]).toBe("none");
+      // Past the edge it names: ink 0.8rem, paper 0.6rem, so a line shows round it.
+      expect(px(ink[w.edge]), `${side} ink`).toBeCloseTo(-12.8, 5);
+      expect(px(paper[w.edge]), `${side} paper`).toBeCloseTo(-9.6, 5);
+      // Along it at --tail-at, the paper 0.1rem further in.
+      expect(px(ink[w.along], "3rem"), `${side} ink`).toBe(48);
+      expect(px(paper[w.along], "3rem"), `${side} paper`).toBeCloseTo(49.6, 5);
+      expect(ink["border-color"], `${side} ink`).toBe(w.ink);
+      expect(paper["border-color"], `${side} paper`).toBe(w.paper);
+    }
+  });
+
+  it("draws the balloon's own triangles, so the panel and the balloons in it share one tail", () => {
+    for (const side of SIDES) {
+      const panel = panelTriangles(`.comic-tailed[data-tail="${side}"]`);
+      // A bare balloon's tail is the left one.
+      const balloon = side === "left" ? triangles() : triangles(`.balloon[data-tail="${side}"]`);
+      for (const part of ["ink", "paper"] as const) {
+        expect(lengths(panel[part]["border-width"]), `${side} ${part}`).toEqual(
+          near(lengths(balloon[part]["border-width"]))
+        );
+      }
+    }
+    // 0.8rem wide, as amr-geometry's panelTail counts on: the panel sets
+    // --tail-at half of that short of Amr's centre line.
+    const [, half] = lengths(panelTriangles('.comic-tailed[data-tail="down"]').ink["border-width"]);
+    expect(2 * half).toBeCloseTo(12.8, 5);
+  });
+
+  it("counts --tail-at from the right for an up or down tail, and from the top for a side one", () => {
+    for (const side of ["down", "up"]) {
+      const { ink, paper } = panelTriangles(
+        `.comic-tailed[data-tail="${side}"]`,
+        `.comic-tailed[data-tail="${side}"][data-tail-from="right"]`
+      );
+      expect(ink.left, side).toBe("auto");
+      expect(px(ink.right, "3rem"), side).toBe(48);
+      expect(paper.left, side).toBe("auto");
+      expect(px(paper.right, "3rem"), side).toBeCloseTo(49.6, 5);
+    }
+    for (const side of ["left", "right"]) {
+      const { ink, paper } = panelTriangles(
+        `.comic-tailed[data-tail="${side}"]`,
+        `.comic-tailed[data-tail="${side}"][data-tail-from="top"]`
+      );
+      expect(ink.bottom, side).toBe("auto");
+      expect(px(ink.top, "3rem"), side).toBe(48);
+      expect(paper.bottom, side).toBe("auto");
+      expect(px(paper.top, "3rem"), side).toBeCloseTo(49.6, 5);
+    }
+  });
+});
+
+describe("the name plate", () => {
+  it("letters the plate on the card in a fine ink outline, with a 1px hard shadow and a slight tilt", () => {
+    const plate = style(".comic-name-plate");
+    expect(plate["font-family"]).toBe('theme("fontFamily.display")');
+    expect(plate["background-color"]).toBe("var(--card)");
+    expect(plate.color).toBe("var(--text)");
+    expect(plate["--plate-line"]).toBe("var(--line-w)");
+    expect(plate.border).toBe("var(--plate-line) solid var(--border)");
+    expect(plate["border-radius"]).toBe("var(--caption-radius)");
+    expect(plate["box-shadow"]).toBe("var(--shadow-1)");
+    // The rotate property, not transform, so nothing that moves it is overwritten.
+    expect(plate.rotate).toBe("-1deg");
+    expect(plate.transform).toBeUndefined();
+  });
+
+  it("shows focus as a --ring outline, which high contrast's heavier one still beats", () => {
+    const focus = style(".comic-name-plate:focus-visible");
+    expect(focus.outline).toBe("2px solid var(--ring)");
+    expect(focus["outline-offset"]).toBe("2px");
+    expect(CSS).toMatch(
+      /\[data-theme="hc"\] \*:focus-visible\s*\{\s*outline: 3px solid var\(--accent\) !important;/
+    );
+  });
+
+  it("frames the launcher plate as a control: the panel's line, pen corners, a 2px shadow, a 44px floor", () => {
+    const launcher = style(".comic-name-plate[data-launcher]");
+    expect(launcher["--plate-line"]).toBe("var(--panel-w)");
+    expect(launcher["border-radius"]).toBe("var(--panel-radius)");
+    // Capped corners: a one-word plate is never a pill.
+    for (const c of lengths(NIGHT["panel-radius"])) expect(c).toBeLessThanOrEqual(12);
+    expect(launcher["box-shadow"]).toBe("var(--shadow-2)");
+    expect(px(launcher["min-height"])).toBeGreaterThanOrEqual(44);
+  });
+
+  it("lays every plate flat in high contrast: no tilt, no shadow", () => {
+    const flat = naming(".hc .comic-name-plate");
+    expect(flat).toHaveLength(1);
+    expect(flat[0].selectors).toEqual([
+      ".hc .comic-name-plate",
+      '[data-theme="hc"] .comic-name-plate',
+    ]);
+    expect(flat[0].body).toEqual({ rotate: "none", "box-shadow": "none" });
+    // As specific as the launcher's rule, so it comes after every plate rule
+    // that tilts or shades.
+    const shaped = PANEL_RULES.filter(
+      (r) =>
+        r !== flat[0] &&
+        r.selectors.some((s) => s.includes(".comic-name-plate")) &&
+        (r.body.rotate !== undefined || r.body["box-shadow"] !== undefined)
+    );
+    expect(shaped.length).toBeGreaterThanOrEqual(2);
+    for (const r of shaped) expect(r.at, r.selectors[0]).toBeLessThan(flat[0].at);
+    expect(HC["shadow-1"]).toBe("0 0 0 0 transparent");
+    expect(HC["shadow-2"]).toBe("0 0 0 0 transparent");
+  });
+});
+
+describe("the panel tail and name plate rules", () => {
+  const ours = PANEL_RULES.filter((r) =>
+    r.selectors.some((s) => s.includes(".comic-tailed") || s.includes(".comic-name-plate"))
+  );
+
+  it("take every colour from a token", () => {
+    expect(ours.length).toBeGreaterThan(10);
+    expect(rawColours(ours)).toEqual([]);
+  });
+
+  it("add no blur, filter, motion or capitals, and only the hard-offset shadow tokens", () => {
+    for (const r of ours) {
+      for (const prop of ["text-shadow", "filter", "animation", "transition", "text-transform"]) {
+        expect(r.body[prop], `${r.selectors[0]} ${prop}`).toBeUndefined();
+      }
+      const shadow = r.body["box-shadow"];
+      if (shadow !== undefined) expect(shadow).toMatch(/^(var\(--shadow-[1-6]\)|none)$/);
     }
   });
 });
@@ -421,8 +656,38 @@ describe("forced colours", () => {
     expect(guardBody).toMatch(/\.balloon::before,\s*\.balloon::after\s*\{\s*display:\s*none;\s*\}/);
   });
 
-  it("leave every box its outline: the guard takes no border or caption away", () => {
-    expect(guardBody).not.toMatch(/comic-caption|border|outline/);
+  it("hide the panel's tail too, in the same guard", () => {
+    expect(guardBody).toMatch(
+      /\.comic-tailed::before,\s*\.comic-tailed::after\s*\{\s*display:\s*none;\s*\}/
+    );
+  });
+
+  it("leave every box its outline: the guard takes no border, outline or caption away", () => {
+    expect(guardBody).not.toMatch(/comic-caption|outline/);
+    const guardRules = rules(guardBody.slice(FORCED.length));
+    const borders = guardRules.flatMap((r) =>
+      Object.entries(r.body)
+        .filter(([prop]) => prop.startsWith("border"))
+        .map(([prop, value]) => `${r.selectors.join(",")} ${prop}: ${value}`)
+    );
+    // The only border declarations are the ones that hold the plate's.
+    expect(borders).toEqual([
+      ".comic-name-plate border-style: solid",
+      ".comic-name-plate border-width: var(--plate-line)",
+    ]);
+  });
+
+  it("hold the name plate's outline solid at its own width, whatever a call site says", () => {
+    // Its paper and shadow are gone in forced colours, so the outline is the
+    // plate. Outside the layer, it comes after the utilities a call site adds.
+    const plate = rules(guardBody.slice(FORCED.length)).filter((r) =>
+      r.selectors.includes(".comic-name-plate")
+    );
+    expect(plate).toHaveLength(1);
+    expect(plate[0].body).toEqual({ "border-style": "solid", "border-width": "var(--plate-line)" });
+    // --plate-line is the plate's own line: fine, or the panel's for the launcher.
+    expect(style(".comic-name-plate")["--plate-line"]).toBe("var(--line-w)");
+    expect(style(".comic-name-plate[data-launcher]")["--plate-line"]).toBe("var(--panel-w)");
   });
 
   it("give the you caption a heavier start edge, inside the layer after its wash", () => {
@@ -459,6 +724,222 @@ describe("forced colours", () => {
   });
 });
 
+describe("the panel's entrance (.panelEnter)", () => {
+  const tree = postcss.parse(MODULE_SOURCE);
+  const all: CssRule[] = [];
+  tree.walkRules((r) => {
+    if (r.selectors.some((s) => /\.panelEnter\b/.test(s))) all.push(r);
+  });
+  /** The phone's full-height sheet has an entrance of its own: it slides from its edge. */
+  const SHEET_SELECTOR = '.panelEnter[data-amr-layout="sheet"]';
+  const isSheet = (r: CssRule) => r.selectors.every((s) => s.trim() === SHEET_SELECTOR);
+  /** The floating card's and the side panel's entrance: it grows from the tail. */
+  const mine = all.filter((r) => !isSheet(r));
+  const sheet = all.filter(isSheet);
+  /** The at-rules a rule sits in, innermost first. */
+  function within(r: CssRule): AtRule[] {
+    const out: AtRule[] = [];
+    for (let p = r.parent; p && p.type !== "root"; p = p.parent) {
+      if (p.type === "atrule") out.push(p as AtRule);
+    }
+    return out;
+  }
+  const decls = (r: CssRule): Record<string, string> =>
+    Object.fromEntries(
+      r.nodes.filter((n): n is Declaration => n.type === "decl").map((d) => [d.prop, d.value])
+    );
+  const starting = mine.filter((r) => within(r).some((a) => a.name === "starting-style"));
+  const moving = mine.filter((r) => decls(r).transition !== undefined);
+  const transitioned = (r: CssRule) =>
+    decls(r)
+      .transition.split(/,(?![^(]*\))/)
+      .map((part) => part.trim().split(/\s+/)[0]);
+  const guarded = (r: CssRule) =>
+    within(r).some(
+      (a) => a.name === "media" && a.params === "(prefers-reduced-motion: no-preference)"
+    );
+
+  it("never sets transform: opacity and the scale property only", () => {
+    expect(mine.length).toBeGreaterThanOrEqual(3);
+    for (const r of all) {
+      r.walkDecls((d) => {
+        expect(d.prop, r.selector).not.toBe("transform");
+        expect(d.prop, r.selector).not.toBe("animation");
+      });
+    }
+    expect(moving).toHaveLength(1);
+    expect(transitioned(moving[0])).toEqual(["opacity", "scale"]);
+  });
+
+  it("starts at opacity 0 and 96% in @starting-style, so the finished state is the fallback", () => {
+    expect(starting).toHaveLength(1);
+    expect(decls(starting[0])).toEqual({ opacity: "0", scale: "0.96" });
+    // Nothing else pins opacity or scale: without @starting-style the panel is simply there.
+    for (const r of mine.filter((x) => x !== starting[0])) {
+      expect(decls(r).opacity, r.selector).toBeUndefined();
+      expect(decls(r).scale, r.selector).toBeUndefined();
+    }
+  });
+
+  it("eases over --dur-surface-in with --ease-calm, tokens MOTION FOUNDATIONS defines", () => {
+    expect(decls(moving[0]).transition.replace(/\s+/g, " ")).toBe(
+      "opacity var(--dur-surface-in) var(--ease-calm), scale var(--dur-surface-in) var(--ease-calm)"
+    );
+    const motion = section("MOTION FOUNDATIONS", "PAGE SETTLE");
+    expect(motion).toMatch(/--dur-surface-in:\s*\d+ms;/);
+    expect(motion).toMatch(/--ease-calm:\s*cubic-bezier\([^)]*\);/);
+  });
+
+  it("moves nothing under reduced motion: the transition and its start live only under no-preference", () => {
+    expect(guarded(moving[0])).toBe(true);
+    expect(guarded(starting[0])).toBe(true);
+    // The guard itself is top level, so no other condition hides it.
+    const media = within(starting[0]).find((a) => a.name === "media")!;
+    expect(media.parent?.type).toBe("root");
+  });
+
+  it("grows from the tail tip the panel sets as --panel-origin", () => {
+    const base = mine.filter((r) => within(r).length === 0);
+    expect(base).toHaveLength(1);
+    expect(decls(base[0])).toEqual({ "transform-origin": "var(--panel-origin, 50% 100%)" });
+  });
+
+  it("slides the phone's sheet up from its bottom edge on translate, at --dur-sheet-in, never scaling it", () => {
+    // DNA-SPEC §8: a sheet slides from its edge. Only under no-preference.
+    expect(sheet).toHaveLength(2);
+    for (const r of sheet) expect(guarded(r), r.selector).toBe(true);
+    const [move] = sheet.filter((r) => decls(r).transition !== undefined);
+    expect(transitioned(move)).toEqual(["opacity", "translate"]);
+    expect(decls(move).transition.replace(/\s+/g, " ")).toBe(
+      "opacity var(--dur-sheet-in) var(--ease-calm), translate var(--dur-sheet-in) var(--ease-calm)"
+    );
+    const [start] = sheet.filter((r) => within(r).some((a) => a.name === "starting-style"));
+    expect(decls(start)).toEqual({ opacity: "0", scale: "none", translate: "0 100%" });
+    expect(section("MOTION FOUNDATIONS", "PAGE SETTLE")).toMatch(/--dur-sheet-in:\s*\d+ms;/);
+  });
+});
+
+describe("Amr himself (mascot-assistant.module.css)", () => {
+  const tree = postcss.parse(MODULE_SOURCE);
+  const all: CssRule[] = [];
+  tree.walkRules((r) => {
+    // Keyframe steps (0%, 50%, to) are rules too; they aren't selectors.
+    if (r.parent?.type === "atrule" && (r.parent as AtRule).name.endsWith("keyframes")) return;
+    all.push(r);
+  });
+  /** The at-rules a rule sits in, innermost first. */
+  function within(r: CssRule): AtRule[] {
+    const out: AtRule[] = [];
+    for (let p = r.parent; p && p.type !== "root"; p = p.parent) {
+      if (p.type === "atrule") out.push(p as AtRule);
+    }
+    return out;
+  }
+  const decls = (r: CssRule): Record<string, string> =>
+    Object.fromEntries(
+      r.nodes
+        .filter((n): n is Declaration => n.type === "decl")
+        .map((d) => [d.prop, d.important ? `${d.value} !important` : d.value])
+    );
+  const flat = (s: string) => s.replace(/\s+/g, " ").trim();
+  /** The top-level rule (outside any @media) whose selectors are exactly `selectors`. */
+  function only(...selectors: string[]): Record<string, string> {
+    const found = all.filter(
+      (r) =>
+        within(r).length === 0 &&
+        r.selectors.length === selectors.length &&
+        r.selectors.every((s, i) => flat(s) === selectors[i])
+    );
+    expect(found, selectors.join(", ")).toHaveLength(1);
+    return decls(found[0]);
+  }
+
+  it("draws no soft light on him: no blur, glow or drop shadow anywhere in the module", () => {
+    tree.walkDecls((d) => {
+      expect(d.value, `${d.prop} in ${(d.parent as CssRule).selector}`).not.toMatch(
+        /blur\(|drop-shadow\(|rgba\(/
+      );
+      if (d.prop === "box-shadow" || d.prop === "text-shadow") {
+        throw new Error(`${d.prop} in ${(d.parent as CssRule).selector}`);
+      }
+    });
+    // The one filter left is high contrast's switch for his aura.
+    const filters: string[] = [];
+    tree.walkDecls("filter", (d) => {
+      filters.push(`${flat((d.parent as CssRule).selector)} { ${d.value} }`);
+    });
+    expect(filters).toEqual([
+      ':global(.hc) .swing[data-amr-aura], :global([data-theme="hc"]) .swing[data-amr-aura] { none }',
+    ]);
+  });
+
+  it("puts no ground under his feet: no ground class, no pseudo-element, no ellipse", () => {
+    for (const r of all) {
+      expect(r.selector).not.toMatch(/ground|::?before|::?after/);
+      const body = decls(r);
+      expect(body["border-radius"], r.selector).not.toBe("50%");
+      expect(body.background ?? "", r.selector).not.toMatch(/gradient/);
+      expect(body["background-image"] ?? "", r.selector).not.toMatch(/gradient/);
+    }
+  });
+
+  it("bobs him with no filter, and holds him still under reduced motion", () => {
+    const bob = only(".bob");
+    expect(bob.animation).toMatch(/^amrBob 4s ease-in-out infinite$/);
+    expect(bob.filter).toBeUndefined();
+    expect(MODULE_SOURCE).not.toMatch(/\.float\b|mascotFloat/);
+    const still = all.find(
+      (r) =>
+        r.selectors.includes(".bob") &&
+        within(r).some((a) => a.name === "media" && a.params === "(prefers-reduced-motion: reduce)")
+    );
+    expect(still, "a reduced-motion rule for .bob").toBeDefined();
+    expect(decls(still!).animation).toBe("none");
+    // Docked in the phone's sheet he is never scaled, not even by a hover a tap left stuck.
+    expect(only(".bob[data-amr-docked]:hover")).toEqual({ transform: "none" });
+  });
+
+  it("draws focus on his hit span in --ring, close in, on pen corners, not around his box", () => {
+    expect(only(".figure [data-mascot-hit]")).toEqual({ "border-radius": "var(--panel-radius)" });
+    expect(only(".figure:focus-visible")).toEqual({ outline: "none" });
+    const ring = only(".figure:focus-visible [data-mascot-hit]");
+    expect(ring.outline).toBe("2px solid var(--ring)");
+    expect(parseFloat(ring["outline-offset"])).toBeGreaterThan(0);
+    expect(parseFloat(ring["outline-offset"])).toBeLessThanOrEqual(2);
+  });
+
+  it("moves high contrast's heavier outline onto him, beating its rule for every control", () => {
+    // globals.css rings every focused control in high contrast with an
+    // !important outline at (0,2,0); the box loses it to a more specific one.
+    expect(SOURCE).toMatch(/\.hc \*:focus-visible,\s*\[data-theme="hc"\] \*:focus-visible \{/);
+    expect(
+      only(":global(.hc) .figure:focus-visible", ':global([data-theme="hc"]) .figure:focus-visible')
+    ).toEqual({ outline: "none !important" });
+    expect(
+      only(
+        ":global(.hc) .figure:focus-visible [data-mascot-hit]",
+        ':global([data-theme="hc"]) .figure:focus-visible [data-mascot-hit]'
+      )
+    ).toEqual({ outline: "3px solid var(--accent)" });
+  });
+
+  it("turns his aura off in high contrast, over the inline style that paints it", () => {
+    expect(
+      only(":global(.hc) .swing[data-amr-aura]", ':global([data-theme="hc"]) .swing[data-amr-aura]')
+    ).toEqual({ filter: "none !important" });
+  });
+
+  it("names a local class in every selector, as Next's pure CSS modules require", async () => {
+    const require = createRequire(path.join(ROOT, "package.json"));
+    const local = require("next/dist/compiled/postcss-modules-local-by-default");
+    await expect(
+      postcss([local({ mode: "pure" })]).process(MODULE_SOURCE, {
+        from: "mascot-assistant.module.css",
+      })
+    ).resolves.toBeDefined();
+  });
+});
+
 describe("page scrolling", () => {
   it("glides only under prefers-reduced-motion: no-preference, in RESET & BASE", () => {
     expect(CSS.match(/scroll-behavior:\s*smooth/g)).toHaveLength(1);
@@ -489,19 +970,76 @@ describe("the built CSS", () => {
     return stripWhitespace(min.css);
   }
 
-  const failing = (css: string) =>
-    checkMarkers([css], { AMR: MARKERS.AMR })
+  /**
+   * The mascot's CSS module as Next builds it: its classes scoped (and hashed,
+   * `<file>_<class>__<hash>`) by the CSS-modules plugins css-loader runs, then
+   * the same minifier.
+   */
+  async function buildModule(): Promise<string> {
+    process.env.BROWSERSLIST_IGNORE_OLD_DATA = "1";
+    const local = require("next/dist/compiled/postcss-modules-local-by-default");
+    const scope = require("next/dist/compiled/postcss-modules-scope");
+    const nano = require("next/dist/compiled/cssnano-simple");
+    const scoped = await postcss([
+      local(),
+      scope({ generateScopedName: (name: string) => `mascot-assistant_${name}__Ab1c2` }),
+    ]).process(MODULE_SOURCE, { from: "mascot-assistant.module.css" });
+    const min = await postcss([nano({}, postcss)]).process(scoped.css, { from: undefined });
+    return stripWhitespace(min.css);
+  }
+
+  const failing = (...css: string[]) =>
+    checkMarkers(css, { AMR: MARKERS.AMR })
       .filter((r: { ok: boolean }) => !r.ok)
       .map((r: { name: string }) => r.name);
 
-  it("keeps every AMR marker through Tailwind and the minifier", async () => {
-    expect(failing(await build("balloon comic-caption"))).toEqual([]);
+  it("keeps every AMR marker through Tailwind, CSS modules and the minifier", async () => {
+    const globals = await build("balloon comic-caption comic-tailed comic-name-plate");
+    const mascot = await buildModule();
+    expect(failing(globals, mascot)).toEqual([]);
+    // The entrance comes from the module alone, its class hashed but still named.
+    expect(mascot).toContain("@starting-style{.mascot-assistant_panelEnter__Ab1c2{");
+    expect(failing(globals)).toEqual([MARKERS.AMR[7].name]);
+  }, 60_000);
+
+  it("keeps Amr's high-contrast aura switch and his hit-span focus, their classes hashed", async () => {
+    // stripWhitespace takes the descendant combinators out too.
+    const mascot = await buildModule();
+    const swing = "mascot-assistant_swing__Ab1c2[data-amr-aura]";
+    expect(mascot).toContain(`.hc.${swing},[data-theme=hc].${swing}{filter:none!important}`);
+    expect(mascot).toContain(
+      ".mascot-assistant_figure__Ab1c2:focus-visible[data-mascot-hit]{outline:2pxsolidvar(--ring);"
+    );
+    expect(mascot).not.toMatch(/blur\(|drop-shadow\(/);
   }, 60_000);
 
   it("keeps the forced-colours guard where no caption is used: it is outside the layer", async () => {
-    const css = await build("balloon");
+    const css = await build("balloon comic-tailed comic-name-plate");
     expect(css).not.toContain(".comic-caption");
     // The you caption's markers go with it: its forced-colours edge is in the layer.
-    expect(failing(css)).toEqual([MARKERS.AMR[1].name, MARKERS.AMR[4].name]);
+    expect(failing(css, await buildModule())).toEqual([MARKERS.AMR[1].name, MARKERS.AMR[4].name]);
+  }, 60_000);
+
+  it("keeps the panel's tails hidden and the plate's outline held in forced colours", async () => {
+    const css = await build("comic-tailed comic-name-plate");
+    const FORCED = "@media(forced-colors:active){";
+    const found: Rule[] = [];
+    for (let at = css.indexOf(FORCED); at !== -1; at = css.indexOf(FORCED, at + 1)) {
+      found.push(...rules(css.slice(at + FORCED.length, close(css, at))));
+    }
+    const hides = (pseudo: string) =>
+      found.some(
+        (r) => r.selectors.includes(`.comic-tailed:${pseudo}`) && r.body.display === "none"
+      );
+    expect(hides("before")).toBe(true);
+    expect(hides("after")).toBe(true);
+    expect(
+      found.some(
+        (r) =>
+          r.selectors.includes(".comic-name-plate") &&
+          r.body["border-style"] === "solid" &&
+          r.body["border-width"] === "var(--plate-line)"
+      )
+    ).toBe(true);
   }, 60_000);
 });
