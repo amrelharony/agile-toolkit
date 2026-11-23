@@ -72,7 +72,7 @@ export function AnalysisLink({
           )}
           <Link
             href={rootCauseHref(linked.id)}
-            className="inline-flex min-h-9 items-center gap-1 text-sm font-medium text-accent hover:underline"
+            className="inline-flex min-h-9 items-center gap-1 text-sm font-medium text-accent hover:underline pointer-coarse:min-h-11"
           >
             Open in Root Cause
             <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />

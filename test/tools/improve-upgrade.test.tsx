@@ -627,6 +627,10 @@ describe("an A3", () => {
       "href",
       "/root-cause?analysis=rca_1"
     );
+    // A touch target as tall as the buttons beside it.
+    expect(screen.getByRole("link", { name: /Open in Root Cause/ })).toHaveClass(
+      "pointer-coarse:min-h-11"
+    );
     fireEvent.click(screen.getByRole("button", { name: "Use this" }));
     expect(byId("improve_a3")!.analysis).toBe("A manual regression pass");
     expect(lastUndo().label).toBe("Filled in why it happens");
