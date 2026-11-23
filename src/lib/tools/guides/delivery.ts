@@ -227,7 +227,7 @@ export const GUIDES: ToolGuide[] = [
       "Under Add a release, enter the Name and Planned date (it can be in the past), then click Add release.",
       "Tick each gate on the release's card as it passes. Feature flag ready is checked from the Feature Flag Tracker (the flags that ship with the release), and Definition of Done met, once you add it, from the Definition of Done Builder. When a check can tell, it sets the tick; with nothing to check, tick it by hand.",
       "Under Gates, add your own gates, rename them, reorder them with the arrows, or archive the ones you don't use. Click Add the Definition of Done gate to add the DoD check.",
-      "Link the shipped stories, then draft the release notes: Ask Amr, or from the template.",
+      "Under Stories and release notes, link the stories it ships, then draft the notes: Ask Amr, or Draft from the stories.",
       "When the release goes out, click Ship. Pick the Shipped on day (today unless you move it back), check the gates still open, then confirm.",
       "If it's reverted, click Mark rolled back and pick the day. Send to… takes the rollback to the retro. Reopen for planning gives it another try with your ticks kept, and its earlier ship still counts.",
       "Edit a release in place with its pencil button. Ship, Mark rolled back, Reopen for planning and Delete all offer Undo.",
