@@ -7,12 +7,16 @@
  * import. The prompts live in `product-canvas.server.ts`.
  *
  * Only the formats this build offers can be drafted or checked: the
- * inputs refuse the other format ids.
+ * inputs refuse any other format id. The gaps input also carries what an
+ * idea's, a business case's and a Shape Up pitch's rules read beside the
+ * boxes: the appetite, the day a cycle ended, and the titles of ideas that
+ * look alike (never who asked, never the demand or a bet's cycle).
  */
 
 import { z } from "zod";
 import { defineAiTask } from "../define-task";
 import { BUILT_FORMATS } from "@/lib/product-canvas/formats";
+import { WEEKS_MAX } from "@/lib/product-canvas/fields";
 import {
   DRAFT_BRIEF_MAX,
   DRAFT_FIELDS_MAX,
@@ -47,6 +51,8 @@ import {
   GAPS_OUT_TEXT_MAX,
   GAPS_SECTIONS_MAX,
   GAPS_SECTION_LINES_MAX,
+  GAPS_SIMILAR_MAX,
+  GAPS_SIMILAR_TEXT_MAX,
   GAPS_TITLE_MAX,
   GAPS_TODAY_MAX,
   productCanvasDraftFallback,
@@ -152,6 +158,9 @@ const gapsInput = z.object({
     })
     .optional(),
   today: z.string().max(GAPS_TODAY_MAX).optional(),
+  appetiteWeeks: z.number().int().min(1).max(WEEKS_MAX).optional(),
+  cycleEnded: z.string().max(GAPS_TODAY_MAX).optional(),
+  similar: z.array(z.string().max(GAPS_SIMILAR_TEXT_MAX)).max(GAPS_SIMILAR_MAX).optional(),
   fields: z
     .array(z.object({ id: z.string().max(GAPS_ID_MAX), text: z.string().max(GAPS_FIELD_MAX) }))
     .max(GAPS_FIELDS_MAX),

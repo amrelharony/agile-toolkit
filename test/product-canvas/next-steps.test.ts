@@ -1,9 +1,10 @@
 /**
  * Product Canvas's next steps, through the registered lazy rule
  * (lib/tools/next-steps.ts → lib/product-canvas/next-steps): write the
- * Product Goal the canvases serve, and run the tests they sent. Example
- * canvases are left out, nothing is said with no canvas, and every step
- * links to a page that exists.
+ * Product Goal the canvases serve, run the tests they sent, triage the
+ * ideas waiting in the inbox, and decide on a bet whose cycle has ended.
+ * Example canvases are left out, nothing is said with no canvas, and every
+ * step links to a page that exists.
  */
 
 import { beforeAll, describe, expect, it } from "vitest";
@@ -122,11 +123,102 @@ describe("product-canvas next steps", () => {
   it("reads rows through the canvas model, so a bad row says nothing", () => {
     expect(
       productCanvasSteps({
-        canvases: [{ id: "x", format: "idea" } as unknown as ProductCanvas],
+        canvases: [{ id: "x", format: "lean-canvas" } as unknown as ProductCanvas],
         goals: [],
         trackers: [],
       })
     ).toEqual([]);
+  });
+
+  /* ── P2.3b: the idea inbox and the betting table ─────────────────── */
+
+  const idea = (
+    id: string,
+    status: NonNullable<ProductCanvas["intake"]>["status"],
+    createdAt: string
+  ): ProductCanvas => ({
+    id,
+    format: "idea",
+    title: `Idea ${id}`,
+    sections: {},
+    intake: { requesters: [], source: "customer", demand: 1, status },
+    createdAt,
+    updatedAt: createdAt,
+  });
+  const pitch = (id: string, bet: ProductCanvas["bet"]): ProductCanvas => ({
+    id,
+    format: "shape-up",
+    title: `Pitch ${id}`,
+    sections: {},
+    ...(bet ? { bet } : {}),
+    createdAt: STAMP,
+    updatedAt: STAMP,
+  });
+
+  it("asks to triage new ideas that have waited more than 14 days, only new ones", () => {
+    const today = "2026-11-23";
+    const out = productCanvasSteps({
+      canvases: [
+        idea("pcanvas_old1", "new", "2026-11-01T09:00:00.000Z"),
+        idea("pcanvas_old2", "new", "2026-11-08T09:00:00.000Z"),
+        idea("pcanvas_fresh", "new", "2026-11-20T09:00:00.000Z"),
+        idea("pcanvas_seen", "assessing", "2026-10-01T09:00:00.000Z"),
+        idea("example-pc-idea", "new", "2026-10-01T09:00:00.000Z"),
+      ],
+      goals: [goal],
+      trackers: [],
+      today,
+    });
+    expect(out.map((s) => s.id)).toEqual(["product-canvas-inbox"]);
+    expect(out[0]).toMatchObject({
+      label: "Triage 2 waiting ideas",
+      href: "/product-canvas?format=idea&inbox=new",
+    });
+    for (const s of out) seen.add(s.href);
+    // Exactly 14 days is not yet over: the day before the cutoff is.
+    expect(
+      productCanvasSteps({
+        canvases: [idea("pcanvas_edge", "new", "2026-11-09T09:00:00.000Z")],
+        goals: [goal],
+        trackers: [],
+        today,
+      })
+    ).toEqual([]);
+  });
+
+  it("asks for a decision on a bet whose cycle has ended, naming the longest overdue", () => {
+    const today = "2026-11-23";
+    const out = productCanvasSteps({
+      canvases: [
+        pitch("pcanvas_late", { status: "bet", cycle: 4, start: "2026-10-01", weeks: 6 }),
+        pitch("pcanvas_later", { status: "bet", cycle: 5, start: "2026-10-10", weeks: 2 }),
+        pitch("pcanvas_running", { status: "bet", cycle: 6, start: "2026-11-16", weeks: 6 }),
+        pitch("pcanvas_shipped", { status: "shipped", cycle: 3, start: "2026-08-01", weeks: 6 }),
+        pitch("example-pc-pitch", { status: "bet", cycle: 4, start: "2026-09-01", weeks: 1 }),
+      ],
+      goals: [goal],
+      trackers: [],
+      today,
+    });
+    expect(out.map((s) => s.id)).toEqual(["product-canvas-cycle"]);
+    // Cycle 5 ended on 10-23, cycle 4 on 11-11: the earlier end comes first.
+    expect(out[0]).toMatchObject({
+      label: "Decide on “Pitch pcanvas_later”: its cycle ended",
+      href: "/product-canvas?canvas=pcanvas_later",
+    });
+    expect(out[0].detail).toMatch(/^Cycle 5 ended on 2026-10-23\./);
+    expect(out[0].detail).toContain("1 other bet is out of time too.");
+    for (const s of out) seen.add(s.href);
+  });
+
+  it("reads the day from the clock when the rule passes none", () => {
+    const out = steps({
+      productGoals: [goal],
+      productCanvases: [
+        pitch("pcanvas_late", { status: "bet", cycle: 1, start: "2020-01-06", weeks: 2 }),
+      ],
+    });
+    expect(out.map((s) => s.id)).toEqual(["product-canvas-cycle"]);
   });
 
   // Runs last: `seen` holds every href the tests above produced.

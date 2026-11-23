@@ -1,9 +1,9 @@
 // @vitest-environment node
 /**
- * Product Canvas's format catalog: the four formats P2.3a builds, each a
- * sound sectioned-kit format (the kit's own checks), with Open questions,
- * a credit and starter lines; links that name a list in the same format;
- * and few enough boxes for the AI inputs' caps.
+ * Product Canvas's format catalog: all seven formats, each a sound
+ * sectioned-kit format (the kit's own checks), with Open questions, the
+ * credit Decision D5 sets and starter lines; links that name a list in the
+ * same format; and few enough boxes for the AI inputs' caps.
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,6 +19,7 @@ import {
   isHardQuestionId,
   productFormat,
   sectionDef,
+  startLabelOf,
 } from "@/lib/product-canvas/formats";
 import { PRODUCT_CANVAS_FORMATS } from "@/lib/stores/workspace-types";
 import { DRAFT_FIELDS_MAX, DRAFT_SECTIONS_MAX } from "@/lib/product-canvas/starter";
@@ -26,10 +27,9 @@ import { DRAFT_FIELDS_MAX, DRAFT_SECTIONS_MAX } from "@/lib/product-canvas/start
 const formats = BUILT_FORMATS.map((id) => PRODUCT_FORMATS[id]!);
 
 describe("the format catalog", () => {
-  it("offers the four P2.3a formats, in the entity's order, and none of P2.3b's yet", () => {
-    expect(BUILT_FORMATS).toEqual(["vision-board", "value-proposition", "lean-ux", "pr-faq"]);
-    for (const id of ["idea", "business-case", "shape-up"]) expect(productFormat(id)).toBeNull();
-    for (const id of BUILT_FORMATS) expect(PRODUCT_CANVAS_FORMATS).toContain(id);
+  it("offers all seven formats, in the entity's order", () => {
+    expect(BUILT_FORMATS).toEqual([...PRODUCT_CANVAS_FORMATS]);
+    expect(productFormat("lean-canvas")).toBeNull();
     expect(productFormat("constructor")).toBeNull();
     expect(productFormat(42)).toBeNull();
   });
@@ -40,14 +40,44 @@ describe("the format catalog", () => {
   });
 
   it.each(formats.map((f) => [f.id, f] as const))(
-    "%s ends with Open questions and has a credit",
+    "%s ends with Open questions, and credits the method it follows",
     (_id, f) => {
       expect(f.sections.at(-1)?.id).toBe(QUESTIONS_SECTION);
-      expect(f.credit?.text).toMatch(/^After /);
+      // Decision D5: the idea inbox follows no published method; the business
+      // case names no framework; every other format says whose method it follows.
+      if (f.id === "idea") expect(f.credit).toBeUndefined();
+      else if (f.id === "business-case") expect(f.credit?.text).toBe("A lean business case");
+      else expect(f.credit?.text).toMatch(/^After /);
       // No licence is shown until the owner clears one (Decision D5).
       expect(f.credit?.licence).toBeUndefined();
     }
   );
+
+  it("credits Shape Up to Basecamp, and names SAFe nowhere", () => {
+    expect(PRODUCT_FORMATS["shape-up"]?.credit?.text).toBe("After Basecamp's Shape Up");
+    for (const f of formats) {
+      const words = [
+        f.name,
+        f.useWhen,
+        f.credit?.text ?? "",
+        ...f.sections.map((d) => `${d.label} ${d.prompt} ${d.hint ?? ""} ${d.starter ?? ""}`),
+      ];
+      expect(words.join(" ")).not.toMatch(/\bSAFe\b/);
+    }
+  });
+
+  it("gives the idea inbox a start label that reads well, and the rest Start a …", () => {
+    expect(startLabelOf(PRODUCT_FORMATS.idea!)).toBe("Log an idea");
+    expect(startLabelOf(PRODUCT_FORMATS["shape-up"]!)).toBe("Start a Shape Up pitch");
+  });
+
+  it("marks nice-to-haves only on a Shape Up pitch's scopes", () => {
+    for (const f of formats) {
+      for (const d of f.sections) {
+        if (d.niceToHave) expect(`${f.id}.${d.id}`).toBe("shape-up.scopes");
+      }
+    }
+  });
 
   it("gives every list box a starter line, but the ones filled another way", () => {
     for (const f of formats) {

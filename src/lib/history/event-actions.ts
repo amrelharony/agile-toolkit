@@ -1369,13 +1369,13 @@ export const NOTES_TO_ACTIONS_ACTIONS = {
 export const PRODUCT_CANVAS_ACTIONS = {
   /** Payload: canvasId and the format. */
   CANVAS_CREATED: "canvas_created",
-  /** Payload: canvasId and the section changed. */
+  /** Payload: canvasId and the section changed, or the field (title, evidence, answer, links, nice_to_have, demand, appetite, decision; bet with its new status). A cycle's new dates: the cycle and how many pitches it holds, no canvasId. */
   CANVAS_UPDATED: "canvas_updated",
   /** Payload: canvasId and the format. */
   CANVAS_REMOVED: "canvas_removed",
   /** Drafted lines were added. Payload: canvasId, the source (ai or starter) and how many. */
   DRAFT_ACCEPTED: "draft_accepted",
-  /** Payload: canvasId, the section and the route. */
+  /** Payload: canvasId, the section (none for a whole idea or business case) and the route. */
   ITEM_SENT: "item_sent",
   /** An idea joined the inbox. Payload: canvasId and the idea's source kind. */
   IDEA_LOGGED: "idea_logged",
