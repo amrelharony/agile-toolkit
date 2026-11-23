@@ -16,22 +16,40 @@ const blob = vi.hoisted(() => ({
   value: null as unknown,
   keys: [] as string[],
   users: [] as string[],
+  /** The user's risk rows on the server (kind "workspace:risk"). */
+  risks: [] as unknown[],
 }));
 vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
   return {
     ...actual,
+    // The board under its key; the Risk Register's old blobs hold nothing.
     serverGetUserStateBlob: async (user: string, key: string) => {
       blob.users.push(user);
       blob.keys.push(key);
-      return blob.value;
+      return key === "agile-toolkit:pi-planning" ? blob.value : null;
     },
+    serverListEntities: async (_user: string, kind: string) =>
+      kind === "workspace:risk" ? blob.risks : [],
   };
 });
 
 import { registry } from "@/lib/actions/registry";
 import "@/lib/actions/tools/pi-planning";
 import { PI_STORAGE_KEY } from "@/lib/pi-planning/model";
+import { RISK_REGISTER_KEY, RISK_REGISTER_MOVED_KEY } from "@/lib/risks/legacy-register";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import type { Risk } from "@/lib/stores/workspace-types";
+
+/** The risk r1 was sent as, as the Risk Register holds it. */
+const RISK_9: Risk = {
+  id: "risk-9",
+  title: "PCI audit could slip",
+  probability: 3,
+  impact: 4,
+  status: "open",
+  raisedAt: "2026-11-20",
+};
 
 const ctx = (source: "agent" | "mcp" = "agent") => ({
   userId: "u1",
@@ -124,6 +142,8 @@ beforeEach(() => {
   blob.value = null;
   blob.keys = [];
   blob.users = [];
+  blob.risks = [];
+  useWorkspaceStore.setState({ risks: [] });
 });
 
 describe("registration", () => {
@@ -146,6 +166,7 @@ describe("registration", () => {
 describe("list_state", () => {
   it("reads this tab's board", async () => {
     localStorage.setItem(PI_STORAGE_KEY, JSON.stringify(BOARD));
+    useWorkspaceStore.setState({ risks: [RISK_9] });
     const out = await run("list_state");
     expect(blob.keys).toEqual([]);
     expect(out).toMatchObject({ name: "PI 2026.4", example: false, iterations: 3 });
@@ -208,11 +229,38 @@ describe("list_state", () => {
 
   it("reads the user's saved row over MCP, through the same normaliser", async () => {
     blob.value = { ...BOARD, confidence: [{ id: "bad", counts: "lots" }] };
+    blob.risks = [RISK_9];
     const out = await runMcp("list_state");
-    expect(blob.keys).toEqual([PI_STORAGE_KEY]);
-    expect(blob.users).toEqual(["u1"]);
+    // The board, then the Risk Register as it lists (r1 was sent there).
+    expect(blob.keys).toEqual([PI_STORAGE_KEY, RISK_REGISTER_KEY, RISK_REGISTER_MOVED_KEY]);
+    expect(blob.users).toEqual(["u1", "u1", "u1"]);
     expect(out.latestConfidence).toBeNull();
     expect((out.toSort as unknown[]).length).toBe(1);
+    expect((out.roam as Record<string, unknown[]>).owned).toEqual([
+      expect.objectContaining({ id: "r1", sentToRiskRegister: true }),
+    ]);
+  });
+
+  it("reads the Risk Register only when a risk on the board was sent there", async () => {
+    blob.value = { ...BOARD, items: BOARD.items.filter((i) => i.id !== "r1") };
+    await runMcp("list_state");
+    expect(blob.keys).toEqual([PI_STORAGE_KEY]);
+  });
+
+  it("counts a risk as sent only while the register still has it, as the page's liveLink", async () => {
+    // r1 went to the register as risk-9, which was deleted there since:
+    // the page offers to send it again, so Amr doesn't call it sent.
+    localStorage.setItem(PI_STORAGE_KEY, JSON.stringify(BOARD));
+    const tab = await run("list_state");
+    expect((tab.roam as Record<string, unknown[]>).owned).toEqual([
+      expect.objectContaining({ id: "r1", sentToRiskRegister: false }),
+    ]);
+    blob.value = BOARD;
+    blob.risks = [{ ...RISK_9, id: "risk-other" }];
+    const mcp = await runMcp("list_state");
+    expect((mcp.roam as Record<string, unknown[]>).owned).toEqual([
+      expect.objectContaining({ id: "r1", sentToRiskRegister: false }),
+    ]);
   });
 
   it("reads an empty board when nothing is saved, or what's saved is garbage", async () => {
