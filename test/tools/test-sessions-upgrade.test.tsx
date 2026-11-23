@@ -558,6 +558,22 @@ describe("the page", () => {
     expect(logged(TEST_SESSIONS_ACTIONS.SESSION_REMOVED)).toHaveLength(1);
     undoLast();
     expect(stored("tsess_b")).toBeDefined();
+    // Deleting the session the link named isn't a link to one that's gone.
+    fireEvent.click(within(card("tsess_a")).getByRole("button", { name: "Delete" }));
+    expect(stored("tsess_a")).toBeUndefined();
+    expect(screen.queryByText(/That session isn't here any more/)).toBeNull();
+  });
+
+  it("says when a ?session= link names a session that is gone, until dismissed", async () => {
+    seed([session()]);
+    window.history.replaceState(null, "", "/test-sessions?session=tsess_gone");
+    renderPage();
+    const notice = await screen.findByText(/That session isn't here any more/);
+    expect(notice).toHaveAttribute("role", "status");
+    expect(window.location.search).toBe("");
+    fireEvent.click(within(notice).getByRole("button", { name: "Dismiss" }));
+    expect(screen.queryByText(/That session isn't here any more/)).toBeNull();
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: /^Look at…/ }));
   });
 
   it("dates the CSV's Planned column by the local day, not the UTC one", () => {

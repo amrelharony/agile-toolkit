@@ -27,6 +27,7 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
 import { SectionCard } from "@/components/shared/section-card";
+import { Button } from "@/components/ui/button";
 import {
   ExampleNotice,
   LoadExampleButton,
@@ -123,6 +124,8 @@ export function TestSessionsClient() {
   const counted = own.length > 0 ? own : sessions;
   const hasExample = hasExampleItems(sessions);
   const exampleOnly = sessions.length > 0 && own.length === 0;
+  /** A ?session= link (or a bug's "From test sessions") names a session that is gone. */
+  const focusMissing = Boolean(focusId) && !sessions.some((s) => s.id === focusId);
   const stories = useMemo(
     () =>
       sprint ? allStories.filter((s) => s.sprintId === sprint.id && TESTABLE.has(s.status)) : [],
@@ -289,6 +292,8 @@ export function TestSessionsClient() {
       },
     });
     record(session, TEST_SESSIONS_ACTIONS.SESSION_REMOVED, { sessionId: session.id });
+    // A session deleted here isn't a link to one that's gone.
+    setFocusId((id) => (id === session.id ? null : id));
     announce(label);
     planRef.current?.focus();
   };
@@ -388,6 +393,7 @@ export function TestSessionsClient() {
       },
       revert: () => removed.forEach(saveSession),
     });
+    setFocusId((id) => (id && isExampleId(id) ? null : id));
     planRef.current?.focus();
   };
 
@@ -430,6 +436,23 @@ export function TestSessionsClient() {
         </p>
       ) : (
         <div className="space-y-4">
+          {focusMissing && (
+            <p role="status" className="rounded-lg border border-border px-4 py-3 text-sm text-sub">
+              That session isn&apos;t here any more.{" "}
+              <Button
+                type="button"
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setFocusId(null);
+                  planRef.current?.focus();
+                }}
+              >
+                Dismiss
+              </Button>
+            </p>
+          )}
+
           {hasExample && (
             <div>
               <ExampleNotice onClear={clearExample} />
