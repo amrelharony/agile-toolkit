@@ -101,6 +101,19 @@ describe("what a tool page's first load leaves out", () => {
     }
   });
 
+  it("the Standup page loads the async digest's summary and the AI kit only when it shows", () => {
+    const reached = firstLoad("src/app/(tools)/standup/standup-client.tsx");
+    expect(reached).toContain("src/app/(tools)/standup/views.tsx");
+    for (const lazy of [
+      "src/app/(tools)/standup/digest-summary.tsx",
+      "src/components/ai/index.ts",
+      "src/lib/ai/tasks/async-standup.lite.ts",
+      "src/lib/standup/digest-ai.ts",
+    ]) {
+      expect(reached, lazy).not.toContain(lazy);
+    }
+  });
+
   it("PI Planning's ROAM section reads the Risk Register's link without the hand-off registry", () => {
     const reached = firstLoad("src/app/(tools)/pi-planning/pi-planning-client.tsx");
     expect(reached).toContain("src/app/(tools)/pi-planning/roam-section.tsx");
