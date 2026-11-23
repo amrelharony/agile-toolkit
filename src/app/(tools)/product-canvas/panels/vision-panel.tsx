@@ -4,27 +4,44 @@
  * The Vision Board's own panel: the pitch, written live from its six boxes
  * in our own sentence shape, with Copy and a note when it leans on jargon;
  * and the vision copied either way with the Product Goal page, each copy
- * with Undo. The two visions stay apart unless someone copies one.
+ * with Undo. The two visions stay apart unless someone copies one. The
+ * goal's vision comes over as the one-line box holds it (one line, cut to
+ * ITEM_MAX, with a note when cut), and a copy the box refuses says why.
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { ArrowDownToLine, ArrowUpFromLine } from "lucide-react";
 import { useProductGoalPrefs } from "@/app/(tools)/product-goal/store";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
 import { CopyButton } from "@/components/ui/copy-button";
+import { cutText } from "@/lib/utils/cut-text";
 import { isExampleId } from "@/lib/utils/example-id";
 import { PRODUCT_CANVAS_ACTIONS } from "@/lib/history/event-actions";
-import { answerOf, jargonIn, pitchOf, pitchSentence, withText } from "@/lib/product-canvas/model";
+import {
+  ITEM_MAX,
+  answerOf,
+  jargonIn,
+  oneLine,
+  pitchOf,
+  pitchSentence,
+  withText,
+} from "@/lib/product-canvas/model";
 import { undoable } from "@/lib/utils/undoable";
 import type { CanvasHandle } from "../boxes";
 
 export function VisionPanel({ handle }: { handle: CanvasHandle }) {
-  const { canvas, write, log } = handle;
+  const { canvas, read, write, log } = handle;
   const pitch = pitchSentence(pitchOf(canvas));
   const jargon = jargonIn(pitch);
   const boxVision = answerOf(canvas, "vision");
-  const goalVision = useProductGoalPrefs((s) => s.vision).trim();
+  // The Product Goal page's vision is a paragraph of up to 2,000
+  // characters, and this box one line of ITEM_MAX: it is copied, compared
+  // and undone as the box stores it.
+  const goalLine = oneLine(useProductGoalPrefs((s) => s.vision));
+  const goalVision = cutText(goalLine, ITEM_MAX).trim();
+  const goalCut = goalVision.length < goalLine.length;
+  const [note, setNote] = useState<string | null>(null);
   const example = isExampleId(canvas.id);
 
   useEffect(() => {
@@ -35,18 +52,27 @@ export function VisionPanel({ handle }: { handle: CanvasHandle }) {
   }, []);
 
   const startFromGoal = () => {
-    const text = goalVision;
+    const cur = read();
+    if (!cur) return;
+    const next = withText(cur, "vision", goalVision, new Date().toISOString());
+    if (!next.ok) {
+      setNote(next.message);
+      return;
+    }
+    setNote(null);
+    // What the box holds once copied: the Undo clears only that.
+    const copied = answerOf(next.canvas, "vision");
     undoable({
       label: "Vision copied from the Product Goal page",
       kind: "success",
       apply: () => {
-        const w = write((c, now) => withText(c, "vision", text, now));
+        const w = write(() => next);
         if (w.ok)
           log(PRODUCT_CANVAS_ACTIONS.CANVAS_UPDATED, { canvasId: canvas.id, section: "vision" });
       },
       revert: () => {
         write((c, now) =>
-          answerOf(c, "vision") === text
+          answerOf(c, "vision") === copied
             ? withText(c, "vision", null, now)
             : { ok: true, canvas: c }
         );
@@ -107,6 +133,17 @@ export function VisionPanel({ handle }: { handle: CanvasHandle }) {
               </Button>
             )}
           </div>
+          {!boxVision && goalCut && (
+            <p className="text-xs text-sub">
+              The Product Goal’s vision is longer than this box holds ({ITEM_MAX} characters on one
+              line), so only its start comes over.
+            </p>
+          )}
+          {note && (
+            <p role="status" className="text-sm text-sub">
+              {note}
+            </p>
+          )}
         </div>
       )}
     </SectionCard>

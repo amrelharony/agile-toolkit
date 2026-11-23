@@ -61,7 +61,7 @@ import { validateNewCanvas } from "@/app/(tools)/product-canvas/new-canvas-form"
 import { useProductGoalPrefs } from "@/app/(tools)/product-goal/store";
 import { PRODUCT_CANVAS_ACTIONS } from "@/lib/history/event-actions";
 import { HYPOTHESIS_TRACKER_ID } from "@/lib/hypotheses/model";
-import { readCanvas } from "@/lib/product-canvas/model";
+import { ITEM_MAX, readCanvas } from "@/lib/product-canvas/model";
 import { VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION } from "@/lib/visitor-ai/consent";
 
 /** jsdom has no ResizeObserver; the send menu's popper measures with one. */
@@ -373,6 +373,67 @@ describe("the Vision Board", () => {
     expect(byId("pcanvas_vb")!.sections.vision[0].text).toBe("Every shop takes payments anywhere.");
     undoLast();
     expect(byId("pcanvas_vb")!.sections.vision).toEqual([]);
+  });
+
+  it("copies a long Product Goal vision cut to the box, says so, and its Undo clears it", async () => {
+    seed(vb());
+    const long = `Every shop ${"takes payments anywhere ".repeat(12)}`.trim();
+    expect(long.length).toBeGreaterThan(ITEM_MAX);
+    useProductGoalPrefs.setState({ vision: long });
+    renderPage();
+    expect(await screen.findByText(/so only its start comes over/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Start from the Product Goal’s vision" }));
+    expect(byId("pcanvas_vb")!.sections.vision[0].text).toBe(long.slice(0, ITEM_MAX).trim());
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Vision copied from the Product Goal page");
+    expect(
+      screen.queryByRole("button", { name: "Use as the product vision" })
+    ).not.toBeInTheDocument();
+    undoLast();
+    expect(byId("pcanvas_vb")!.sections.vision).toEqual([]);
+  });
+
+  it("copies a vision with line breaks as one line, and its Undo still clears it", async () => {
+    seed(vb());
+    useProductGoalPrefs.setState({ vision: "Every shop takes payments.\n\nAnywhere,  any  time." });
+    renderPage();
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Start from the Product Goal’s vision" })
+    );
+    expect(byId("pcanvas_vb")!.sections.vision[0].text).toBe(
+      "Every shop takes payments. Anywhere, any time."
+    );
+    expect(screen.queryByText(/so only its start comes over/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Use as the product vision" })
+    ).not.toBeInTheDocument();
+    undoLast();
+    expect(byId("pcanvas_vb")!.sections.vision).toEqual([]);
+  });
+
+  it("says why when the box can't take the vision, and offers no Undo", async () => {
+    const many = (key: string, n: number) =>
+      Array.from({ length: n }, (_, i) => item(`${key}${i}`, `${key} ${i}`));
+    seed({
+      ...vb(),
+      sections: {
+        ...vb().sections,
+        who: many("w", 8),
+        needs: many("n", 10),
+        product: many("p", 10),
+        gains: many("g", 8),
+        questions: many("q", 20),
+      },
+    });
+    useProductGoalPrefs.setState({ vision: "Every shop takes payments anywhere." });
+    renderPage();
+    const start = await screen.findByRole("button", {
+      name: "Start from the Product Goal’s vision",
+    });
+    toastSpy.mockClear();
+    fireEvent.click(start);
+    expect(screen.getByText(/A canvas holds 60 lines in all/)).toHaveAttribute("role", "status");
+    expect(byId("pcanvas_vb")!.sections.vision).toBeUndefined();
+    expect(toastSpy).not.toHaveBeenCalled();
   });
 
   it("saves the canvas's vision as the product vision, with Undo", async () => {
