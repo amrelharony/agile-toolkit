@@ -80,7 +80,8 @@ export function dayText(day: string): string {
  * Where a placed bug goes next, by its priority: now logs an interrupt in
  * the running sprint (or says no sprint is running and offers the backlog),
  * next or later adds it to the backlog, some day says close it. A route it
- * already went by shows "Sent · Open" while that item is there.
+ * already went by shows "Sent · Open" while that item is there, as does the
+ * backlog for a fix-now bug sent there because no sprint was running.
  */
 export function SendButtons({
   bug,
@@ -102,19 +103,25 @@ export function SendButtons({
       </p>
     );
   }
-  const kept = keptLink(bug, route, slices);
-  if (kept) {
-    const target = getHandoffRoute(route);
+  const noSprint = route === "interrupt" && !sprintRunning;
+  // With no sprint running, a fix-now bug may have gone to the backlog instead.
+  const sentBy: BugRoute | null = keptLink(bug, route, slices)
+    ? route
+    : noSprint && keptLink(bug, "backlog-story", slices)
+      ? "backlog-story"
+      : null;
+  const kept = sentBy ? keptLink(bug, sentBy, slices) : undefined;
+  if (sentBy && kept) {
+    const target = getHandoffRoute(sentBy);
     return (
       <p className="text-sm text-sub">
-        {route === "interrupt" ? "Logged as an interrupt" : "On the backlog"}.{" "}
+        {sentBy === "interrupt" ? "Logged as an interrupt" : "On the backlog"}.{" "}
         <Link href={target.targetHref(kept.targetId)} className="text-accent hover:underline">
-          Open {route === "interrupt" ? "the Interrupt Buffer" : "Sprint Planning"}
+          Open {sentBy === "interrupt" ? "the Interrupt Buffer" : "Sprint Planning"}
         </Link>
       </p>
     );
   }
-  const noSprint = route === "interrupt" && !sprintRunning;
   return (
     <div className="space-y-1">
       <div className="flex flex-wrap gap-2">
@@ -129,7 +136,7 @@ export function SendButtons({
           {route === "interrupt" ? <Zap aria-hidden="true" /> : <ListPlus aria-hidden="true" />}
           {route === "interrupt" ? "Log as an interrupt" : "Add to the backlog"}
         </Button>
-        {noSprint && !example && !keptLink(bug, "backlog-story", slices) && (
+        {noSprint && !example && (
           <Button
             type="button"
             size="sm"

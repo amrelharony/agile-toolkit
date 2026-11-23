@@ -486,6 +486,11 @@ describe("sending a bug on", () => {
       sourceRef: { tool: "bug-triage", id: "bug_a" },
     });
     expect(story.notes).toContain("Steps: Pay");
+    // The row says where it went, in place of the interrupt it can't log.
+    expect(within(list).getByText(/^On the backlog\./)).toBeInTheDocument();
+    expect(within(list).getByRole("link", { name: "Open Sprint Planning" })).toBeInTheDocument();
+    expect(within(list).queryByRole("button", { name: "Log as an interrupt" })).toBeNull();
+    expect(within(list).queryByText(/No sprint is running/)).toBeNull();
   });
 
   it("plans next or later as a backlog story tagged bug, then offers Close as fixed once it's done", async () => {
