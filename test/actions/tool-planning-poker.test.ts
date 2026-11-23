@@ -179,3 +179,59 @@ describe("tool.planning_poker.compute_consensus counts card positions", () => {
     ).toBe("close");
   });
 });
+
+describe("tool.planning_poker.three_point", () => {
+  type R = {
+    computed: boolean;
+    expected?: number;
+    sd?: number;
+    low?: number;
+    high?: number;
+    card?: string | null;
+    note?: string;
+    problem?: string;
+  };
+  const action = () => registry.get("tool.planning_poker.three_point")!;
+  const run = async (params: Record<string, unknown>) =>
+    (await action().handler(params, ctx())) as R;
+
+  it("is a pure read a visitor's chat may use", () => {
+    expect(action().category).toBe("read");
+    expect(action().visitor).not.toBe(false);
+    expect(action().mcpHandler).toBeUndefined();
+  });
+
+  it("weighs the cases and rounds up to a Fibonacci card by default", async () => {
+    expect(await run({ optimistic: 2, likely: 5, pessimistic: 13 })).toEqual({
+      computed: true,
+      expected: 5.83,
+      sd: 1.83,
+      low: 4,
+      high: 7.67,
+      card: "8",
+      note: "Wide: talk about the risks before you accept, or split the story.",
+    });
+  });
+
+  it("reads the card on the deck it's given, and none on a T-shirt deck", async () => {
+    const pow2 = { optimistic: 3, likely: 5, pessimistic: 8, deck: ["1", "2", "4", "8", "16"] };
+    expect((await run(pow2)).card).toBe("8");
+    expect((await run({ optimistic: 1, likely: 2, pessimistic: 3, scale: "tshirt" })).card).toBe(
+      null
+    );
+    expect((await run({ optimistic: 30, likely: 40, pessimistic: 50 })).card).toBe("21");
+  });
+
+  it("says what's wrong with cases out of order", async () => {
+    expect(await run({ optimistic: 5, likely: 3, pessimistic: 8 })).toEqual({
+      computed: false,
+      problem: "The likely case can't be smaller than the best case.",
+    });
+  });
+
+  it("refuses cases out of range at the schema", () => {
+    const schema = action().paramsSchema;
+    expect(schema.safeParse({ optimistic: -1, likely: 2, pessimistic: 3 }).success).toBe(false);
+    expect(schema.safeParse({ optimistic: 1, likely: 2, pessimistic: 1001 }).success).toBe(false);
+  });
+});
