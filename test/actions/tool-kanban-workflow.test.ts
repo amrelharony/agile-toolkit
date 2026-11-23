@@ -348,6 +348,35 @@ describe("set_blocked", () => {
     const spell = serverBoard().cards[0].blockLog?.[0];
     expect(spell).toMatchObject({ cluster: "Waiting for a review", side: "internal" });
   });
+
+  it("never leaves a default cluster's side on the team's own cluster", async () => {
+    rows.set(`${KIND_BOARD}/${KANBAN_BOARD_ID}`, {
+      id: KANBAN_BOARD_ID,
+      wipLimits: LIMITS,
+      cards: [
+        card("a", {
+          blocked: true,
+          blockLog: [
+            { from: "2026-11-20T09:00:00.000Z", cluster: "Another team", side: "external" },
+          ],
+        }),
+      ],
+    });
+    await mcp("tool.kanban.set_blocked", { cardId: "a", blocked: true, cluster: "Flaky pipeline" });
+    let spell = serverBoard().cards[0].blockLog?.[0];
+    expect(spell).toMatchObject({ cluster: "Flaky pipeline" });
+    expect(spell?.side).toBeUndefined();
+    // The team's own cluster can say its side.
+    await mcp("tool.kanban.set_blocked", {
+      cardId: "a",
+      blocked: true,
+      cluster: "Flaky pipeline",
+      side: "internal",
+    });
+    spell = serverBoard().cards[0].blockLog?.[0];
+    expect(spell).toMatchObject({ cluster: "Flaky pipeline", side: "internal" });
+    expect(serverBoard().cards[0].blockLog).toHaveLength(1);
+  });
 });
 
 describe("MCP stamps on add_card and move_card", () => {

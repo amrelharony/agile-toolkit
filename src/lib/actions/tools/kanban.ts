@@ -32,6 +32,7 @@ import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
 import {
+  BLOCK_SIDES,
   BLOCKER_CLUSTER_MAX,
   KANBAN_BOARD_ID,
   MEETING_CADENCES,
@@ -607,6 +608,12 @@ const SetBlockedParams = z.object({
     .describe(
       "The blocker cluster: one of the defaults (such as 'Waiting for a review' or 'Another team') or the team's own."
     ),
+  side: z
+    .enum(BLOCK_SIDES)
+    .optional()
+    .describe(
+      "With the team's own cluster: whether it sits inside ('internal') or outside ('external') the team. A default cluster sets its own side."
+    ),
 });
 
 /** The board with the card's flag set and its note written on the spell, or a refusal. */
@@ -635,14 +642,20 @@ export function planSetBlocked(
   const cause = params.cause?.trim();
   const cluster = params.cluster?.trim();
   if (cause || cluster) {
-    const side = cluster ? defaultClusterSide(cluster) : null;
+    // A new cluster brings its side, or none: a custom one never keeps the
+    // side of the default it replaces (the page's dialog does the same).
+    const side = cluster ? (defaultClusterSide(cluster) ?? params.side ?? null) : undefined;
     // A note on an unblock goes on the spell it just closed.
     const log = next.blockLog ?? [];
     const spellFrom = params.blocked ? undefined : log[log.length - 1]?.from;
     if (params.blocked || spellFrom) {
       const noted = withSpellNote(
         next,
-        { ...(cause ? { cause } : {}), ...(cluster ? { cluster } : {}), ...(side ? { side } : {}) },
+        {
+          ...(cause ? { cause } : {}),
+          ...(cluster ? { cluster } : {}),
+          ...(side !== undefined ? { side } : {}),
+        },
         { at, ...(spellFrom ? { spellFrom } : {}) }
       );
       if (noted) next = noted;
@@ -667,7 +680,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Flag a Flow-board card blocked, or clear the flag, stamping its blocked spell as the page does (on: a spell opens now; off: the open one closes). cause (at most 200 characters) and cluster go on the spell (on an unblock, on the spell it just closed); a default cluster also sets its side (inside or outside the team). Refuses example cards and blocking a card in Done. Returns {ok: true, blocked, spell: {from, to?, cause?, cluster?, side?} | null} or {ok: false, error, hint}.",
+    "Flag a Flow-board card blocked, or clear the flag, stamping its blocked spell as the page does (on: a spell opens now; off: the open one closes). cause (at most 200 characters) and cluster go on the spell (on an unblock, on the spell it just closed); a default cluster also sets its side (inside or outside the team), and the team's own cluster takes side ('internal' | 'external') or clears the side. Refuses example cards and blocking a card in Done. Returns {ok: true, blocked, spell: {from, to?, cause?, cluster?, side?} | null} or {ok: false, error, hint}.",
   paramsSchema: SetBlockedParams,
   handler: async (params) => {
     const plan = planSetBlocked(browserBoard(), params);
