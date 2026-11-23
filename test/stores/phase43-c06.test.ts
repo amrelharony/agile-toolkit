@@ -2,8 +2,8 @@
  * Product Canvas's records in the workspace store (chain C06; the base's
  * phase43 tests cover the collection itself). The page's own canvases, the
  * example's included, ride export and import and read back as written; the
- * store stamps nothing; and a canvas in a format this build doesn't offer
- * yet (one P2.3b adds) is kept as it is, never dropped by a read.
+ * store stamps nothing; and a stored row is kept as it is, never rewritten
+ * by a read (P2.3b's formats are read now, through the same model).
  */
 
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
@@ -60,10 +60,17 @@ describe("product canvases in the workspace store", () => {
     });
   });
 
-  it("keep a canvas in a format still to come: the page leaves it out, never drops it", () => {
+  it("keep a row as written: reading a canvas never writes it back", () => {
+    // The base's shape-up fixture holds fields a Shape Up pitch doesn't use:
+    // the page's read leaves them out, and the stored row keeps them.
     ws().upsertProductCanvas(PRODUCT_CANVAS);
     ws().upsertProductCanvas(buildExample(NOW)[0]);
-    expect(readCanvases(ws().productCanvases).map((c) => c.format)).toEqual(["vision-board"]);
+    expect(
+      readCanvases(ws().productCanvases)
+        .map((c) => c.format)
+        .sort()
+    ).toEqual(["shape-up", "vision-board"]);
+    expect(readCanvas(PRODUCT_CANVAS)?.intake).toBeUndefined();
     const json = ws().exportJSON();
     ws().resetWorkspace();
     ws().importJSON(json);

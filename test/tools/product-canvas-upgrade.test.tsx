@@ -185,11 +185,18 @@ describe("empty state and new canvases", () => {
     renderPage();
     expect(screen.getByText(/No canvas yet/)).toBeInTheDocument();
     const cards = screen.getByRole("list", { name: "Formats" });
-    for (const name of ["Vision Board", "Value Proposition", "Lean UX canvas", "PR/FAQ"]) {
+    for (const name of [
+      "Vision Board",
+      "Value Proposition",
+      "Lean UX canvas",
+      "PR/FAQ",
+      "Business case",
+      "Shape Up pitch",
+    ]) {
       expect(within(cards).getByRole("button", { name: `Start a ${name}` })).toBeInTheDocument();
     }
-    // P2.3b's formats aren't offered yet.
-    expect(within(cards).queryByText(/Shape Up|business case|idea/i)).toBeNull();
+    // An idea is logged in the inbox, not started like a canvas.
+    expect(within(cards).getByRole("button", { name: "Log an idea" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Load an example/ })).toBeInTheDocument();
   });
 
@@ -892,7 +899,9 @@ describe("the example", () => {
   it("loads one canvas per format with a notice, its own goal line, and clears", async () => {
     renderPage();
     fireEvent.click(screen.getByRole("button", { name: /Load an example/ }));
-    expect(stored()).toHaveLength(4);
+    // A canvas per format: three ideas in the inbox and two Shape Up pitches among them.
+    expect(stored()).toHaveLength(10);
+    expect(new Set(stored().map((c) => c.format)).size).toBe(7);
     expect(screen.getByText("The example’s Product Goal, not yours.")).toBeInTheDocument();
     expect(screen.getByText(/Shop owners take every in-person payment/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));

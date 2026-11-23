@@ -242,12 +242,12 @@ describe("product-canvas.draft", () => {
     expect(pr.fields.length).toBeLessThanOrEqual(8);
   });
 
-  it("refuses the formats P2.3a doesn't build, on input and in the fallback", () => {
-    const input = { ...task.sample, format: "idea" };
+  it("refuses a format the catalog doesn't hold, on input and in the fallback", () => {
+    const input = { ...task.sample, format: "lean-canvas" };
     expect(task.input.safeParse(input).success).toBe(false);
     expect(() => productCanvasDraftFallback(input as CanvasDraftInput)).toThrow();
     expect(() =>
-      productCanvasGapsFallback({ ...productCanvasGapsTask.sample, format: "shape-up" } as never)
+      productCanvasGapsFallback({ ...productCanvasGapsTask.sample, format: "lean-canvas" } as never)
     ).toThrow();
   });
 

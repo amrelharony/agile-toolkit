@@ -5,9 +5,11 @@
  * line, a line is edited in place, and a delete comes with Undo (which
  * links again the lines that linked to it). Under each line, what its box
  * takes: a fact-or-guess mark, a question's answer, the
- * lines it links to, a hypothesis's picks, and how its test stands in the
- * Hypothesis Tracker. Beside it, "Send to…" for a guess or a Lean UX
- * hypothesis (never on the example, nor while a [placeholder] is left).
+ * lines it links to, a hypothesis's picks, a Shape Up scope's nice-to-have
+ * mark (shown as "~" before it), and how its test stands in the Hypothesis
+ * Tracker. Beside it, "Send to…" for a guess or a Lean UX hypothesis (to be
+ * tested) and a scope (to the backlog), never on the example, nor while a
+ * [placeholder] is left.
  *
  * Every change goes through the canvas model (`write`), which refuses what
  * the box or the canvas can't take; the card then shows the reason.
@@ -41,8 +43,12 @@ import {
   type ItemPatch,
   type LinkerLine,
 } from "@/lib/product-canvas/model";
-import { guessHypothesisSource, leanUxHypothesisSource } from "@/lib/product-canvas/sends";
-import type { HandoffLink } from "@/lib/handoffs/types";
+import {
+  guessHypothesisSource,
+  leanUxHypothesisSource,
+  scopeSource,
+} from "@/lib/product-canvas/sends";
+import type { HandoffLink, HandoffRouteId } from "@/lib/handoffs/types";
 import { todayIso } from "@/lib/sprints/series";
 import type { Hypothesis, ProductCanvas, ProductCanvasItem } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
@@ -57,6 +63,16 @@ export interface CanvasHandle {
   write: (fn: (c: ProductCanvas, now: string) => CanvasWrite) => CanvasWrite;
   /** Log to history (nothing for an example canvas). */
   log: (action: string, payload?: Record<string, unknown>) => void;
+  /**
+   * The canvases read beside this one, as the store holds them now: the
+   * team's with the team's, the example's with the example's (an idea's
+   * look-alikes and merges, a pitch's cycle).
+   */
+  world: () => ProductCanvas[];
+  /** Save rows as they are: several canvases a merge or a cycle's dates changed, or an Undo. */
+  put: (rows: readonly ProductCanvas[]) => void;
+  /** Show another canvas. */
+  open: (id: string) => void;
 }
 
 const oneLine = (text: string) => text.replace(/\s+/g, " ").trim();
@@ -96,6 +112,31 @@ function EvidenceToggle({ handle, item }: { handle: CanvasHandle; item: ProductC
         </label>
       ))}
     </fieldset>
+  );
+}
+
+/** A Shape Up scope's nice-to-have mark: a checkbox chip. */
+function NiceToHaveToggle({ handle, item }: { handle: CanvasHandle; item: ProductCanvasItem }) {
+  const set = (niceToHave: boolean) => {
+    const w = handle.write((c, now) => withItemPatch(c, item.id, { niceToHave }, now));
+    if (w.ok)
+      handle.log(PRODUCT_CANVAS_ACTIONS.CANVAS_UPDATED, {
+        canvasId: handle.canvas.id,
+        field: "nice_to_have",
+      });
+  };
+  return (
+    <label className="relative inline-flex cursor-pointer">
+      <input
+        type="checkbox"
+        checked={item.niceToHave === true}
+        onChange={(e) => set(e.target.checked)}
+        className="peer sr-only"
+      />
+      <span className={CHIP}>
+        Nice to have<span className="sr-only">: “{shortText(item.text)}”</span>
+      </span>
+    </label>
   );
 }
 
@@ -279,23 +320,19 @@ export function CanvasBox({
   };
 
   const setLinks =
-    (item: ProductCanvasItem) =>
+    (item: ProductCanvasItem, route: HandoffRouteId) =>
     (change: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) => {
       let before: HandoffLink | undefined;
       const w = write((c, now) => {
         const found = findItem(c, item.id);
-        before = found?.item.sentTo?.find((l) => l.route === "hypothesis");
+        before = found?.item.sentTo?.find((l) => l.route === route);
         const patch: ItemPatch = { sentTo: change(found?.item.sentTo) };
         return withItemPatch(c, item.id, patch, now);
       });
       if (!w.ok) return;
-      const after = findItem(w.canvas, item.id)?.item.sentTo?.find((l) => l.route === "hypothesis");
+      const after = findItem(w.canvas, item.id)?.item.sentTo?.find((l) => l.route === route);
       if (after && after.targetId !== before?.targetId) {
-        log(PRODUCT_CANVAS_ACTIONS.ITEM_SENT, {
-          canvasId: canvas.id,
-          section: def.id,
-          route: "hypothesis",
-        });
+        log(PRODUCT_CANVAS_ACTIONS.ITEM_SENT, { canvasId: canvas.id, section: def.id, route });
       }
     };
 
@@ -303,6 +340,7 @@ export function CanvasBox({
     const test = linkedTest(item.sentTo, hypotheses);
     const parts = [
       def.evidence ? <EvidenceToggle key="evidence" handle={handle} item={item} /> : null,
+      def.niceToHave ? <NiceToHaveToggle key="nice" handle={handle} item={item} /> : null,
       def.qa ? <AnswerField key="answer" handle={handle} item={item} /> : null,
       def.linksTo && def.id !== "hypotheses" ? (
         <LinkPicker key="links" handle={handle} def={def} item={item} />
@@ -313,7 +351,26 @@ export function CanvasBox({
     return parts.length > 0 ? <div className="space-y-2">{parts}</div> : null;
   };
 
+  const freshLinks = (item: ProductCanvasItem) => () => {
+    const fresh = handle.read();
+    return fresh ? findItem(fresh, item.id)?.item.sentTo : undefined;
+  };
+
   const renderActions = (item: ProductCanvasItem) => {
+    if (def.niceToHave) {
+      // A Shape Up scope: a piece of work for the backlog.
+      return (
+        <SendToMenu
+          routes={["backlog-story"]}
+          item={scopeSource(canvas, item)}
+          sentTo={item.sentTo}
+          itemLabels={{ "backlog-story": "Backlog story" }}
+          getLinks={freshLinks(item)}
+          onLinksChange={setLinks(item, "backlog-story")}
+          disabled={!canSend(canvas, item)}
+        />
+      );
+    }
     const hypothesis = def.id === "hypotheses";
     if (!hypothesis && !isGuess(def, item)) return null;
     const source = hypothesis
@@ -325,15 +382,22 @@ export function CanvasBox({
         item={source}
         sentTo={item.sentTo}
         itemLabels={{ hypothesis: hypothesis ? "Hypothesis to test" : "Test this guess" }}
-        getLinks={() => {
-          const fresh = handle.read();
-          return fresh ? findItem(fresh, item.id)?.item.sentTo : undefined;
-        }}
-        onLinksChange={setLinks(item)}
+        getLinks={freshLinks(item)}
+        onLinksChange={setLinks(item, "hypothesis")}
         disabled={!canSend(canvas, item)}
       />
     );
   };
+
+  /** A nice-to-have scope reads "~" before its words. */
+  const itemLabel = def.niceToHave
+    ? (item: ProductCanvasItem) =>
+        item.niceToHave ? (
+          <span className="font-mono text-sub" title="Nice to have">
+            ~<span className="sr-only"> nice to have:</span>
+          </span>
+        ) : null
+    : undefined;
 
   return (
     <SectionItemsCard<ProductCanvasItem>
@@ -349,6 +413,7 @@ export function CanvasBox({
       })}
       renderExtras={renderExtras}
       renderActions={renderActions}
+      itemLabel={itemLabel}
       className={className}
     />
   );

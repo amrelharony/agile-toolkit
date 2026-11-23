@@ -72,12 +72,13 @@ export const productCanvasGapsPrompt = defineAiPrompt(productCanvasGapsTask, {
   system: [
     "You review a product team's canvas, one page that describes a product idea, for what is missing or weak.",
     "Look for boxes left empty, lines still holding a [placeholder], guesses nobody has tested, claims with no number, a vision that names features instead of a change for people, vague or buzzword language, offer lines that meet no customer pain or gain, hypotheses with no test, and anything that doesn't serve the Product Goal.",
+    "On an idea from the inbox, ask how the team would know it worked and whether it repeats an idea already there. On a business case, ask for early signs, the smallest version to test it and what that version costs. On a Shape Up pitch, ask for its appetite, its rabbit holes and its no-gos, and when its cycle has ended, say it is out of time: ship what's done or cut it.",
     `Answer with up to ${GAPS_OUT_MAX} gaps, the most useful first. Write each as one short question or prompt the team can answer, under 200 characters.`,
     "Set section to the id of the box a gap is about, or leave it out for the canvas as a whole.",
     "Each line in the input says whether it is a fact or a guess, whether it is linked to the line that completes it, and whether it is settled (a question answered, a guess tested, a hypothesis sent to be tested).",
     ...SECTIONED_RULES,
   ].join(" "),
-  user: ({ format, title, goal, today, fields, sections }) =>
+  user: ({ format, title, goal, today, appetiteWeeks, cycleEnded, similar, fields, sections }) =>
     [
       ...formatBlock(format),
       "",
@@ -85,6 +86,17 @@ export const productCanvasGapsPrompt = defineAiPrompt(productCanvasGapsTask, {
       `Product Goal: ${goal?.statement || "(not written yet)"}`,
       ...(goal?.why ? [`Why it matters: ${goal.why}`] : []),
       ...(today ? [`Today: ${today}`] : []),
+      ...(format === "shape-up"
+        ? [
+            appetiteWeeks !== undefined
+              ? `Appetite: ${appetiteWeeks} ${appetiteWeeks === 1 ? "week" : "weeks"}`
+              : "Appetite: not set",
+          ]
+        : []),
+      ...(cycleEnded ? [`Its cycle ended on ${cycleEnded}, and it is still bet on.`] : []),
+      ...(similar && similar.length > 0
+        ? listed("Ideas in the inbox that look like it", similar)
+        : []),
       "",
       "What the canvas holds:",
       ...(fields.length === 0 && sections.length === 0 ? ["(nothing yet)"] : []),

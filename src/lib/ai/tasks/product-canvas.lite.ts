@@ -32,6 +32,7 @@ import {
   type CanvasDraftOutput,
 } from "@/lib/product-canvas/starter";
 import { productFormat } from "@/lib/product-canvas/formats";
+import { LIKELY_MAX } from "@/lib/product-canvas/fields";
 import {
   formatOf,
   gapViewOf,
@@ -61,6 +62,9 @@ export const GAPS_FIELD_MAX = 1000;
 export const GAPS_SECTIONS_MAX = 10;
 export const GAPS_SECTION_LINES_MAX = 20;
 export const GAPS_LINE_MAX = 200;
+/** An open idea's look-alikes in the inbox: their titles, never who asked. */
+export const GAPS_SIMILAR_MAX = LIKELY_MAX;
+export const GAPS_SIMILAR_TEXT_MAX = 200;
 /** What comes back: gaps, each short enough to be an open question as it is. */
 export const GAPS_OUT_MAX = 8;
 export const GAPS_OUT_TEXT_MAX = 200;
@@ -72,6 +76,12 @@ export interface CanvasGapsInput {
   goal?: { statement: string; why: string };
   /** YYYY-MM-DD, for a launch date that has passed. */
   today?: string;
+  /** A Shape Up pitch's appetite, in weeks. */
+  appetiteWeeks?: number;
+  /** A Shape Up bet still running after its cycle: the cycle's last day. */
+  cycleEnded?: string;
+  /** An open idea: the titles of the inbox's ideas that look like it. */
+  similar?: string[];
   fields: { id: string; text: string }[];
   sections: {
     id: string;
@@ -182,6 +192,14 @@ export function gapsInputFor(canvas: ProductCanvas, ctx: GapContext = {}): Canva
     };
   }
   if (view.today) input.today = view.today.slice(0, GAPS_TODAY_MAX);
+  if (view.appetiteWeeks !== undefined) input.appetiteWeeks = view.appetiteWeeks;
+  if (view.cycleEnded) input.cycleEnded = view.cycleEnded.slice(0, GAPS_TODAY_MAX);
+  if (view.similar?.length) {
+    input.similar = view.similar
+      .slice(0, GAPS_SIMILAR_MAX)
+      .map((t) => cut(t, GAPS_SIMILAR_TEXT_MAX))
+      .filter(Boolean);
+  }
   return input;
 }
 
@@ -276,6 +294,9 @@ export function productCanvasGapsFallback(i: CanvasGapsInput): CanvasGapsOutput 
     lists,
     ...(i.goal?.statement.trim() ? { goal: i.goal } : {}),
     ...(i.today ? { today: i.today } : {}),
+    ...(i.appetiteWeeks !== undefined ? { appetiteWeeks: i.appetiteWeeks } : {}),
+    ...(i.cycleEnded ? { cycleEnded: i.cycleEnded } : {}),
+    ...(i.similar?.length ? { similar: i.similar } : {}),
   });
   return {
     gaps: gaps.slice(0, GAPS_OUT_MAX).map((g) => ({
