@@ -72,4 +72,19 @@ describe("what a tool page's first load leaves out", () => {
       expect(reached, lazy).not.toContain(lazy);
     }
   });
+
+  it("Kanban loads the hand-off sender and its targets only when the block dialog opens", () => {
+    const reached = firstLoad("src/app/(tools)/kanban/kanban-client.tsx");
+    // Both boards and their "Add why" dialog are in it; the light back-link helpers too.
+    expect(reached).toContain("src/app/(tools)/kanban/flow-board.tsx");
+    expect(reached).toContain("src/app/(tools)/kanban/sprint-board.tsx");
+    expect(reached).toContain("src/app/(tools)/kanban/block-note-dialog.tsx");
+    for (const lazy of [
+      "src/lib/handoffs/send.ts",
+      "src/lib/handoffs/registry.ts",
+      "src/lib/handoffs/targets/impediment.ts",
+    ]) {
+      expect(reached, lazy).not.toContain(lazy);
+    }
+  });
 });

@@ -12,7 +12,7 @@
  */
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { MessageSquareText } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,7 +40,7 @@ import { isResolved } from "@/lib/impediments/model";
 import { openSpellIndex, withSpellNote, type SpellNote } from "@/lib/flow/block-stamps";
 import { blockNotedPayload } from "@/lib/kanban/workflow";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
-import { sendHandoff, type HandoffLinkStore } from "@/lib/handoffs/send";
+import type { HandoffLinkStore } from "@/lib/handoffs/send";
 import { KANBAN_FLOW_DOC } from "@/lib/handoffs/sources";
 import { isExampleId } from "@/lib/utils/example-id";
 import { undoable } from "@/lib/utils/undoable";
@@ -103,6 +103,20 @@ export function whyLabel(spell: BlockSpell | null): string {
   const cause = spell?.cause?.trim();
   if (!cause) return "Add why";
   return `Why: ${cause.length > 28 ? `${cause.slice(0, 27).trimEnd()}…` : cause}`;
+}
+
+/**
+ * The hand-off sender, loaded when the dialog opens rather than with the
+ * board: it brings the whole registry and every target, and "Log as
+ * impediment" is the board's only send. A failed load is tried again.
+ */
+let sendModule: Promise<typeof import("@/lib/handoffs/send")> | null = null;
+function loadSend(): Promise<typeof import("@/lib/handoffs/send")> {
+  sendModule ??= import("@/lib/handoffs/send").catch((error: unknown) => {
+    sendModule = null;
+    throw error;
+  });
+  return sendModule;
 }
 
 const NEW = "new";
@@ -211,6 +225,12 @@ function BlockNoteForm({
   });
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
+
+  // Fetched as the dialog opens, so "Log as impediment" doesn't wait on it.
+  useEffect(() => {
+    loadSend().catch(() => {});
+  }, []);
 
   const openImpediments = (impediments ?? []).filter(
     (i) => !isExampleId(i.id) && (!isResolved(i) || i.id === linked)
@@ -291,7 +311,15 @@ function BlockNoteForm({
     onClose();
   };
 
-  const logImpediment = () => {
+  const logImpediment = async () => {
+    setSending(true);
+    const sender = await loadSend().catch(() => null);
+    setSending(false);
+    if (!sender) {
+      setStatus("Couldn't log it just now. Try again.");
+      return;
+    }
+    const { sendHandoff } = sender;
     // A link to an example row doesn't count (and goes when the new one is written).
     const realLinks = () =>
       openSpell(fresh() ?? item)?.sentTo?.filter((l) => !isExampleId(l.targetId));
@@ -443,7 +471,13 @@ function BlockNoteForm({
           )}
         </Field>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={logImpediment}>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={sending}
+            onClick={() => void logImpediment()}
+          >
             Log as impediment
           </Button>
           {linkedImpediment && (

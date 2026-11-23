@@ -807,6 +807,10 @@ describe("the block note", () => {
       target: { value: "No sandbox keys" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Log as impediment" }));
+    // The sender loads with the dialog, not the board, so the send lands a tick later.
+    await waitFor(() =>
+      expect(within(dialog).getByRole("status")).toHaveTextContent("Logged as an impediment")
+    );
     const made = useWorkspaceStore.getState().impediments!.find((i) => i.id !== "imp1")!;
     expect(made).toMatchObject({
       title: "Wallet payments",
@@ -938,6 +942,9 @@ describe("the block note", () => {
     fireEvent.click(screen.getByRole("button", { name: "Add why: Pay by card" }));
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Log as impediment" }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("status")).toHaveTextContent("Logged as an impediment")
+    );
     const made = useWorkspaceStore.getState().impediments!.find((i) => i.title === "Pay by card")!;
     expect(made.sourceRef).toEqual({ tool: "kanban", id: "a", doc: "s7" });
     expect(sourceHref(made.sourceRef)).toBe("/kanban?sprint=s7");
