@@ -80,6 +80,7 @@ describe("what the MCP handlers call", () => {
         "src/lib/facilitator-timers/sounds.ts",
         "src/lib/improve/coaching.ts",
         "src/lib/improve/model.ts",
+        "src/lib/retro/seismograph.ts",
         "src/lib/root-cause/loops.ts",
       ].map(abs)
     );
@@ -99,6 +100,7 @@ describe("the action files", () => {
     "parking-lot",
     "facilitator-timers",
     "improve",
+    "retro",
     "root-cause",
   ])("%s reaches no client module but the workspace store", (tool) => {
     const { seen, clients } = walk([abs(`src/lib/actions/tools/${tool}.ts`)]);

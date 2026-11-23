@@ -27,6 +27,7 @@ import * as serverStore from "@/lib/actions/server-store";
 import { registry } from "@/lib/actions/registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { RetroBoard, RetroCard } from "@/lib/stores/workspace-types";
+import { retroFormats } from "@/lib/constants/retro-formats";
 
 import "@/lib/actions/tools/retro";
 
@@ -275,5 +276,175 @@ describe("tool.retro.list_state previousActions", () => {
       "test-user",
       "workspace:retroBoard"
     );
+  });
+});
+
+describe("tool.retro on an Emotional Seismograph board", () => {
+  const SEISMO = retroFormats.find((f) => f.id === "seismograph")!;
+  const seismoBoard = (cards: RetroCard[], over: Partial<RetroBoard> = {}): RetroBoard => ({
+    ...board(cards),
+    format: SEISMO,
+    ...over,
+  });
+  const run = async <T>(name: string, params: Record<string, unknown> = {}) =>
+    (await registry.get(`tool.retro.${name}`)!.handler(params, ctx())) as T;
+  const cards = () =>
+    (useWorkspaceStore.getState().retroBoards ?? []).find((b) => b.id === RB_ID)?.cards ?? [];
+
+  beforeEach(() => {
+    useWorkspaceStore.setState({ retroBoards: [], sprints: [] });
+    vi.mocked(serverStore.serverGetEntity).mockReset().mockResolvedValue(null);
+    vi.mocked(serverStore.serverListEntities).mockReset().mockResolvedValue([]);
+    vi.mocked(serverStore.serverUpsertEntity)
+      .mockReset()
+      .mockResolvedValue(undefined as never);
+  });
+
+  it("offers the format to start, and set_card_day writes without a confirmation", () => {
+    expect(registry.get("tool.retro.start")?.description).toContain("seismograph");
+    const action = registry.get("tool.retro.set_card_day");
+    expect(action?.category).toBe("write");
+    expect(action?.requiresConfirmation).toBe(false);
+    expect(action?.mcpHandler).toBeTypeOf("function");
+    expect(action?.visitor).not.toBe(false);
+  });
+
+  it("add_card keeps a day here, and says it ignored one elsewhere", async () => {
+    useWorkspaceStore.getState().upsertRetroBoard(seismoBoard([]));
+    const r = await run<{ added: boolean; dayIgnored?: boolean }>("add_card", {
+      columnKey: "lows",
+      text: "The outage",
+      day: 4,
+    });
+    expect(r).toMatchObject({ added: true });
+    expect(r.dayIgnored).toBeUndefined();
+    expect(cards()[0]).toMatchObject({ text: "The outage", day: 4 });
+    useWorkspaceStore.setState({ retroBoards: [board([])] });
+    const other = await run<{ added: boolean; dayIgnored?: boolean }>("add_card", {
+      columnKey: "mad",
+      text: "Late",
+      day: 2,
+    });
+    expect(other).toMatchObject({ added: true, dayIgnored: true });
+    expect("day" in cards()[0]).toBe(false);
+    const schema = registry.get("tool.retro.add_card")!.paramsSchema;
+    expect(schema.safeParse({ columnKey: "lows", text: "x", day: 31 }).success).toBe(false);
+    expect(schema.safeParse({ columnKey: "lows", text: "x", day: 2.5 }).success).toBe(false);
+  });
+
+  it("set_card_day places a card, clears it, and refuses off this board", async () => {
+    useWorkspaceStore
+      .getState()
+      .upsertRetroBoard(
+        seismoBoard([
+          card({ id: "c1", columnKey: "lows", text: "Outage" }),
+          card({ id: "a1", columnKey: "lows", text: "Fix alerts", isActionItem: true }),
+          card({ id: "g1", columnKey: "lows", text: "Same outage", groupedWith: "c1" }),
+        ])
+      );
+    expect(await run("set_card_day", { cardId: "c1", day: 3 })).toEqual({
+      updated: true,
+      day: 3,
+      charted: true,
+    });
+    expect(cards()[0].day).toBe(3);
+    // An action item and a grouped card keep the day, but don't chart by it.
+    expect(await run("set_card_day", { cardId: "a1", day: 5 })).toMatchObject({ charted: false });
+    expect(await run("set_card_day", { cardId: "g1", day: 6 })).toMatchObject({ charted: false });
+    expect(await run("set_card_day", { cardId: "c1", day: null })).toMatchObject({ updated: true });
+    expect("day" in cards()[0]).toBe(false);
+    expect(await run("set_card_day", { cardId: "nope", day: 1 })).toEqual({
+      updated: false,
+      reason: "unknown_card",
+    });
+    useWorkspaceStore.setState({ retroBoards: [board([card({ id: "c1", columnKey: "mad" })])] });
+    expect(await run("set_card_day", { cardId: "c1", day: 1 })).toEqual({
+      updated: false,
+      reason: "not_seismograph",
+    });
+    useWorkspaceStore.setState({ retroBoards: [] });
+    expect(await run("set_card_day", { cardId: "c1", day: 1 })).toEqual({
+      updated: false,
+      reason: "no_retro",
+    });
+  });
+
+  it("list_state reads the chart from the cards: days from the sprint, placed, unplaced and the read", async () => {
+    useWorkspaceStore.setState({
+      sprints: [
+        {
+          id: "s1",
+          name: "Sprint 12",
+          startDate: "2026-11-09",
+          endDate: "2026-11-20",
+          pointsPlanned: 10,
+          status: "completed",
+        },
+      ],
+      retroBoards: [
+        seismoBoard(
+          [
+            card({ id: "h1", columnKey: "highs", text: "Shipped", day: 4, votes: 2 }),
+            card({ id: "l1", columnKey: "lows", text: "Outage", day: 4 }),
+            card({ id: "s1c", columnKey: "steady", text: "Pairing" }),
+            card({ id: "late", columnKey: "lows", text: "Past the end", day: 20 }),
+            card({
+              id: "sent",
+              columnKey: "lows",
+              text: "From Root Cause",
+              sourceRef: { tool: "root-cause", id: "rca_1" },
+              day: 1,
+            }),
+          ],
+          { sprintId: "s1" }
+        ),
+      ],
+    });
+    const r = await run<{
+      seismograph: {
+        days: { day: number; date: string | null }[];
+        placed: { cardId: string; band: string; day: number; votes: number }[];
+        unplaced: { cardId: string; day: number | null }[];
+        read: string[];
+      } | null;
+    }>("list_state");
+    expect(r.seismograph?.days).toHaveLength(12);
+    expect(r.seismograph?.days[0]).toEqual({ day: 0, date: "2026-11-09" });
+    expect(r.seismograph?.placed.map((p) => [p.cardId, p.band, p.day, p.votes])).toEqual([
+      ["h1", "high", 4, 2],
+      ["l1", "low", 4, 0],
+    ]);
+    expect(r.seismograph?.unplaced.map((u) => [u.cardId, u.day])).toEqual([
+      ["s1c", null],
+      ["late", 20],
+    ]);
+    expect(r.seismograph?.read).toEqual(["Day 4 had both a high and a low."]);
+    expect(registry.get("tool.retro.list_state")?.description).toContain("not the team's mood");
+  });
+
+  it("list_state has no seismograph on another board, and Day 0–9 with no sprint", async () => {
+    useWorkspaceStore.setState({ retroBoards: [board([])] });
+    expect((await run<{ seismograph: unknown }>("list_state")).seismograph).toBeNull();
+    useWorkspaceStore.setState({ retroBoards: [seismoBoard([])] });
+    const r = await run<{ seismograph: { days: unknown[] } }>("list_state");
+    expect(r.seismograph.days).toHaveLength(10);
+  });
+
+  it("writes a card's day to the user's board over MCP", async () => {
+    const row = seismoBoard([card({ id: "c1", columnKey: "highs", text: "Demo went well" })]);
+    vi.mocked(serverStore.serverGetEntity).mockResolvedValue(row as never);
+    const r = await registry.get("tool.retro.set_card_day")!.mcpHandler!(
+      { cardId: "c1", day: 2 },
+      ctx()
+    );
+    expect(r).toMatchObject({ updated: true, day: 2, charted: true });
+    const [, kind, saved] = vi.mocked(serverStore.serverUpsertEntity).mock.calls[0] as unknown as [
+      string,
+      string,
+      RetroBoard,
+    ];
+    expect(kind).toBe("workspace:retroBoard");
+    expect(saved.cards[0].day).toBe(2);
+    expect(useWorkspaceStore.getState().retroBoards).toEqual([]);
   });
 });
