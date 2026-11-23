@@ -1,6 +1,6 @@
 /**
  * Root Cause's AI tasks, the lite half pages import (no zod; the defs, with
- * their schemas, are `root-cause.ts` and load on first AI use): the three
+ * their schemas, are `root-cause.ts` and load on first AI use): the four
  * fallbacks, with their templates and keyword rules, and one ref per task.
  */
 
@@ -10,6 +10,8 @@ import type {
   CategoriesOutput,
   CountermeasureInput,
   CountermeasureOutput,
+  LoopLinksInput,
+  LoopLinksOutput,
   NextWhyInput,
   NextWhyOutput,
 } from "./root-cause";
@@ -18,6 +20,8 @@ export type {
   CategoriesOutput,
   CountermeasureInput,
   CountermeasureOutput,
+  LoopLinksInput,
+  LoopLinksOutput,
   NextWhyInput,
   NextWhyOutput,
 } from "./root-cause";
@@ -173,4 +177,89 @@ export const countermeasureFallback = ({
 export const countermeasureTask = lazyAiTask<CountermeasureInput, CountermeasureOutput>(
   { id: "root-cause.countermeasure", toolId: "root-cause", fallback: countermeasureFallback },
   () => import("./root-cause").then((m) => m.countermeasureTask)
+);
+
+/* ── root-cause.loop_links ──────────────────────────────────────────── */
+
+/** The loop-links task's input caps (the def's schema holds the same numbers). */
+export const LOOP_LINKS_INPUT_MAX = {
+  problem: 1000,
+  id: 64,
+  node: 120,
+  nodes: 30,
+  links: 60,
+} as const;
+
+/** Arrows one ask suggests at most. */
+export const LOOP_LINKS_MAX = 10;
+/** The most words of each suggested arrow's why. */
+export const LOOP_LINK_WHY_MAX = 200;
+
+/** Things the fallback chains, in the loop's list order. */
+const LOOP_CHAIN_MAX = 10;
+
+/** Words that say a thing goes down: on exactly one end, the arrow reads "opposite". */
+const GOING_DOWN = /\b(less|fewer|lack\w*|no|low\w*|slow\w*|missing)\b/i;
+
+/** "same", unless exactly one of the two things says it goes down. */
+export function guessPolarity(fromText: string, toText: string): "same" | "opposite" {
+  return GOING_DOWN.test(fromText) !== GOING_DOWN.test(toText) ? "opposite" : "same";
+}
+
+type LoopNodeIn = LoopLinksInput["nodes"][number];
+type LoopLinkOut = LoopLinksOutput["links"][number];
+
+/**
+ * Arrows to check, without AI: the first ten things chained in list order,
+ * one arrow for each neighbouring pair not linked yet (either way), each
+ * signed by its words (`guessPolarity`) and asking the team to check the
+ * sign; then one arrow from the last of them back to the first, unless
+ * those two are linked already, which closes a loop of at most ten. At
+ * most ten arrows, inside findLoops' length limit. A thing the schema
+ * refuses (no id, an id over 64 characters, no words) is left out, so the
+ * answer always fits the output schema.
+ */
+export function fallbackLoopLinks(
+  nodes: readonly LoopNodeIn[],
+  links: readonly { from: string; to: string }[]
+): LoopLinkOut[] {
+  const usable = nodes
+    .filter((n) => n.id.trim() && n.id.length <= LOOP_LINKS_INPUT_MAX.id && n.text.trim())
+    .slice(0, LOOP_CHAIN_MAX);
+  const linked = (a: string, b: string) =>
+    links.some((l) => (l.from === a && l.to === b) || (l.from === b && l.to === a));
+  const out: LoopLinkOut[] = [];
+  for (let i = 0; i + 1 < usable.length; i++) {
+    const [a, b] = [usable[i], usable[i + 1]];
+    if (linked(a.id, b.id)) continue;
+    const polarity = guessPolarity(a.text, b.text);
+    out.push({
+      from: a.id,
+      to: b.id,
+      polarity,
+      why: `Check the sign: does ${quoted(b.text, 70)} go ${polarity === "same" ? "up" : "down"} when ${quoted(a.text, 70)} goes up?`,
+    });
+  }
+  if (usable.length >= 2) {
+    const [last, first] = [usable[usable.length - 1], usable[0]];
+    if (!linked(last.id, first.id)) {
+      out.push({
+        from: last.id,
+        to: first.id,
+        polarity: guessPolarity(last.text, first.text),
+        why: "If this is true, it closes a loop: check it.",
+      });
+    }
+  }
+  return out.slice(0, LOOP_LINKS_MAX);
+}
+
+/** The loop-links task's answer without AI. */
+export const loopLinksFallback = ({ nodes, links }: LoopLinksInput): LoopLinksOutput => ({
+  links: fallbackLoopLinks(nodes, links),
+});
+
+export const loopLinksTask = lazyAiTask<LoopLinksInput, LoopLinksOutput>(
+  { id: "root-cause.loop_links", toolId: "root-cause", fallback: loopLinksFallback },
+  () => import("./root-cause").then((m) => m.loopLinksTask)
 );

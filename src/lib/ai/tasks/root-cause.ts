@@ -8,30 +8,44 @@
  *                             category each cause belongs under
  *   root-cause.countermeasure the problem, the root cause and the chain →
  *                             up to 3 countermeasures, each with a check
+ *   root-cause.loop_links     the problem, the causal loop's things and
+ *                             arrows → up to 10 new arrows, each signed,
+ *                             with why it may hold
  *
  * Each has a fallback that needs no model: templates built from the last
  * answer (next_why), keyword rules for the six default categories
- * (categories), and templates built from the root cause (countermeasure).
- * The person accepts what fits; nothing is written on its own.
+ * (categories), templates built from the root cause (countermeasure), and
+ * a chain of the loop's things with one arrow back (loop_links). The
+ * person accepts what fits; nothing is written on its own.
  */
 
 import { z } from "zod";
 import { defineAiTask, type SchemaOf } from "../define-task";
 import {
+  LOOP_LINKS_INPUT_MAX,
+  LOOP_LINKS_MAX,
+  LOOP_LINK_WHY_MAX,
   ROOT_CAUSE_SUGGESTIONS_MAX,
   categoriesFallback,
   countermeasureFallback,
+  loopLinksFallback,
   nextWhyFallback,
 } from "./root-cause.lite";
 
 export {
+  LOOP_LINKS_INPUT_MAX,
+  LOOP_LINKS_MAX,
+  LOOP_LINK_WHY_MAX,
   ROOT_CAUSE_SUGGESTIONS_MAX,
   categoriesFallback,
   categoryFor,
   countermeasureFallback,
   fallbackCategoryMoves,
   fallbackCountermeasures,
+  fallbackLoopLinks,
   fallbackNextWhys,
+  guessPolarity,
+  loopLinksFallback,
   nextWhyFallback,
 } from "./root-cause.lite";
 
@@ -162,5 +176,60 @@ export const countermeasureTask = defineAiTask({
       "Migrations are only tested on a small, seeded database.",
     ],
     causes: ["No rehearsal of the release", "Release checklist skipped under time pressure"],
+  },
+});
+
+/* ── root-cause.loop_links ──────────────────────────────────────────── */
+
+const Polarity = z.enum(["same", "opposite"]);
+const L = LOOP_LINKS_INPUT_MAX;
+
+const loopLinksInput = z.object({
+  problem: Line(L.problem).min(1),
+  nodes: z
+    .array(z.object({ id: Line(L.id).min(1), text: Line(L.node).min(1) }))
+    .min(2)
+    .max(L.nodes),
+  links: z.array(z.object({ from: Line(L.id), to: Line(L.id), polarity: Polarity })).max(L.links),
+});
+
+const loopLinksOutput = z.object({
+  links: z
+    .array(
+      z.object({
+        from: Line(L.id).min(1),
+        to: Line(L.id).min(1),
+        polarity: Polarity,
+        delay: z.boolean().optional(),
+        why: Line(LOOP_LINK_WHY_MAX).min(1),
+      })
+    )
+    .max(LOOP_LINKS_MAX),
+});
+
+export type LoopLinksInput = SchemaOf<typeof loopLinksInput>;
+export type LoopLinksOutput = SchemaOf<typeof loopLinksOutput>;
+
+export const loopLinksTask = defineAiTask({
+  id: "root-cause.loop_links",
+  toolId: "root-cause",
+  tier: "flash",
+  effort: "low",
+  maxTokens: 4096,
+  input: loopLinksInput,
+  output: loopLinksOutput,
+  fallback: loopLinksFallback,
+  sample: {
+    problem: "Checkout errors noticed late. Customers saw errors for two hours before anyone knew.",
+    nodes: [
+      { id: "e", text: "Checkout errors customers see" },
+      { id: "t", text: "Support tickets" },
+      { id: "f", text: "Time spent firefighting" },
+      { id: "a", text: "Alerts on checkout" },
+    ],
+    links: [
+      { from: "e", to: "t", polarity: "same" },
+      { from: "t", to: "f", polarity: "same" },
+    ],
   },
 });

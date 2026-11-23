@@ -6,22 +6,33 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { TOOL_AI_BODY_BUDGET } from "@/lib/ai/contract";
 import { parseAnswer } from "@/lib/ai/parse-answer";
+import { getAiTask } from "@/lib/ai/registry";
 import { buildTaskSystem, buildTaskUser } from "@/lib/ai/run-task.server";
 import {
+  LOOP_LINKS_INPUT_MAX,
+  LOOP_LINKS_MAX,
+  LOOP_LINK_WHY_MAX,
   categoriesTask,
   categoryFor,
   countermeasureTask,
   fallbackCategoryMoves,
   fallbackCountermeasures,
+  fallbackLoopLinks,
   fallbackNextWhys,
+  guessPolarity,
+  loopLinksTask,
   nextWhyTask,
 } from "@/lib/ai/tasks/root-cause";
+import { loopLinksTask as loopLinksRef } from "@/lib/ai/tasks/root-cause.lite";
 import {
   categoriesPrompt,
   countermeasurePrompt,
+  loopLinksPrompt,
   nextWhyPrompt,
 } from "@/lib/ai/tasks/root-cause.server";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 
 describe("root-cause.next_why", () => {
   it("is a quick task the owner and visitors can use", () => {
@@ -138,5 +149,166 @@ describe("root-cause.countermeasure", () => {
       expect(c.check.length).toBeGreaterThan(10);
     }
     expect(out[1].text).toContain("“No owner for staging data”");
+  });
+});
+
+describe("root-cause.loop_links", () => {
+  const wide = (n: number) => "界".repeat(n);
+
+  it("is a quick task the owner and visitors can use, registered with the others", () => {
+    expect(loopLinksTask).toMatchObject({
+      id: "root-cause.loop_links",
+      toolId: "root-cause",
+      tier: "flash",
+      effort: "low",
+      maxTokens: 4096,
+    });
+    expect(loopLinksTask.ownerOnly).toBeUndefined();
+    expect(getAiTask("root-cause.loop_links")).toBe(loopLinksTask);
+    expect(loopLinksRef.id).toBe(loopLinksTask.id);
+    expect(loopLinksRef.fallback).toBe(loopLinksTask.fallback);
+  });
+
+  it("sends the things by id and the arrows drawn as data, with the sign rules around them", () => {
+    const system = buildTaskSystem(loopLinksTask, loopLinksPrompt);
+    expect(system).toContain('"same"');
+    expect(system).toContain('"opposite"');
+    expect(system).toContain("Never suggest an arrow already drawn");
+    const user = buildTaskUser(loopLinksPrompt, loopLinksTask.input.parse(loopLinksTask.sample));
+    expect(user).toContain("Problem: Checkout errors noticed late.");
+    expect(user).toContain("e | Checkout errors customers see");
+    expect(user).toContain("e -> t, same (Checkout errors customers see -> Support tickets)");
+    const none = buildTaskUser(loopLinksPrompt, {
+      ...loopLinksTask.input.parse(loopLinksTask.sample),
+      links: [],
+    });
+    expect(none).toContain("Arrows already drawn: (none yet)");
+  });
+
+  it("refuses an input with fewer than two things", () => {
+    const one = { problem: "P", nodes: [{ id: "a", text: "A" }], links: [] };
+    expect(loopLinksTask.input.safeParse(one).success).toBe(false);
+  });
+
+  it("reads a typical answer, drops a malformed arrow, and keeps ten of too many", () => {
+    const answer = {
+      links: [
+        {
+          from: "f",
+          to: "a",
+          polarity: "opposite",
+          delay: true,
+          why: "Firefighting crowds out alerts.",
+        },
+        { from: "a", polarity: "same", why: "No to" },
+        { from: "a", to: "e", polarity: "sideways", why: "Bad sign" },
+      ],
+    };
+    const parsed = parseAnswer(
+      `\`\`\`json\n${JSON.stringify(answer)}\n\`\`\``,
+      loopLinksTask.output
+    );
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) expect(parsed.data.links).toEqual([answer.links[0]]);
+    const many = {
+      links: Array.from({ length: 14 }, (_, i) => ({
+        from: `n${i}`,
+        to: `n${i + 1}`,
+        polarity: "same",
+        why: "Check it.",
+      })),
+    };
+    const capped = parseAnswer(JSON.stringify(many), loopLinksTask.output);
+    expect(capped.ok && capped.data.links.length).toBe(LOOP_LINKS_MAX);
+    // No new arrow is a fair answer.
+    expect(parseAnswer('{"links": []}', loopLinksTask.output).ok).toBe(true);
+  });
+
+  it("falls back to a chain through the first things and one arrow back, signed by their words", () => {
+    const nodes = [
+      { id: "e", text: "Checkout errors" },
+      { id: "t", text: "Support tickets" },
+      { id: "f", text: "Time firefighting" },
+      { id: "a", text: "Fewer alerts" },
+    ];
+    const out = fallbackLoopLinks(nodes, []);
+    expect(out.map((l) => `${l.from}>${l.to}:${l.polarity}`)).toEqual([
+      "e>t:same",
+      "t>f:same",
+      "f>a:opposite",
+      "a>e:opposite",
+    ]);
+    expect(out[0].why).toBe(
+      "Check the sign: does “Support tickets” go up when “Checkout errors” goes up?"
+    );
+    expect(out[2].why).toContain("go down when");
+    expect(out[3].why).toBe("If this is true, it closes a loop: check it.");
+    expect(guessPolarity("No alert", "Slow reviews")).toBe("same");
+    expect(guessPolarity("Missing tests", "Bugs")).toBe("opposite");
+  });
+
+  it("skips pairs linked either way, and the arrow back when its ends are linked", () => {
+    const nodes = ["a", "b", "c"].map((id) => ({ id, text: id.toUpperCase() }));
+    const out = fallbackLoopLinks(nodes, [
+      { from: "b", to: "a" },
+      { from: "a", to: "c" },
+    ]);
+    expect(out.map((l) => `${l.from}>${l.to}`)).toEqual(["b>c"]);
+  });
+
+  it("closes a two-thing loop, and never offers more than ten arrows or a loop past twelve", () => {
+    const two = fallbackLoopLinks(
+      [
+        { id: "a", text: "A" },
+        { id: "b", text: "B" },
+      ],
+      []
+    );
+    expect(two.map((l) => `${l.from}>${l.to}`)).toEqual(["a>b", "b>a"]);
+    const nodes = Array.from({ length: 30 }, (_, i) => ({ id: `n${i}`, text: `Thing ${i}` }));
+    const out = fallbackLoopLinks(nodes, []);
+    expect(out).toHaveLength(LOOP_LINKS_MAX);
+    expect(out[out.length - 1]).toMatchObject({ from: "n9", to: "n0" });
+    expect(new Set(out.flatMap((l) => [l.from, l.to])).size).toBeLessThanOrEqual(12);
+  });
+
+  it("always answers inside its output schema, even with the longest words", () => {
+    const sample = loopLinksTask.fallback(loopLinksTask.input.parse(loopLinksTask.sample));
+    expect(loopLinksTask.output.safeParse(sample).success).toBe(true);
+    const nodes = Array.from({ length: 30 }, (_, i) => ({
+      id: `${i}`.padStart(LOOP_LINKS_INPUT_MAX.id, "x"),
+      text: wide(LOOP_LINKS_INPUT_MAX.node),
+    }));
+    const out = loopLinksTask.fallback({ problem: wide(1000), nodes, links: [] });
+    expect(loopLinksTask.output.safeParse(out).success).toBe(true);
+    for (const l of out.links) expect(l.why.length).toBeLessThanOrEqual(LOOP_LINK_WHY_MAX);
+    // A thing whose id the schema would refuse is left out, never echoed.
+    const odd = fallbackLoopLinks(
+      [
+        { id: "x".repeat(65), text: "Too long an id" },
+        { id: "a", text: "A" },
+        { id: "b", text: "B" },
+      ],
+      []
+    );
+    expect(odd.every((l) => l.from.length <= 64 && l.to.length <= 64)).toBe(true);
+  });
+
+  it("fits the body budget at its caps in 3-byte text, so it needs no fitter", () => {
+    const I = LOOP_LINKS_INPUT_MAX;
+    const id = (i: number) => `${wide(I.id - 2)}${String(i % I.nodes).padStart(2, "0")}`;
+    const largest = {
+      problem: wide(I.problem),
+      nodes: Array.from({ length: I.nodes }, (_, i) => ({ id: id(i), text: wide(I.node) })),
+      links: Array.from({ length: I.links }, (_, i) => ({
+        from: id(i),
+        to: id(i + 1),
+        polarity: "opposite" as const,
+      })),
+    };
+    expect(loopLinksTask.input.safeParse(largest).success).toBe(true);
+    expect(jsonBytes({ task: loopLinksTask.id, input: largest })).toBeLessThanOrEqual(
+      TOOL_AI_BODY_BUDGET
+    );
   });
 });

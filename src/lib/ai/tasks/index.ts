@@ -18,7 +18,7 @@ import { themeNamesTask } from "./picker";
 import { productGoalDraftTask } from "./product-goal";
 import { groupTopicsTask, surprisePlanTask } from "./retro";
 import { retroActionsThemesTask } from "./retro-actions";
-import { categoriesTask, countermeasureTask, nextWhyTask } from "./root-cause";
+import { categoriesTask, countermeasureTask, loopLinksTask, nextWhyTask } from "./root-cause";
 import { notebookTagTask, notebookWeeklySummaryTask } from "./sm-notebook";
 import { sprintRiskNoteTask } from "./sprint";
 
@@ -46,6 +46,7 @@ export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   nextWhyTask,
   categoriesTask,
   countermeasureTask,
+  loopLinksTask,
   notebookWeeklySummaryTask,
   notebookTagTask,
   sprintRiskNoteTask,
