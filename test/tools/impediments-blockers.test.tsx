@@ -7,7 +7,7 @@
  * optional Blockers section; and the pure cluster writes under them.
  */
 
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -169,10 +169,35 @@ describe("Blockers: where the time goes", () => {
       s.getByText(/^Test or build environment comes up most: 3 impediments/)
     ).toBeInTheDocument();
     const raise = within(s.getByRole("list", { name: "Clusters to raise" }));
-    // Its impediments are still open, so the cluster is already raised: the page says by which.
-    expect(raise.getByText("Raised as “Build server down”")).toBeInTheDocument();
+    // Its impediments are still open, so the cluster is already raised: the page links to which.
+    expect(raise.getByRole("button", { name: "Open “Build server down”" })).toHaveTextContent(
+      "“Build server down”"
+    );
+    expect(raise.getAllByText(/^Raised as/).length).toBeGreaterThan(0);
     expect(raise.queryByRole("button", { name: /Raise “Test or build environment”/ })).toBeNull();
     expect(s.getByText(/Blocked time counts from/)).toBeInTheDocument();
+  });
+
+  it("takes the person to the raised impediment's card, clearing a filter that hides it", async () => {
+    useWorkspaceStore.setState({
+      impediments: [
+        imp("i1", "Keeps blocking us: Another team", { cluster: "Another team" }),
+        imp("i2", "Old one", { resolvedAt: ago(1) }),
+      ],
+    });
+    renderPage();
+    fireEvent.click(await screen.findByRole("radio", { name: /^Resolved/ }));
+    expect(
+      screen.queryByRole("button", { name: "Edit Keeps blocking us: Another team" })
+    ).toBeNull();
+    const s = within(screen.getByRole("region", { name: "Blockers: where the time goes" }));
+    fireEvent.click(s.getByRole("button", { name: "Open “Keeps blocking us: Another team”" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Edit Keeps blocking us: Another team" })
+      ).toHaveFocus()
+    );
+    expect(screen.getByRole("radio", { name: /^All/ })).toHaveAttribute("aria-checked", "true");
   });
 
   it("clusters a blocked story's spell from the list, with Undo", async () => {
@@ -282,7 +307,7 @@ describe("Blockers: where the time goes", () => {
       payload: { impedimentId: raised?.id, size: 3 },
     });
     expect(
-      await screen.findByText("Raised as “Keeps blocking us: Another team”")
+      await screen.findByRole("button", { name: "Open “Keeps blocking us: Another team”" })
     ).toBeInTheDocument();
     undoLast();
     expect(ws().impediments.some((i) => i.title.startsWith("Keeps blocking us"))).toBe(false);

@@ -236,6 +236,23 @@ export function ImpedimentsClient() {
     focusSoon(() => (near && editButtonOf(near.id)) || clearFiltersRef.current || logStart());
   }
 
+  /**
+   * Take the person to the card for `id` (a raised cluster's impediment, from
+   * the Blockers section): clear the filters when they hide it, then scroll
+   * to it and focus its Edit button.
+   */
+  function showImpediment(id: string) {
+    const row = list.find((i) => i.id === id);
+    if (!row) return;
+    if (!matchesFilters(row, filters, today)) setFilters(NO_FILTERS);
+    focusSoon(() => {
+      const edit = editButtonOf(id);
+      // jsdom has no scrollIntoView.
+      edit?.scrollIntoView?.({ block: "center" });
+      return edit;
+    });
+  }
+
   /* ── Changes ── */
 
   function add(values: ImpedimentValues) {
@@ -606,7 +623,7 @@ export function ImpedimentsClient() {
               </SectionCard>
             )}
 
-            <BlockersSection impediments={list} today={today} />
+            <BlockersSection impediments={list} today={today} onShowImpediment={showImpediment} />
 
             <ImpedimentsAdvanced analysis={analysis} />
           </>

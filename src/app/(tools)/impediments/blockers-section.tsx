@@ -161,10 +161,13 @@ function applyWrite(w: ClusterWrite) {
 export function BlockersSection({
   impediments,
   today,
+  onShowImpediment,
 }: {
   /** The tracker's impediments, as the page shows them. */
   impediments: readonly Impediment[];
   today: string;
+  /** Takes the person to an impediment's card in the tracker's list (a raised cluster's). */
+  onShowImpediment?: (id: string) => void;
 }) {
   const stories = useWorkspaceStore((s) => s.stories) ?? NO_STORIES;
   const boards = useWorkspaceStore((s) => s.kanbanBoards) ?? NO_BOARDS;
@@ -414,7 +417,21 @@ export function BlockersSection({
                             {byDays ? `, ${days(c.blockedDays)}` : `, ${c.impediments} raised`})
                           </span>
                         </span>
-                        {open ? (
+                        {open && onShowImpediment ? (
+                          <span className="flex min-w-0 flex-wrap items-center gap-x-1 text-xs text-sub">
+                            Raised as
+                            <Button
+                              type="button"
+                              variant="link"
+                              size="sm"
+                              className="h-auto max-w-full whitespace-normal break-words px-1 text-left md-fine:h-auto"
+                              aria-label={`Open “${open.title}”`}
+                              onClick={() => onShowImpediment(open.id)}
+                            >
+                              “{open.title}”
+                            </Button>
+                          </span>
+                        ) : open ? (
                           <span className="text-xs text-sub">Raised as “{open.title}”</span>
                         ) : (
                           // A long cluster name wraps inside the button: it never pushes a phone sideways.
