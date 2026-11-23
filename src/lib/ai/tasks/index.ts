@@ -6,6 +6,7 @@
 
 import type { AiTaskDef } from "../task-types";
 import { suggestOptionsTask } from "./_example";
+import { asyncStandupDigestTask } from "./async-standup";
 import { clusterTask, mergeQuestionsTask, toBacklogTask } from "./audience-wall";
 import { backlogHealthReviewTask } from "./backlog-health";
 import { cardForMoodTask, generateCardsTask } from "./card-decks";
@@ -27,6 +28,7 @@ import { teamTimeScheduleNoteTask } from "./team-time";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const AI_TASKS: readonly AiTaskDef<any, any>[] = [
   suggestOptionsTask,
+  asyncStandupDigestTask,
   clusterTask,
   mergeQuestionsTask,
   toBacklogTask,
