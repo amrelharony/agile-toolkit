@@ -57,7 +57,7 @@ const rulesOutput = z.object({
 export type RulesInput = SchemaOf<typeof rulesInput>;
 export type RulesOutput = SchemaOf<typeof rulesOutput>;
 
-export const rulesTask = defineAiTask({
+export const mapRulesTask = defineAiTask({
   id: "example-mapping.rules",
   toolId: "example-mapping",
   tier: "full",
@@ -108,7 +108,7 @@ export type ExamplesInput = SchemaOf<typeof examplesInput>;
 export type ExamplesOutput = SchemaOf<typeof examplesOutput>;
 export type SuggestedExample = ExamplesOutput["examples"][number];
 
-export const examplesTask = defineAiTask({
+export const mapExamplesTask = defineAiTask({
   id: "example-mapping.examples",
   toolId: "example-mapping",
   tier: "flash",
@@ -149,7 +149,7 @@ const questionsOutput = z.object({
 export type QuestionsInput = SchemaOf<typeof questionsInput>;
 export type QuestionsOutput = SchemaOf<typeof questionsOutput>;
 
-export const questionsTask = defineAiTask({
+export const mapQuestionsTask = defineAiTask({
   id: "example-mapping.questions",
   toolId: "example-mapping",
   tier: "flash",

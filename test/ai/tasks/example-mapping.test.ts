@@ -15,18 +15,18 @@ import { jsonBytes } from "@/lib/utils/json-bytes";
 import {
   EXAMPLE_MAPPING_AI as CAP,
   TEMPLATE_QUESTIONS,
-  examplesTask,
+  mapExamplesTask,
   fallbackExamples,
   fallbackQuestions,
   fallbackRules,
   keepKnownRules,
-  questionsTask,
-  rulesTask,
+  mapQuestionsTask,
+  mapRulesTask,
 } from "@/lib/ai/tasks/example-mapping";
 import {
-  examplesPrompt,
-  questionsPrompt,
-  rulesPrompt,
+  mapExamplesPrompt,
+  mapQuestionsPrompt,
+  mapRulesPrompt,
 } from "@/lib/ai/tasks/example-mapping.server";
 
 /** 3-byte text: the most a counted character of real text costs. */
@@ -34,13 +34,17 @@ const wide = (n: number) => "語".repeat(n);
 
 describe("example-mapping.rules", () => {
   it("is a reasoning task the owner and visitors can use", () => {
-    expect(rulesTask).toMatchObject({ toolId: "example-mapping", tier: "full", maxTokens: 4096 });
-    expect(rulesTask.ownerOnly).toBeUndefined();
+    expect(mapRulesTask).toMatchObject({
+      toolId: "example-mapping",
+      tier: "full",
+      maxTokens: 4096,
+    });
+    expect(mapRulesTask.ownerOnly).toBeUndefined();
   });
 
   it("sends the story and the rules so far as data", () => {
-    expect(buildTaskSystem(rulesTask, rulesPrompt)).toContain("Example Mapping");
-    const user = buildTaskUser(rulesPrompt, rulesTask.input.parse(rulesTask.sample));
+    expect(buildTaskSystem(mapRulesTask, mapRulesPrompt)).toContain("Example Mapping");
+    const user = buildTaskUser(mapRulesPrompt, mapRulesTask.input.parse(mapRulesTask.sample));
     expect(user).toContain("Story: As a shopper, I want to pay with a saved card");
     expect(user).toContain("- An expired card is refused");
   });
@@ -49,19 +53,19 @@ describe("example-mapping.rules", () => {
     const rules = Array.from({ length: 8 }, (_, i) => ({ text: `Rule ${i}` }));
     const parsed = parseAnswer(
       JSON.stringify({ rules, questions: [{ text: "Who?" }] }),
-      rulesTask.output
+      mapRulesTask.output
     );
     expect(parsed.ok && parsed.data.rules).toHaveLength(6);
   });
 
   it("falls back to the criteria lines and rule sentences, none twice, plus template questions", () => {
-    const out = fallbackRules(rulesTask.input.parse(rulesTask.sample));
+    const out = fallbackRules(mapRulesTask.input.parse(mapRulesTask.sample));
     const texts = out.rules.map((r) => r.text);
     expect(texts).not.toContain("An expired card is refused");
     expect(texts).toContain("The CVC is asked once per session");
     expect(texts).toContain("Only the card holder can save a card.");
     expect(out.questions.map((q) => q.text)).toEqual([...TEMPLATE_QUESTIONS]);
-    expect(rulesTask.output.safeParse(out).success).toBe(true);
+    expect(mapRulesTask.output.safeParse(out).success).toBe(true);
   });
 
   it("refuses a blank story rather than answer for one", () => {
@@ -71,9 +75,12 @@ describe("example-mapping.rules", () => {
 
 describe("example-mapping.examples", () => {
   it("sends the story and the rule as data", () => {
-    const user = buildTaskUser(examplesPrompt, examplesTask.input.parse(examplesTask.sample));
+    const user = buildTaskUser(
+      mapExamplesPrompt,
+      mapExamplesTask.input.parse(mapExamplesTask.sample)
+    );
     expect(user).toContain("Rule: An expired card is refused");
-    expect(buildTaskSystem(examplesTask, examplesPrompt)).toContain('"happy"');
+    expect(buildTaskSystem(mapExamplesTask, mapExamplesPrompt)).toContain('"happy"');
   });
 
   it("drops a half-written scenario and keeps the rest", () => {
@@ -86,7 +93,7 @@ describe("example-mapping.examples", () => {
           { text: "Bad kind", kind: "weird" },
         ],
       }),
-      examplesTask.output
+      mapExamplesTask.output
     );
     expect(parsed.ok && parsed.data.examples.map((e) => e.text)).toEqual(["Full", "Line"]);
   });
@@ -104,25 +111,28 @@ describe("example-mapping.examples", () => {
       then: "they are stopped and told why",
     });
     expect(story.examples[2].given).toBeUndefined();
-    expect(examplesTask.output.safeParse(story).success).toBe(true);
+    expect(mapExamplesTask.output.safeParse(story).success).toBe(true);
     const plain = fallbackExamples({ title: "Saved cards", rule: "Only holders", examples: [] });
     expect(plain.examples[0].when).toContain("“Saved cards”");
-    expect(examplesTask.output.safeParse(plain).success).toBe(true);
+    expect(mapExamplesTask.output.safeParse(plain).success).toBe(true);
   });
 });
 
 describe("example-mapping.questions", () => {
   it("lists rules by id with their examples", () => {
-    const user = buildTaskUser(questionsPrompt, questionsTask.input.parse(questionsTask.sample));
+    const user = buildTaskUser(
+      mapQuestionsPrompt,
+      mapQuestionsTask.input.parse(mapQuestionsTask.sample)
+    );
     expect(user).toContain("rule_1 | An expired card is refused");
     expect(user).toContain("  - Maria's card expired last month");
   });
 
   it("falls back to questions from the map's shape, and keeps only known rule ids", () => {
-    const out = fallbackQuestions(questionsTask.input.parse(questionsTask.sample));
+    const out = fallbackQuestions(mapQuestionsTask.input.parse(mapQuestionsTask.sample));
     expect(out.questions[0]).toMatchObject({ ruleId: "rule_2" });
     expect(out.questions[0].text).toContain("“Only the card holder can save a card”");
-    expect(questionsTask.output.safeParse(out).success).toBe(true);
+    expect(mapQuestionsTask.output.safeParse(out).success).toBe(true);
     const kept = keepKnownRules(
       {
         questions: [
@@ -130,7 +140,7 @@ describe("example-mapping.questions", () => {
           { text: "B", ruleId: "invented" },
         ],
       },
-      questionsTask.sample
+      mapQuestionsTask.sample
     );
     expect(kept.questions).toEqual([{ text: "A", ruleId: "rule_1" }, { text: "B" }]);
   });
@@ -145,16 +155,18 @@ describe("example-mapping.questions", () => {
       })),
       questions: Array.from({ length: CAP.questions }, () => wide(CAP.text)),
     };
-    expect(questionsTask.input.safeParse(input).success).toBe(true);
-    expect(jsonBytes({ task: questionsTask.id, input })).toBeLessThanOrEqual(TOOL_AI_BODY_BUDGET);
+    expect(mapQuestionsTask.input.safeParse(input).success).toBe(true);
+    expect(jsonBytes({ task: mapQuestionsTask.id, input })).toBeLessThanOrEqual(
+      TOOL_AI_BODY_BUDGET
+    );
     const rules = {
       title: wide(CAP.text),
       notes: wide(CAP.notes),
       criteria: wide(CAP.notes),
       rules: Array.from({ length: CAP.rules }, () => wide(CAP.text)),
     };
-    expect(rulesTask.input.safeParse(rules).success).toBe(true);
-    expect(jsonBytes({ task: rulesTask.id, input: rules })).toBeLessThanOrEqual(
+    expect(mapRulesTask.input.safeParse(rules).success).toBe(true);
+    expect(jsonBytes({ task: mapRulesTask.id, input: rules })).toBeLessThanOrEqual(
       TOOL_AI_BODY_BUDGET
     );
   });

@@ -9,7 +9,7 @@ import { suggestOptionsPrompt } from "./_example.server";
 import { clusterPrompt, mergeQuestionsPrompt, toBacklogPrompt } from "./audience-wall.server";
 import { backlogHealthReviewPrompt } from "./backlog-health.server";
 import { cardForMoodPrompt, generateCardsPrompt } from "./card-decks.server";
-import { examplesPrompt, questionsPrompt, rulesPrompt } from "./example-mapping.server";
+import { mapExamplesPrompt, mapQuestionsPrompt, mapRulesPrompt } from "./example-mapping.server";
 import { agendaPrompt } from "./facilitator-timers.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
 import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
@@ -32,9 +32,9 @@ export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   backlogHealthReviewPrompt,
   generateCardsPrompt,
   cardForMoodPrompt,
-  rulesPrompt,
-  examplesPrompt,
-  questionsPrompt,
+  mapRulesPrompt,
+  mapExamplesPrompt,
+  mapQuestionsPrompt,
   agendaPrompt,
   interruptClassifyPrompt,
   meetingAuditSuggestPrompt,

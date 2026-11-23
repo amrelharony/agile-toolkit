@@ -8,9 +8,9 @@ import "server-only";
 import { defineAiPrompt } from "../define-task";
 import {
   EXAMPLE_MAPPING_AI as CAP,
-  examplesTask,
-  questionsTask,
-  rulesTask,
+  mapExamplesTask,
+  mapQuestionsTask,
+  mapRulesTask,
 } from "./example-mapping";
 
 const listed = (lines: readonly string[]) =>
@@ -19,7 +19,7 @@ const listed = (lines: readonly string[]) =>
 const PLAIN =
   "Plain sentences in sentence case, no numbering, no emoji, no Markdown. Use concrete names and numbers rather than “a user” or “some items”.";
 
-export const rulesPrompt = defineAiPrompt(rulesTask, {
+export const mapRulesPrompt = defineAiPrompt(mapRulesTask, {
   system: [
     "You help a Scrum team run Example Mapping on one user story before they build it.",
     `Suggest up to ${CAP.rulesOut} rules the story must follow: business rules or acceptance criteria, each one short sentence a tester could check. Leave out rules the map already has.`,
@@ -37,7 +37,7 @@ export const rulesPrompt = defineAiPrompt(rulesTask, {
       .join("\n\n"),
 });
 
-export const examplesPrompt = defineAiPrompt(examplesTask, {
+export const mapExamplesPrompt = defineAiPrompt(mapExamplesTask, {
   system: [
     "You help a Scrum team run Example Mapping: concrete examples that show one rule of a story working, or not.",
     `Suggest up to ${CAP.examplesOut} different examples for the rule given: at least one usual case (kind "happy"), one at the rule's limit ("edge") and one where the rule stops someone ("broken").`,
@@ -49,7 +49,7 @@ export const examplesPrompt = defineAiPrompt(examplesTask, {
     [`Story: ${title}`, `Rule: ${rule}`, `Examples so far:\n${listed(examples)}`].join("\n\n"),
 });
 
-export const questionsPrompt = defineAiPrompt(questionsTask, {
+export const mapQuestionsPrompt = defineAiPrompt(mapQuestionsTask, {
   system: [
     "You help a Scrum team run Example Mapping: questions are what nobody in the room can answer yet.",
     `Suggest up to ${CAP.questionsOut} questions that would change how the story is built: gaps between the rules, edge cases no example covers, who decides.`,

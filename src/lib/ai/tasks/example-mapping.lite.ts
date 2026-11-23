@@ -116,9 +116,9 @@ export function fallbackRules(input: RulesInput): RulesOutput {
   return { rules: out, questions: TEMPLATE_QUESTIONS.map((text) => ({ text })) };
 }
 
-export const rulesTask = lazyAiTask<RulesInput, RulesOutput>(
+export const mapRulesTask = lazyAiTask<RulesInput, RulesOutput>(
   { id: "example-mapping.rules", toolId: "example-mapping", fallback: fallbackRules },
-  () => import("./example-mapping").then((m) => m.rulesTask)
+  () => import("./example-mapping").then((m) => m.mapRulesTask)
 );
 
 /* ── example-mapping.examples ───────────────────────────────────────── */
@@ -159,9 +159,9 @@ export function fallbackExamples(input: ExamplesInput): ExamplesOutput {
   };
 }
 
-export const examplesTask = lazyAiTask<ExamplesInput, ExamplesOutput>(
+export const mapExamplesTask = lazyAiTask<ExamplesInput, ExamplesOutput>(
   { id: "example-mapping.examples", toolId: "example-mapping", fallback: fallbackExamples },
-  () => import("./example-mapping").then((m) => m.examplesTask)
+  () => import("./example-mapping").then((m) => m.mapExamplesTask)
 );
 
 /* ── example-mapping.questions ──────────────────────────────────────── */
@@ -205,7 +205,7 @@ export function keepKnownRules(
   };
 }
 
-export const questionsTask = lazyAiTask<QuestionsInput, QuestionsOutput>(
+export const mapQuestionsTask = lazyAiTask<QuestionsInput, QuestionsOutput>(
   { id: "example-mapping.questions", toolId: "example-mapping", fallback: fallbackQuestions },
-  () => import("./example-mapping").then((m) => m.questionsTask)
+  () => import("./example-mapping").then((m) => m.mapQuestionsTask)
 );

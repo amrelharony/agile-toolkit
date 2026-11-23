@@ -34,10 +34,10 @@ import { Input } from "@/components/ui/input";
 import { generateExampleMappingPrompts } from "@/lib/ai-prompts/example-mapping";
 import {
   EXAMPLE_MAPPING_AI,
-  examplesTask,
+  mapExamplesTask,
   keepKnownRules,
-  questionsTask,
-  rulesTask,
+  mapQuestionsTask,
+  mapRulesTask,
   type ExamplesInput,
   type QuestionsInput,
   type RulesInput,
@@ -1029,7 +1029,7 @@ function MapBoard({
             fullReason={ruleFull}
           />
           <AiButton
-            task={rulesTask}
+            task={mapRulesTask}
             input={rulesInput}
             label="Ask Amr for rules"
             fallbackLabel="Suggest rules without AI"
@@ -1079,7 +1079,7 @@ function MapBoard({
                     actions={
                       <div className="space-y-2">
                         <AiButton
-                          task={examplesTask}
+                          task={mapExamplesTask}
                           input={() => examplesInput(rule)}
                           label="Ask Amr for examples"
                           fallbackLabel="Suggest examples without AI"
@@ -1176,7 +1176,7 @@ function MapBoard({
             }
           />
           <AiButton
-            task={questionsTask}
+            task={mapQuestionsTask}
             input={questionsInput}
             label="Ask Amr for questions"
             fallbackLabel="Suggest questions without AI"
