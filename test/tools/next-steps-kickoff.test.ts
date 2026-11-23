@@ -125,7 +125,10 @@ describe("kickoff next steps", () => {
         kickoffs: [canvasWithRule()],
         workingAgreements: [
           agreement([
-            rule("r1", { consent: [{ name: "Ana", vote: "consent" }], agreedBy: ["Ana"] }),
+            rule("r1", {
+              consent: [{ name: "Ana", vote: "consent", at: AT }],
+              agreedBy: ["Ana"],
+            }),
           ]),
         ],
         teamMembers: members,
