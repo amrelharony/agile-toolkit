@@ -21,7 +21,14 @@ import { standupDigest, type StandupPlaces } from "@/lib/standup/entries";
 import type { StandupEntry, StandupMode } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
 import { DigestSummary, type SummarySource } from "./digest-summary";
-import { AGE_BOX, BlockerAge, BlockerSendTo, EntryCard, type EntryCardActions } from "./entry-card";
+import {
+  AGE_BOX,
+  BlockerAge,
+  BlockerDri,
+  BlockerSendTo,
+  EntryCard,
+  type EntryCardActions,
+} from "./entry-card";
 import { byFocusKey, focusSoon } from "./focus";
 import { weeklyMarkdown } from "./markdown";
 import {
@@ -383,6 +390,7 @@ export function BlockersView({
                 <p className="mt-2 whitespace-pre-wrap break-words text-sm text-text">
                   {e.blockers}
                 </p>
+                <BlockerDri entry={e} />
                 <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
                   <BlockerSendTo entry={e} onLinksChange={actions.onLinksChange} />
                   <Button
@@ -422,9 +430,10 @@ export function BlockersView({
                 className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-border p-3"
               >
                 <span className="text-sm font-medium text-sub">{e.member}</span>
-                <span className="min-w-0 flex-1 break-words text-sm text-sub line-through">
-                  {e.blockers}
-                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="break-words text-sm text-sub line-through">{e.blockers}</p>
+                  <BlockerDri entry={e} />
+                </div>
                 <span className="text-xs text-sub font-data">{shortDay(e.date)}</span>
                 <Button
                   type="button"

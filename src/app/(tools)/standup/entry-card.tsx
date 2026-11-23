@@ -59,6 +59,16 @@ export function BlockerAge({ entry, today }: { entry: StandupEntry; today: strin
   );
 }
 
+/** "DRI: Bo" under a blocker that names who owns clearing it; nothing otherwise. */
+export function BlockerDri({ entry }: { entry: Pick<StandupEntry, "blockerDri"> }) {
+  if (!entry.blockerDri?.trim()) return null;
+  return (
+    <p className="text-xs text-sub">
+      <span className="font-medium text-text">DRI:</span> {entry.blockerDri}
+    </p>
+  );
+}
+
 /** "Send to… Impediment" for an open blocker. */
 export function BlockerSendTo({
   entry,
@@ -255,11 +265,7 @@ export function EntryCard({
               >
                 {entry.blockers}
               </p>
-              {entry.blockerDri?.trim() && (
-                <p className="text-xs text-sub">
-                  <span className="font-medium text-text">DRI:</span> {entry.blockerDri}
-                </p>
-              )}
+              <BlockerDri entry={entry} />
               <div className="flex flex-wrap items-center gap-2">
                 {resolved ? (
                   <Button

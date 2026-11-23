@@ -190,6 +190,21 @@ describe("the form", () => {
     expect(within(card("Ana")).getByText(/^DRI:/).closest("p")).toHaveTextContent("DRI: Bo");
   });
 
+  it("shows a blocker's DRI on the Blockers tab, open and resolved", () => {
+    useWorkspaceStore.setState({
+      standupEntries: [
+        entry("a", "Ana", { blockers: "Needs a DBA review", blockerDri: "Bo" }),
+        entry("c", "Cy", { blockers: "Keys", blockerDri: "Di", blockerResolved: true }),
+      ],
+    });
+    renderStandup();
+    fireEvent.mouseDown(screen.getByRole("tab", { name: /Blockers/ }), { button: 0 });
+    const open = screen.getByRole("region", { name: "Open blockers" });
+    expect(within(open).getByText(/^DRI:/).closest("p")).toHaveTextContent("DRI: Bo");
+    const resolved = screen.getByRole("region", { name: "Resolved" });
+    expect(within(resolved).getByText(/^DRI:/).closest("p")).toHaveTextContent("DRI: Di");
+  });
+
   it("offers a hand-over only when Team Time knows two places and the poster's", () => {
     useWorkspaceStore.setState({ teamTimePeople: PEOPLE });
     renderStandup();
