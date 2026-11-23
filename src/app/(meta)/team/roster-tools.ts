@@ -49,4 +49,8 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   { toolId: "risk-register", use: "Offers teammates as each risk's owner." },
   { toolId: "flaky-tests", use: "Offers teammates to pick who owns fixing a flaky test." },
   { toolId: "code-review-metrics", use: "Offers teammates as each pull request's author." },
+  {
+    toolId: "kickoff",
+    use: "Fills the Team Canvas with each person and their role, and offers teammates as owners.",
+  },
 ];
