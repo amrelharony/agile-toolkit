@@ -342,6 +342,22 @@ describe("empty state, example and starting one", () => {
     expect(screen.getAllByText("Obstacles").length).toBeGreaterThan(0);
   });
 
+  it("focuses the heading when one is picked, even again, and never later on a save", () => {
+    useWorkspaceStore.setState({ improvements: [a3()] });
+    renderPage();
+    const nav = screen.getByRole("navigation", { name: "Improvements" });
+    fireEvent.click(within(nav).getByText("Releases wait six days"));
+    // The one already shown, picked again: focus goes to its heading at once.
+    screen.getByLabelText("Why this matters now, and to whom").focus();
+    fireEvent.click(within(nav).getByText("Releases wait six days"));
+    expect(document.activeElement?.textContent).toBe("Releases wait six days");
+    const cause = screen.getByLabelText("The cause, in a sentence or two");
+    cause.focus();
+    commit(screen.getByLabelText("Why this matters now, and to whom"), "Customers wait a week.");
+    expect(byId("improve_a3")!.background).toBe("Customers wait a week.");
+    expect(document.activeElement).toBe(cause);
+  });
+
   it("opens ?item= once the workspace has loaded, and drops it from the address", async () => {
     useWorkspaceStore.setState({
       improvements: [

@@ -234,9 +234,13 @@ export function ImproveClient() {
   const [pending, setPending] = useState<{ item: string | null; from: string | null } | null>(null);
   const headingRef = useRef<HTMLSpanElement>(null);
   const startRef = useRef<HTMLDivElement>(null);
-  const focusShown = useRef(false);
+  // Each request to show the selected improvement (or the start form) takes
+  // focus there once: a count, so a request always renders and is used up
+  // at once, even when the selection doesn't change.
+  const [focusAsk, setFocusAsk] = useState(0);
+  const askFocus = () => setFocusAsk((n) => n + 1);
   const select = (itemId: string | null) => {
-    focusShown.current = true;
+    askFocus();
     setSelectedId(itemId);
   };
 
@@ -248,14 +252,13 @@ export function ImproveClient() {
   const verdict = improveVerdict(real.length > 0 ? real : items, ctx);
 
   useEffect(() => {
-    if (!focusShown.current) return;
-    focusShown.current = false;
+    if (focusAsk === 0) return;
     const target =
       headingRef.current ??
       startRef.current?.querySelector<HTMLElement>("input, textarea, button") ??
       null;
     target?.focus();
-  });
+  }, [focusAsk]);
 
   /** Open `?from=`: the improvement already made from that analysis, or the form filled from it. */
   const openFrom = useCallback(
@@ -271,10 +274,10 @@ export function ImproveClient() {
         return;
       }
       setCreating(startFromAnalysis(analysis, ws().retroBoards, nanoid(8)));
-      focusShown.current = true;
+      askFocus();
       setSelectedId(null);
     },
-    // `select` only sets state.
+    // `select` and `askFocus` only set state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     []
   );
@@ -440,7 +443,7 @@ export function ImproveClient() {
                       size="sm"
                       className="w-full gap-1.5"
                       onClick={() => {
-                        focusShown.current = true;
+                        askFocus();
                         setCreating("blank");
                       }}
                     >
