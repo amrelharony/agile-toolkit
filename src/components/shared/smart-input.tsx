@@ -92,10 +92,21 @@ export function SmartInput<T extends string | number>({
         </span>
         {conf !== "low" && <span className="text-xs opacity-70">Tab</span>}
         {"source" in predicted && predicted.source && (
-          <span className="text-xs opacity-60 hidden sm:inline">· {predicted.source}</span>
+          <span className="text-xs opacity-60 hidden sm:inline">
+            · {sourceWords(predicted.source)}
+          </span>
         )}
       </button>
     );
 
   return <>{render({ ghost, accept, chip, isAccepting })}</>;
+}
+
+/**
+ * A predictor's source in words. Most say it already ("Mean across 4
+ * sprints"); the fallback's id ("default", "default (no history …)") reads
+ * as the usual start, not as a raw key.
+ */
+function sourceWords(source: string): string {
+  return /^default/.test(source) ? "usual start" : source;
 }
