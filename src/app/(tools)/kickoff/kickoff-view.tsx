@@ -123,7 +123,9 @@ function Details({ handle }: { handle: KickoffHandle }) {
   };
   return (
     <details className="rounded-lg border border-border bg-card p-3">
-      <summary className="min-touch-coarse cursor-pointer text-sm font-medium text-text">
+      {/* The summary takes the card's padding as its own (-m-3 p-3): a 44 px
+          tap with the words centred in it, and no empty band under them. */}
+      <summary className="-m-3 cursor-pointer rounded-lg p-3 text-sm font-medium text-text">
         Name, brief, date and people
       </summary>
       <div className="mt-3 grid gap-3 md:grid-cols-2">
