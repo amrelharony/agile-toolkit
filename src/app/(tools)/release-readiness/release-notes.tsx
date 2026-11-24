@@ -11,7 +11,7 @@
  * see ticket keys.
  */
 
-import { useId, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Link2, Unlink } from "lucide-react";
 import { AiButton } from "@/components/ai";
 import { ExportButton } from "@/components/shared/export-button";
@@ -232,6 +232,9 @@ function NotesEditor({
   const [draft, setDraft] = useState<{ text: string; source: AiSource } | null>(null);
   // Why the last Save was refused, until the text changes.
   const [refused, setRefused] = useState<string | null>(null);
+  // Where focus goes when the draft's box (and its buttons) goes.
+  const askRef = useRef<HTMLDivElement>(null);
+  const notesRef = useRef<HTMLTextAreaElement>(null);
   const name = nameOf(r);
   const { done } = linkedStoriesOf({ storyIds: [...linkedIds] }, stories);
   const outdated = notesOutdatedFor(r);
@@ -278,19 +281,21 @@ function NotesEditor({
           Include story notes
         </label>
       </div>
-      <AiButton
-        task={releaseReadinessNotesTask}
-        input={input}
-        onResult={(data, meta) => {
-          const checked = checkedDraft(data, input());
-          setDraft({ text: draftText(checked), source: meta.source });
-          onDrafted(r, audience, meta.source);
-        }}
-        label="Ask Amr to draft the notes"
-        fallbackLabel="Draft from the stories"
-        variant="outline"
-        disabledReason={done.length === 0 ? "Link the done stories it ships first." : null}
-      />
+      <div ref={askRef}>
+        <AiButton
+          task={releaseReadinessNotesTask}
+          input={input}
+          onResult={(data, meta) => {
+            const checked = checkedDraft(data, input());
+            setDraft({ text: draftText(checked), source: meta.source });
+            onDrafted(r, audience, meta.source);
+          }}
+          label="Ask Amr to draft the notes"
+          fallbackLabel="Draft from the stories"
+          variant="outline"
+          disabledReason={done.length === 0 ? "Link the done stories it ships first." : null}
+        />
+      </div>
       {draft && (
         <div
           role="region"
@@ -310,11 +315,21 @@ function NotesEditor({
                 setText(draft.text.slice(0, NOTES_TEXT_MAX));
                 setDraft(null);
                 setRefused(null);
+                // On to the notes it filled, to read them through and save.
+                window.setTimeout(() => notesRef.current?.focus(), 0);
               }}
             >
               Use this draft
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={() => setDraft(null)}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                askRef.current?.querySelector<HTMLElement>('[data-testid="ai-button"]')?.focus();
+                setDraft(null);
+              }}
+            >
               Dismiss
             </Button>
           </div>
@@ -342,6 +357,7 @@ function NotesEditor({
         {(p) => (
           <Textarea
             {...p}
+            ref={notesRef}
             rows={6}
             value={text}
             onChange={(e) => {
