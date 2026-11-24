@@ -287,6 +287,12 @@ export function BlockersSection({
       source: source === "ai" ? "ai" : "rules",
     });
     setStatus(`Clustered ${n} ${n === 1 ? "blocker" : "blockers"}.`);
+    // Clustering the last ones takes the whole "Not clustered yet" block (its
+    // list, its button) away: focus goes to the verdict rather than the page.
+    focusSoon(() => {
+      const at = document.activeElement;
+      return !at || at === document.body || !at.isConnected ? verdictRef.current : null;
+    });
   }
 
   function raise(cluster: string) {
@@ -416,7 +422,7 @@ export function BlockersSection({
                 <BlockersParetoChart
                   unit={unit}
                   data={read.pareto.clusters.map((c) => ({
-                    name: c.cluster.length > 24 ? `${cutText(c.cluster, 23)}…` : c.cluster,
+                    name: c.cluster,
                     value: byDays ? c.blockedDays : c.impediments,
                     vital: c.vital,
                   }))}
