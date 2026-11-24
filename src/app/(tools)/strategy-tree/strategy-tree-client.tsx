@@ -636,7 +636,8 @@ export function StrategyTreeClient() {
                         size="sm"
                         variant={t.id === open.id ? "toolkit" : "outline"}
                         aria-current={t.id === open.id ? "true" : undefined}
-                        className="max-w-[16rem] gap-1.5 truncate text-xs"
+                        title={t.title}
+                        className="max-w-[16rem] gap-1.5 truncate text-xs sm:max-w-[24rem] lg:max-w-[28rem]"
                         onClick={() => {
                           setOpenId(t.id);
                           setSuggested(null);

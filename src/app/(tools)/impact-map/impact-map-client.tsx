@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { nanoid } from "nanoid";
 import {
+  Check,
   Crosshair,
   FlaskConical,
   Lightbulb,
@@ -680,11 +681,18 @@ export function ImpactMapClient() {
                 aria-label={`Work on this first: ${nodeTitle(node, FORMAT)}`}
                 className={cn(
                   "min-touch-coarse gap-1 text-xs",
-                  node.focus ? "text-accent hover:bg-accent/10" : "text-sub hover:bg-accent/10"
+                  // Pressed reads by more than colour: a tick and a filled box.
+                  node.focus
+                    ? "border border-accent/40 bg-accent/15 text-accent hover:bg-accent/20"
+                    : "text-sub hover:bg-accent/10"
                 )}
                 onClick={() => toggleFocus(map, node)}
               >
-                <Crosshair className="h-4 w-4" aria-hidden="true" />
+                {node.focus ? (
+                  <Check className="h-4 w-4" aria-hidden="true" />
+                ) : (
+                  <Crosshair className="h-4 w-4" aria-hidden="true" />
+                )}
                 Work on this first
               </Button>
               <Button
@@ -818,7 +826,8 @@ export function ImpactMapClient() {
                           size="sm"
                           variant={m.id === open.id ? "toolkit" : "outline"}
                           aria-current={m.id === open.id ? "true" : undefined}
-                          className="max-w-[16rem] truncate text-xs"
+                          title={m.title}
+                          className="max-w-[16rem] truncate text-xs sm:max-w-[24rem] lg:max-w-[28rem]"
                           onClick={() => {
                             setOpenId(m.id);
                             setSuggested(null);
