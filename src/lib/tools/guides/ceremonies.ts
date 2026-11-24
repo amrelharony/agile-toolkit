@@ -285,7 +285,7 @@ export const GUIDES: ToolGuide[] = [
       "Describe the blocker, not a person: “test environment down for two days”, not “Ops is slow”.",
       "Every impediment needs an owner, even if their job is only to escalate it. A card without one says Nobody yet.",
       "Blocked time counts from the day tracking began; items blocked before then say so and aren't counted.",
-      "Items sent from Standup, Retro, Retro Actions, Scrum of Scrums, Hill Chart, Notes to Actions, Improve and Kanban arrive at Medium severity with no category, so check both. Resolving one sent from a retro closes that action.",
+      "Items sent from other tools arrive at Medium severity with no category, so check both; a risk sent from the Risk Register keeps its level. Resolving one sent from a retro closes that action.",
     ],
     scales: [
       {
