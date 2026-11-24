@@ -83,7 +83,7 @@ const PASTE_MAX_CHARS = 80_000;
 export const SPLIT_ROUND = "Too long for one link. Split the stories into two rounds.";
 export const DUE_TOO_FAR = `Pick a day in the next ${DUE_MAX_DAYS} days.`;
 export const NOT_IN_BROWSER =
-  "This reply is for a round that isn't in this browser. Open it on the device that made the round.";
+  "This reply is for a round that isn't in this browser. Open it on the device that made the round, or in a browser signed in to the account that saved it.";
 
 // ── Text ──────────────────────────────────────────────────────────────
 

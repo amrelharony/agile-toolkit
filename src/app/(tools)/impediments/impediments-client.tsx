@@ -460,8 +460,8 @@ export function ImpedimentsClient() {
             {!legacyPending && (
               <EmptyState icon={AlertTriangle} action={<LoadExampleButton onLoad={loadExample} />}>
                 No impediments logged. Use “Log impediment” for anything in the team’s way, or load
-                an example to see the tracker filled in. Blockers sent from Standup, Retro and Scrum
-                of Scrums land here too.
+                an example to see the tracker filled in. Blockers sent from other tools land here
+                too.
               </EmptyState>
             )}
             {/* Blocked stories and cards count from day one, before any impediment is logged. */}
