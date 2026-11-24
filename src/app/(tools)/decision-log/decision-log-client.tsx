@@ -376,8 +376,9 @@ export function DecisionLogClient({ template = "adr" }: { template?: DecisionTem
                 }
               >
                 No decisions recorded yet. Raise one in the {spec.label} form, or load an example to
-                see a log with all three forms. Decisions sent from Six Hats, RFC Tracker and the
-                Weighted Decision Matrix land here too.
+                see a log with all three forms. Decisions sent from Six Hats, RFC Tracker, the
+                Weighted Decision Matrix, Notes to Actions, Kickoff, Product Canvas and Quick Vote
+                land here too.
               </EmptyState>
             )
           ) : (

@@ -272,7 +272,7 @@ describe("one synced row for every release", () => {
     return [planning(over), shipped({ description: "x".repeat(fill) })];
   };
 
-  it("refuses notes that would make the list too big to sync, saving nothing", () => {
+  it("refuses notes that would make the list too big to save, saving nothing", () => {
     // A full save in 3-byte text is about 9 KB: 4 KB of room is too little.
     seed(nearCap(4000, { storyIds: ["s1"] }), STORIES);
     renderPage();
@@ -281,7 +281,7 @@ describe("one synced row for every release", () => {
     fireEvent.change(box, { target: { value: "界".repeat(3000) } });
     fireEvent.click(panel.getByRole("button", { name: "Save notes" }));
     expect(panel.getByRole("alert")).toHaveTextContent(
-      "These notes would make the release list too big to sync: shorten them, or remove old releases."
+      "These notes would make the release list too big to save: shorten them, or remove old releases."
     );
     expect(stored("r2")?.releaseNotes).toBeUndefined();
     expect(logged("notes_saved")).toEqual([]);
@@ -291,7 +291,7 @@ describe("one synced row for every release", () => {
     expect(stored("r2")?.releaseNotes).toMatchObject({ text: "Fixes" });
   });
 
-  it("refuses links that would make the list too big to sync, keeping the picks", () => {
+  it("refuses links that would make the list too big to save, keeping the picks", () => {
     seed(nearCap(5), STORIES);
     renderPage();
     const panel = openNotes("v2");

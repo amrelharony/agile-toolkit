@@ -230,7 +230,7 @@ describe("the release-notes verbs", () => {
     expect(await run("set_notes", full)).toMatchObject({
       updated: false,
       reason: "too_large",
-      message: expect.stringMatching(/too big to sync/),
+      message: expect.stringMatching(/too big to save/),
     });
     expect(stored("r2")?.releaseNotes).toBeUndefined();
     expect(await run("set_notes", { ...full, text: "Fixes" })).toMatchObject({ updated: true });

@@ -10,7 +10,7 @@ import { EstimateView } from "../async/estimate-view";
 export const metadata: Metadata = {
   title: "Estimate without a meeting",
   description:
-    "Pick a card for each story and send your reply to the facilitator. Nothing you pick leaves the page until you copy your reply.",
+    "Pick a card for each story and send your reply to the facilitator. Nothing you pick leaves the page until you copy or share your reply.",
   robots: { index: false, follow: false },
 };
 

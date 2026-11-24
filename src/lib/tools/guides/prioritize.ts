@@ -283,7 +283,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     tips: [
       "Every status change and every delete can be undone from the toast.",
-      "Decisions sent from Six Hats, RFC Tracker and the Weighted Decision Matrix land here as proposed records.",
+      "Decisions sent from Six Hats, the Weighted Decision Matrix, Notes to Actions, Kickoff, Product Canvas and Quick Vote land here as proposed records. Decided RFCs pushed from RFC Tracker land as accepted.",
       "How long decisions take shows under Advanced analysis once three records are decided.",
     ],
   },

@@ -439,7 +439,7 @@ One document, `workspace:releaseReadiness` / `releaseReadiness:current`, holds t
 
 Schema change: `add_release.plannedDate` is now required and must be YYYY-MM-DD. Dates use the local day (`todayIso`), not UTC.
 
-Release notes (tools plan, phase 2) live on each release as `releaseNotes {audience, text, updatedAt}`. The page drafts them with Amr (`release-readiness.release_notes`) or from the stories, checks an AI draft against the stories it was given, and saves only what the person saves. `suggest_stories`, `link_stories`, `draft_notes` and `set_notes` read `lib/releases/notes`, the same module. Every release lives in one synced row, so `link_stories` and `set_notes` refuse a write that would grow it past the row's cap: `{updated: false, reason: "too_large", message}`.
+Release notes (tools plan, phase 2) live on each release as `releaseNotes {audience, text, updatedAt}`. The page drafts them with Amr (`release-readiness.release_notes`) or from the stories, checks an AI draft against the stories it was given, and saves only what the person saves. `suggest_stories`, `link_stories`, `draft_notes` and `set_notes` read `lib/releases/notes`, the same module. Every release lives in one saved row, so `link_stories` and `set_notes` refuse a write that would grow it past the row's cap: `{updated: false, reason: "too_large", message}`.
 
 #### Feature Flag Tracker (`tool.feature_flag_tracker.*`)
 
