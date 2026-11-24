@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { nanoid } from "nanoid";
 import { Archive, ArchiveRestore, Mountain, Plus, Trash2 } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
@@ -531,7 +531,7 @@ export function HillChartClient() {
         ) : (
           <>
             <div className="flex flex-wrap items-end gap-3">
-              <Field label="Chart" className="min-w-0 flex-1 sm:max-w-sm">
+              <Field label="Chart" className="min-w-0 flex-1 basis-60 sm:max-w-sm">
                 {(props) => (
                   <select
                     {...props}
@@ -718,6 +718,8 @@ function ChartBody({
   scopeForm,
 }: ChartBodyProps) {
   const example = isExampleId(chart.id);
+  /** The check-in row: "Draft the update" is in it, where focus goes back on Dismiss. */
+  const draftAskRef = useRef<HTMLDivElement>(null);
   const sprint = chart.sprintId ? sprints.find((s) => s.id === chart.sprintId) : undefined;
   const chartEpic = chart.epicId ? epicById.get(chart.epicId) : undefined;
   const over = overTheHill(chart);
@@ -813,7 +815,7 @@ function ChartBody({
                   />
                 )}
               </Field>
-              <div className="flex flex-wrap items-center gap-2">
+              <div ref={draftAskRef} className="flex flex-wrap items-center gap-2">
                 <Button type="button" onClick={onCheckIn}>
                   {checkedToday ? "Check in again" : "Check in"}
                 </Button>
@@ -863,7 +865,18 @@ function ChartBody({
                     >
                       Use as the note
                     </Button>
-                    <Button type="button" variant="ghost" size="sm" onClick={() => setUpdate(null)}>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        // The box goes with this button: back to the one that drafted it.
+                        draftAskRef.current
+                          ?.querySelector<HTMLElement>('[data-testid="ai-button"]')
+                          ?.focus();
+                        setUpdate(null);
+                      }}
+                    >
                       Dismiss
                     </Button>
                   </div>

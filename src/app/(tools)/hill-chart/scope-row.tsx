@@ -182,11 +182,13 @@ function ScopeView({
 
       {mismatch && <p className="text-xs text-text">{MISMATCH_TEXT[mismatch]}</p>}
 
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex flex-col gap-1">
-          <label htmlFor={inputId} className="text-xs text-sub">
-            Position of {scope.title}
-          </label>
+      {/* The label on its own line, so the readout sits right beside the box
+          on every scope, however long the scope's name. */}
+      <div className="space-y-1">
+        <label htmlFor={inputId} className="block text-xs text-sub">
+          Position of {scope.title}
+        </label>
+        <div className="flex flex-wrap items-center gap-3">
           <Input
             id={inputId}
             inputMode="numeric"
@@ -198,22 +200,22 @@ function ScopeView({
             onBlur={save}
             onKeyDown={onKeyDown}
           />
+          <span className="text-xs text-sub" aria-hidden="true">
+            {scope.position}, {SIDE_WORD[side]}
+          </span>
+          {stuck && (
+            <SendToMenu
+              routes={["impediment"]}
+              disabled={Boolean(sendBlocked)}
+              item={source}
+              sentTo={scope.sentTo}
+              getLinks={getLinks}
+              onLinksChange={onLinksChange}
+              itemLabels={{ impediment: "Raise as an impediment" }}
+              className="h-8"
+            />
+          )}
         </div>
-        <span className="pb-2 text-xs text-sub" aria-hidden="true">
-          {scope.position}, {SIDE_WORD[side]}
-        </span>
-        {stuck && (
-          <SendToMenu
-            routes={["impediment"]}
-            disabled={Boolean(sendBlocked)}
-            item={source}
-            sentTo={scope.sentTo}
-            getLinks={getLinks}
-            onLinksChange={onLinksChange}
-            itemLabels={{ impediment: "Raise as an impediment" }}
-            className="mb-1 h-8"
-          />
-        )}
       </div>
       {error && (
         <p id={errorId} className="text-xs text-danger" role="alert">
