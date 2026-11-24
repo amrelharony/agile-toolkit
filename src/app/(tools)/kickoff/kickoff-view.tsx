@@ -32,6 +32,7 @@ import {
 import { KICKOFF_BRIEF_MAX, TOOL_LIST_MAX, TOOL_TEXT_MAX } from "@/lib/stores/workspace-types";
 import { cutText } from "@/lib/utils/cut-text";
 import { DraftPanel } from "./draft-panel";
+import type { LiveCollectRoom } from "./collect-room";
 import type { KickoffHandle } from "./kickoff-handle";
 import { ProblemPanel } from "./problem-panel";
 import { KickoffSection } from "./section";
@@ -224,7 +225,7 @@ export function KickoffView({
   onStartAnother: () => void;
   onRemove: () => void;
   /** The collect room opened live, its round's unsaved answers changed, or it ended (null). */
-  onRoomChange?: (room: { unsaved: boolean } | null) => void;
+  onRoomChange?: (room: LiveCollectRoom | null) => void;
 }) {
   const { kickoff: k, example } = handle;
   const format = formatOf(k);

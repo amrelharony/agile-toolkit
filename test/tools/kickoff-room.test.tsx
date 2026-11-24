@@ -354,7 +354,7 @@ describe("collecting from the room", () => {
     // Not live before it opens.
     expect(onLiveChange).not.toHaveBeenCalled();
     const ch = await openRoom();
-    expect(onLiveChange).toHaveBeenLastCalledWith({ unsaved: false });
+    expect(onLiveChange).toHaveBeenLastCalledWith({ unsaved: false, end: expect.any(Function) });
     act(() => {
       liveWall()!.openRound("What are we good at?", "hidden");
     });
@@ -367,8 +367,29 @@ describe("collecting from the room", () => {
       lock: lockOf("keyA_0123456789abcdef"),
     });
     // A hidden round holding a post: a switch would lose it.
-    expect(onLiveChange).toHaveBeenLastCalledWith({ unsaved: true });
+    expect(onLiveChange).toHaveBeenLastCalledWith({ unsaved: true, end: expect.any(Function) });
     view.unmount();
+    expect(onLiveChange).toHaveBeenLastCalledWith(null);
+  });
+
+  it("ends the room for everyone with the end it hands the page, then says so", async () => {
+    const crypto = fakeVoteCrypto();
+    const onLiveChange = vi.fn();
+    wrap(<CollectRoom handle={handleFor("k1")} crypto={crypto} onLiveChange={onLiveChange} />);
+    await flush();
+    const ch = await openRoom();
+    const end = (onLiveChange.mock.lastCall?.[0] as { end: () => Promise<void> }).end;
+    let ended = false;
+    act(() => {
+      void end().then(() => {
+        ended = true;
+      });
+    });
+    await tick(600);
+    await flush();
+    // Signed, as End room's: the phones hear it at once.
+    expect(ch.sent(WALL_ROOM_EVENTS.end)).toHaveLength(1);
+    expect(ended).toBe(true);
     expect(onLiveChange).toHaveBeenLastCalledWith(null);
   });
 });

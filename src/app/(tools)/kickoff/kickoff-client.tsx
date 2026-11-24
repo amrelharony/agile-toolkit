@@ -61,6 +61,7 @@ import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster"
 import { undoable } from "@/lib/utils/undoable";
 import { cn } from "@/lib/utils";
 import { buildExample } from "./example";
+import type { LiveCollectRoom } from "./collect-room";
 import type { KickoffHandle, KickoffWrite } from "./kickoff-handle";
 import { KickoffView } from "./kickoff-view";
 import { kickoffToMarkdown } from "./markdown";
@@ -114,7 +115,7 @@ export function KickoffClient() {
   const announce = useAnnounce();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** The kickoff whose collect room is live (it is the one shown), and whether its round holds unsaved answers. */
-  const [liveRoom, setLiveRoom] = useState<{ kickoffId: string; unsaved: boolean } | null>(null);
+  const [liveRoom, setLiveRoom] = useState<({ kickoffId: string } & LiveCollectRoom) | null>(null);
   const liveRef = useRef(liveRoom);
   liveRef.current = liveRoom;
   /** A change of what shows that would end the live room, waiting on the host's answer. */
@@ -268,8 +269,8 @@ export function KickoffClient() {
 
   /** The live room on the kickoff shown says when it opens, holds unsaved answers, or ends. */
   const onRoomChange = useCallback(
-    (kickoffId: string) => (room: { unsaved: boolean } | null) =>
-      setLiveRoom(room ? { kickoffId, unsaved: room.unsaved } : null),
+    (kickoffId: string) => (room: LiveCollectRoom | null) =>
+      setLiveRoom(room ? { kickoffId, unsaved: room.unsaved, end: room.end } : null),
     []
   );
   const liveTitle = liveRoom
@@ -327,7 +328,7 @@ export function KickoffClient() {
               {startCard}
             </>
           ) : (
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+            <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
               <nav aria-label="Kickoffs" className="space-y-2">
                 <ul className="space-y-1.5">
                   {kickoffs.map((k) => {
@@ -437,7 +438,25 @@ export function KickoffClient() {
             ].join(" ")}
             confirmLabel={pending?.deletes ? "End it and delete" : "End it and switch"}
             cancelLabel="Keep the room"
-            onConfirm={() => pending?.go()}
+            onConfirm={() => {
+              const go = pending?.go;
+              if (!go) return;
+              const end = liveRef.current?.end;
+              if (!end) {
+                go();
+                return;
+              }
+              // End the room first, so everyone in it hears "The host ended
+              // the room" now; then switch or delete (after 3 s whatever happens).
+              let done = false;
+              const once = () => {
+                if (done) return;
+                done = true;
+                go();
+              };
+              void end().then(once);
+              window.setTimeout(once, 3000);
+            }}
           />
         </div>
       )}
