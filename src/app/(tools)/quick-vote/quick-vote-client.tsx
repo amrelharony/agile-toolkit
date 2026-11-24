@@ -558,8 +558,8 @@ export function QuickVoteClient() {
                   icon={BarChart3}
                   action={<LoadExampleButton onLoad={() => setExample(buildExample())} />}
                 >
-                  No saved rounds yet. Run a round and press Save round: only its totals are kept,
-                  never who answered what. Or load an example to see a week of results.
+                  Run a round and press Save round: only its totals are kept, never who answered
+                  what. Or load an example to see a week of results.
                 </EmptyState>
               ) : (
                 <ResultsList

@@ -262,7 +262,7 @@ describe("reading a result", () => {
   });
 
   it("says the latest result on the page, or how to start", () => {
-    expect(latestVerdict([])).toMatch(/^No results saved yet/);
+    expect(latestVerdict([])).toMatch(/^No rounds saved yet/);
     expect(latestVerdict([saved(choiceResult("roman", [4, 1, 0], 5), "roman")])).toBe(
       "Latest, Roman vote: “Do we go ahead with this?”. 5 people answered. Top: Thumbs up (4 votes)."
     );

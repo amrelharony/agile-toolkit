@@ -154,9 +154,9 @@ describe("picking a format", () => {
     expect(within(group).getAllByRole("button")).toHaveLength(QUICK_VOTE_PRESETS.length);
     expect(format("Fist of five")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("heading", { name: "Set up: Fist of five" })).toBeInTheDocument();
-    expect(screen.getByText(/No saved rounds yet/)).toBeInTheDocument();
+    expect(screen.getByText(/^Run a round and press Save round/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
-    expect(screen.getByTestId("quick-vote-verdict")).toHaveTextContent("No results saved yet");
+    expect(screen.getByTestId("quick-vote-verdict")).toHaveTextContent("No rounds saved yet");
   });
 
   it("sets a format up in one tap, saved to the tool's store", async () => {
@@ -689,8 +689,9 @@ describe("hold-up cards", () => {
     expect(
       screen.getByText(/^Live rounds are off on this site, so collect paper slips/)
     ).toBeInTheDocument();
+    // The line above says how to collect them, so the count entry doesn't say it again.
     expect(
-      screen.getByText(/^Collect paper slips, so nobody's answer is seen/)
+      screen.getByText(/^Enter how many people chose each answer\. A blank box/)
     ).toBeInTheDocument();
     expect(screen.queryByText(/count hands/i)).toBeNull();
   });
@@ -966,7 +967,7 @@ describe("the example", () => {
     expect(qv().results).toEqual([]);
     expect(qv().customPresets).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
-    expect(screen.getByText(/No saved rounds yet/)).toBeInTheDocument();
+    expect(screen.getByText(/^Run a round and press Save round/)).toBeInTheDocument();
   });
 });
 

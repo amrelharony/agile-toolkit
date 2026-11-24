@@ -530,6 +530,6 @@ export function presetName(saved: SavedResult): string {
 /** The page's one line about the latest result, or the empty state's. */
 export function latestVerdict(results: readonly SavedResult[]): string {
   const latest = results[0];
-  if (!latest) return "No results saved yet. Pick a format, ask, and save the totals.";
+  if (!latest) return "No rounds saved yet. Pick a format, ask, and save the totals.";
   return `Latest, ${presetName(latest)}: “${latest.result.title}”. ${resultSummary(latest)}`;
 }
