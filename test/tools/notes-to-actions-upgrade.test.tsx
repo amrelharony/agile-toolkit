@@ -224,9 +224,20 @@ describe("pasting notes", () => {
 describe("finding and keeping", () => {
   beforeEach(() => seed([note()]));
 
+  it("says names go to the AI service only while Find sends to it", () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+    try {
+      renderPage();
+      expect(screen.getByText(AI_LINE)).toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("finds the items without AI, each with the line it came from", async () => {
     renderPage();
-    expect(screen.getByText(AI_LINE)).toBeInTheDocument();
+    // AI is off here, so Find sends nothing anywhere: no line about the AI service.
+    expect(screen.queryByText(AI_LINE)).toBeNull();
     await find();
     expect(
       screen.getByText("Action: Ana to update the onboarding copy by Friday")
