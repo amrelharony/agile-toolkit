@@ -5,6 +5,7 @@
  *
  * Never applied by itself. It asks "Add Lee's cards to “X”?" with Add or
  * Ignore, or, when Lee has already replied, Replace, Keep both or Ignore.
+ * The very same reply opened again says it is in already, with Done only.
  * Either way the hash is cleared from the address, so a refresh or a shared
  * address doesn't bring the question back. A reply for a round this browser
  * doesn't hold says to open the link on the device that made the round.
@@ -18,6 +19,7 @@ import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PLANNING_POKER_ACTIONS } from "@/lib/history/event-actions";
 import {
+  isReplyIn,
   readAsyncRound,
   readPokerAsyncRound,
   readReply,
@@ -69,7 +71,9 @@ export function ReplyImport({ code, onDone }: { code: string; onDone: () => void
   };
 
   const problem = done ? null : reply ? replyProblem(reply, round) : null;
-  const clash = !done && reply && round && !problem ? replyClash(reply, round) : null;
+  // The same reply opened again: in already, as a paste of it says, so there is nothing to add.
+  const already = !done && reply && round && !problem ? isReplyIn(reply, round) : false;
+  const clash = !done && reply && round && !problem && !already ? replyClash(reply, round) : null;
 
   const add = (mode: "replace" | "keep-both") => {
     if (!reply) return;
@@ -98,20 +102,22 @@ export function ReplyImport({ code, onDone }: { code: string; onDone: () => void
               ? "This reply link isn't complete. Ask for it again, copied in full."
               : problem
                 ? problem
-                : clash
-                  ? `Add ${reply.name}'s cards to “${shortTitle(round?.title ?? "")}”? This replaces ${reply.name}'s earlier reply.`
-                  : `Add ${reply.name}'s cards to “${shortTitle(round?.title ?? "")}”?`}
+                : already
+                  ? `${reply.name}'s reply is in already, with the same cards.`
+                  : clash
+                    ? `Add ${reply.name}'s cards to “${shortTitle(round?.title ?? "")}”? This replaces ${reply.name}'s earlier reply.`
+                    : `Add ${reply.name}'s cards to “${shortTitle(round?.title ?? "")}”?`}
         </span>
       </p>
       <div className="flex flex-wrap gap-2">
-        {done || !reply || problem ? (
+        {done || !reply || problem || already ? (
           <Button
             type="button"
             size="sm"
             variant="outline"
             onClick={() => (done ? onDone() : finish(null))}
           >
-            {done ? "Done" : "Dismiss"}
+            {done || already ? "Done" : "Dismiss"}
           </Button>
         ) : clash ? (
           <>
