@@ -108,5 +108,5 @@ export function SmartInput<T extends string | number>({
  * as the usual start, not as a raw key.
  */
 function sourceWords(source: string): string {
-  return /^default/.test(source) ? "usual start" : source;
+  return source.startsWith("default") ? "usual start" : source;
 }
