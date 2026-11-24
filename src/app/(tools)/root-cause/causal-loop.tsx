@@ -724,7 +724,7 @@ export function CausalLoop({
                 maxLength={LOOP_TEXT_MAX.node}
                 aria-invalid={nodeError ? true : undefined}
                 aria-describedby={nodeError ? `loop-node-error-${id}` : undefined}
-                placeholder="Support tickets"
+                placeholder="e.g. Support tickets"
                 onChange={(e) => {
                   setNodeDraft(e.target.value);
                   if (nodeError) setNodeError(null);
