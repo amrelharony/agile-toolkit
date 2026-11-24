@@ -424,7 +424,9 @@ export function TeamClient() {
         {!hydrated ? (
           // Capped near the empty state's height (~285 px on phones): a full
           // 60svh pulled "Where the team list is used" up into view on hydration.
-          <WorkspaceLoading className="max-md:min-h-[min(60svh,20rem)]">
+          // From md the list sits under it too, so it holds the empty state's
+          // ~240 px there as well.
+          <WorkspaceLoading className="max-md:min-h-[min(60svh,20rem)] md:min-h-60">
             Loading your team…
           </WorkspaceLoading>
         ) : showEmpty ? (
