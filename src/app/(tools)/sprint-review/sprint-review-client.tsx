@@ -98,7 +98,9 @@ export function SprintReviewClient() {
       category="Ceremonies"
     >
       {!hydrated ? (
-        <LoadingSprints />
+        // Tall: the review is taller than a desktop screen, so "More in Run
+        // the sprint" starts below the first screen before it loads, as after.
+        <LoadingSprints tall />
       ) : example ? (
         <ExampleReview
           example={example}
