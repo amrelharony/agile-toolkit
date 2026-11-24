@@ -500,7 +500,7 @@ export function ProductCanvasClient() {
                   example={tableExample}
                 />
               )}
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
                 <nav aria-label="Canvases" className="space-y-3">
                   <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
                     <Button

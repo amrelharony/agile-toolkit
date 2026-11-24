@@ -85,9 +85,9 @@ export function HypothesesPanel({ handle }: { handle: CanvasHandle }) {
       ) : (
         <>
           {ORDER.map((part) => (
-            <fieldset key={part} className="space-y-1">
+            <fieldset key={part} className="min-w-0 space-y-1">
               <legend className="text-xs font-medium text-text">{PART_LABEL[part]}</legend>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex min-w-0 flex-wrap gap-1.5">
                 {lines(part).map((item) => (
                   <label key={item.id} className="relative inline-flex max-w-full cursor-pointer">
                     <input

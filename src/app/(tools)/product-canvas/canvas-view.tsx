@@ -112,7 +112,7 @@ function Run({
         </h3>
       )}
       {before}
-      <div className={cn("grid gap-4", !oneColumn && "md:grid-cols-2")}>
+      <div className={cn("grid grid-cols-1 gap-4", !oneColumn && "md:grid-cols-2")}>
         {defs.map((def) => (
           <CanvasBox
             key={`${handle.canvas.id}:${def.id}`}
@@ -170,7 +170,7 @@ export const CanvasView = forwardRef<HTMLSpanElement, CanvasViewProps>(function 
   const body =
     format.layout === "two-sides" ? (
       <>
-        <div className="grid gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           {runs.map((run) => (
             <Run
               key={run.group ?? "main"}
