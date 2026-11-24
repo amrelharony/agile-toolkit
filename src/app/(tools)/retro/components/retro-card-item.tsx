@@ -367,6 +367,7 @@ export function RetroCardItem({
             value={card.assignee ?? ""}
             label={`Owner of “${shortText(card.text)}”`}
             onCommit={(name) => onAssigneeChange(card.id, name)}
+            offerAddToRoster={!isExample}
           />
           {onLinksChange &&
             card.groupedWith === null &&

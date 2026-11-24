@@ -17,12 +17,15 @@ export function OwnerField({
   value,
   onCommit,
   label = "Owner",
+  offerAddToRoster = true,
 }: {
   /** The saved owner; "" for none. */
   value: string;
   /** Called once per change, with the trimmed name ("" clears it). */
   onCommit: (name: string) => void;
   label?: string;
+  /** Offer "Add to the team" for a name not on it (never on an example card: its names are made up). */
+  offerAddToRoster?: boolean;
 }) {
   const [draft, setDraft] = useState<string | null>(null);
   const formRef = useRef<HTMLFormElement>(null);
@@ -80,6 +83,7 @@ export function OwnerField({
         value={shown}
         onChange={onChange}
         placeholder="Who owns it?"
+        offerAddToRoster={offerAddToRoster}
       />
     </form>
   );

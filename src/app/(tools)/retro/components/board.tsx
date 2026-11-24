@@ -1112,7 +1112,9 @@ export function Board({
           </Button>
           <span className="ml-auto text-xs text-sub">
             {state.format.name}
-            {sprint ? ` · ${sprint.name}` : ""} · Saved in your workspace
+            {/* Where it is saved is the header chip's to say: this browser for a
+                visitor, the owner's account for the owner. */}
+            {sprint ? ` · ${sprint.name}` : ""}
           </span>
         </div>
       </div>
