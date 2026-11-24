@@ -948,11 +948,12 @@ describe("a Kata", () => {
   it("works on one obstacle at a time; adds, clears and deletes obstacles with Undo", () => {
     useWorkspaceStore.setState({ improvements: [kata()] });
     renderPage();
-    // The obstacle's own field (the experiments' "Works on" selects show the same words).
+    // The obstacle's own field, a one-line box that wraps (the experiments'
+    // "Works on" selects show the same words).
     const row = (text: string) =>
       screen
         .getAllByDisplayValue(text)
-        .find((el) => el.tagName === "INPUT")!
+        .find((el) => el.tagName === "TEXTAREA")!
         .closest("li") as HTMLElement;
     fireEvent.click(within(row("Big pull requests")).getByRole("button", { name: "Work on this" }));
     expect(byId("improve_k")!.obstacles.map((o) => o.status)).toEqual(["open", "working"]);
@@ -979,7 +980,7 @@ describe("a Kata", () => {
     useWorkspaceStore.setState({ improvements: [kata()] });
     renderPage();
     const box = () =>
-      screen.getAllByDisplayValue("Only one reviewer").find((el) => el.tagName === "INPUT")!;
+      screen.getAllByDisplayValue("Only one reviewer").find((el) => el.tagName === "TEXTAREA")!;
     commit(box(), " ");
     expect(byId("improve_k")!.obstacles[0].text).toBe("Only one reviewer");
     expect(box()).toBeInTheDocument();
