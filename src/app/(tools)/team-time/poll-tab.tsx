@@ -274,28 +274,36 @@ function NewPoll({ ctx, onDone }: { ctx: TeamTimeCtx; onDone: () => void }) {
       </div>
       <fieldset className="space-y-2">
         <legend className="text-sm text-text">Or add a time ({zoneLabel(ctx.zone)})</legend>
-        <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
-          <Field label="Date" hideLabel>
+        <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+          <Field label="Date" hideLabel className="min-w-0">
             {(control) => (
               <Input
                 {...control}
+                className="min-w-0"
                 type="date"
                 value={day}
                 onChange={(e) => setDay(e.target.value)}
               />
             )}
           </Field>
-          <Field label="Time" hideLabel>
+          <Field label="Time" hideLabel className="min-w-0">
             {(control) => (
               <Input
                 {...control}
+                className="min-w-0"
                 type="time"
                 value={time}
                 onChange={(e) => setTime(e.target.value)}
               />
             )}
           </Field>
-          <Button type="button" size="sm" variant="outline" onClick={addTyped}>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={addTyped}
+            className="col-span-2 justify-self-start sm:col-span-1"
+          >
             Add time
           </Button>
         </div>
@@ -694,28 +702,36 @@ function PollCard({
       {!closed && (
         <div className="space-y-2">
           {poll.slots.length < TEAM_TIME_MAX.slots && (
-            <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
-              <Field label={`Another date (${zoneLabel(ctx.zone)})`} hideLabel>
+            <div className="grid grid-cols-2 items-end gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+              <Field label={`Another date (${zoneLabel(ctx.zone)})`} hideLabel className="min-w-0">
                 {(control) => (
                   <Input
                     {...control}
+                    className="min-w-0"
                     type="date"
                     value={day}
                     onChange={(e) => setDay(e.target.value)}
                   />
                 )}
               </Field>
-              <Field label={`Another time (${zoneLabel(ctx.zone)})`} hideLabel>
+              <Field label={`Another time (${zoneLabel(ctx.zone)})`} hideLabel className="min-w-0">
                 {(control) => (
                   <Input
                     {...control}
+                    className="min-w-0"
                     type="time"
                     value={time}
                     onChange={(e) => setTime(e.target.value)}
                   />
                 )}
               </Field>
-              <Button type="button" size="sm" variant="outline" onClick={addSlot}>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={addSlot}
+                className="col-span-2 justify-self-start sm:col-span-1"
+              >
                 Add a time
               </Button>
             </div>
