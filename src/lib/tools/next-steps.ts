@@ -1298,7 +1298,7 @@ const RULES: Record<string, NextStepRule<object>> = {
         });
         break;
       }
-      // Release notes (the tools plan's phase 2): none until P2.2 lands them.
+      // Release notes (the tools plan's phase 2): steps from lib/releases/notes-steps.
       steps.push(...releaseNotesSteps({ doc, stories: linkable, today }));
       return steps;
     },
@@ -4331,9 +4331,8 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   // ── Phase 43, the tools plan's phase 2 ─────────────────────────────
-  // Each rule loads its tool's own module, which starts as a stub returning
-  // no steps; the tool's builder fills it, keeping the function's name and
-  // arguments. A rule's select reads only workspace store values.
+  // Each rule loads its tool's own next-step module. A rule's select reads
+  // only workspace store values.
   "example-mapping": lazyRule(() => import("@/lib/example-mapping/next-steps"), {
     select: (ws) => ({ maps: ws.exampleMaps, stories: ws.stories }),
     steps: (s, m) => m.exampleMappingSteps(s),

@@ -62,7 +62,7 @@ const SEEDS: Seed[] = [
   {
     key: "reach",
     area: "unrealized-value",
-    name: "Remote teams we aim at who use it",
+    name: "Share of the people we aim at who use it",
     definition: "Of the remote teams in the companies we sell to, the share using the tool.",
     unit: "%",
     direction: "increase",
@@ -72,7 +72,7 @@ const SEEDS: Seed[] = [
   {
     key: "needs",
     area: "unrealized-value",
-    name: "Top team needs we don't meet yet",
+    name: "Top needs we don't meet yet",
     definition: "Of the ten things teams ask for most, how many the tool can't do today.",
     unit: "needs",
     direction: "decrease",

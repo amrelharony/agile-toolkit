@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -38,6 +38,13 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 
 import { PremortemClient } from "@/app/(tools)/premortem/premortem-client";
 import type { PremortemCause, PremortemState } from "@/app/(tools)/premortem/model";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 const PREMORTEM_KEY = "agile-toolkit:premortem";
 const RISK_KEY = "agile-toolkit:risk-register";

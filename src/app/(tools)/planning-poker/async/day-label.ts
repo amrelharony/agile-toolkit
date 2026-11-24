@@ -6,7 +6,8 @@
 export function dueDayLabel(day: string, now: Date = new Date()): string {
   const d = new Date(`${day}T12:00:00`);
   if (Number.isNaN(d.getTime())) return day;
-  return d.toLocaleDateString(undefined, {
+  // British order, as every other date on the site ("Fri 28 Nov"), whatever the browser.
+  return d.toLocaleDateString("en-GB", {
     weekday: "short",
     day: "numeric",
     month: "short",

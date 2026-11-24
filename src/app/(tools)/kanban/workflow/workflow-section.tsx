@@ -74,7 +74,7 @@ export function WorkflowSection({
       {controller.example && <ExampleNotice onClear={controller.closeExample} />}
       {described && described !== view && (
         <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-text">
-          <p className="min-w-0 flex-1">
+          <p className="min-w-0 flex-1 basis-56">
             Your Definition of Workflow describes the {BOARD_NAME[described]}.
           </p>
           <Button type="button" size="sm" variant="outline" onClick={() => onSwitch(described)}>
@@ -84,7 +84,8 @@ export function WorkflowSection({
       )}
       {!controller.def && (
         <div className="mb-4 flex flex-wrap items-center gap-3 text-sm text-sub">
-          <p className="min-w-0 flex-1">
+          {/* A real basis: on a phone the button wraps under the text rather than squeeze it. */}
+          <p className="min-w-0 flex-1 basis-56">
             Write down how work moves on this board: what one item is, when it may enter and leave
             each column, the WIP and pull policies, and how soon the team aims to finish.
           </p>

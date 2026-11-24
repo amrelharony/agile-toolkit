@@ -23,8 +23,9 @@ import { QUESTIONS_SECTION, sectionDef } from "@/lib/product-canvas/formats";
 import {
   canvasGaps,
   formatOf,
-  withItem,
+  withItems,
   withoutItem,
+  type CanvasWrite,
   type GapContext,
 } from "@/lib/product-canvas/model";
 import { cutText } from "@/lib/utils/cut-text";
@@ -43,19 +44,23 @@ export function CheckPanel({ handle, context }: { handle: CanvasHandle; context:
   const label = (sectionId: string | undefined) =>
     sectionId ? sectionDef(format, sectionId)?.label : undefined;
 
-  const keep = (gap: Gap) => {
+  /** Kept gaps (one, or every one left): open questions, under one Undo for them all. */
+  const keep = (list: readonly Gap[]) => {
     const cur = read();
-    if (!cur) return;
-    const text = cutText(gap.text.replace(/\s+/g, " ").trim(), 200);
-    const next = withItem(cur, QUESTIONS_SECTION, { text }, new Date().toISOString());
+    if (!cur || list.length === 0) return;
+    const items = list.map((gap) => ({ text: cutText(gap.text.replace(/\s+/g, " ").trim(), 200) }));
+    const next = withItems(cur, QUESTIONS_SECTION, items, new Date().toISOString());
     if (!next.ok) {
       setProblem(next.message);
       return;
     }
     setProblem(null);
-    const itemId = next.ids?.[0];
+    const itemIds = next.ids ?? [];
     undoable({
-      label: "Added to the open questions",
+      label:
+        list.length === 1
+          ? "Added to the open questions"
+          : `Added ${list.length} lines to the open questions`,
       kind: "success",
       apply: () => {
         write(() => next);
@@ -65,7 +70,17 @@ export function CheckPanel({ handle, context }: { handle: CanvasHandle; context:
         });
       },
       revert: () => {
-        if (itemId) write((c, now) => withoutItem(c, itemId, now));
+        if (itemIds.length === 0) return;
+        write((c, now) => {
+          let w: CanvasWrite = { ok: true, canvas: c };
+          for (const id of itemIds) {
+            if (!w.ok) break;
+            // A line deleted since is simply gone already.
+            const after = withoutItem(w.canvas, id, now);
+            if (after.ok) w = after;
+          }
+          return w;
+        });
       },
     });
   };
@@ -122,7 +137,8 @@ export function CheckPanel({ handle, context }: { handle: CanvasHandle; context:
             title: g.text,
             ...(label(g.section) ? { detail: label(g.section) } : {}),
           })}
-          onAccept={keep}
+          onAccept={(g) => keep([g])}
+          onAcceptAll={keep}
           onDismiss={() => setFound(null)}
           returnFocus={() => buttonWrap.current?.querySelector<HTMLButtonElement>("button") ?? null}
         />

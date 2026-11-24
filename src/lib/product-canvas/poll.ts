@@ -1,7 +1,8 @@
 /**
  * A straw poll in Quick Vote over ideas or pitches: a link that opens a
  * poll with one option per canvas, through Quick Vote's own `pollLinkHref`
- * (unchanged). Each option is "N Title", N counting from 1, so two titles
+ * (the titles ride after the # sign, so they never reach a server). Each
+ * option is "N Title", N counting from 1, so two titles
  * that share their first 30 characters (a link option's length) stay two
  * options; the page shows each key beside its title, so the room's totals
  * can be read back. A link takes LINK_OPTIONS_MAX options: the rest are

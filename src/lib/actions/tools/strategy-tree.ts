@@ -306,7 +306,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Send a part of a strategy tree on, as the page does: a bet to test as a drafted hypothesis (we believe the belief or bet above it, we'll do the bet or its initiatives, measured by its measure), or an initiative or priority onto the roadmap as an epic ('Part of: …' and its owner). Linked both ways ('From strategy tree'); once per route while that item exists; never an example or a dropped part. Params: treeId, nodeId, to. Returns {sent: true, route, targetId, title} or {sent: false, reason: 'not_found' | 'example' | 'level' | 'already_sent' (with targetId) | 'blank' | 'too_big', message?}.",
+    "Send a part of a strategy tree on, as the page does: a bet to test as a drafted hypothesis (we believe the belief or bet above it, we'll do the bet or its initiatives, measured by its measure), or an initiative or priority onto the roadmap as an epic ('Part of: …' and its owner). Linked both ways ('From strategy tree'); once per route while that item exists; never an example or a dropped part. Params: treeId, nodeId, to. Returns {sent: true, route, targetId, title} or {sent: false, reason: 'not_found' | 'example' | 'level' | 'already_sent' (with targetId) | 'blank' | 'too_big' (the tree's row, or for a hypothesis the Hypothesis Tracker, is full, nothing made; with message), message?}.",
   paramsSchema: SendSchema,
   handler: async (p) =>
     sendNode(browserStrategyStore, { mapId: p.treeId, nodeId: p.nodeId, route: p.to }, isTree),

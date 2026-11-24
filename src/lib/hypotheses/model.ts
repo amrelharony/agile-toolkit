@@ -25,6 +25,7 @@ import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
 import type { HandoffSource } from "@/lib/handoffs/types";
 import { isExampleId } from "@/lib/utils/example-id";
 import { isBlank, parseNumber, type FormErrors, type Validation } from "@/lib/utils/form";
+import { unitAfter } from "@/lib/utils/unit-after";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 
@@ -163,10 +164,12 @@ export function suggestVerdict(h: Pick<Hypothesis, "target" | "actual">): Verdic
 
 /** A number with its unit: "14%", "40 sign-ups", "3.5". */
 export function formatMetric(value: number, unit?: string): string {
-  const n = String(Math.round(value * 100) / 100);
+  const rounded = Math.round(value * 100) / 100;
+  const n = String(rounded);
   const u = (unit ?? "").trim();
   if (!u) return n;
-  return u === "%" ? `${n}%` : `${n} ${u}`;
+  // "1 day", not "1 days", for the common plurals.
+  return u === "%" ? `${n}%` : `${n} ${unitAfter(rounded, u)}`;
 }
 
 /**

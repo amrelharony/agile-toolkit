@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { retroFormats } from "@/lib/constants/retro-formats";
@@ -50,6 +50,13 @@ vi.mock("framer-motion", async () => {
 });
 
 import { RetroClient } from "@/app/(tools)/retro/retro-client";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 const startStop = retroFormats[0]; // Start / Stop / Continue
 const madSadGlad = retroFormats.find((f) => f.id === "mad-sad-glad") ?? retroFormats[3];

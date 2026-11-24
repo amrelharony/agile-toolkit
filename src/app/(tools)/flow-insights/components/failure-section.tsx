@@ -69,10 +69,16 @@ export function FailureSection({ x }: { x: FlowInsights }) {
         </div>
       )}
       <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-        <Link href="/root-cause" className="text-accent underline-offset-2 hover:underline">
+        <Link
+          href="/root-cause"
+          className="inline-flex items-center text-accent underline-offset-2 hover:underline pointer-coarse:min-h-11"
+        >
           Find the cause with Root Cause
         </Link>
-        <Link href="/retro" className="text-accent underline-offset-2 hover:underline">
+        <Link
+          href="/retro"
+          className="inline-flex items-center text-accent underline-offset-2 hover:underline pointer-coarse:min-h-11"
+        >
           Take it to the retro
         </Link>
       </p>

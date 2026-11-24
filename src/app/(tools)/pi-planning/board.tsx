@@ -380,7 +380,7 @@ function DependencyLine({
         </Button>
         <Link
           href="/dependency-map"
-          className="text-xs text-sub underline-offset-2 hover:text-accent hover:underline"
+          className="inline-flex items-center text-xs text-sub underline-offset-2 hover:text-accent hover:underline pointer-coarse:min-h-11"
         >
           On the map
         </Link>

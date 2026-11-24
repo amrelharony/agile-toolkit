@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -74,6 +74,13 @@ import {
   AI_LINE,
 } from "@/app/(tools)/notes-to-actions/notes-to-actions-client";
 import { validatePaste } from "@/app/(tools)/notes-to-actions/form";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 const TEXT = [
   "Sprint Review",
@@ -217,9 +224,20 @@ describe("pasting notes", () => {
 describe("finding and keeping", () => {
   beforeEach(() => seed([note()]));
 
+  it("says names go to the AI service only while Find sends to it", () => {
+    vi.stubEnv("NEXT_PUBLIC_VISITOR_AI", "1");
+    try {
+      renderPage();
+      expect(screen.getByText(AI_LINE)).toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("finds the items without AI, each with the line it came from", async () => {
     renderPage();
-    expect(screen.getByText(AI_LINE)).toBeInTheDocument();
+    // AI is off here, so Find sends nothing anywhere: no line about the AI service.
+    expect(screen.queryByText(AI_LINE)).toBeNull();
     await find();
     expect(
       screen.getByText("Action: Ana to update the onboarding copy by Friday")

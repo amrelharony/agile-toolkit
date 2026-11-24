@@ -161,6 +161,7 @@ import type {
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
 import { rowsUnlinkedFrom } from "@/lib/prioritization/binding";
+import { readAsyncRounds } from "@/lib/estimation/async-read";
 
 interface WorkspaceActions {
   setTeamName: (name: string) => void;
@@ -2038,7 +2039,11 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           meetingAudits: arr("meetingAudits"),
           // Phase 43 — the tools plan's phase 2
           exampleMaps: arr("exampleMaps"),
-          pokerAsyncRounds: arr("pokerAsyncRounds"),
+          // No CRUD checks these rows on the way in: read them, so a malformed
+          // round is left out or repaired rather than thrown on by every reader.
+          pokerAsyncRounds: Array.isArray(p.pokerAsyncRounds)
+            ? readAsyncRounds(p.pokerAsyncRounds)
+            : undefined,
           bugReports: arr("bugReports"),
           hillCharts: arr("hillCharts"),
           testSessions: arr("testSessions"),
@@ -2208,6 +2213,21 @@ if (typeof window !== "undefined") {
   void Promise.resolve(useWorkspaceStore.persist.rehydrate()).catch(() => {
     /* corrupt persisted state — keep emptyWorkspace defaults */
   });
+
+  // Planning Poker's rounds without a meeting: a round past its 14 days is
+  // closed in storage, with its names and notes dropped, on whichever page
+  // loads or syncs the workspace (lib/estimation/async-expiry). Loaded on
+  // its own so the shared bundle doesn't carry it; one watcher across HMR.
+  type WindowWithExpiry = Window & { __agileToolkitAsyncExpiry?: () => void };
+  void import("@/lib/estimation/async-expiry")
+    .then(({ watchAsyncRoundExpiry }) => {
+      const w = window as WindowWithExpiry;
+      w.__agileToolkitAsyncExpiry?.();
+      w.__agileToolkitAsyncExpiry = watchAsyncRoundExpiry(useWorkspaceStore);
+    })
+    .catch(() => {
+      /* chunk failed to load: the readers still show an expired round closed */
+    });
 
   // R11-fix: cross-tab synchronisation. Two tabs of the same browser
   // each load + mutate the workspace independently; the LAST tab to

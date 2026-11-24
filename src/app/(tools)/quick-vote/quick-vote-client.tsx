@@ -38,7 +38,7 @@ import {
   type RoundDraft,
 } from "@/lib/quick-vote/draft";
 import { roundFor } from "@/lib/quick-vote/sheets";
-import { POLL_LINK_PARAMS, readPollLink } from "@/lib/quick-vote/link";
+import { POLL_LINK_PARAMS, readPollLink, type PollLink } from "@/lib/quick-vote/link";
 import {
   guessVerdict,
   latestVerdict,
@@ -79,11 +79,23 @@ const FIELD_ORDER: DraftField[] = ["question", "options", "labels", "limit", "mi
 
 const ws = () => useWorkspaceStore.getState();
 
-/** Take a poll link's parameters off the address, so a reload doesn't set the poll up again. */
-function dropPollLink(): void {
+/**
+ * The poll this address asks for: after the # sign (what the tools' links
+ * carry, never sent to a server), else in the query (an older link).
+ */
+function pollLinkHere(): { link: PollLink; inHash: boolean } | null {
+  const fromHash = readPollLink(window.location.hash);
+  if (fromHash) return { link: fromHash, inHash: true };
+  const fromQuery = readPollLink(window.location.search);
+  return fromQuery ? { link: fromQuery, inHash: false } : null;
+}
+
+/** Take a poll link off the address, so a reload doesn't set the poll up again. */
+function dropPollLink(inHash: boolean): void {
   try {
     const url = new URL(window.location.href);
-    for (const key of POLL_LINK_PARAMS) url.searchParams.delete(key);
+    if (inHash) url.hash = "";
+    else for (const key of POLL_LINK_PARAMS) url.searchParams.delete(key);
     window.history.replaceState(window.history.state, "", url);
   } catch {
     /* no history API: the poll is set up all the same */
@@ -181,9 +193,10 @@ export function QuickVoteClient() {
   useEffect(() => {
     if (!ready || linkRead.current) return;
     linkRead.current = true;
-    const link = readPollLink(window.location.search);
-    if (!link) return;
-    dropPollLink();
+    const here = pollLinkHere();
+    if (!here) return;
+    const { link } = here;
+    dropPollLink(here.inHash);
     const poll = presetById("poll") as QuickVotePreset;
     const base = draftFromPreset(poll);
     replaceDraft(
@@ -545,8 +558,8 @@ export function QuickVoteClient() {
                   icon={BarChart3}
                   action={<LoadExampleButton onLoad={() => setExample(buildExample())} />}
                 >
-                  No saved rounds yet. Run a round and press Save round: only its totals are kept,
-                  never who answered what. Or load an example to see a week of results.
+                  Run a round and press Save round: only its totals are kept, never who answered
+                  what. Or load an example to see a week of results.
                 </EmptyState>
               ) : (
                 <ResultsList

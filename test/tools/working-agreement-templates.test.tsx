@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -102,6 +102,21 @@ function withLadder(): WorkingAgreement {
     rules: applied.rules.map((r) => (r.id === "t1" ? withConsent(r, "Ann", "consent", NOW) : r)),
   };
 }
+
+// The template forms load with next/dynamic when one opens. Open one once, and
+// wait for it, so in every test the forms draw as soon as a template opens. The
+// first opening says it is loading, then focus goes into the form once it draws.
+beforeAll(async () => {
+  seed(null);
+  renderPage();
+  fireEvent.click(templateButton(/^Urgency ladder/));
+  expect(within(form()).getByText("Loading the template…")).toBeInTheDocument();
+  expect(
+    await screen.findByRole("heading", { name: "Urgency ladder" }, { timeout: 15_000 })
+  ).toBeInTheDocument();
+  expect(within(form()).getAllByLabelText(/^Name/)[0]).toHaveFocus();
+  cleanup();
+}, 20_000);
 
 let tzBefore: string | undefined;
 beforeEach(() => {

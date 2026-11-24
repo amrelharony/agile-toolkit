@@ -1,7 +1,8 @@
 /**
  * What the site tells people about their data, in the words they are shown at
  * the moment it matters: the "Your data" dialog, the consent step before a
- * live room or a vote round, the card before Amr's AI, the note under the
+ * live room or a vote round, the card before Amr's AI and the notice before
+ * a visitor's first dictation in its chat, the note under the
  * comics and kudos pages, the AI settings dialog, and the line under the
  * licence and guestbook forms.
  *
@@ -11,7 +12,12 @@
  * wording lives in this plain one. Change a sentence here and the dialog and
  * the page change together.
  *
- * No imports and no browser or server APIs: safe in either bundle.
+ * One text lives in a module of its own and is re-exported here: the voice
+ * notice's (./voice-disclosure). Several chunks carry this module, the comics
+ * pages' first load among them, and a bundler keeps in it every text some
+ * chunk uses, so a text only a lazily loaded part shows stays apart.
+ *
+ * No other imports and no browser or server APIs: safe in either bundle.
  */
 
 // ── "Your data" (components/data/your-data-dialog.tsx) ────────────────────
@@ -90,12 +96,17 @@ export const WALL_ROOM_CONSENT_TEXT =
 /**
  * The header of the estimator's page, /planning-poker/estimate. `{name}` is
  * the facilitator's name from the link (the page puts "the facilitator" when
- * the link has none). The facilitator's page drops names and notes when the
- * round closes, or 14 days after its due day (lib/estimation/async-rounds,
- * POKER_ASYNC_MAX.keepDays). The wording is a draft the owner approves.
+ * the link has none). Copy reply, Copy link and Share each carry the reply
+ * off the page. Closing a round drops its names and notes and keeps the
+ * cards, unnamed; a round left open is closed that way the first time the
+ * facilitator's toolkit loads more than 14 days after its due day, or after
+ * the day it was made when it has none (lib/estimation/async-rounds
+ * `keepUntil`, POKER_ASYNC_MAX.keepDays; lib/estimation/async-expiry writes
+ * it, and sync carries it to the facilitator's account). The wording is a
+ * draft the owner approves.
  */
 export const ASYNC_ESTIMATE_NOTICE =
-  "Made in Planning Poker by {name}. Nothing you pick leaves this page until you copy your reply. If you send it, {name}'s toolkit keeps your name, cards and notes until the round closes, at most 14 days after it's due.";
+  "Made in Planning Poker by {name}. Nothing you pick leaves this page until you copy or share your reply. If you send it, {name}'s toolkit keeps your name and notes until the round closes, or until {name} next opens it more than 14 days after it's due (or made, if it has no due day). Your cards stay, without your name.";
 
 // ── Amr's AI for visitors ──────────────────────────────────────────────────
 // The card in the mascot panel (components/agent/mascot/visitor-ai-consent.tsx)
@@ -125,8 +136,15 @@ export const VISITOR_AI_CONSENT_TEXT: readonly string[] = [
   VISITOR_AI_KEPT,
   "Amr never changes your work without you accepting it.",
   "Don't share personal or confidential information.",
-  `You get ${VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons (fewer during busy hours). The tools and the offline guide always work without AI.`,
+  `You get ${VISITOR_AI_DAILY_MESSAGES} AI uses a day, shared by the chat and the Ask Amr buttons (fewer during busy hours). The tools and the tool finder always work without AI.`,
 ];
+
+// ── Dictation in Amr's AI chat (components/agent/mascot/voice-notice.tsx) ──
+
+// What the chat's voice notice says before a visitor's first dictation, kept
+// in ./voice-disclosure: only the notice, loaded on the mic's first press,
+// shows it (see the file comment).
+export { VOICE_INPUT_DISCLOSURE } from "./voice-disclosure";
 
 // ── The count note (components/visits/visit-recorder.tsx) ─────────────────
 

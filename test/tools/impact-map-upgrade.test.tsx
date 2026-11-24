@@ -12,18 +12,21 @@
  */
 
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { SearchParamsContext } from "next/dist/shared/lib/hooks-client-context.shared-runtime";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+import { WORKSPACE_LOADING_RESERVE } from "@/components/shared/workspace-loading";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
+  HypothesisTracker,
   Persona,
   ProductGoal,
   StrategyMap,
   StrategyMapNode,
 } from "@/lib/stores/workspace-types";
+import { HYPOTHESIS_TRACKER_ID, TRACKER_FULL } from "@/lib/hypotheses/model";
 import { IMPACT_MAP_ACTIONS } from "@/lib/history/event-actions";
 import { VISITOR_AI_CONSENT_KEY, VISITOR_AI_CONSENT_VERSION } from "@/lib/visitor-ai/consent";
 
@@ -51,10 +54,19 @@ vi.mock("@/components/layout/tool-page-wrapper", () => ({
   ),
 }));
 vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: () => null }));
+/** The element the page's PNG export would capture, as the last render passed it. */
+const pngTarget = vi.hoisted(() => ({ ref: null as { current: HTMLElement | null } | null }));
 vi.mock("@/components/shared/export-button", () => ({
-  ExportButton: ({ markdown }: { markdown?: string }) => (
-    <pre data-testid="export-markdown">{markdown}</pre>
-  ),
+  ExportButton: ({
+    markdown,
+    targetRef,
+  }: {
+    markdown?: string;
+    targetRef?: { current: HTMLElement | null };
+  }) => {
+    pngTarget.ref = targetRef ?? null;
+    return <pre data-testid="export-markdown">{markdown}</pre>;
+  },
 }));
 
 import { ImpactMapClient } from "@/app/(tools)/impact-map/impact-map-client";
@@ -67,7 +79,15 @@ import { strategyMapProblems } from "@/lib/strategy-map/rules";
 import { TOO_BIG } from "@/lib/strategy-map/model";
 import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
 import { jsonBytes } from "@/lib/utils/json-bytes";
+import { keepInExport } from "@/lib/utils/export-skip";
 import { nearlyFull } from "../strategy-map/near-full";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 const AT = "2026-11-20T09:00:00.000Z";
 const node = (
@@ -178,6 +198,33 @@ afterEach(() => {
 });
 
 describe("empty state and example", () => {
+  it("shows a loading card, and no New button, until the workspace has loaded", () => {
+    let finish = () => {};
+    const hasHydrated = vi.spyOn(useWorkspaceStore.persist, "hasHydrated").mockReturnValue(false);
+    const onFinish = vi
+      .spyOn(useWorkspaceStore.persist, "onFinishHydration")
+      .mockImplementation((fn) => {
+        finish = () => fn(useWorkspaceStore.getState());
+        return () => {};
+      });
+    try {
+      renderPage();
+      const loading = screen.getByRole("status");
+      expect(loading).toHaveTextContent("Loading the impact maps…");
+      // It holds the page's room on a phone, so the swap doesn't push what's below.
+      expect(loading).toHaveClass(WORKSPACE_LOADING_RESERVE);
+      expect(screen.queryByRole("button", { name: "New impact map" })).toBeNull();
+      expect(screen.queryByText(/No impact maps yet/)).toBeNull();
+      act(() => finish());
+      expect(screen.getByText(/No impact maps yet/)).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "New impact map" })).toBeEnabled();
+      expect(screen.queryByText("Loading the impact maps…")).toBeNull();
+    } finally {
+      hasHydrated.mockRestore();
+      onFinish.mockRestore();
+    }
+  });
+
   it("says how to start, loads the example without logging it, and clears exactly it", async () => {
     seed([map({ id: "strategyMap_own" })]);
     ws().removeStrategyMap("strategyMap_own");
@@ -209,6 +256,19 @@ describe("empty state and example", () => {
     expect(maps().map((m) => m.id)).toEqual([...treeExamples.map((t) => t.id), EXAMPLE_MAP_ID]);
     fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
     expect(maps().map((m) => m.id)).toEqual(treeExamples.map((t) => t.id));
+  });
+
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Load an example" }));
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(maps()).toEqual([]);
+    expect(lastToast().label).toBe("Cleared the example");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Load an example" })).toHaveFocus()
+    );
+    lastToast().undo();
+    expect(maps().map((m) => m.id)).toEqual([EXAMPLE_MAP_ID]);
   });
 
   it("builds an example that keeps the rules, in example ids, with one focus and no persona", () => {
@@ -780,6 +840,34 @@ describe("sends, each with Undo", () => {
     expect(logged(IMPACT_MAP_ACTIONS.DELIVERABLE_SENT)).toEqual([]);
     expect(stored()).toEqual(full);
   });
+
+  it("says the Hypothesis Tracker is full instead of a click that does nothing", async () => {
+    const filler = (believe: string): HypothesisTracker => ({
+      id: HYPOTHESIS_TRACKER_ID,
+      hypotheses: [
+        {
+          id: "h0",
+          believe,
+          willDo: "",
+          toLearn: "",
+          successMetric: "",
+          status: "running",
+          raisedAt: "2026-10-01",
+        },
+      ],
+    });
+    // Ten bytes short of the tracker's row: no new hypothesis fits beside it.
+    const tracker = filler("x".repeat(ENTITY_ROW_MAX_BYTES - jsonBytes(filler("")) - 10));
+    seed([map()], { hypothesisTrackers: [tracker] });
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /^Test this impact: Skip a week/ }));
+    expect(screen.getByText(TRACKER_FULL, { selector: "p[role=status]" })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId("live-polite")).toHaveTextContent(TRACKER_FULL));
+    expect(hypotheses().map((h) => h.id)).toEqual(["h0"]);
+    expect(nodeOf("i")?.sentTo).toBeUndefined();
+    expect(toastSpy).not.toHaveBeenCalled();
+    expect(logged(IMPACT_MAP_ACTIONS.IMPACT_TESTED)).toEqual([]);
+  });
 });
 
 describe("drafting the map", () => {
@@ -929,6 +1017,37 @@ describe("export and links", () => {
     expect((await screen.findByTestId("export-markdown")).textContent).toContain(
       "# Impact Map — Grow repeat orders — "
     );
+  });
+
+  it("takes the PNG of the map, leaving the page's controls and the parts' own out", async () => {
+    seed([map({ productGoalId: "goal_1" })], { productGoals: [goal()] });
+    renderPage();
+    await screen.findByRole("heading", { level: 2, name: "Grow repeat orders" });
+    // An open ideas list is a control too.
+    fireEvent.click(screen.getByRole("button", { name: /^Suggest deliverables for Skip a week/ }));
+    const target = pngTarget.ref?.current;
+    if (!target) throw new Error("the export has no target");
+    // The map's title, its Product Goal and its five parts are in the picture...
+    expect(within(target).getByRole("heading", { level: 2 })).toHaveTextContent(
+      "Grow repeat orders"
+    );
+    expect(target).toHaveTextContent("Families eat well without planning");
+    const parts = Array.from(target.querySelectorAll("article"));
+    expect(parts).toHaveLength(5);
+    expect(parts.every((a) => !a.closest("[data-export-skip]"))).toBe(true);
+    // ...and the page's toolbar isn't.
+    expect(target.contains(screen.getByTestId("export-markdown"))).toBe(false);
+    expect(target.contains(screen.getByRole("button", { name: "New impact map" }))).toBe(false);
+    // Every control left inside is marked to stay out of it, links that make something too.
+    const kept = Array.from(target.querySelectorAll("button, input, textarea, select")).filter(
+      (el) => keepInExport(el) && !el.closest("[data-export-skip]")
+    );
+    expect(kept.map((el) => el.getAttribute("aria-label") ?? el.textContent)).toEqual([]);
+    expect(
+      screen
+        .getByRole("link", { name: "Make a persona for this actor" })
+        .closest("[data-export-skip]")
+    ).not.toBeNull();
   });
 
   it("opens the map a ?map= link names, and drops the link once open", async () => {

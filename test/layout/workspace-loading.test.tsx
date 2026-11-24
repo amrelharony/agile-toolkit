@@ -197,9 +197,10 @@ describe("pre-hydration placeholders reserve the tool's room", () => {
   it("the Team page, capped near its empty state's height", () => {
     const status = serverStatus(<TeamClient />);
     expect(status).toHaveTextContent("Loading your team…");
-    // The cap replaces the default reserve (tailwind-merge), on phones only.
+    // The cap replaces the default reserve (tailwind-merge) on phones; from md
+    // it holds the empty state's height too, since the tool list sits under it.
     const minHeights = Array.from(status.classList).filter((c) => c.includes("min-h-"));
-    expect(minHeights).toEqual(["max-md:min-h-[min(60svh,20rem)]"]);
+    expect(minHeights).toEqual(["max-md:min-h-[min(60svh,20rem)]", "md:min-h-60"]);
     expect(status).not.toHaveAttribute("aria-busy");
   });
 });

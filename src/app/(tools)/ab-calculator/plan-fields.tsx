@@ -106,7 +106,7 @@ export function PlanFields({
               {...props}
               inputMode="decimal"
               value={draft.baselinePct}
-              placeholder="10"
+              placeholder="e.g. 10"
               onChange={(e) => onChange({ baselinePct: e.target.value })}
             />
           )}
@@ -130,7 +130,7 @@ export function PlanFields({
               {...props}
               inputMode="decimal"
               value={draft.mde}
-              placeholder={relative ? "20" : "2"}
+              placeholder={relative ? "e.g. 20" : "e.g. 2"}
               onChange={(e) => onChange({ mde: e.target.value })}
             />
           )}
@@ -180,7 +180,7 @@ export function PlanFields({
             {...props}
             inputMode="numeric"
             value={draft.dailyTraffic}
-            placeholder="800"
+            placeholder="e.g. 800"
             onChange={(e) => onChange({ dailyTraffic: e.target.value })}
           />
         )}

@@ -62,6 +62,13 @@ import { cycleEnd } from "@/lib/product-canvas/fields";
 import { readPollLink } from "@/lib/quick-vote/link";
 import { todayIso } from "@/lib/sprints/series";
 import { addDays } from "@/lib/flow/days";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 /** jsdom has no ResizeObserver; the send menu's popper measures with one. */
 function stubResizeObserver() {
@@ -477,7 +484,7 @@ describe("the idea inbox", () => {
     useProductCanvasPrefs.setState({ lastFormat: "idea" });
     renderPage();
     const link = await screen.findByRole("link", { name: "Vote in Quick Vote" });
-    const poll = readPollLink(link.getAttribute("href")!.split("?")[1]);
+    const poll = readPollLink(link.getAttribute("href")!.split("#")[1]);
     expect(poll?.question).toBe("Which idea should we look at first?");
     expect(poll?.options).toHaveLength(2);
     expect(poll?.options[0].startsWith("1 ")).toBe(true);
@@ -528,7 +535,7 @@ describe("the idea inbox", () => {
     renderPage();
     const nav = screen.getByRole("navigation", { name: "Canvases" });
     expect(within(nav).getByRole("button", { name: /^All 1/ })).toBeInTheDocument();
-    expect(within(nav).getByRole("button", { name: /^Idea intake 1/ })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: /^Idea inbox 1/ })).toBeInTheDocument();
     expect(within(nav).queryByRole("button", { name: /^Tips/ })).toBeNull();
   });
 });
@@ -851,12 +858,22 @@ describe("the betting table", () => {
     useProductCanvasPrefs.setState({ lastFormat: "shape-up" });
     renderPage();
     const link = await screen.findByRole("link", { name: "Straw poll in Quick Vote" });
-    const poll = readPollLink(link.getAttribute("href")!.split("?")[1]);
+    const poll = readPollLink(link.getAttribute("href")!.split("#")[1]);
     expect(poll?.question).toBe("Which pitch should we bet on?");
     expect(poll?.options).toHaveLength(2);
     const table = screen.getByRole("region", { name: /^On the table/ });
-    expect(within(table).getByLabelText("Poll option 1")).toBeInTheDocument();
-    expect(within(table).getByLabelText("Poll option 2")).toBeInTheDocument();
+    // The number reads as "Poll option 1" (hidden words, not an aria-label on a span).
+    for (const n of ["1", "2"]) {
+      const key = within(table).getByText(
+        (_, el) => el?.tagName === "SPAN" && el.textContent === `Poll option ${n}`
+      );
+      expect(key).not.toHaveAttribute("aria-label");
+      expect(key.querySelector(".sr-only")).toHaveTextContent("Poll option");
+    }
+    // The pitch titles take a full tap on a phone.
+    for (const title of within(table).getAllByRole("button", { name: /^Pitch / })) {
+      expect(title).toHaveClass("min-touch-coarse");
+    }
   });
 
   it("exports the betting table with each cycle's dates, then the pitch beside it", async () => {

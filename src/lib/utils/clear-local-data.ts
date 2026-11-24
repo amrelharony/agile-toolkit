@@ -10,9 +10,10 @@ import { clearVipHint } from "@/lib/vip/hint";
  * This wipes everything the toolkit keeps on the device: every key under
  * the `agile-toolkit:` prefix in localStorage AND sessionStorage (tool
  * stores, workspace, history, BYOK API keys, markers), plus the few
- * app-owned keys that predate the prefix. The theme (`ae-theme`) survives —
- * it is a display preference, not data. Supabase's own session storage is
- * left to `auth.signOut()`.
+ * app-owned keys outside the prefix (the ones that predate it, and what Amr
+ * notes about the visitor). The theme (`ae-theme`) survives: it is a display
+ * preference, not data. Supabase's own session storage is left to
+ * `auth.signOut()`.
  *
  * In-memory state is NOT fully reset here. Most stores are registered with
  * the cloud sync engine, and resetting e.g. the workspace store while the
@@ -29,12 +30,44 @@ export const LOCAL_DATA_CHANNEL = "agile-toolkit:local-data";
 
 const APP_KEY_PREFIX = "agile-toolkit:";
 
-/** App-owned keys written before the `agile-toolkit:` prefix convention. */
+/**
+ * App-owned keys written before the `agile-toolkit:` prefix convention. They
+ * are cleared, and they also travel in a backup (lib/data/backup.ts reads this
+ * list), so only a key that should do both belongs here.
+ */
 export const LEGACY_APP_KEYS: readonly string[] = [
   "mascot_appearance", // lib/agent/mascot/store.ts
   "icebreaker-favorites", // the Icebreaker's old favourites (icebreaker/migrate.ts moves them)
   "canvas:touchGestureHintSeen:v1", // canvas/components/whiteboard-canvas.tsx
 ];
+
+/**
+ * Amr's own notes about whoever uses this browser, also outside the prefix.
+ * They are cleared with the rest. They are kept apart from LEGACY_APP_KEYS
+ * because that list also decides what travels in a backup, and these never
+ * have: they are about this browser and this visit, not the visitor's work.
+ */
+const MASCOT_NOTE_KEYS: readonly string[] = [
+  "mascot_memory", // what he remembers of the visitor (lib/agent/mascot/memory.ts)
+  "mascot_last_day", // the last day he saw anyone (mascot/engine/idle.ts)
+  "mascot_greeted", // the greetings he has made today (mascot/engine/interactions/context.ts)
+  "mascot_helped", // sessionStorage: where he has offered a hand (mascot/engine/interactions/intent.ts)
+  "mascot_weather", // sessionStorage: the visitor's weather, kept half an hour (lib/agent/mascot/context/weather.ts)
+];
+
+/**
+ * Resets for in-memory state that a lazily loaded module holds and would
+ * write straight back after the sweep. The module registers its own, so this
+ * file doesn't have to import it into every page's first load. Today that is
+ * Amr's mind (lib/agent/mascot/mind.ts), which saves what he remembers a
+ * moment after anything happens to him.
+ */
+const registeredResets = new Set<() => void>();
+
+/** Have `reset` run on every clear, before the storage is swept. */
+export function resetOnLocalDataClear(reset: () => void): void {
+  registeredResets.add(reset);
+}
 
 type ClearedMessage = { type: "cleared"; at?: number };
 
@@ -74,6 +107,7 @@ function isAppKey(key: string): boolean {
   return (
     key.startsWith(APP_KEY_PREFIX) ||
     LEGACY_APP_KEYS.includes(key) ||
+    MASCOT_NOTE_KEYS.includes(key) ||
     LEGACY_BACKUP_PREFIXES.some((p) => key.startsWith(p))
   );
 }
@@ -147,9 +181,11 @@ export function clearLocalWorkspaceData(
   // - history: owner-stamped events and anything a visitor logged
   // - llm: BYOK API keys ("device" mode keeps them in localStorage)
   // - cloud-persisted registry: in-memory snapshots of per-key blobs
+  // - registered resets: Amr's mind, when he is on the page
   attempt(() => useHistoryStore.getState().clearAll());
   attempt(() => useLlmStore.getState().clearAll());
   attempt(() => resetCloudPersistedRegistry());
+  registeredResets.forEach((reset) => attempt(reset));
   // The menus forget the VIP tools. The access cookie is httpOnly, so it stays:
   // opening /vip on this device puts the hint back.
   attempt(() => clearVipHint());

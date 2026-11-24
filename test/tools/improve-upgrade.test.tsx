@@ -91,6 +91,13 @@ import { STEP_REFUSAL_TEXT, TOO_BIG, readImprovement } from "@/lib/improve/model
 import { isoDayNumber, isoFromDayNumber } from "@/lib/sprints/calendar";
 import { todayIso } from "@/lib/sprints/series";
 import { isExampleId } from "@/lib/utils/example-id";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 beforeAll(() => {
   vi.stubGlobal(
@@ -278,6 +285,24 @@ describe("empty state, example and starting one", () => {
     ws().upsertImprovement(a3({ id: "improve_own", title: "Our own" }));
     fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
     expect(stored().map((i) => i.id)).toEqual(["improve_own"]);
+  });
+
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
+    const loaded = stored().map((i) => i.id);
+    fireEvent.click(screen.getByRole("button", { name: "Clear example" }));
+    expect(stored()).toEqual([]);
+    expect(lastUndo().label).toBe("Cleared the example");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Load an example" })).toHaveFocus()
+    );
+    act(() => lastUndo().revert());
+    expect(
+      stored()
+        .map((i) => i.id)
+        .sort()
+    ).toEqual([...loaded].sort());
   });
 
   it("shows no AI buttons and no sends on the example, and never logs its edits", () => {
@@ -923,11 +948,12 @@ describe("a Kata", () => {
   it("works on one obstacle at a time; adds, clears and deletes obstacles with Undo", () => {
     useWorkspaceStore.setState({ improvements: [kata()] });
     renderPage();
-    // The obstacle's own field (the experiments' "Works on" selects show the same words).
+    // The obstacle's own field, a one-line box that wraps (the experiments'
+    // "Works on" selects show the same words).
     const row = (text: string) =>
       screen
         .getAllByDisplayValue(text)
-        .find((el) => el.tagName === "INPUT")!
+        .find((el) => el.tagName === "TEXTAREA")!
         .closest("li") as HTMLElement;
     fireEvent.click(within(row("Big pull requests")).getByRole("button", { name: "Work on this" }));
     expect(byId("improve_k")!.obstacles.map((o) => o.status)).toEqual(["open", "working"]);
@@ -954,7 +980,7 @@ describe("a Kata", () => {
     useWorkspaceStore.setState({ improvements: [kata()] });
     renderPage();
     const box = () =>
-      screen.getAllByDisplayValue("Only one reviewer").find((el) => el.tagName === "INPUT")!;
+      screen.getAllByDisplayValue("Only one reviewer").find((el) => el.tagName === "TEXTAREA")!;
     commit(box(), " ");
     expect(byId("improve_k")!.obstacles[0].text).toBe("Only one reviewer");
     expect(box()).toBeInTheDocument();

@@ -419,7 +419,8 @@ describe("Blockers: where the time goes", () => {
     expect(ws().stories[0].blockLog?.[0].cluster).toBe("Test or build environment");
     expect(logs.at(-1)).toMatchObject({
       action: IMPEDIMENT_ACTIONS.BLOCKERS_CLUSTERED,
-      payload: { blockers: 3, clusters: 1, source: "fallback" },
+      // The no-AI suggestions log as "rules", as the catalog and the other tools say.
+      payload: { blockers: 3, clusters: 1, source: "rules" },
     });
     undoLast();
     expect(ws().impediments.some((i) => i.cluster)).toBe(false);

@@ -59,7 +59,6 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import { undoable } from "@/lib/utils/undoable";
 import { analyseImpediments } from "./analysis";
 import { ImpedimentsAdvanced } from "./advanced";
-import { BlockersSection } from "./blockers-section";
 import { ImpedimentCard } from "./components/impediment-card";
 import { LogForm } from "./components/log-form";
 import { buildExample, exampleRows } from "./example";
@@ -91,6 +90,14 @@ const WeeklyImpedimentsChart = dynamic(
   () => import("./charts").then((m) => m.WeeklyImpedimentsChart),
   { ssr: false }
 );
+
+// The Blockers section (its clustering, the AI kit and the retro themes)
+// loads after the page, as Kanban's workflow section does: nothing above it
+// needs that code, so the tracker's first load doesn't carry it.
+const BlockersSection = dynamic(() => import("./blockers-section").then((m) => m.BlockersSection), {
+  ssr: false,
+  loading: () => <div className="h-40 animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />,
+});
 
 // A stable empty list: zustand re-renders forever on a selector that
 // returns a fresh array each call.

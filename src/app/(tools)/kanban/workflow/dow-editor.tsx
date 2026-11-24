@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { Save, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
@@ -162,6 +162,7 @@ export function DowEditor({
   const [errors, setErrors] = useState<FormErrors<string>>({});
   const [sleNote, setSleNote] = useState<string | null>(null);
   const [sleShort, setSleShort] = useState<number | null>(null);
+  const sleHintId = useId();
   const [suggested, setSuggested] = useState<{
     items: Suggestion[];
     questions: string[];
@@ -466,11 +467,14 @@ export function DowEditor({
 
       <fieldset className="space-y-3">
         <legend className="mb-1 text-sm font-medium text-text">Service level expectation</legend>
-        <div className="grid gap-3 sm:grid-cols-[minmax(0,10rem)_minmax(0,8rem)_auto] sm:items-end">
-          <Field label="Share of items" hint="Cycle Time's percentiles.">
+        {/* The hint sits under the row, not under its field, so the three
+            controls line up; the days column fits its label on one line. */}
+        <div className="grid gap-3 sm:grid-cols-[minmax(0,10rem)_minmax(0,11rem)_auto] sm:items-end">
+          <Field label="Share of items">
             {(p) => (
               <select
                 {...p}
+                aria-describedby={sleHintId}
                 className={SELECT_CLASS}
                 value={draft.slePct}
                 onChange={(e) => set({ slePct: e.target.value })}
@@ -496,10 +500,18 @@ export function DowEditor({
               />
             )}
           </Field>
-          <Button type="button" variant="outline" onClick={suggestSle}>
+          <Button
+            type="button"
+            variant="outline"
+            className="justify-self-start"
+            onClick={suggestSle}
+          >
             Suggest from history
           </Button>
         </div>
+        <p id={sleHintId} className="text-xs text-sub">
+          The shares are Cycle Time&apos;s percentiles.
+        </p>
         {sleNote && (
           <p role="status" className="text-sm text-sub">
             {sleNote}

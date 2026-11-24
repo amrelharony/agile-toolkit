@@ -199,21 +199,33 @@ export function TestCard({
               hypothesis: linked?.hypothesis?.believe,
             })
           }
-          onResult={(data, meta) =>
+          onResult={(data, meta) => {
+            // What the test holds already isn't offered again: Add would change nothing.
+            const has = new Set((t.guardrails ?? []).map((g) => g.name.trim().toLowerCase()));
+            const noted = new Set((t.note ?? "").split(/\r?\n/).map((l) => l.trim()));
             setChecks({
               items: [
-                ...data.guardrails.map((g) => ({ kind: "guardrail" as const, ...g })),
-                ...data.risks.map((text) => ({ kind: "risk" as const, text })),
+                ...data.guardrails
+                  .filter((g) => !has.has(g.name.trim().toLowerCase()))
+                  .map((g) => ({ kind: "guardrail" as const, ...g })),
+                ...data.risks
+                  .filter((text) => !noted.has(text.trim()))
+                  .map((text) => ({ kind: "risk" as const, text })),
               ],
               source: meta.source,
-            })
-          }
+            });
+          }}
           size="sm"
           variant="outline"
           label="Ask Amr for checks"
           fallbackLabel="Suggest checks"
         />
-        {checks && (
+        {checks && checks.items.length === 0 && (
+          <p role="status" className="text-sm text-sub">
+            “{title}” has every check suggested already.
+          </p>
+        )}
+        {checks && checks.items.length > 0 && (
           <AiSuggestions
             items={checks.items}
             title="Checks for this test"

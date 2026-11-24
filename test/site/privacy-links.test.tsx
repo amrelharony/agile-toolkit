@@ -1,7 +1,7 @@
 /**
- * The privacy page (/privacy) is reachable from the three places a visitor
- * asks "where does my work go?": the sidebar under "Built by", the home
- * page's trust badge and the "Your data" dialog.
+ * The privacy page (/privacy) is reachable from the places a visitor asks
+ * "where does my work go?": the sidebar under "Built by", the home page's
+ * trust badge, the "Your data" dialog and the card before Amr's AI.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -36,6 +36,7 @@ vi.mock("@/components/home/continue-section", () => ({ ContinueSection: () => nu
 vi.mock("@/components/home/tool-sections", () => ({ ToolSections: () => null }));
 vi.mock("@/lib/team/use-team-roster", () => ({ useWorkspaceHydrated: () => true }));
 
+import { VisitorAiConsent } from "@/components/agent/mascot/visitor-ai-consent";
 import { YourDataDialog } from "@/components/data/your-data-dialog";
 import { HomePage } from "@/components/home/home-page";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -117,5 +118,38 @@ describe("the Your data dialog", () => {
     h.auth = { status: "authenticated", user: { id: "u1" } };
     render(<YourDataDialog open onOpenChange={() => {}} />);
     expect(screen.getByRole("link", { name: PRIVACY_TITLE })).toHaveAttribute("href", PRIVACY_PATH);
+  });
+});
+
+describe("the card before Amr's AI", () => {
+  it("links the page after its points, and closes the panel when it is followed", () => {
+    const onNavigate = vi.fn();
+    const onAgree = vi.fn();
+    render(
+      <VisitorAiConsent
+        question=""
+        onAgree={onAgree}
+        onDecline={() => {}}
+        onNavigate={onNavigate}
+      />
+    );
+    const card = screen.getByRole("region", { name: "Before you chat with Amr's AI" });
+    const link = within(card).getByRole("link", { name: PRIVACY_TITLE });
+    expect(link).toHaveAttribute("href", PRIVACY_PATH);
+    // In a sentence after the points, so it keeps the inline touch exception.
+    expect(link.closest("p")).toHaveTextContent(`More in ${PRIVACY_TITLE}.`);
+    const list = within(card).getByRole("list");
+    expect(list).not.toContainElement(link);
+    expect(list.compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // jsdom can't follow a link to another page, so the click stops short of it.
+    const stay = (e: Event) => e.preventDefault();
+    document.addEventListener("click", stay);
+    try {
+      fireEvent.click(link);
+    } finally {
+      document.removeEventListener("click", stay);
+    }
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(onAgree).not.toHaveBeenCalled();
   });
 });

@@ -17,7 +17,11 @@
  * The board is the page's synced blob ("agile-toolkit:pi-planning"): in the
  * tab both verbs read this browser's copy, over MCP the user's saved row
  * (`readUserStateBlob`), and both read it through the page's own
- * normaliser (lib/pi-planning/model).
+ * normaliser (lib/pi-planning/model). A risk counts as sent to the Risk
+ * Register only while the risk it became is still there, as the page's
+ * liveLink reads it: in the tab the register as this browser holds it, over
+ * MCP the user's risks, with the old register's rows still waiting for the
+ * page's move, as the register lists them (./risk-register's stores).
  *
  * No write verbs yet. The blob writer covers an MCP write, but in the tab a
  * write with the page closed still needs a bridge to the open page (as
@@ -33,6 +37,7 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { readUserStateBlob } from "../user-state-blob";
 import { findLink } from "@/lib/handoffs/links";
+import { browserRiskStore, serverRiskStore, type RiskStore } from "./risk-register";
 import { isExampleId } from "@/lib/utils/example-id";
 import {
   PI_STORAGE_KEY,
@@ -57,9 +62,19 @@ async function readBoard(userId?: string): Promise<PiState> {
   return normalizePiState(await readUserStateBlob(PI_STORAGE_KEY, userId));
 }
 
+/**
+ * The ids the Risk Register holds now, read only when a risk on the board
+ * was sent there: a send whose risk was deleted can be sent again, so it
+ * doesn't count as sent.
+ */
+async function registerIds(s: PiState, store: RiskStore): Promise<ReadonlySet<string>> {
+  if (!s.items.some((i) => findLink(i.sentTo, "risk"))) return new Set();
+  return new Set((await store.list()).records.map((r) => r.id));
+}
+
 const round1 = (n: number | null) => (n === null ? null : Math.round(n * 10) / 10);
 
-function stateSummary(s: PiState) {
+function stateSummary(s: PiState, inRegister: ReadonlySet<string>) {
   const team = (id: string) => s.teams.find((t) => t.id === id)?.name ?? "";
   const shown = s.items.filter((i) => i.iteration < s.iterations);
   const itemRow = (i: PiItem) => ({
@@ -77,7 +92,7 @@ function stateSummary(s: PiState) {
     team: team(i.teamId),
     ...(i.roamOwner ? { owner: i.roamOwner } : {}),
     ...(i.roamNote ? { note: i.roamNote } : {}),
-    sentToRiskRegister: Boolean(findLink(i.sentTo, "risk")),
+    sentToRiskRegister: inRegister.has(findLink(i.sentTo, "risk")?.targetId ?? ""),
   });
   const vote = latestVote(s);
   return {
@@ -139,10 +154,16 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "PI Planning's board: {name, example, iterations, teams {id, name, velocity}[], items {feature, dependency, risk} each {id, title, team, iteration (from 1), points?, waitsOn?}[], objectives {id, team, title, committed, businessValue, actualBusinessValue}[], roam {resolved, owned, accepted, mitigated} each {id, title, team, owner?, note?, sentToRiskRegister}[], toSort (the risks with no ROAM status yet), roamVerdict, latestConfidence {scope ('train' or a team id), scopeName, average (1–5), counts (votes per point 1–5), ballots, at} | null}. Read-only: ROAM, actual values, votes and closing a PI are set on the page.",
+    "PI Planning's board: {name, example, iterations, teams {id, name, velocity}[], items {feature, dependency, risk} each {id, title, team, iteration (from 1), points?, waitsOn?}[], objectives {id, team, title, committed, businessValue, actualBusinessValue}[], roam {resolved, owned, accepted, mitigated} each {id, title, team, owner?, note?, sentToRiskRegister (true while the risk it was sent as is still in the Risk Register; one deleted there can be sent again)}[], toSort (the risks with no ROAM status yet), roamVerdict, latestConfidence {scope ('train' or a team id), scopeName, average (1–5), counts (votes per point 1–5), ballots, at} | null}. Read-only: ROAM, actual values, votes and closing a PI are set on the page.",
   paramsSchema: z.object({}),
-  handler: async () => stateSummary(await readBoard()),
-  mcpHandler: async (_params, ctx) => stateSummary(await readBoard(ctx.userId)),
+  handler: async () => {
+    const s = await readBoard();
+    return stateSummary(s, await registerIds(s, browserRiskStore));
+  },
+  mcpHandler: async (_params, ctx) => {
+    const s = await readBoard(ctx.userId);
+    return stateSummary(s, await registerIds(s, serverRiskStore(ctx.userId)));
+  },
 });
 
 // ──────── tool.pi_planning.predictability ────────

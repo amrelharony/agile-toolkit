@@ -19,14 +19,16 @@ import {
 import { jsonBytes } from "@/lib/utils/json-bytes";
 import { undoable } from "@/lib/utils/undoable";
 import { withRefinedPutBack } from "@/lib/sprints/story-status";
-import { readAsyncRound, withStoryEstimate } from "@/lib/estimation/async-rounds";
+import { readAsyncRound, readAsyncRounds, withStoryEstimate } from "@/lib/estimation/async-rounds";
 import { planBacklogSave } from "../backlog";
 
 export const TOO_BIG = "This round is too big to save. Close an older round first.";
 
-/** The round with this id as every reader shows it, if this browser has it. */
+/** The round with this id as every reader shows it, if this browser has it (and can read it). */
 export function roundById(id: string): PokerAsyncRound | undefined {
-  const round = (useWorkspaceStore.getState().pokerAsyncRounds ?? []).find((r) => r.id === id);
+  const round = readAsyncRounds(useWorkspaceStore.getState().pokerAsyncRounds).find(
+    (r) => r.id === id
+  );
   return round ? readAsyncRound(round) : undefined;
 }
 

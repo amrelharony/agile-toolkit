@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Pause, Play, Timer, X } from "lucide-react";
@@ -16,7 +16,10 @@ import {
   timerRemaining,
   useDockTimer,
 } from "@/lib/timer/dock-timer";
+import { useMascotStore } from "@/lib/agent/mascot/store";
 import { cn } from "@/lib/utils";
+
+const useIsomorphicLayoutEffect = typeof window === "undefined" ? useEffect : useLayoutEffect;
 
 /**
  * The running ceremony timer, docked at the bottom left while you use other
@@ -31,6 +34,12 @@ import { cn } from "@/lib/utils";
  * the words to an owner page that says time's up itself the same way
  * (`saysOwnTimesUp`: the Ceremony Timer, Facilitator Timers' run). Then it
  * counts the overtime up until it is stopped.
+ *
+ * Amr's phone sheet covers it, so while the sheet is open it is out of reach
+ * like the page's main (inert: no Tab or screen-reader stop behind the sheet),
+ * a timer that comes while the sheet is open too. It follows the mascot
+ * store's `panel` from a store listener, not a render, so it is let go in the
+ * same moment as main, before focus goes back to an opener here.
  */
 export function DockedTimer() {
   const pathname = usePathname();
@@ -40,6 +49,32 @@ export function DockedTimer() {
   const [now, setNow] = useState(() => Date.now());
   const announcedEndRef = useRef(false);
   const running = Boolean(timer && timer.endsAt !== null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const shown = Boolean(timer && pathname !== timer.href);
+
+  // Inert under Amr's phone sheet, set by hand (React 18 has no `inert` prop).
+  // Only what this made inert is let go: something else may hold it too.
+  useIsomorphicLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    let made = false;
+    const follow = (sheet: boolean) => {
+      if (sheet && !made && !el.hasAttribute("inert")) {
+        el.setAttribute("inert", "");
+        made = true;
+      } else if (!sheet && made) {
+        el.removeAttribute("inert");
+        made = false;
+      }
+    };
+    follow(useMascotStore.getState().panel === "sheet");
+    const unsubscribe = useMascotStore.subscribe((s) => follow(s.panel === "sheet"));
+    return () => {
+      unsubscribe();
+      follow(false);
+    };
+  }, [shown]);
+
   const remaining = timer ? timerRemaining(timer, now) : 0;
   const done = Boolean(timer) && remaining === 0;
   const counting = Boolean(timer && timer.endsAt === null && typeof timer.endedAt === "number");
@@ -75,11 +110,12 @@ export function DockedTimer() {
     }
   }, [timer, remaining, announce, pathname]);
 
-  if (!timer || pathname === timer.href) return null;
+  if (!timer || !shown) return null;
   const over = counting ? dockOvertime(timer, now) : 0;
 
   return (
     <div
+      ref={rootRef}
       data-vt-hold="dock-timer"
       className={cn(
         "fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-4 z-40 flex items-center gap-1 rounded-full border bg-card/95 py-1 pl-3 pr-1 text-sm shadow-lg backdrop-blur md:left-20",

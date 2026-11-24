@@ -28,6 +28,7 @@ import { useSignal } from "@/lib/signals/signal-bus";
 import { useGuestProfile } from "@/lib/auth/guest-profile-provider";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import { closeAmrSheet } from "@/lib/layout/amr-sheet";
 import type { Kudos } from "@/lib/stores/workspace-types";
 import { designFor } from "@/lib/kudos/card-designs";
 import { cn } from "@/lib/utils";
@@ -104,8 +105,15 @@ export function KudosHeaderBeacon() {
   // Render the beacon for everyone (owners, guests and visitors) — all can
   // receive kudos, and the FlyingCard's fallback rect lookup needs a target.
 
+  // The popover opening over Amr's phone sheet closes the sheet first, so the
+  // two never stack and "Open wall" isn't pushed under it.
+  const onOpenChange = (next: boolean) => {
+    if (next) closeAmrSheet();
+    setOpen(next);
+  };
+
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={onOpenChange}>
       <PopoverTrigger asChild>
         <button
           id="kudos-header-beacon"

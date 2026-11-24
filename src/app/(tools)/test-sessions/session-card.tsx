@@ -120,7 +120,7 @@ function NoteCapture({
         }}
       />
       <Field
-        label={`${NOTE_KIND_LABEL[form.draft.kind]} to note`}
+        label={`The ${NOTE_KIND_LABEL[form.draft.kind].toLowerCase()}`}
         error={form.errors.text}
         hint={full ? "This session holds as many notes as it can." : "One line. Enter adds it."}
       >

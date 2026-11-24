@@ -26,6 +26,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { generateNotesToActionsPrompts } from "@/lib/ai-prompts/notes-to-actions";
 import { notesToActionsExtractTask } from "@/lib/ai/tasks/notes-to-actions.lite";
 import type { AiSource } from "@/lib/ai/task-types";
+import { useToolAi } from "@/lib/ai/use-tool-ai";
 import { useIsOwner } from "@/lib/auth/use-is-owner";
 import { cheer } from "@/lib/celebrate/cheer";
 import { findLink, getHandoffRoute } from "@/lib/handoffs/registry";
@@ -675,6 +676,8 @@ function NoteView({
   const counts = noteCounts(note);
   const askButton = () =>
     document.querySelector<HTMLElement>("[data-find-actions] button:not([disabled])");
+  // Whether "Find" reaches the AI service: the same check the button makes.
+  const findAi = useToolAi(notesToActionsExtractTask);
 
   return (
     <section aria-label={`${note.meeting || "Meeting"} notes, ${note.date}`} className="space-y-4">
@@ -720,7 +723,7 @@ function NoteView({
           ) : (
             <>
               <details className="rounded-md border border-border bg-bg p-2 text-sm">
-                <summary className="cursor-pointer text-sub">
+                <summary className="cursor-pointer text-sub pointer-coarse:py-3">
                   The pasted notes ({note.text.length.toLocaleString("en-GB")} characters)
                 </summary>
                 <p className="mt-2 whitespace-pre-wrap break-words text-text">{note.text}</p>
@@ -733,7 +736,11 @@ function NoteView({
                   label="Ask Amr to find the actions"
                   fallbackLabel="Find them without AI"
                 />
-                <p className="text-xs text-sub">{AI_LINE}</p>
+                {/* Said only while the button sends to the AI service (or may,
+                    while that is still being worked out): without AI nothing leaves. */}
+                {(findAi.available || findAi.reason === "loading") && (
+                  <p className="text-xs text-sub">{AI_LINE}</p>
+                )}
               </div>
             </>
           )}

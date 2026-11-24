@@ -39,6 +39,7 @@ import {
   newAsyncRoundId,
   packFor,
   readAsyncRound,
+  readAsyncRounds,
   typedLine,
   type AsyncRoundInput,
 } from "@/lib/estimation/async-pack";
@@ -75,9 +76,10 @@ export function AsyncRoundsPanel({
   const { log } = useHistoryLogger("planning-poker");
   const [creating, setCreating] = useState(false);
 
+  // Each stored row read into shape first: a malformed one is repaired or left out.
   const rounds = useMemo(
     () =>
-      stored
+      readAsyncRounds(stored)
         .map((r) => readAsyncRound(r))
         .sort(
           (a, b) => ORDER[a.status] - ORDER[b.status] || b.createdAt.localeCompare(a.createdAt)

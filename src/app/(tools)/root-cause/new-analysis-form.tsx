@@ -70,7 +70,7 @@ export function NewAnalysisForm({
             value={draft.title}
             maxLength={TOOL_TEXT_MAX.short}
             onChange={(e) => update({ title: e.target.value })}
-            placeholder="Releases rolled back the same day"
+            placeholder="e.g. Releases rolled back the same day"
           />
         )}
       </Field>

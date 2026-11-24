@@ -6,8 +6,9 @@
  * what its section takes: an owner from the team, a worry's two ratings and
  * what covers it (with "What would take this away?" to add a cover), and
  * the lines a worry covers. Beside it, "Send to…" where the section sends
- * (off on the example, its reason shown once in the section, and while a
- * [placeholder] is left, its reason under the line), and the tools
+ * (off on the example, its reason shown once in the section; while a
+ * [placeholder] is left, or a route refuses the line, as a rule the Working
+ * Agreement already has, its reason under the line), and the tools
  * the section points to ("Open Skills Matrix"), when they exist.
  *
  * Every change goes through the page's `write`, which refuses a row too big
@@ -23,7 +24,7 @@ import { PersonInPlace } from "@/components/team/person-in-place";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { getToolById } from "@/lib/constants/tools";
-import { riskSourceProblem } from "@/lib/handoffs/targets/risk";
+import { getHandoffRoute, liveLink } from "@/lib/handoffs/registry";
 import { KICKOFF_ACTIONS } from "@/lib/history/event-actions";
 import { COVER_HINT, PEOPLE_SECTION, type KickoffSectionDef } from "@/lib/kickoff/formats";
 import {
@@ -43,6 +44,7 @@ import {
   withSectionItems,
 } from "@/lib/kickoff/model";
 import { roomLeft } from "@/lib/sectioned/model";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   KICKOFF_ITEM_MAX,
   TOOL_TEXT_MAX,
@@ -290,6 +292,22 @@ export function KickoffSection({
   const { kickoff: k, write, log, example } = handle;
   const items = itemsOf(k, def.id);
   const routes = (def.routes ?? []).filter((r) => ROUTES.has(r));
+  // A route's reason can read its target (a rule the Working Agreement
+  // already has, a full Hypothesis Tracker), so the reasons follow it.
+  useWorkspaceStore((s) => (routes.includes("agreement-rule") ? s.workingAgreements : null));
+  useWorkspaceStore((s) => (routes.includes("hypothesis") ? s.hypothesisTrackers : null));
+  /**
+   * Why a line's Send to… (or one of its routes) is off, or null: the
+   * line's own reason first, then the first route not yet taken that
+   * refuses it (an unrated worry, a rule the agreement already has).
+   */
+  const sendReason = (item: KickoffItem): string | null =>
+    sendProblem(k, item) ??
+    routes
+      .filter((r) => !liveLink(item.sentTo, r))
+      .map((r) => getHandoffRoute(r).problem?.(itemSource(k, item, r)) ?? null)
+      .find((reason): reason is string => Boolean(reason)) ??
+    null;
   /** The words of the worry a line covers; null while that worry is missing. */
   const worryLabel = (item: KickoffItem) => {
     const found = coveredWorry(k, item);
@@ -396,8 +414,7 @@ export function KickoffSection({
       }
     }
     if (routes.length > 0 && !example) {
-      const reason =
-        sendProblem(k, item) ?? (routes.includes("risk") ? riskSourceProblem(item) : null);
+      const reason = sendReason(item);
       if (reason && item.text.trim()) {
         parts.push(
           <p key="why" className="text-xs text-sub" data-send-blocked>

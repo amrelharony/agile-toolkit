@@ -481,7 +481,7 @@ describe("the verdict", () => {
   it("names the version, consent with who objects, and the last check-in", () => {
     const ex = buildExample(TODAY);
     expect(agreementVerdict(normalizeAgreement(ex.doc), ex.roster)).toBe(
-      `6 rules in v2 (published ${dayLabel("2026-09-17")}), with changes not yet published; 4 have everyone's consent, Sam objects to “Cameras on for retros and 1:1s, optional otherwise”; the last check-in (${dayLabel("2026-10-15")}) found 4 of 5 working.`
+      `6 rules, last published as v2 (${dayLabel("2026-09-17")}), with changes not yet published; 4 have everyone's consent, Sam objects to “Cameras on for retros and 1:1s, optional otherwise”; the last check-in (${dayLabel("2026-10-15")}) found 4 of 5 working.`
     );
     expect(agreementVerdict(emptyAgreement(), ROSTER)).toBe("No rules agreed yet.");
     expect(agreementVerdict({ ...emptyAgreement(), rules: [rule("r1", "x")] }, ROSTER)).toBe(
@@ -514,7 +514,9 @@ describe("the page", () => {
     expect(screen.getByText(/No rules yet/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Load an example" }));
     expect(screen.getByText(/Example data\./)).toBeInTheDocument();
-    expect(screen.getByText(/6 rules in v2/, { selector: "p" })).toBeInTheDocument();
+    expect(
+      screen.getByText(/6 rules, last published as v2/, { selector: "p" })
+    ).toBeInTheDocument();
     expect(ws().workingAgreements).toEqual([]);
     // Edits stay in memory too.
     fireEvent.click(screen.getAllByRole("button", { name: /^Delete “/ })[0]);

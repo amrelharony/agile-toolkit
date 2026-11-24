@@ -35,8 +35,9 @@ export function FieldLabel({ htmlFor, children }: { htmlFor: string; children: R
 }
 
 /**
- * A one-line box that can't be left blank (a title, a step's or an
- * obstacle's words), saved when it is left. Left blank, nothing is saved:
+ * A one-line answer that can't be left blank (a title, a step's or an
+ * obstacle's words), saved when it is left or on Enter. It wraps rather
+ * than hide its end on a phone (`oneLine`). Left blank, nothing is saved:
  * the box shows the saved words again and `onBlank` says why in place.
  */
 export function RequiredBlurInput({
@@ -55,9 +56,10 @@ export function RequiredBlurInput({
   // A new round puts the saved words back (the box keeps its own draft).
   const [round, setRound] = useState(0);
   return (
-    <BlurInput
+    <BlurTextarea
       key={round}
       {...props}
+      oneLine
       onCommit={(next) => {
         if (next.trim()) {
           onCommit(next);

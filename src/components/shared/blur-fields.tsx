@@ -20,6 +20,7 @@
 import { useEffect, useState, type InputHTMLAttributes } from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { cn } from "@/lib/utils";
 
 interface BlurInputProps {
   value: string;
@@ -79,7 +80,24 @@ interface BlurTextareaProps {
   maxLength?: number;
   id?: string;
   "aria-label"?: string;
+  "aria-describedby"?: string;
+  /**
+   * One line of text that wraps (a sentence in a narrow column): Enter
+   * saves and leaves the box as an input's does, a pasted line break
+   * becomes a space, and the box grows with its words (`ONE_LINE_AREA`).
+   */
+  oneLine?: boolean;
 }
+
+/**
+ * The classes for a one-line answer that wraps instead of hiding its end:
+ * an input's height while it holds one line, growing with the words where
+ * the browser has field-sizing (one scrolling line where it doesn't).
+ */
+export const ONE_LINE_AREA = "min-h-11 resize-none [field-sizing:content] pointer-fine:md:min-h-9";
+
+/** Line breaks out of a one-line answer (pasted ones included). */
+export const oneLineText = (text: string) => text.replace(/\r?\n/g, " ");
 
 export function BlurTextarea(props: BlurTextareaProps) {
   const [draft, setDraft] = useState(props.value);
@@ -87,16 +105,26 @@ export function BlurTextarea(props: BlurTextareaProps) {
   return (
     <Textarea
       id={props.id}
-      rows={props.rows}
+      rows={props.oneLine ? 1 : props.rows}
       value={draft}
-      onChange={(e) => setDraft(e.target.value)}
+      onChange={(e) => setDraft(props.oneLine ? oneLineText(e.target.value) : e.target.value)}
       onBlur={() => {
         if (draft !== props.value) props.onCommit(draft);
       }}
+      onKeyDown={
+        props.oneLine
+          ? (e) => {
+              if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          : undefined
+      }
       placeholder={props.placeholder}
-      className={props.className}
+      className={props.oneLine ? cn(ONE_LINE_AREA, props.className) : props.className}
       maxLength={props.maxLength}
       aria-label={props["aria-label"]}
+      aria-describedby={props["aria-describedby"]}
     />
   );
 }

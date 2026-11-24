@@ -1,5 +1,6 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useId, useMemo, useState } from "react";
 import {
   AlertTriangle,
@@ -20,7 +21,7 @@ import { LoadExampleButton } from "@/components/tool-frame/example-data";
 import { standupDigest, type StandupPlaces } from "@/lib/standup/entries";
 import type { StandupEntry, StandupMode } from "@/lib/stores/workspace-types";
 import { cn } from "@/lib/utils";
-import { DigestSummary, type SummarySource } from "./digest-summary";
+import type { SummarySource } from "./digest-summary";
 import {
   AGE_BOX,
   BlockerAge,
@@ -40,6 +41,12 @@ import {
   shortDay,
 } from "./model";
 import { ParticipationChart } from "./participation-chart";
+
+// The async digest's summary, with the AI kit, loads once today has updates
+// there: the live /standup page shares this view and never shows it.
+const DigestSummary = dynamic(() => import("./digest-summary").then((m) => m.DigestSummary), {
+  ssr: false,
+});
 
 function Stat({ value, label, tone }: { value: number; label: string; tone: string }) {
   return (

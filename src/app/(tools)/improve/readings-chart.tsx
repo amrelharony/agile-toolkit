@@ -36,6 +36,19 @@ export function ReadingsChart({
   start?: number;
   unit?: string;
 }) {
+  // A target at the bottom (the usual aim when less is better) sat on the
+  // axis, its label over the last date: leave a band of room under the
+  // lowest of the readings, the target and the start.
+  const values = [
+    ...data.map((d) => d.value),
+    ...(target !== undefined ? [target] : []),
+    ...(start !== undefined ? [start] : []),
+  ].filter((v) => Number.isFinite(v));
+  const low = values.length > 0 ? Math.min(...values) : 0;
+  const high = values.length > 0 ? Math.max(...values) : 0;
+  const pad = Math.max((high - low) * 0.15, Math.abs(low) * 0.05, 1);
+  // Never below zero for readings that can't go there.
+  const floor = low >= 0 ? Math.max(0, Math.floor(low - pad)) : Math.floor(low - pad);
   return (
     <ResponsiveContainer width="100%" height={220}>
       <LineChart
@@ -57,7 +70,7 @@ export function ReadingsChart({
           axisLine={false}
           tickLine={false}
           width={44}
-          domain={["auto", "auto"]}
+          domain={[floor, "auto"]}
         />
         <Tooltip
           contentStyle={chartTheme.tooltipStyle}

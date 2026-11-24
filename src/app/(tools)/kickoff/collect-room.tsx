@@ -20,7 +20,7 @@
  * (`onLiveChange`), which asks before showing another kickoff would end it.
  */
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { WallRoomHost } from "@/components/collab/wall-room/wall-room-host";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { registerLiveWall } from "@/lib/audience-wall/live";
@@ -81,6 +81,16 @@ export function linesFromRound(
   };
 }
 
+/**
+ * The collect room while it is live: whether its round holds answers not
+ * saved yet, and `end`, which ends it for everyone (signed, as End room
+ * does) and resolves once it has: the page ends it before it takes it away.
+ */
+export interface LiveCollectRoom {
+  unsaved: boolean;
+  end: () => Promise<void>;
+}
+
 export function CollectRoom({
   handle,
   crypto: cryptoImpl,
@@ -94,7 +104,7 @@ export function CollectRoom({
    * the room ending) would lose; null once it ends. The page asks before
    * anything else would end it.
    */
-  onLiveChange?: (room: { unsaved: boolean } | null) => void;
+  onLiveChange?: (room: LiveCollectRoom | null) => void;
 }) {
   const { kickoff: k, read, write, log } = handle;
   const announce = useAnnounce();
@@ -228,7 +238,7 @@ function LiveRoom({
 }: {
   room: WallRoom;
   unsaved: boolean;
-  onLiveChange?: (room: { unsaved: boolean } | null) => void;
+  onLiveChange?: (room: LiveCollectRoom | null) => void;
 }) {
   const roomRef = useRef(room);
   roomRef.current = room;
@@ -236,11 +246,27 @@ function LiveRoom({
   unsavedRef.current = unsaved;
   const liveRef = useRef(onLiveChange);
   liveRef.current = onLiveChange;
+  /** Waiting on `end`: this mounts only while the room is live, so its unmount is the end. */
+  const waitingForEnd = useRef<(() => void)[]>([]);
+  const end = useCallback(
+    () =>
+      new Promise<void>((resolve) => {
+        waitingForEnd.current.push(resolve);
+        roomRef.current.end();
+      }),
+    []
+  );
 
   useEffect(() => {
-    liveRef.current?.({ unsaved });
-  }, [unsaved]);
-  useEffect(() => () => liveRef.current?.(null), []);
+    liveRef.current?.({ unsaved, end });
+  }, [unsaved, end]);
+  useEffect(() => {
+    const waiting = waitingForEnd.current;
+    return () => {
+      liveRef.current?.(null);
+      waiting.splice(0).forEach((done) => done());
+    };
+  }, []);
 
   useEffect(
     () =>

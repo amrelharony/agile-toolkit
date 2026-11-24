@@ -9,8 +9,13 @@
  *   votes. A round nobody closes is closed the same way `keepDays` (14)
  *   days after its due date, or after the day it was made without one.
  *   Every read goes through `readAsyncRound`, so an expired round never
- *   shows a name, and the page writes the dropped copy when it loads.
+ *   shows a name, and the workspace store writes the dropped copy on
+ *   whichever page loads or syncs the rounds (./async-expiry).
  * - The next step: a round to reveal.
+ * - Reading a stored list (./async-read): the slice has no CRUD, so the
+ *   lists these helpers take are read through `readAsyncRounds` first, and
+ *   a malformed row (an imported file's, say) is left out or repaired
+ *   rather than thrown on.
  *
  * Pure and server-safe: types, the caps and the example-id test only. The
  * codes and results live in ./async-pack, which re-exports all of this.
@@ -18,6 +23,9 @@
 
 import { POKER_ASYNC_MAX, type PokerAsyncRound } from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/lib/utils/example-id";
+import { readAsyncRounds } from "./async-read";
+
+export { readAsyncRounds, readPokerAsyncRound } from "./async-read";
 
 /** Every round's id starts with this. */
 export const ASYNC_ROUND_PREFIX = "async_";
@@ -31,7 +39,7 @@ export const ESTIMATE_PATH = "/planning-poker/estimate";
  */
 export function heldStoryIds(rounds: readonly PokerAsyncRound[] | undefined): string[] {
   const ids: string[] = [];
-  for (const round of rounds ?? []) {
+  for (const round of readAsyncRounds(rounds)) {
     if (round.status === "closed") continue;
     for (const story of round.stories) ids.push(story.id);
   }
@@ -49,7 +57,7 @@ export function heldQueueCount(
   rounds: readonly PokerAsyncRound[] | undefined,
   now: Date = new Date()
 ): number {
-  const held = new Set(heldStoryIds((rounds ?? []).map((r) => readAsyncRound(r, now))));
+  const held = new Set(heldStoryIds(readAsyncRounds(rounds).map((r) => readAsyncRound(r, now))));
   return (queue ?? []).filter((q) => q.sessionStoryId !== undefined && held.has(q.sessionStoryId))
     .length;
 }
@@ -202,7 +210,7 @@ export function asyncRevealSteps(
   rounds: readonly PokerAsyncRound[] | undefined,
   today: string
 ): AsyncRevealStep[] {
-  return (rounds ?? [])
+  return readAsyncRounds(rounds)
     .filter((r) => isReadyToReveal(r, today))
     .slice(0, 2)
     .map((r) => {

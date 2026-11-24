@@ -206,7 +206,7 @@ export function TeamCharter() {
                 )}
                 <Link
                   href={card.href}
-                  className="mt-auto inline-flex items-center gap-1 pt-1 text-sm font-medium text-accent hover:underline"
+                  className="mt-auto inline-flex items-center gap-1 pt-1 text-sm font-medium text-accent hover:underline pointer-coarse:min-h-11"
                 >
                   {card.empty ? "Write it" : "Open"}
                   <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />

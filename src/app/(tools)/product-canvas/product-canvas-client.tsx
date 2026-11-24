@@ -46,6 +46,7 @@ import {
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
+import { focusAfterClearingExample } from "@/components/tool-frame/after-clear-example";
 import { Button } from "@/components/ui/button";
 import { useProductGoalPrefs } from "@/app/(tools)/product-goal/store";
 import { generateProductCanvasPrompts } from "@/lib/ai-prompts/product-canvas";
@@ -337,10 +338,19 @@ export function ProductCanvasClient() {
     setSelectedId(null);
   };
   const clearExample = () => {
-    for (const c of ws().productCanvases ?? []) {
-      if (isExampleId(c.id)) ws().removeProductCanvas(c.id);
-    }
+    let removed: ProductCanvas[] = [];
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        removed = (ws().productCanvases ?? []).filter((c) => isExampleId(c.id));
+        for (const c of removed) ws().removeProductCanvas(c.id);
+      },
+      revert: () => {
+        for (const c of removed) if (!freshRow(c.id)) ws().upsertProductCanvas(c);
+      },
+    });
     setSelectedId(null);
+    focusAfterClearingExample();
   };
 
   // An example canvas reads the example's goal, vision and backlog, never the team's.
@@ -490,7 +500,7 @@ export function ProductCanvasClient() {
                   example={tableExample}
                 />
               )}
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
                 <nav aria-label="Canvases" className="space-y-3">
                   <div role="group" aria-label="Show" className="flex flex-wrap gap-1.5">
                     <Button

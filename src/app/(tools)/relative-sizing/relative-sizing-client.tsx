@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { nanoid } from "nanoid";
 import { Columns3, Plus, Radio, Save, Send, Trash2, Users } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
+import type { EndLiveRoomRef } from "@/components/collab/vote-room/host-vote-room";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
@@ -110,9 +112,11 @@ function writeBoard(id: string, fn: (b: SizingBoard) => SizingBoard | null): boo
  * other. Silent sort moves cards between buckets without talking (a card
  * moved too often goes to Talk about it); buckets mode places an anchor
  * story first and deals the rest out. "Ask the room" sends the stories to
- * every phone as private scale ballots and brings back totals only. The
- * team talks only about the outliers, sends the hardest to Planning Poker,
- * and Save sizes writes the buckets' points to the stories with one Undo.
+ * every phone as private scale ballots and brings back totals only; while
+ * that room is live its board stays on screen (a board Amr opens waits, and
+ * the host's own switch or delete asks first). The team talks only about
+ * the outliers, sends the hardest to Planning Poker, and Save sizes writes
+ * the buckets' points to the stories with one Undo.
  * Amr suggests questions and splits; every one has a way without AI. The
  * boards live in the tool's own store, which Amr's verbs read and write
  * too (on the server through the user's synced row).
@@ -152,7 +156,43 @@ export function RelativeSizingClient() {
   const [pendingQuery, setPendingQuery] = useState<URLSearchParams | null>(null);
   const [names, setNames] = useState<string | null>(null);
 
-  const board = state.boards.find((b) => b.id === state.activeBoardId) ?? state.boards[0] ?? null;
+  /**
+   * "Ask the room" lives in the board shown, so whatever changes the board
+   * shown would end it for every phone in it. While a room is live its
+   * board is held on screen: a change of the store's active board (Amr's
+   * create_board, another tab, a sync) waits, with an offer to show it,
+   * and the host's own switch or delete asks first.
+   */
+  const [liveBoardId, setLiveBoardId] = useState<string | null>(null);
+  /** Set while the room is open: ends it for every phone (signed), before a switch, delete or clear. */
+  const endLiveRef = useRef<(() => Promise<void>) | null>(null);
+  const liveRef = useRef(liveBoardId);
+  liveRef.current = liveBoardId;
+  /** The board held on screen while the store's active board moved; null follows the store. */
+  const [heldId, setHeldId] = useState<string | null>(null);
+  /** A change that would end the live room, waiting on the host's answer. */
+  const [pending, setPending] = useState<{ go: () => void; ends: RoomEnder } | null>(null);
+  /** Run `go`, or, when `endsRoom` and a room is live, ask first. */
+  const guard = (endsRoom: boolean, ends: RoomEnder, go: () => void) => {
+    if (endsRoom && liveRef.current) setPending({ go, ends });
+    else go();
+  };
+
+  const held = heldId ? (state.boards.find((b) => b.id === heldId) ?? null) : null;
+  const active = state.boards.find((b) => b.id === state.activeBoardId) ?? null;
+  const board = held ?? active ?? state.boards[0] ?? null;
+  /** The board the store moved to while this one was held (shown once the host says so). */
+  const waiting = held && active && active.id !== held.id ? active : null;
+  const liveBoard = liveBoardId ? state.boards.find((b) => b.id === liveBoardId) : undefined;
+
+  // Once no room is live, a held board the store has caught up with (or
+  // that has gone) needs no holding.
+  useEffect(() => {
+    if (!heldId || liveBoardId) return;
+    const stillThere = state.boards.some((b) => b.id === heldId);
+    const elsewhere = state.boards.some((b) => b.id === state.activeBoardId);
+    if (!stillThere || !elsewhere || state.activeBoardId === heldId) setHeldId(null);
+  }, [heldId, liveBoardId, state.activeBoardId, state.boards]);
   const unsized = useMemo(() => unsizedItems(stories), [stories]);
   const markdown = useMemo(() => (board ? toMarkdown(board) : ""), [board]);
   const promptConfig = useMemo(
@@ -172,11 +212,14 @@ export function RelativeSizingClient() {
     announce(text);
   };
 
-  const open = (id: string) => {
-    updateRelativeSizing((s) => ({ ...s, activeBoardId: id }));
-    setCreating(null);
-    setStatus(null);
-  };
+  const open = (id: string) =>
+    guard(id !== liveRef.current, "switch", () => {
+      // The live room's own board stays held; any other is the store's to show.
+      setHeldId(id === liveRef.current ? id : null);
+      updateRelativeSizing((s) => ({ ...s, activeBoardId: id }));
+      setCreating(null);
+      setStatus(null);
+    });
 
   /* ── Query links: ?stories=unsized starts a board, ?board= opens one ── */
 
@@ -215,8 +258,11 @@ export function RelativeSizingClient() {
       buckets: plan.board.buckets.length,
     });
     setCreating(null);
+    // A live room keeps its board on screen; the new one waits, with an offer to show it.
+    const live = liveRef.current !== null;
+    if (!live) setHeldId(null);
     say(
-      `Started “${short(plan.board.title)}” with ${plural(plan.board.items.length, "story", "stories")}.${v.dropped > 0 ? ` ${plural(v.dropped, "line was", "lines were")} left out: a board holds ${SIZING_LIMITS.items}.` : ""}`
+      `Started “${short(plan.board.title)}” with ${plural(plan.board.items.length, "story", "stories")}.${v.dropped > 0 ? ` ${plural(v.dropped, "line was", "lines were")} left out: a board holds ${SIZING_LIMITS.items}.` : ""}${live ? " The live room's board stays on screen until you show it." : ""}`
     );
   };
 
@@ -520,6 +566,7 @@ export function RelativeSizingClient() {
   /* ── The example ───────────────────────────────────────────────────── */
 
   const loadExample = () => {
+    if (!liveRef.current) setHeldId(null);
     const { board: example, round } = buildExample(new Date());
     updateRelativeSizing((s) => ({
       ...s,
@@ -528,7 +575,13 @@ export function RelativeSizingClient() {
       rounds: [...s.rounds.filter((r) => r.boardId !== example.id), round],
     }));
   };
-  const clearExample = () => {
+  // Clearing takes the example's boards, so a room live on one of them ends.
+  const clearExample = () =>
+    guard(isExampleId(liveRef.current ?? ""), "clear", () => {
+      setHeldId((h) => (h && isExampleId(h) ? null : h));
+      clearExampleBoards();
+    });
+  const clearExampleBoards = () => {
     let removed: RelativeSizingState | null = null;
     undoable({
       label: "Cleared the example",
@@ -648,6 +701,23 @@ export function RelativeSizingClient() {
             </div>
           </div>
           {creating && newForm(creating)}
+          {waiting && board && (
+            <div className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm text-text">
+              <p role="status" className="min-w-0 flex-1 break-words">
+                {liveBoardId
+                  ? `“${short(waiting.title)}” was opened while the room on “${short(board.title)}” is live, so this board stays on screen.`
+                  : `“${short(waiting.title)}” was opened while the room on “${short(board.title)}” was live.`}
+              </p>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => guard(true, "switch", () => setHeldId(null))}
+              >
+                Show “{short(waiting.title, 30)}”
+              </Button>
+            </div>
+          )}
           {board && (
             <BoardView
               key={board.id}
@@ -655,6 +725,7 @@ export function RelativeSizingClient() {
               stories={stories}
               names={names ?? roster.map((m) => m.name).join(", ")}
               onNames={setNames}
+              endRoomRef={endLiveRef}
               actions={{
                 move: (itemId, lane, focus) => move(board, itemId, lane, focus),
                 remove: (itemId) => removeItem(board, itemId),
@@ -667,7 +738,15 @@ export function RelativeSizingClient() {
                 sendToPoker: () => sendToPoker(board),
                 addPastedToBacklog: () => addPastedToBacklog(board),
                 saveSizes: () => saveSizes(board),
-                deleteBoard: () => deleteBoard(board),
+                deleteBoard: () =>
+                  guard(board.id === liveRef.current, "delete", () => {
+                    setHeldId(null);
+                    deleteBoard(board);
+                  }),
+                liveChange: (live) => {
+                  setLiveBoardId(live ? board.id : null);
+                  if (live) setHeldId(board.id);
+                },
                 startTimebox: () =>
                   record(board.id, RELATIVE_SIZING_ACTIONS.ROUND_STARTED, {
                     mode: board.mode,
@@ -683,9 +762,54 @@ export function RelativeSizingClient() {
           )}
         </>
       )}
+      <ConfirmDialog
+        open={pending !== null}
+        onOpenChange={(open) => {
+          if (!open) setPending(null);
+        }}
+        title="End the live room?"
+        description={`The room on “${short(liveBoard?.title ?? "this board")}” is still live. ${
+          ENDER_TEXT[pending?.ends ?? "switch"]
+        } ends it for every phone in it, and any placements not saved yet are lost.`}
+        confirmLabel={ENDER_CONFIRM[pending?.ends ?? "switch"]}
+        cancelLabel="Keep the room"
+        onConfirm={() => {
+          const go = pending?.go;
+          setPending(null);
+          if (!go) return;
+          const end = endLiveRef.current;
+          if (!end) {
+            go();
+            return;
+          }
+          // End the room first, so every phone hears "The host ended the
+          // room" now; then switch, delete or clear (after 3 s whatever happens).
+          let done = false;
+          const once = () => {
+            if (done) return;
+            done = true;
+            go();
+          };
+          void end().then(once);
+          window.setTimeout(once, 3000);
+        }}
+      />
     </div>
   );
 }
+
+/** What would end a live room: showing another board, deleting its board, clearing the example. */
+type RoomEnder = "switch" | "delete" | "clear";
+const ENDER_TEXT: Record<RoomEnder, string> = {
+  switch: "Showing another board",
+  delete: "Deleting the board",
+  clear: "Clearing the example",
+};
+const ENDER_CONFIRM: Record<RoomEnder, string> = {
+  switch: "End it and switch",
+  delete: "End it and delete",
+  clear: "End it and clear",
+};
 
 interface BoardActions {
   move: (itemId: string, lane: Lane, focus: () => void) => void;
@@ -700,6 +824,8 @@ interface BoardActions {
   addPastedToBacklog: () => void;
   saveSizes: () => void;
   deleteBoard: () => void;
+  /** Its "Ask the room" opened (true) or ended (false). */
+  liveChange: (live: boolean) => void;
   startTimebox: () => void;
   startLive: (stories: number) => void;
 }
@@ -709,12 +835,15 @@ function BoardView({
   stories,
   names,
   onNames,
+  endRoomRef,
   actions: a,
 }: {
   board: SizingBoard;
   stories: readonly Story[];
   names: string;
   onNames: (v: string) => void;
+  /** Set while the live room is open: see LiveRound. */
+  endRoomRef?: EndLiveRoomRef;
   actions: BoardActions;
 }) {
   const c = boardCounts(board);
@@ -832,7 +961,13 @@ function BoardView({
           Every phone places the stories privately. The room sees only how many people put each
           story in each bucket, and only once enough have answered.
         </p>
-        <LiveRound board={board} onSave={a.saveRound} onStart={a.startLive} />
+        <LiveRound
+          board={board}
+          onSave={a.saveRound}
+          onStart={a.startLive}
+          onLiveChange={a.liveChange}
+          endRoomRef={endRoomRef}
+        />
       </SectionCard>
 
       <SectionCard title="Save sizes" icon={Save} contentClassName="space-y-3">

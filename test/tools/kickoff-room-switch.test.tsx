@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -41,19 +41,46 @@ vi.mock("@/components/shared/ai-prompt-generator", () => ({ AiPromptGenerator: (
 vi.mock("@/components/shared/export-button", () => ({ ExportButton: () => null }));
 vi.mock("@/lib/auth/auth-provider", () => ({ useAuthOptional: () => null }));
 
-type LiveChange = (room: { unsaved: boolean } | null) => void;
+type LiveChange = (room: { unsaved: boolean; end?: () => Promise<void> } | null) => void;
 
 /** How many times a room mounted, by kickoff: a remount would lose its posts. */
 const mounts = vi.hoisted(() => [] as string[]);
+/** The rooms the page ended itself (with the room's `end`), by kickoff. */
+const ended = vi.hoisted(() => [] as string[]);
+/** Whether the stand-in hands the page an `end`, as the real room does. */
+const fake = vi.hoisted(() => ({ withEnd: false }));
 
 /** Mounted while the stand-in room is live, as the real LiveRoom is. */
-function FakeLive({ posts, onLiveChange }: { posts: number; onLiveChange?: LiveChange }) {
+function FakeLive({
+  posts,
+  onLiveChange,
+  onEnd,
+}: {
+  posts: number;
+  onLiveChange?: LiveChange;
+  onEnd: () => void;
+}) {
   const report = useRef(onLiveChange);
   report.current = onLiveChange;
+  const endRef = useRef(onEnd);
+  endRef.current = onEnd;
+  // As the real LiveRoom: `end` resolves once the room is over (this unmounts).
+  const waiting = useRef<(() => void)[]>([]);
   useEffect(() => {
-    report.current?.({ unsaved: posts > 0 });
+    const end = () =>
+      new Promise<void>((resolve) => {
+        waiting.current.push(resolve);
+        endRef.current();
+      });
+    report.current?.(fake.withEnd ? { unsaved: posts > 0, end } : { unsaved: posts > 0 });
   }, [posts]);
-  useEffect(() => () => report.current?.(null), []);
+  useEffect(() => {
+    const list = waiting.current;
+    return () => {
+      report.current?.(null);
+      list.splice(0).forEach((done) => done());
+    };
+  }, []);
   return null;
 }
 
@@ -74,7 +101,14 @@ function FakeRoom({ handle, onLiveChange }: { handle: KickoffHandle; onLiveChang
           <button type="button" onClick={() => setLive(false)}>
             End room
           </button>
-          <FakeLive posts={posts} onLiveChange={onLiveChange} />
+          <FakeLive
+            posts={posts}
+            onLiveChange={onLiveChange}
+            onEnd={() => {
+              ended.push(handle.kickoff.id);
+              setLive(false);
+            }}
+          />
         </>
       ) : (
         <button type="button" onClick={() => setLive(true)}>
@@ -130,6 +164,8 @@ async function goLive(n = 1) {
 
 beforeEach(() => {
   mounts.length = 0;
+  ended.length = 0;
+  fake.withEnd = false;
   toastSpy.mockClear();
   window.history.replaceState(null, "", "/kickoff");
   vi.spyOn(useWorkspaceStore.persist, "hasHydrated").mockReturnValue(true);
@@ -229,6 +265,18 @@ describe("a live collect room and the kickoff shown", () => {
     expect(shown()).toBe("Checkout squad");
     expect(screen.getByText("1 posts on the wall")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /^Slow refunds/ })).toBeInTheDocument();
+  });
+
+  it("ends the room for everyone in it before it shows the other kickoff", async () => {
+    fake.withEnd = true;
+    renderPage();
+    await goLive(1);
+    fireEvent.click(screen.getByRole("button", { name: /^Refunds/ }));
+    fireEvent.click(screen.getByRole("button", { name: "End it and switch" }));
+    // Ended by the page (signed, for every phone), not left behind to time out.
+    expect(ended).toEqual(["kA"]);
+    await waitFor(() => expect(shown()).toBe("Refunds"));
+    expect(screen.queryByTestId("room")).toBeNull();
   });
 
   it("asks before deleting the kickoff whose room is live", async () => {

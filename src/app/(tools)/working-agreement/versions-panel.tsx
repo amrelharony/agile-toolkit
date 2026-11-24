@@ -169,7 +169,7 @@ export function VersionsPanel({
               </label>
               <select
                 id={fromId}
-                className="flex h-9 rounded-md border border-input bg-background px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-9 rounded-md border border-input bg-background px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11"
                 value={pair?.from ?? ""}
                 onChange={(e) => pair && setPicked({ ...pair, from: e.target.value })}
               >
@@ -186,7 +186,7 @@ export function VersionsPanel({
               </label>
               <select
                 id={toId}
-                className="flex h-9 rounded-md border border-input bg-background px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-9 rounded-md border border-input bg-background px-3 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring pointer-coarse:h-11"
                 value={pair?.to ?? DRAFT}
                 onChange={(e) => pair && setPicked({ ...pair, to: e.target.value })}
               >

@@ -1286,7 +1286,8 @@ describe("the rest of the board", () => {
     );
     fireEvent.click(screen.getByRole("button", { name: "10 minutes" }));
     expect(current()?.timerSeconds).toBe(600);
-    expect(screen.getByText(/Saved in your workspace/)).toBeInTheDocument();
+    // Where the board is saved is the header chip's to say (this browser, for a visitor).
+    expect(screen.queryByText(/Saved in your workspace/)).toBeNull();
     expect(screen.queryByText(/Local session/)).toBeNull();
   });
 

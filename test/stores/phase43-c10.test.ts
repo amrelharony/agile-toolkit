@@ -127,7 +127,7 @@ describe("the fixture rows this chain's follow-up proposes", () => {
       "A Shape Up pitch has no intake.",
     ]);
     expect(productCanvasWriteProblems({ ...IDEA, decision: CASE.decision }, null)).toEqual([
-      "An Idea intake has no decision.",
+      "An Idea inbox has no decision.",
     ]);
     expect(productCanvasWriteProblems({ ...CASE, bet: PITCH.bet }, null)).toEqual([
       "A Business case has no bet.",

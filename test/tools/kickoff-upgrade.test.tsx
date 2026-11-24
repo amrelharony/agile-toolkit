@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -64,6 +64,13 @@ import { normalizeKickoff, statementFrom } from "@/lib/kickoff/model";
 import { todayIso } from "@/lib/sprints/series";
 import { exampleId } from "@/lib/utils/example-id";
 import { WA_ID } from "@/lib/working-agreement/model";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 /** jsdom has no ResizeObserver; the send menu's popper measures with one. */
 function stubResizeObserver() {
@@ -196,6 +203,24 @@ describe("the empty state and the example", () => {
     fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
     expect(rows()).toEqual([]);
     // The example is never logged.
+    expect(logs).toEqual([]);
+  });
+
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(screen.getByRole("button", { name: /Load an example/ }));
+    const loaded = rows().map((k) => k.id);
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(rows()).toEqual([]);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Load an example/ })).toHaveFocus()
+    );
+    undo("Cleared the example");
+    expect(
+      rows()
+        .map((k) => k.id)
+        .sort()
+    ).toEqual([...loaded].sort());
     expect(logs).toEqual([]);
   });
 
@@ -653,6 +678,46 @@ describe("sending lines on", () => {
       }),
     ]);
     expect(byId("k3").sections.rules[0].sentTo?.[0].route).toBe("agreement-rule");
+    // Once sent, the rule is there because of the send: no reason shows.
+    expect(screen.queryByText("The Working Agreement already has this rule.")).toBeNull();
+  });
+
+  it("says why a rule the Working Agreement already has can't go", () => {
+    useWorkspaceStore.setState({
+      workingAgreements: [
+        {
+          id: WA_ID,
+          rules: [
+            {
+              id: "rule_1",
+              category: "other",
+              text: "we start  on time",
+              agreedBy: [],
+              consent: [],
+            },
+          ],
+          meta: { version: 1 },
+        },
+      ],
+    });
+    seed(
+      kickoff({
+        id: "k3",
+        format: "team-canvas",
+        sections: { rules: [item("r1", "We start on time.")] },
+      })
+    );
+    renderPage();
+    expect(screen.getByText("The Working Agreement already has this rule.")).toBeInTheDocument();
+    openSend(/^Send to… We start on time\./);
+    expect(screen.getByRole("menuitem", { name: "Working Agreement rule" })).toHaveAttribute(
+      "aria-disabled",
+      "true"
+    );
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" });
+    // The rule leaves the agreement: the reason goes with it.
+    act(() => useWorkspaceStore.setState({ workingAgreements: [] }));
+    expect(screen.queryByText("The Working Agreement already has this rule.")).toBeNull();
   });
 
   it("sends the problem statement as an opportunity or a root-cause analysis", () => {

@@ -603,6 +603,7 @@ registry.register({
   name: "reset",
   category: "write",
   requiresConfirmation: true,
+  confirmLabel: "Clear the skills matrix",
   description:
     "Clear the matrix: every skill, rating, matrix-only person and training pair. The team roster stays as it is. Returns {reset: true}.",
   paramsSchema: z.object({}),

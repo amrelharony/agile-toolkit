@@ -106,5 +106,8 @@ describe("generateTitle", () => {
     expect(posts[0].max_tokens).toBeGreaterThanOrEqual(1024);
     expect(posts[0]).not.toHaveProperty("tools");
     expect(posts[0]).not.toHaveProperty("tool_choice");
+    // Written without dashes, which the model would copy into the title.
+    const [system] = posts[0].messages as Array<{ content: string }>;
+    expect(system.content).not.toMatch(/[–—]/);
   });
 });

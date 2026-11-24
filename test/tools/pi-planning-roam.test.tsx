@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -204,7 +204,7 @@ describe("Risks: ROAM", () => {
     expect(localStorage.getItem(PI_STORAGE_KEY)).not.toContain("\\ud83d");
   });
 
-  it("logs an owned risk in the Risk Register once it's rated, with Undo", () => {
+  it("logs an owned risk in the Risk Register once it's rated, with Undo", async () => {
     seedBoard(
       board({
         items: [risk("Audit", { roam: "owned", roamOwner: "Priya", roamNote: "Book early" })],
@@ -227,6 +227,8 @@ describe("Risks: ROAM", () => {
     pick("Impact", "3");
     fireEvent.submit(form);
 
+    // The sender loads with the rating form, not with the board.
+    await waitFor(() => expect(useWorkspaceStore.getState().risks ?? []).toHaveLength(1));
     const risks = useWorkspaceStore.getState().risks ?? [];
     expect(risks).toHaveLength(1);
     expect(risks[0]).toMatchObject({

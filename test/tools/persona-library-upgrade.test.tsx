@@ -210,15 +210,30 @@ describe("Persona Library first run", () => {
     expect(h.logs).toEqual([]);
   });
 
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Load an example" }));
+    const loaded = stored().map((p) => p.id);
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(stored()).toEqual([]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Cleared the example");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Load an example" })).toHaveFocus()
+    );
+    undoLast();
+    expect(stored().map((p) => p.id)).toEqual(loaded);
+    expect(h.logs).toEqual([]);
+  });
+
   it("shows the name hint and Decision D4's line by the notes draft", async () => {
     renderPage();
     expect(await screen.findByText(NAME_HINT)).toBeInTheDocument();
     expect(screen.getByText(NOTES_AI_LINE)).toBeInTheDocument();
     expect(NOTES_AI_LINE).toBe(
-      "Names and contact details aren't all caught. Take them out before you ask Amr."
+      "Names aren't caught, and contact details can slip through. Take them out before you ask Amr."
     );
     expect(INTERVIEWS_AI_LINE).toBe(
-      "Participant names become Participant 1, 2… Other names in quotes aren't caught, so check before you ask Amr."
+      "Each interview's context and quotes are sent, with participants renamed Participant 1, 2… Other names in them aren't caught, so check before you ask Amr."
     );
     // The hint under the notes promises no more than that line.
     expect(

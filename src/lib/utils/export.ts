@@ -1,6 +1,7 @@
 import { toPng } from "html-to-image";
 import { saveAs } from "file-saver";
 import { THEME_COLORS } from "@/lib/theme/boot-script";
+import { keepInExport } from "./export-skip";
 
 /**
  * Strip path separators, control characters, and leading dots so a download
@@ -155,6 +156,8 @@ export async function exportToPNG(
       // to decode.
       imagePlaceholder: BLANK_IMAGE,
       onImageErrorHandler: () => undefined,
+      // A control marked EXPORT_SKIP stays on the page and out of the picture.
+      filter: keepInExport,
     }),
     new Promise<string>((_, reject) =>
       setTimeout(() => reject(new Error("PNG export timed out")), timeoutMs)
@@ -164,33 +167,6 @@ export async function exportToPNG(
   trackExport("png");
 }
 
-export async function copyToClipboard(text: string): Promise<boolean> {
-  // Primary path: async Clipboard API. Requires secure context + activation;
-  // legacy browsers + HTTP contexts fail here.
-  if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // fall through to the textarea trick
-    }
-  }
-  // Fallback path: hidden textarea + execCommand. Deprecated but still the
-  // only thing that works on Safari iOS over HTTP and in some embedded webviews.
-  if (typeof document === "undefined") return false;
-  try {
-    const ta = document.createElement("textarea");
-    ta.value = text;
-    ta.setAttribute("readonly", "");
-    ta.style.position = "fixed";
-    ta.style.top = "-9999px";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(ta);
-    return ok;
-  } catch {
-    return false;
-  }
-}
+// Lives in its own module so a Copy button needn't load html-to-image and
+// file-saver; kept here too for the pages that already import it from export.
+export { copyToClipboard } from "./clipboard";

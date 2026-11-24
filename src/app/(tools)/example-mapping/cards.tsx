@@ -146,33 +146,37 @@ export function QuestionForm({
           />
         )}
       </Field>
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <PersonPicker
-          label="Who finds out"
-          value={draft.owner}
-          onChange={(owner) => update({ owner })}
-          placeholder="An owner"
-          offerAddToRoster={offerAddToRoster}
-        />
-        {rules.length > 0 && (
-          <Field label="About the rule">
-            {(props) => (
-              <select
-                {...props}
-                className={SELECT_CLASS}
-                value={draft.ruleId}
-                onChange={(e) => update({ ruleId: e.target.value })}
-              >
-                <option value="">No rule in particular</option>
-                {rules.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.text}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-        )}
+      {/* Two columns only when the form itself is wide (a container query): the
+          desktop Questions column is narrow, and a select there was cut short. */}
+      <div className="@container">
+        <div className="grid grid-cols-1 gap-3 @md:grid-cols-2">
+          <PersonPicker
+            label="Who finds out"
+            value={draft.owner}
+            onChange={(owner) => update({ owner })}
+            placeholder="An owner"
+            offerAddToRoster={offerAddToRoster}
+          />
+          {rules.length > 0 && (
+            <Field label="About the rule">
+              {(props) => (
+                <select
+                  {...props}
+                  className={SELECT_CLASS}
+                  value={draft.ruleId}
+                  onChange={(e) => update({ ruleId: e.target.value })}
+                >
+                  <option value="">No rule in particular</option>
+                  {rules.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.text}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </Field>
+          )}
+        </div>
       </div>
     </ItemForm>
   );

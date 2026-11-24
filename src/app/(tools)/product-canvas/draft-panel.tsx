@@ -16,7 +16,7 @@
 import { useRef, useState } from "react";
 import { AiButton, AiSuggestions } from "@/components/ai";
 import { Field } from "@/components/ui/field";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import type { AiSource } from "@/lib/ai/task-types";
 import {
   draftInputFor,
@@ -138,8 +138,9 @@ export function DraftPanel({
         hint="What the canvas is about, in a sentence or two. It isn't saved."
       >
         {(props) => (
-          <Input
+          <Textarea
             {...props}
+            rows={2}
             value={brief}
             maxLength={DRAFT_BRIEF_MAX}
             onChange={(e) => setBrief(e.target.value)}

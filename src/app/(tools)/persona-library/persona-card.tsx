@@ -61,7 +61,9 @@ export function PersonaCard({
         highlighted ? "border-accent" : "border-border"
       )}
     >
-      <div className="flex items-start gap-3">
+      {/* Wraps on a narrow card: Edit and Delete drop to their own line, so the
+          name, role and badges get the card's width rather than a sliver. */}
+      <div className="flex flex-wrap items-start gap-3">
         <span
           aria-hidden="true"
           className={cn(
@@ -71,23 +73,26 @@ export function PersonaCard({
         >
           {initialOf(p.name)}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-40">
           <h3 id={headingId} className="break-words text-base font-semibold text-text">
             {p.name}
           </h3>
           <p className="break-words text-sm text-sub">{p.role || "Role to confirm"}</p>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
-            <span className="rounded-full border border-border px-2 py-0.5 text-xs text-text">
+            <span className="whitespace-nowrap rounded-full border border-border px-2 py-0.5 text-xs text-text">
               {TIER_LABEL[p.tier]}
             </span>
             <span
-              className={cn("rounded-full border px-2 py-0.5 text-xs", EVIDENCE_TONE[p.evidence])}
+              className={cn(
+                "whitespace-nowrap rounded-full border px-2 py-0.5 text-xs",
+                EVIDENCE_TONE[p.evidence]
+              )}
             >
               {EVIDENCE_LABEL[p.evidence]}
             </span>
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="ml-auto flex shrink-0 items-center gap-1">
           <IconButton
             label={`Edit ${p.name}`}
             data-focus-key={`edit:${p.id}`}

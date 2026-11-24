@@ -35,6 +35,7 @@ import {
 import { hydrateAudienceWall, updateWalls, useAudienceWallStore } from "@/lib/audience-wall/store";
 import { AUDIENCE_WALL_ACTIONS } from "@/lib/history/event-actions";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
+import { useVoteRoomsAvailable } from "@/lib/realtime/vote-room/use-vote-room";
 import type { WallRoundResult } from "@/lib/realtime/wall-room/protocol";
 import { hasExampleItems, isExampleId } from "@/lib/utils/example-id";
 import { cn } from "@/lib/utils";
@@ -50,6 +51,8 @@ const newWallId = () => `wall_${nanoid(10)}`;
 export function AudienceWallClient() {
   const { log } = useHistoryLogger("audience-wall");
   const announce = useAnnounce();
+  // Whether a live wall can run here: the empty state offers it only then.
+  const rooms = useVoteRoomsAvailable();
   const raw = useAudienceWallStore();
   const [ready, setReady] = useState(false);
   const [kind, setKind] = useState<WallKind>("answers");
@@ -193,7 +196,11 @@ export function AudienceWallClient() {
               icon={MessagesSquare}
               action={<LoadExampleButton onLoad={loadExample} className="mt-4" />}
             >
-              No saved walls yet. Open a live wall above and save its round, or add one by hand.
+              {/* Only offers the live wall while one can run here (it is off on
+                  some sites, and for guests). */}
+              {rooms.available || rooms.reason === "auth-pending"
+                ? "No saved walls yet. Open a live wall above and save its round, or add one by hand."
+                : "No saved walls yet. Add one by hand, or load an example."}
             </EmptyState>
           ) : (
             ready && (

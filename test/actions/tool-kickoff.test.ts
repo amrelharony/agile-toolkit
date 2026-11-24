@@ -24,6 +24,8 @@ vi.mock("@/lib/actions/server-store", async (importOriginal) => {
     serverGetEntity: vi.fn(async () => null),
     serverListEntities: vi.fn(async () => []),
     serverUpsertEntity: vi.fn(async () => {}),
+    // The Risk Register's old blobs, which its list reads beside the rows: none.
+    serverGetUserStateBlob: vi.fn(async () => null),
   };
 });
 
@@ -231,6 +233,83 @@ describe("tool.kickoff.list_state", () => {
       "tool.kickoff.list_state"
     );
     expect(state.kickoffs[0].statement).toBe("For buyers, refunds are slow.");
+  });
+});
+
+describe("tool.kickoff.list_state: where lines were sent", () => {
+  // A Team Canvas sends a rule to the Working Agreement and a weakness to the Risk Register.
+  const sentAt = "2026-11-20T10:00:00.000Z";
+  const canvas = kickoff({
+    id: "tc",
+    format: "team-canvas",
+    sections: {
+      rules: [
+        item("r", "Cameras on for demos", {
+          sentTo: [{ route: "agreement-rule", targetId: "rule-1", at: sentAt }],
+        }),
+      ],
+      weaknesses: [
+        item("w", "Nobody knows the old billing code", {
+          likelihood: 4,
+          impact: 4,
+          sentTo: [{ route: "risk", targetId: "risk-1", at: sentAt }],
+        }),
+      ],
+    },
+  });
+  const rule = { id: "rule-1", category: "other", text: "Cameras on for demos", agreedBy: [] };
+  const risk = {
+    id: "risk-1",
+    title: "Nobody knows the old billing code",
+    probability: 4,
+    impact: 4,
+    status: "open",
+    raisedAt: "2026-11-20",
+  };
+  type State = { kickoffs: { sections: { id: string; items: { sentTo: string[] }[] }[] }[] };
+  const sentTo = (s: State, section: string) =>
+    s.kickoffs[0].sections.find((x) => x.id === section)!.items[0].sentTo;
+
+  beforeEach(() => {
+    localStorage.clear();
+    useWorkspaceStore.setState({ workingAgreements: [], risks: [] });
+  });
+
+  it("lists a route only while its target is still there, as the page's liveLink", async () => {
+    useWorkspaceStore.setState({
+      kickoffs: [canvas],
+      workingAgreements: [{ id: "workingAgreement:current", rules: [rule] } as never],
+      risks: [risk as never],
+    });
+    const both = await run<State>("tool.kickoff.list_state");
+    expect(sentTo(both, "rules")).toEqual(["agreement-rule"]);
+    expect(sentTo(both, "weaknesses")).toEqual(["risk"]);
+    // The risk was deleted in the Risk Register: the page offers to send it again.
+    useWorkspaceStore.setState({ risks: [] });
+    const gone = await run<State>("tool.kickoff.list_state");
+    expect(sentTo(gone, "rules")).toEqual(["agreement-rule"]);
+    expect(sentTo(gone, "weaknesses")).toEqual([]);
+  });
+
+  it("reads the targets from the user's rows over MCP, and only the routes lines were sent on", async () => {
+    vi.mocked(serverStore.serverListEntities).mockImplementation((async (
+      _user: string,
+      kind: string
+    ) => (kind === KICKOFF_KIND ? [canvas] : [])) as never);
+    vi.mocked(serverStore.serverGetEntity).mockImplementation((async (
+      _user: string,
+      kind: string,
+      id: string
+    ) =>
+      kind === "workspace:workingAgreement" && id === "workingAgreement:current"
+        ? { id, rules: [rule] }
+        : null) as never);
+    const state = await runMcp<State>("tool.kickoff.list_state");
+    expect(sentTo(state, "rules")).toEqual(["agreement-rule"]);
+    expect(sentTo(state, "weaknesses")).toEqual([]);
+    const kinds = vi.mocked(serverStore.serverListEntities).mock.calls.map(([, kind]) => kind);
+    expect(kinds).toContain("workspace:risk");
+    expect(kinds).not.toContain("workspace:story");
   });
 });
 

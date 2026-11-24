@@ -2552,7 +2552,7 @@ export const tools: ToolDefinition[] = [
 
   // ════════════════════════════════════════════════════════════════════
   // Phase 42 — live meeting widgets and the research top 10 (tools plan,
-  // phase 1). Each page starts as a stub; its builder replaces it.
+  // phase 1).
   // ════════════════════════════════════════════════════════════════════
   {
     id: "picker",
@@ -2779,7 +2779,7 @@ export const tools: ToolDefinition[] = [
 
   // ════════════════════════════════════════════════════════════════════
   // Phase 43 — Scrum events, backlog, product and metrics (tools plan,
-  // phase 2). Each page starts as a stub; its builder replaces it.
+  // phase 2).
   // ════════════════════════════════════════════════════════════════════
   {
     id: "example-mapping",

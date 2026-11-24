@@ -44,7 +44,7 @@ export function DetailsFields({
               {...props}
               maxLength={TOOL_TEXT_MAX.short}
               value={draft.name}
-              placeholder="Shorter sign-up form"
+              placeholder="e.g. Shorter sign-up form"
               onChange={(e) => update({ name: e.target.value })}
             />
           )}
@@ -55,7 +55,7 @@ export function DetailsFields({
               {...props}
               maxLength={TOOL_TEXT_MAX.short}
               value={draft.metricName}
-              placeholder="sign-up conversion"
+              placeholder="e.g. sign-up conversion"
               onChange={(e) => update({ metricName: e.target.value })}
             />
           )}
@@ -68,7 +68,7 @@ export function DetailsFields({
             rows={2}
             maxLength={TOOL_TEXT_MAX.text}
             value={draft.question}
-            placeholder="Does a shorter form get more visitors to sign up?"
+            placeholder="e.g. Does a shorter form get more visitors to sign up?"
             className="resize-none"
             onChange={(e) => update({ question: e.target.value })}
           />

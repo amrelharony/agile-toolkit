@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -67,6 +67,13 @@ import { psychSafetyVerdict } from "@/app/(tools)/psych-safety/verdict";
 import { validateRoundDetails } from "@/app/(tools)/psych-safety/details";
 import { generatePsychSafetyPrompts } from "@/lib/ai-prompts/psych-safety";
 import "@/lib/actions/tools/psych-safety";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 /* ── Fixtures ───────────────────────────────────────────────────────── */
 

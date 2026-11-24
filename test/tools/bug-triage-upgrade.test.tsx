@@ -154,6 +154,10 @@ describe("an empty page", () => {
     const list = screen.getByTestId("cell-bugs");
     expect(within(list).getByRole("button", { name: "Log as an interrupt" })).toBeDisabled();
     expect(within(list).getByText(/Example bugs aren't sent/)).toBeInTheDocument();
+    // Each bug's title takes a full tap on a phone.
+    const titles = list.querySelectorAll("[data-cell-bug-title]");
+    expect(titles.length).toBeGreaterThan(0);
+    titles.forEach((t) => expect(t).toHaveClass("min-touch-coarse"));
     expect(logs).toEqual([]);
   });
 

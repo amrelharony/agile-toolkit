@@ -317,7 +317,8 @@ function EstimateForm({ pack }: { pack: AsyncPack }) {
           className="flex flex-col gap-3 rounded-lg border border-success/30 bg-success/10 px-4 py-4"
         >
           <p className="text-sm text-text" role="status">
-            Your reply is ready. Send it to {host} only: anyone who sees it can read your cards.
+            Your reply is ready. Send it to {host} only: anyone who sees it can read your name,
+            cards and notes.
           </p>
           <p className="max-h-32 overflow-y-auto break-all rounded-md border border-border bg-card px-2 py-1.5 font-data text-xs text-text">
             {code}

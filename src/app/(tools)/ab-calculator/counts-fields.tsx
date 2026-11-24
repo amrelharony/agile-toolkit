@@ -21,10 +21,10 @@ import { ResultView } from "./result-view";
 import { shownErrors } from "./plan-fields";
 
 const FIELDS: { key: CountsField; label: string; placeholder: string }[] = [
-  { key: "aVisitors", label: "A visitors", placeholder: "4020" },
-  { key: "aConversions", label: "A conversions", placeholder: "402" },
-  { key: "bVisitors", label: "B visitors", placeholder: "3980" },
-  { key: "bConversions", label: "B conversions", placeholder: "477" },
+  { key: "aVisitors", label: "A visitors", placeholder: "e.g. 4020" },
+  { key: "aConversions", label: "A conversions", placeholder: "e.g. 402" },
+  { key: "bVisitors", label: "B visitors", placeholder: "e.g. 3980" },
+  { key: "bConversions", label: "B conversions", placeholder: "e.g. 477" },
 ];
 
 export function CountsFields({

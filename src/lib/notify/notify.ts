@@ -7,16 +7,19 @@
  * - **Dedupe.** A repeat of the same key (`opts.id ?? kind:title`) within
  *   10 s, while the first is still on screen, updates that toast in place as
  *   "Title (×N)" and plays no second sound or haptic. Undo and progress
- *   toasts are never merged: two Undo toasts are two different changes.
+ *   toasts are never merged: two Undo toasts are two different changes. Nor
+ *   is any toast with an action or cancel button (a success with Undo, say),
+ *   unless the caller gave the id: then the caller chains what the button
+ *   does (see `undoable`), so the merged toast's button still covers it all.
  * - **Burst cap.** At most 2 success/info toasts per 10 s; a third closes
  *   the newest one and takes its place under a fresh id (an in-place update
  *   would keep the old toast's action, description and icon: sonner merges
  *   updates). Error, undo, warning and any toast with an action or cancel
  *   button are never limited, and never replaced.
- * - **Deferred queue.** A toast the policy holds (typing, a dialog, the quiet
- *   state) keeps its id and is asked about again on a timer that runs only
- *   while something waits, and whenever `flushPending()` is called (route,
- *   presenting or intro changes; see provider.tsx).
+ * - **Deferred queue.** A toast the policy holds (typing, a dialog, Amr's
+ *   phone sheet, the quiet state) keeps its id and is asked about again on a
+ *   timer that runs only while something waits, and whenever `flushPending()`
+ *   is called (route, presenting or intro changes; see provider.tsx).
  * - **Learned muting.** Dismissing the same info/success key 3 times adds it
  *   to `prefs.mutedKeys`; Settings can show them again. A toast with an
  *   action is never learned from: muting is for noise, not for recovery.
@@ -39,6 +42,7 @@ import {
   useNotificationPrefsStore,
 } from "@/lib/stores/notification-prefs-store";
 import { isPhoneViewport } from "@/lib/layout/breakpoints";
+import { amrHoldsToasts } from "@/lib/layout/amr-sheet";
 import { isTyping } from "./attention";
 import { isDialogOpen } from "./dialog-open";
 import { MUTABLE_KINDS, decide } from "./policy";
@@ -162,6 +166,7 @@ export function readPolicyContext(): PolicyContext {
   const ctx: PolicyContext = {
     quiet: getQuietState(Date.now(), readPathname(), defaultQuietDom(), prefs),
     dialogOpen: isDialogOpen(),
+    amrSheet: amrHoldsToasts(),
     typing: isTyping(),
     phone: isPhoneViewport(),
     touch: isTouchScreen(),
@@ -364,9 +369,12 @@ function show(
   };
 
   // 1. A repeat within the window updates the toast on screen as "(×N)".
+  //    A toast with a button merges only under the caller's own id: the
+  //    caller then chains the buttons (undoable), and nothing is lost.
   const rec = dedupe.get(key);
   if (
     DEDUPED_KINDS.has(kind) &&
+    (callerGaveId || !hasActionButton(opts)) &&
     rec &&
     rec.kind === kind &&
     rec.title === title &&

@@ -13,6 +13,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+import { WORKSPACE_LOADING_RESERVE } from "@/components/shared/workspace-loading";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type { ProductMetric } from "@/lib/stores/workspace-types";
@@ -105,6 +106,30 @@ beforeEach(() => {
 });
 
 describe("empty state and the example", () => {
+  it("holds the page's room with the loading card until the workspace has loaded", () => {
+    let finish = () => {};
+    const hasHydrated = vi.spyOn(useWorkspaceStore.persist, "hasHydrated").mockReturnValue(false);
+    const onFinish = vi
+      .spyOn(useWorkspaceStore.persist, "onFinishHydration")
+      .mockImplementation((fn) => {
+        finish = () => fn(useWorkspaceStore.getState());
+        return () => {};
+      });
+    try {
+      renderPage();
+      const loading = screen.getByText("Loading your metrics…").closest("[role=status]");
+      expect(loading).toHaveClass(WORKSPACE_LOADING_RESERVE);
+      act(() => finish());
+      expect(screen.queryByText("Loading your metrics…")).toBeNull();
+      expect(
+        screen.getAllByText(/No metrics yet\. Start with the North Star/).length
+      ).toBeGreaterThan(0);
+    } finally {
+      hasHydrated.mockRestore();
+      onFinish.mockRestore();
+    }
+  });
+
   it("offers to add the North Star or look at an example", async () => {
     renderPage();
     expect(
@@ -145,6 +170,25 @@ describe("empty state and the example", () => {
     fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
     expect(metrics().map((m) => m.id)).toEqual(["example-ebm-nps"]);
     expect(screen.queryByText("Example data.")).toBeNull();
+  });
+
+  it("clears the example with Undo, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Load an example/ }));
+    const loaded = metrics().map((m) => m.id);
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(metrics()).toEqual([]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Cleared the example");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Load an example/ })).toHaveFocus()
+    );
+    undoLast();
+    expect(
+      metrics()
+        .map((m) => m.id)
+        .sort()
+    ).toEqual([...loaded].sort());
+    expect(logs).toEqual([]);
   });
 });
 
@@ -575,14 +619,49 @@ describe("more of the contract", () => {
     seed([metric({ role: "north-star", readings: [{ id: "r1", date: "2026-10-01", value: 9 }] })]);
     renderPage();
     fireEvent.click(await screen.findByRole("button", { name: "Reading for “Weekly teams”" }));
-    fireEvent.click(screen.getByRole("button", { name: "Remove the reading of 2026-10-01" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete the reading for 2026-10-01" }));
     expect(metrics()[0].readings).toEqual([]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Deleted the reading for 2026-10-01");
+    // None left: focus goes to Paste readings, not the page.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Paste readings" })).toHaveFocus()
+    );
     expect(logs.at(-1)).toMatchObject({
       action: PRODUCT_METRICS_ACTIONS.READING_REMOVED,
       payload: { date: "2026-10-01" },
     });
     undoLast();
     expect(metrics()[0].readings).toHaveLength(1);
+  });
+
+  it("moves focus to the next reading's delete after a delete, then the one before", async () => {
+    seed([
+      metric({
+        role: "north-star",
+        readings: [
+          { id: "r1", date: "2026-10-01", value: 9 },
+          { id: "r2", date: "2026-10-08", value: 10 },
+          { id: "r3", date: "2026-10-15", value: 11 },
+        ],
+      }),
+    ]);
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "Reading for “Weekly teams”" }));
+    // Newest first: deleting the middle one lands on the older one below it.
+    fireEvent.click(screen.getByRole("button", { name: "Delete the reading for 2026-10-08" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Delete the reading for 2026-10-01" })
+      ).toHaveFocus()
+    );
+    // The last row: focus goes to the one above it.
+    fireEvent.click(screen.getByRole("button", { name: "Delete the reading for 2026-10-01" }));
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Delete the reading for 2026-10-15" })
+      ).toHaveFocus()
+    );
+    expect(metrics()[0].readings.map((r) => r.id)).toEqual(["r3"]);
   });
 
   it("logs nothing for the example's own rows", async () => {

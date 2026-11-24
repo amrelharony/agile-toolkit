@@ -641,7 +641,7 @@ export function Fishbone({
                 maxLength={TOOL_TEXT_MAX.text}
                 aria-invalid={errors.text ? true : undefined}
                 aria-describedby={errors.text ? `${formId}-text-error` : undefined}
-                placeholder="No alert on the error rate"
+                placeholder="e.g. No alert on the error rate"
                 onChange={(e) => setDraft((d) => ({ ...d, text: e.target.value }))}
               />
               {errors.text && (
@@ -695,7 +695,7 @@ export function Fishbone({
                   value={newCategory}
                   maxLength={CATEGORY_MAX}
                   className="w-full min-w-0 sm:w-40"
-                  placeholder="Suppliers"
+                  placeholder="e.g. Suppliers"
                   onChange={(e) => setNewCategory(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {

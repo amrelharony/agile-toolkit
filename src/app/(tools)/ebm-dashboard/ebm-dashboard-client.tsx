@@ -23,7 +23,9 @@ import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { SectionCard } from "@/components/shared/section-card";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
+import { focusAfterClearingExample } from "@/components/tool-frame/after-clear-example";
 import { WallViewButton } from "@/components/presentation/wall-view";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -33,6 +35,7 @@ import {
   ENTITY_ROW_MAX_BYTES,
   METRIC_SOURCE_IDS,
   type EbmBoard,
+  type EbmReview,
   type EbmValueArea,
   type MetricDirection,
   type MetricReading,
@@ -368,7 +371,7 @@ export function EbmDashboardClient() {
     const before = currentMetrics().find((x) => x.id === m.id);
     if (!before) return;
     undoable({
-      label: `Removed the reading of ${r.date}`,
+      label: `Deleted the reading for ${r.date}`,
       apply: () => putMetrics([withoutReading(before, r.id, new Date().toISOString())]),
       revert: () => putMetrics([before]),
     });
@@ -432,20 +435,45 @@ export function EbmDashboardClient() {
   };
 
   const clearExample = () => {
-    for (const m of currentMetrics()) if (isEbmExample(m.id)) store().removeProductMetric(m.id);
-    const b = currentBoard();
-    if (b) {
-      const now = new Date().toISOString();
-      const own = b.strategicGoal === EXAMPLE_STRATEGIC_GOAL;
-      store().upsertEbmBoard({
-        ...(own ? withStrategicGoal(b, {}, now) : b),
-        reviews: b.reviews.filter((r) => !isEbmExample(r.id)),
-        updatedAt: now,
-      });
-    }
+    // Kept for Undo: the example's measures, its reviews, and its goal when it was the example's.
+    let removed: ProductMetric[] = [];
+    let removedReviews: EbmReview[] = [];
+    let removedGoal: { goal: string; why?: string } | null = null;
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        removed = currentMetrics().filter((m) => isEbmExample(m.id));
+        for (const m of removed) store().removeProductMetric(m.id);
+        const b = currentBoard();
+        if (!b) return;
+        const now = new Date().toISOString();
+        const exampleGoal = b.strategicGoal === EXAMPLE_STRATEGIC_GOAL;
+        removedGoal = exampleGoal ? { goal: EXAMPLE_STRATEGIC_GOAL, why: b.strategicWhy } : null;
+        removedReviews = b.reviews.filter((r) => isEbmExample(r.id));
+        store().upsertEbmBoard({
+          ...(exampleGoal ? withStrategicGoal(b, {}, now) : b),
+          reviews: b.reviews.filter((r) => !isEbmExample(r.id)),
+          updatedAt: now,
+        });
+      },
+      revert: () => {
+        const kept = currentMetrics();
+        putMetrics(removed.filter((m) => !kept.some((x) => x.id === m.id)));
+        if (!removedGoal && removedReviews.length === 0) return;
+        const now = new Date().toISOString();
+        let next = currentBoard() ?? emptyEbmBoard(now);
+        // A goal the team wrote since stays theirs.
+        if (removedGoal && !next.strategicGoal) next = withStrategicGoal(next, removedGoal, now);
+        for (const r of removedReviews)
+          if (!holdsReview(next, r.id)) next = withReview(next, r, now);
+        store().upsertEbmBoard(next);
+      },
+    });
     setReadingFor(null);
     setEditingId(null);
-    done("The example is cleared.");
+    // The Undo toast says it; a status line would stay after an Undo.
+    done("");
+    focusAfterClearingExample();
   };
 
   /* ── View ───────────────────────────────────────────────────────── */
@@ -484,9 +512,7 @@ export function EbmDashboardClient() {
   const editingMetric = editingId ? metrics.find((m) => m.id === editingId) : undefined;
 
   const content = !hydrated ? (
-    <p className="text-sm text-sub" role="status">
-      Loading your evidence…
-    </p>
+    <WorkspaceLoading>Loading your evidence…</WorkspaceLoading>
   ) : (
     <div className="space-y-6">
       <p role="status" aria-live="polite" className="sr-only">

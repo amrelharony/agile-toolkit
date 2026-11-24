@@ -489,7 +489,7 @@ describe("the CRUD guard on an idea", () => {
       productCanvasWriteProblems({ ...i, format: "vision-board" } as ProductCanvas, null)
     ).toContain("A Vision Board has no intake.");
     expect(productCanvasWriteProblems({ ...i, bet: { status: "table" } }, null)).toContain(
-      "An Idea intake has no bet."
+      "An Idea inbox has no bet."
     );
   });
 

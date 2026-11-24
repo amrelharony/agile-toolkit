@@ -13,6 +13,7 @@ import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { EmptyState } from "@/components/shared/empty-state";
 import { ExportButton } from "@/components/shared/export-button";
 import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { ChecksList } from "@/components/strategy-map/checks-list";
 import { DeleteNodeDialog } from "@/components/strategy-map/delete-dialog";
 import { LevelTree } from "@/components/strategy-map/level-tree";
@@ -23,6 +24,7 @@ import {
   hasExampleItems,
   isExampleId,
 } from "@/components/tool-frame/example-data";
+import { focusAfterClearingExample } from "@/components/tool-frame/after-clear-example";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { Textarea } from "@/components/ui/textarea";
@@ -88,6 +90,7 @@ import {
 import { strategySource } from "@/lib/strategy-map/send";
 import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { cn } from "@/lib/utils";
+import { EXPORT_SKIP } from "@/lib/utils/export-skip";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -144,7 +147,7 @@ export function StrategyTreeClient() {
   const [context, setContext] = useState("");
   const newTreeRef = useRef<HTMLButtonElement>(null);
   const askRef = useRef<HTMLDivElement>(null);
-  const exportRef = useRef<HTMLDivElement>(null);
+  const exportRef = useRef<HTMLElement>(null);
 
   const open = trees.find((t) => t.id === openId) ?? trees[0];
   const today = todayLocalISO();
@@ -325,6 +328,13 @@ export function StrategyTreeClient() {
       setNotice(TOO_BIG);
       return;
     }
+    // The target's own check (a full Hypothesis Tracker), said rather than a click that does nothing.
+    const problem = getHandoffRoute(route).problem?.(src);
+    if (problem) {
+      setNotice(problem);
+      announce(problem);
+      return;
+    }
     const links = {
       getLinks: () => freshTree(tree.id)?.nodes.find((n) => n.id === node.id)?.sentTo,
       setLinks: (update: (links: readonly HandoffLink[] | undefined) => HandoffLink[]) => {
@@ -391,11 +401,21 @@ export function StrategyTreeClient() {
     setOpenId(examples[0].id);
   };
   const clearExample = () => {
-    for (const m of ws().strategyMaps ?? []) {
-      if (isExampleId(m.id) && isTree(m)) ws().removeStrategyMap(m.id);
-    }
+    let removed: StrategyMap[] = [];
+    undoable({
+      label: "Cleared the example",
+      apply: () => {
+        removed = (ws().strategyMaps ?? []).filter((m) => isExampleId(m.id) && isTree(m));
+        for (const m of removed) ws().removeStrategyMap(m.id);
+      },
+      revert: () => {
+        const kept = ws().strategyMaps ?? [];
+        for (const m of removed) if (!kept.some((x) => x.id === m.id)) ws().upsertStrategyMap(m);
+      },
+    });
     setOpenId(null);
     setSuggested(null);
+    focusAfterClearingExample();
   };
 
   /* ── Exports and prompts ── */
@@ -548,7 +568,7 @@ export function StrategyTreeClient() {
           if (id) setWanted(id);
         }}
       />
-      <div ref={exportRef} className="space-y-4">
+      <div className="space-y-4">
         {hasExampleItems(trees) && <ExampleNotice onClear={clearExample} />}
         <ActionRow>
           {open && (
@@ -563,7 +583,7 @@ export function StrategyTreeClient() {
               />
             </>
           )}
-          {!creating && (
+          {hydrated && !creating && (
             <Button
               ref={newTreeRef}
               variant="toolkit"
@@ -595,149 +615,161 @@ export function StrategyTreeClient() {
           </p>
         )}
 
-        {trees.length === 0
-          ? hydrated &&
-            !creating && (
-              <EmptyState icon={TreeDeciduous} action={<LoadExampleButton onLoad={loadExample} />}>
-                No strategy trees yet. Pick a shape, DIBB, a Lean Value Tree or Hoshin Kanri, write
-                its root, then add each level under the one above. Or load an example of each.
-              </EmptyState>
-            )
-          : open && (
-              <>
-                <nav aria-label="Your strategy trees">
-                  <ul className="flex flex-wrap gap-2">
-                    {trees.map((t) => (
-                      <li key={t.id}>
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant={t.id === open.id ? "toolkit" : "outline"}
-                          aria-current={t.id === open.id ? "true" : undefined}
-                          className="max-w-[16rem] gap-1.5 truncate text-xs"
-                          onClick={() => {
-                            setOpenId(t.id);
-                            setSuggested(null);
-                          }}
-                        >
-                          <span className="rounded bg-accent/10 px-1 font-data text-xs uppercase text-accent">
-                            {STRATEGY_FORMATS[t.format].label}
-                          </span>
-                          <span className="truncate">{t.title}</span>
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                </nav>
+        {!hydrated ? (
+          <WorkspaceLoading>Loading the trees…</WorkspaceLoading>
+        ) : trees.length === 0 ? (
+          !creating && (
+            <EmptyState icon={TreeDeciduous} action={<LoadExampleButton onLoad={loadExample} />}>
+              No strategy trees yet. Pick a shape, DIBB, a Lean Value Tree or Hoshin Kanri, write
+              its root, then add each level under the one above. Or load an example of each.
+            </EmptyState>
+          )
+        ) : (
+          open && (
+            <>
+              <nav aria-label="Your strategy trees">
+                <ul className="flex flex-wrap gap-2">
+                  {trees.map((t) => (
+                    <li key={t.id}>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant={t.id === open.id ? "toolkit" : "outline"}
+                        aria-current={t.id === open.id ? "true" : undefined}
+                        title={t.title}
+                        className="max-w-[16rem] gap-1.5 truncate text-xs sm:max-w-[24rem] lg:max-w-[28rem]"
+                        onClick={() => {
+                          setOpenId(t.id);
+                          setSuggested(null);
+                        }}
+                      >
+                        <span className="rounded bg-accent/10 px-1 font-data text-xs uppercase text-accent">
+                          {STRATEGY_FORMATS[t.format].label}
+                        </span>
+                        <span className="truncate">{t.title}</span>
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </nav>
 
-                <section aria-labelledby="tree-heading" className="space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <h2 id="tree-heading" className="break-words text-lg font-semibold text-text">
-                        {open.title}
-                      </h2>
-                      <p className="text-xs text-sub">
-                        {STRATEGY_FORMATS[open.format].label} ·{" "}
-                        {[1, 2, 3]
-                          .map((l) => {
-                            const n = counts[l];
-                            const lvl = levelOf(open.format, l);
-                            return `${n} ${n === 1 ? lvl.label.toLowerCase() : lvl.plural}`;
-                          })
-                          .join(", ")}
-                      </p>
-                    </div>
-                    <IconButton
-                      label={`Delete the tree ${open.title}`}
-                      icon={<Trash2 className="h-4 w-4" />}
-                      className="text-sub hover:text-danger"
-                      onClick={() => {
-                        // A tree with no parts (an agent can make one) has no root to ask about.
+              {/* The PNG is the tree: its title and parts. Its controls are marked
+                  EXPORT_SKIP, and so are the parts' own (NodeCard). */}
+              <section ref={exportRef} aria-labelledby="tree-heading" className="space-y-3">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <h2 id="tree-heading" className="break-words text-lg font-semibold text-text">
+                      {open.title}
+                    </h2>
+                    <p className="text-xs text-sub">
+                      {STRATEGY_FORMATS[open.format].label} ·{" "}
+                      {[1, 2, 3]
+                        .map((l) => {
+                          const n = counts[l];
+                          const lvl = levelOf(open.format, l);
+                          return `${n} ${n === 1 ? lvl.label.toLowerCase() : lvl.plural}`;
+                        })
+                        .join(", ")}
+                    </p>
+                  </div>
+                  <IconButton
+                    {...EXPORT_SKIP}
+                    label={`Delete the tree ${open.title}`}
+                    icon={<Trash2 className="h-4 w-4" />}
+                    className="text-sub hover:text-danger"
+                    onClick={() => {
+                      // A tree with no parts (an agent can make one) has no root to ask about.
+                      const root = rootOf(open);
+                      if (root) askDelete(open, root);
+                      else removeTree(open);
+                    }}
+                  />
+                </div>
+
+                <div
+                  {...EXPORT_SKIP}
+                  className="space-y-2 rounded-lg border border-border bg-card p-3"
+                >
+                  <h3 className="text-sm font-semibold text-text">Draft with Amr</h3>
+                  <label className="block space-y-1.5 text-sm text-text">
+                    <span>Anything Amr should know</span>
+                    <Textarea
+                      rows={2}
+                      maxLength={TREE_DRAFT_CONTEXT_MAX}
+                      value={context}
+                      onChange={(e) => setContext(e.target.value)}
+                      aria-describedby="tree-context-hint"
+                    />
+                  </label>
+                  <p id="tree-context-hint" className="text-xs text-sub">
+                    Optional, and not saved. Amr drafts branches under the root for you to accept
+                    one by one, with no owners; without AI you get templates to rewrite.
+                  </p>
+                  <div ref={askRef}>
+                    <AiButton
+                      task={strategyTreeDraftTask}
+                      label="Ask Amr to draft branches"
+                      fallbackLabel="Start from a template"
+                      disabledReason={rootOf(open) ? null : "The tree needs its root first."}
+                      input={() => {
                         const root = rootOf(open);
-                        if (root) askDelete(open, root);
-                        else removeTree(open);
+                        return {
+                          format: isTreeFormat(open.format) ? open.format : "dibb",
+                          root: cleanText(root?.text, TREE_DRAFT_TEXT_MAX),
+                          ...(root?.measure
+                            ? { measure: cleanText(root.measure, TREE_DRAFT_TEXT_MAX) }
+                            : {}),
+                          context: context.trim().slice(0, TREE_DRAFT_CONTEXT_MAX),
+                          existing: childrenOf(open, root?.id ?? "")
+                            .map((n) => cleanText(n.text, TREE_DRAFT_TEXT_MAX))
+                            .filter(Boolean)
+                            .slice(0, TREE_DRAFT_EXISTING_MAX),
+                        };
+                      }}
+                      onResult={(data, meta) => {
+                        setSuggested({ branches: data.branches, source: meta.source });
+                        announce(
+                          `${data.branches.length} suggested ${data.branches.length === 1 ? "branch" : "branches"} below.`
+                        );
                       }}
                     />
                   </div>
+                  {suggested && (
+                    <AiSuggestions
+                      items={suggested.branches}
+                      source={suggested.source}
+                      title="Suggested branches"
+                      render={(b) => ({
+                        title: b.text,
+                        detail: b.children
+                          .map((c) =>
+                            c.children.length > 0
+                              ? `${c.text}: ${c.children.map((g) => g.text).join(", ")}`
+                              : c.text
+                          )
+                          .join(" · "),
+                      })}
+                      onAccept={(b) => acceptDrafts(open, [b])}
+                      onAcceptAll={(list) => acceptDrafts(open, list)}
+                      onDismiss={() => setSuggested(null)}
+                      returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
+                    />
+                  )}
+                </div>
 
-                  <div className="space-y-2 rounded-lg border border-border bg-card p-3">
-                    <h3 className="text-sm font-semibold text-text">Draft with Amr</h3>
-                    <label className="block space-y-1.5 text-sm text-text">
-                      <span>Anything Amr should know</span>
-                      <Textarea
-                        rows={2}
-                        maxLength={TREE_DRAFT_CONTEXT_MAX}
-                        value={context}
-                        onChange={(e) => setContext(e.target.value)}
-                        aria-describedby="tree-context-hint"
-                      />
-                    </label>
-                    <p id="tree-context-hint" className="text-xs text-sub">
-                      Optional, and not saved. Amr drafts branches under the root for you to accept
-                      one by one, with no owners; without AI you get templates to rewrite.
-                    </p>
-                    <div ref={askRef}>
-                      <AiButton
-                        task={strategyTreeDraftTask}
-                        label="Ask Amr to draft branches"
-                        fallbackLabel="Start from a template"
-                        disabledReason={rootOf(open) ? null : "The tree needs its root first."}
-                        input={() => {
-                          const root = rootOf(open);
-                          return {
-                            format: isTreeFormat(open.format) ? open.format : "dibb",
-                            root: cleanText(root?.text, TREE_DRAFT_TEXT_MAX),
-                            ...(root?.measure
-                              ? { measure: cleanText(root.measure, TREE_DRAFT_TEXT_MAX) }
-                              : {}),
-                            context: context.trim().slice(0, TREE_DRAFT_CONTEXT_MAX),
-                            existing: childrenOf(open, root?.id ?? "")
-                              .map((n) => cleanText(n.text, TREE_DRAFT_TEXT_MAX))
-                              .filter(Boolean)
-                              .slice(0, TREE_DRAFT_EXISTING_MAX),
-                          };
-                        }}
-                        onResult={(data, meta) => {
-                          setSuggested({ branches: data.branches, source: meta.source });
-                          announce(
-                            `${data.branches.length} suggested ${data.branches.length === 1 ? "branch" : "branches"} below.`
-                          );
-                        }}
-                      />
-                    </div>
-                    {suggested && (
-                      <AiSuggestions
-                        items={suggested.branches}
-                        source={suggested.source}
-                        title="Suggested branches"
-                        render={(b) => ({
-                          title: b.text,
-                          detail: b.children
-                            .map((c) =>
-                              c.children.length > 0
-                                ? `${c.text}: ${c.children.map((g) => g.text).join(", ")}`
-                                : c.text
-                            )
-                            .join(" · "),
-                        })}
-                        onAccept={(b) => acceptDrafts(open, [b])}
-                        onAcceptAll={(list) => acceptDrafts(open, list)}
-                        onDismiss={() => setSuggested(null)}
-                        returnFocus={() => askRef.current?.querySelector<HTMLElement>("button")}
-                      />
-                    )}
-                  </div>
-
+                <div {...EXPORT_SKIP}>
                   <ChecksList checks={checks} />
+                </div>
 
-                  <LevelTree
-                    map={open}
-                    label="Strategy tree"
-                    renderNode={(n) => renderNode(open, n)}
-                  />
-                </section>
-              </>
-            )}
+                <LevelTree
+                  map={open}
+                  label="Strategy tree"
+                  renderNode={(n) => renderNode(open, n)}
+                />
+              </section>
+            </>
+          )
+        )}
       </div>
 
       <DeleteNodeDialog

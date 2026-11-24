@@ -94,7 +94,8 @@ export function TriageQueue({
   today: string;
   hints: ReadonlyMap<string, string>;
   onPlace: (bug: BugReport, placed: Placement) => void;
-  onAccept: (s: KeptSuggestion) => void;
+  /** Place these suggestions (one, or all that are left), under one Undo. */
+  onAccept: (list: readonly KeptSuggestion[]) => void;
   onDuplicate: (bug: BugReport, of: string) => void;
   onOpen: (id: string) => void;
 }) {
@@ -184,7 +185,11 @@ export function TriageQueue({
           })}
           onAccept={(s) => {
             willLeave(s.id);
-            onAccept(s);
+            onAccept([s]);
+          }}
+          onAcceptAll={(list) => {
+            if (list[0]) willLeave(list[0].id);
+            onAccept(list);
           }}
           onDismiss={() => setSuggested(null)}
           returnFocus={() =>

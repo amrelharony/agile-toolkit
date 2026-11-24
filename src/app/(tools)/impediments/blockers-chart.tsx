@@ -13,9 +13,11 @@ import {
   YAxis,
 } from "recharts";
 import { chartTheme } from "@/components/charts/chart-theme";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { cutText } from "@/lib/utils/cut-text";
 
 export interface ClusterBar {
-  /** The cluster's name, cut for the axis. */
+  /** The cluster's name, in full: the axis cuts it to fit (the tooltip shows it whole). */
   name: string;
   value: number;
   /** One of the vital few. */
@@ -31,6 +33,10 @@ const { colors } = chartTheme;
  */
 export function BlockersParetoChart({ data, unit }: { data: ClusterBar[]; unit: string }) {
   const height = Math.max(160, data.length * 34 + 40);
+  // Names cut to about 23 characters on a phone; a wider axis, and more of each name, from sm.
+  const wide = useMediaQuery("(min-width: 640px)");
+  const max = wide ? 34 : 24;
+  const tickText = (name: string) => (name.length > max ? `${cutText(name, max - 1)}…` : name);
   return (
     <ResponsiveContainer width="100%" height={height}>
       <ComposedChart
@@ -50,7 +56,8 @@ export function BlockersParetoChart({ data, unit }: { data: ClusterBar[]; unit: 
         <YAxis
           type="category"
           dataKey="name"
-          width={120}
+          width={wide ? 220 : 120}
+          tickFormatter={tickText}
           tick={{ fill: chartTheme.axisColor, fontSize: 12 }}
           axisLine={false}
           tickLine={false}

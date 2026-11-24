@@ -283,7 +283,7 @@ export function GatesEditor({ gates, setGates, onChanged }: GatesEditorProps) {
                 {...props}
                 value={form.draft.description}
                 onChange={(e) => form.update({ description: e.target.value })}
-                placeholder="e.g. The checkout journey passes end to end"
+                placeholder="e.g. Checkout passes end to end"
               />
             )}
           </Field>

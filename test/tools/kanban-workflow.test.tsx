@@ -16,6 +16,7 @@ import {
 } from "@/lib/stores/workspace-types";
 import { resetSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { KANBAN_ACTIONS } from "@/lib/history/event-actions";
+import { sourceHref } from "@/lib/handoffs/sources";
 import { BOARD_VIEW_KEY } from "@/app/(tools)/kanban/board-view";
 import { unnotedLog } from "@/app/(tools)/kanban/block-note-dialog";
 import { sprintBoardMarkdown, toMarkdown } from "@/app/(tools)/kanban/markdown";
@@ -806,12 +807,18 @@ describe("the block note", () => {
       target: { value: "No sandbox keys" },
     });
     fireEvent.click(within(dialog).getByRole("button", { name: "Log as impediment" }));
+    // The sender loads with the dialog, not the board, so the send lands a tick later.
+    await waitFor(() =>
+      expect(within(dialog).getByRole("status")).toHaveTextContent("Logged as an impediment")
+    );
     const made = useWorkspaceStore.getState().impediments!.find((i) => i.id !== "imp1")!;
     expect(made).toMatchObject({
       title: "Wallet payments",
       description: "No sandbox keys",
-      sourceRef: { tool: "kanban", id: "w" },
     });
+    // Its link back opens the Flow board, where the card is.
+    expect(made.sourceRef).toEqual({ tool: "kanban", id: "w", doc: "flow" });
+    expect(sourceHref(made.sourceRef)).toBe("/kanban?board=flow");
     expect(boardCard("w").blockLog?.[0].sentTo).toEqual([
       { route: "impediment", targetId: made.id, at: expect.any(String) },
     ]);
@@ -923,6 +930,24 @@ describe("the block note", () => {
       side: "internal",
       board: "sprint",
     });
+  });
+
+  it("logs a Sprint-board story as an impediment that links back to its sprint's board", async () => {
+    localStorage.setItem(BOARD_VIEW_KEY, JSON.stringify("sprint"));
+    seed({
+      sprints: [sprint],
+      stories: [story("a", "Pay by card", { blocked: true, blockLog: [{ from: ago(1) }] })],
+    });
+    renderBoard();
+    fireEvent.click(screen.getByRole("button", { name: "Add why: Pay by card" }));
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Log as impediment" }));
+    await waitFor(() =>
+      expect(within(dialog).getByRole("status")).toHaveTextContent("Logged as an impediment")
+    );
+    const made = useWorkspaceStore.getState().impediments!.find((i) => i.title === "Pay by card")!;
+    expect(made.sourceRef).toEqual({ tool: "kanban", id: "a", doc: "s7" });
+    expect(sourceHref(made.sourceRef)).toBe("/kanban?sprint=s7");
   });
 });
 

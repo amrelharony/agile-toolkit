@@ -38,6 +38,10 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // next build type-checks the app only: tsconfig.build.json leaves out the
+  // tests and scripts, which CI's own `tsc --noEmit` still checks. With them,
+  // the build's type check needed about 4.9 GB of heap; without, about 3.6 GB.
+  typescript: { tsconfigPath: "tsconfig.build.json" },
   async redirects() {
     return [
       // The old comic reader. Its pages were a PDF's, so they map to nothing
@@ -62,6 +66,13 @@ const nextConfig = {
       // gets a new URL and the current one can be cached forever.
       {
         source: "/mascot/:path*",
+        headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
+      },
+      // The cast puppets' atlases: content-hashed names too
+      // (aaw-NN[@2x].<sha8>.webp, written by scripts/build-cast-rigs.py), so a
+      // rebuilt atlas always gets a new URL.
+      {
+        source: "/cast/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=31536000, immutable" }],
       },
       // The book's cover and the share images (lib/book/art.ts): content-hashed

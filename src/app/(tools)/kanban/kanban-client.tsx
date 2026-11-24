@@ -23,7 +23,7 @@ import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { SPRINT_PARAM, useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { isExampleSprintId } from "@/lib/sprints/example";
 import { usePersistedLocal } from "@/lib/utils/use-persisted";
-import { describedBoard } from "@/lib/kanban/workflow";
+import { describedBoard } from "@/lib/kanban/workflow-view";
 import {
   BOARD_PARAM,
   BOARD_VIEW_KEY,

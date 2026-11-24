@@ -1175,7 +1175,9 @@ describe("Causal loop", () => {
   const openLoop = async () =>
     screen.findByRole("heading", { name: "Causal loop" }, { timeout: 3000 });
   const addThing = (text: string) => {
-    fireEvent.change(screen.getByPlaceholderText("Support tickets"), { target: { value: text } });
+    fireEvent.change(screen.getByPlaceholderText("e.g. Support tickets"), {
+      target: { value: text },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^Add thing/ }));
   };
   const draw = (from: string, to: string, opts?: { opposite?: boolean; delay?: boolean }) => {
@@ -1233,7 +1235,7 @@ describe("Causal loop", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Add thing/ }));
     expect(screen.getByText("Write the thing that goes up or down.")).toBeInTheDocument();
     addThing("Checkout errors");
-    const input = screen.getByPlaceholderText("Support tickets");
+    const input = screen.getByPlaceholderText("e.g. Support tickets");
     fireEvent.change(input, { target: { value: "Support tickets" } });
     fireEvent.submit(input.closest("form")!);
     addThing("CHECKOUT ERRORS");
@@ -1290,7 +1292,7 @@ describe("Causal loop", () => {
     await openLoop();
     addThing("Alert volume");
     expect(loopNow()?.nodes.map((n) => n.text)).toEqual(["Support tickets"]);
-    const input = screen.getByPlaceholderText("Support tickets");
+    const input = screen.getByPlaceholderText("e.g. Support tickets");
     expect(input).toHaveValue("Alert volume");
     expect(input).toHaveAccessibleDescription(
       "This analysis is too big to save. Shorten or remove some lines. Nothing was saved."

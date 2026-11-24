@@ -83,8 +83,11 @@ Five integrated subsystems, layered:
 4. **In-app chat agent** (owner) — A right-side sheet (Cmd/Ctrl+J) powered by GLM
    (Zhipu) via OpenAI-compatible chat completions. Server proxy at
    `/api/agent/stream` (owner-only) or browser-direct BYOK using the per-tool
-   key in the LLM settings store. Write actions pause for inline approval;
-   "approve all this session" opt-in available.
+   key in the LLM settings store. Workspace changes, intents and a few bigger
+   tool changes pause for an inline confirm card (the owner can pick "{Verb},
+   and don't ask again until I close"). Every delete, remove, reset, clear or
+   archive asks even then. Other tool changes run straight away and show as a
+   plain step in the chat.
    See [src/app/api/agent/stream/route.ts](src/app/api/agent/stream/route.ts).
    Visitors never use that path. With the visitor AI flags on, they get the
    metered `/api/agent/visitor` instead

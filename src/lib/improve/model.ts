@@ -39,6 +39,7 @@ import {
   type Story,
 } from "@/lib/stores/workspace-types";
 import type { NextStep } from "@/lib/tools/next-steps";
+import { unitAfter } from "@/lib/utils/unit-after";
 import { cleanLine, cleanText } from "@/lib/root-cause/model";
 import { isActionDone, targetDoneIn } from "@/lib/retro/actions";
 import { krProgress } from "@/lib/okrs/progress";
@@ -811,7 +812,9 @@ const fmtValue = (n: number) => String(Math.round(n * 100) / 100);
 /** A value with its unit: "19 h". */
 export function valueText(c: Pick<ImprovementCondition, "value" | "unit">): string {
   if (!finite(c.value)) return "";
-  return c.unit ? `${fmtValue(c.value)} ${c.unit}` : fmtValue(c.value);
+  // "1 day", not "1 days", for the common plurals.
+  const n = Math.round(c.value * 100) / 100;
+  return c.unit ? `${fmtValue(c.value)} ${unitAfter(n, c.unit)}` : fmtValue(c.value);
 }
 
 /**

@@ -12,6 +12,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "@testing-librar
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
+import { WORKSPACE_LOADING_RESERVE } from "@/components/shared/workspace-loading";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
@@ -114,6 +115,28 @@ beforeEach(() => {
 });
 
 describe("empty state, example and credit", () => {
+  it("holds the page's room with the loading card until the workspace has loaded", () => {
+    let finish = () => {};
+    const hasHydrated = vi.spyOn(useWorkspaceStore.persist, "hasHydrated").mockReturnValue(false);
+    const onFinish = vi
+      .spyOn(useWorkspaceStore.persist, "onFinishHydration")
+      .mockImplementation((fn) => {
+        finish = () => fn(useWorkspaceStore.getState());
+        return () => {};
+      });
+    try {
+      renderPage();
+      const loading = screen.getByText("Loading your evidence…").closest("[role=status]");
+      expect(loading).toHaveClass(WORKSPACE_LOADING_RESERVE);
+      act(() => finish());
+      expect(screen.queryByText("Loading your evidence…")).toBeNull();
+      expect(screen.getAllByText(/No evidence yet/).length).toBeGreaterThan(0);
+    } finally {
+      hasHydrated.mockRestore();
+      onFinish.mockRestore();
+    }
+  });
+
   it("offers an example, and credits Scrum.org without claiming its endorsement", async () => {
     renderPage();
     expect((await screen.findAllByText(/No evidence yet/)).length).toBeGreaterThan(0);
@@ -194,6 +217,30 @@ describe("empty state, example and credit", () => {
     fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
     expect(board()?.strategicGoal).toBe("Our own goal");
     expect(metrics()).toEqual([]);
+  });
+
+  it("clears the example with Undo, goal and reviews too, and focus lands on Load an example", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: /Load an example/ }));
+    const loaded = metrics().map((m) => m.id);
+    const reviews = board()?.reviews.map((r) => r.id);
+    fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
+    expect(metrics()).toEqual([]);
+    expect(board()?.strategicGoal).toBeUndefined();
+    expect(board()?.reviews).toEqual([]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Cleared the example");
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /Load an example/ })).toHaveFocus()
+    );
+    undoLast();
+    expect(
+      metrics()
+        .map((m) => m.id)
+        .sort()
+    ).toEqual([...loaded].sort());
+    expect(board()?.strategicGoal).toBe(EXAMPLE_STRATEGIC_GOAL);
+    expect(board()?.reviews.map((r) => r.id)).toEqual(reviews);
+    expect(logs).toEqual([]);
   });
 });
 
@@ -575,6 +622,24 @@ describe("more of the contract", () => {
     fireEvent.click(within(panel).getByRole("button", { name: "Add the reading" }));
     expect(metrics()[0].readings.map((r) => r.value)).toEqual([5, 7]);
     expect(logs.at(-1)).toMatchObject({ action: EBM_DASHBOARD_ACTIONS.READING_ADDED });
+  });
+
+  it("deletes a reading with Undo, in Improve's words, and keeps focus in the panel", async () => {
+    useWorkspaceStore.setState({ productMetrics: [measured()] });
+    renderPage();
+    const cv = await screen.findByRole("region", { name: "Current Value" });
+    fireEvent.click(within(cv).getByRole("button", { name: "Reading for “Renewals”" }));
+    const panel = screen.getByRole("region", { name: "Readings for Renewals" });
+    fireEvent.click(
+      within(panel).getByRole("button", { name: "Delete the reading for 2026-10-01" })
+    );
+    expect(metrics()[0].readings).toEqual([]);
+    expect(toastSpy.mock.calls.at(-1)?.[0]).toBe("Deleted the reading for 2026-10-01");
+    await waitFor(() =>
+      expect(within(panel).getByRole("button", { name: "Paste readings" })).toHaveFocus()
+    );
+    undoLast();
+    expect(metrics()[0].readings.map((r) => r.id)).toEqual(["r"]);
   });
 
   it("edits a measure and keeps the views it sits in", async () => {

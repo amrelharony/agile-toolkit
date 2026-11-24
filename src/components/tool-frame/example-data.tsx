@@ -42,7 +42,8 @@ export function ExampleNotice({ onClear }: { onClear: () => void }) {
       className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border border-info/30 bg-info/10 px-4 py-2.5 text-sm text-text"
     >
       <FlaskConical className="h-4 w-4 shrink-0 text-info" aria-hidden="true" />
-      <p className="min-w-0 flex-1">
+      {/* A real basis: in a narrow card, Clear example wraps under the text rather than squeeze it. */}
+      <p className="min-w-0 flex-1 basis-56">
         <span className="font-medium">Example data.</span> Explore it, edit it, or clear it and
         start with your own.
       </p>

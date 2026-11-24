@@ -476,7 +476,7 @@ export const GUIDES: ToolGuide[] = [
       "Triage the oldest first: answer the quick checks, then place it by severity and priority.",
       "Fix now logs it as an interrupt in the running sprint; next or later adds it to the backlog tagged bug; some day closes it with a reason.",
       "All bugs shows each bug's age and which are past their fix-by target, and a bug whose work is done offers Close as fixed.",
-      "Ask Amr suggests a severity, a priority and likely duplicates for you to accept, and Suggest without AI does the same from the checks.",
+      "Ask Amr for severities suggests a severity, a priority and likely duplicates for you to accept, and Suggest severities without AI does the same from the checks.",
     ],
     tips: [
       "Severity is how bad, priority is how soon, so keep them apart.",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Calendar, Mail, Mic } from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -40,7 +40,6 @@ import { nameKey } from "@/lib/team/names";
 import { standupPlaces } from "@/lib/team-time/sun";
 import { findRosterMember, useTeamRoster } from "@/lib/team/use-team-roster";
 import { copyToClipboard } from "@/lib/utils/export";
-import { todayLocalISO } from "@/lib/utils/formatters";
 import { toast } from "@/lib/utils/toast";
 import { undoable } from "@/lib/utils/undoable";
 import { usePersistedLocal } from "@/lib/utils/use-persisted";
@@ -74,6 +73,7 @@ import {
 } from "./model";
 import { ModeSwitch } from "./mode-switch";
 import { NotPostedPanel } from "./people";
+import { useClientToday } from "./use-client-today";
 import { standupVerdict } from "./verdict";
 import { BlockersView, HistoryView, TodayView } from "./views";
 import { publishTurn, useStandupWalk } from "./walk";
@@ -162,13 +162,9 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
   const [format, setFormat] = usePersistedLocal<StandupFormat>(FORMAT_KEY, "classic");
   const postFormat: StandupFormat = isAsync && format === "ppp" ? "ppp" : "classic";
 
-  // Re-render every minute so "today" rolls over at midnight without a reload.
-  const [, setTick] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setTick((t) => t + 1), 60_000);
-    return () => window.clearInterval(id);
-  }, []);
-  const today = todayLocalISO();
+  // The browser's day, rolling over at midnight; "" in the prerendered page,
+  // which never carries the build's day (see use-client-today).
+  const today = useClientToday();
 
   // A hand-over is offered when Team Time knows two shifts or more and where
   // the poster works; it goes to the next shift east to west. This one chain
@@ -235,10 +231,16 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
   const [postingFor, setPostingFor] = useState<string | null>(null);
   const wanted = isAsync ? postingFor : speaker;
   const form = useEntryForm(
-    () => emptyDraft(todayLocalISO()),
+    () => emptyDraft(today),
     today,
     (values) => post(values)
   );
+  // Prerendered, the Day box starts empty: it takes today once the browser knows it.
+  const formRef = useRef(form);
+  formRef.current = form;
+  useEffect(() => {
+    if (today && !formRef.current.draft.date) formRef.current.update({ date: today });
+  }, [today]);
   const focusToday = () =>
     form.formRef.current?.querySelector<HTMLElement>('[data-entry-field="today"]')?.focus();
 
@@ -722,9 +724,11 @@ export function StandupClient({ mode = "live" }: { mode?: StandupMode }) {
 
         {/* ---- Mode panel + form ---- */}
         {isAsync ? (
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+          <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
             <SectionCard
-              title={`Post your update for ${longDay(today)}`}
+              // The day shows beside the mode switch above and in the Day box:
+              // a title with it was cut off on a phone, date first.
+              title="Post your update"
               icon={Mail}
               className="min-w-0 lg:col-span-2"
             >

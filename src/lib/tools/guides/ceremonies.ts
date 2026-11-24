@@ -67,7 +67,7 @@ export const GUIDES: ToolGuide[] = [
       "Pick Yesterday · Today · Blockers or Progress · Plans · Problems (this browser remembers it). Fill in Today, any Blockers and Notes, and click Post update. Change the Day to backdate one.",
       "With a blocker, name the DRI under Who can clear it?: the one person who owns clearing it.",
       "When Team Time knows where people work, Hand over to the next shift leaves a note for the next time zone, and Hand-overs shows the chain east to west and who has posted.",
-      "On the Today tab, click Copy digest and paste it into your team channel. Summarise with AI (or Summarise, without AI) adds a short summary you can copy with it; nothing is saved.",
+      "On the Today tab, click Copy digest and paste it into your team channel. Summarise with AI (or Summarise, without AI) adds a short summary you can copy with it; nothing is saved. With AI it sends today's updates, older open blockers and who hasn't posted, with names and places, to the AI service.",
       "On the Blockers tab, chase the Open blockers, oldest first; they turn red at 3 days. Send to… → Impediment raises one, its DRI as owner.",
     ],
     tips: [
@@ -498,7 +498,7 @@ export const GUIDES: ToolGuide[] = [
     ],
     steps: [
       "Paste the notes and name the meeting.",
-      "Find the actions: Ask Amr reads the notes and lists what it finds, each with the line it came from. Find without AI picks the lines that start like an action or a decision.",
+      "Find the actions: Ask Amr to find the actions lists what Amr finds in the notes, each with the line it came from. Find them without AI picks the lines that start like an action or a decision.",
       "Keep or drop each item, and fix its words, owner and due date.",
       "Send actions to Retro Actions, decisions to the Decision Log as proposed, blockers to Impediments, stories to the backlog and bugs to Bug Triage, each with Undo.",
       "Once you're done, forget the pasted text and keep only the items.",

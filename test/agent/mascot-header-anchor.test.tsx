@@ -50,7 +50,7 @@ describe("Amr in a top corner on a phone", () => {
   it("is placed below the header by --header-h", () => {
     stubPhone();
     render(<MascotAssistant />);
-    const button = screen.getByRole("button", { name: "Open assistant" });
+    const button = screen.getByRole("button", { name: "Ask Amr" });
     expect(button.style.top).toBe("");
 
     // Drag him to the top-left of the screen and let go.
@@ -64,7 +64,7 @@ describe("Amr in a top corner on a phone", () => {
       fireEvent.pointerUp(document, { clientX: 20, clientY: 20 });
     });
 
-    const placed = screen.getByRole("button", { name: "Open assistant" });
+    const placed = screen.getByRole("button", { name: "Ask Amr" });
     // With or without the 56px fallback the Amr placement fix adds.
     expect(placed.style.top).toMatch(/var\(--header-h(?:,\s*56px)?\)/);
     expect(placed.style.bottom).toBe("");

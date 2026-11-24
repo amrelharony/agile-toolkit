@@ -6,7 +6,9 @@
  * level>" button while the map has room; Edit and Delete. The page passes
  * what is its own: the actions row (send, focus, test), chips (a persona,
  * a test's state) and extra form fields. Delete calls `onDelete`, which
- * asks first for a part with anything under it and offers Undo.
+ * asks first for a part with anything under it and offers Undo. Its
+ * controls (Edit and Delete, the actions row, the add form) are marked
+ * EXPORT_SKIP, so the page's PNG shows the parts and not the buttons.
  */
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
@@ -26,6 +28,7 @@ import {
   type NodeValues,
 } from "@/lib/strategy-map/model";
 import { cn } from "@/lib/utils";
+import { EXPORT_SKIP } from "@/lib/utils/export-skip";
 import { NodeForm, type NodeFormState } from "./node-form";
 
 /** Theme tones per level: the card's edge and its chip. The chip's text names the level too. */
@@ -209,7 +212,7 @@ export function NodeCard({
             )}
             {footer}
           </div>
-          <div className="flex shrink-0 items-center">
+          <div {...EXPORT_SKIP} className="flex shrink-0 items-center">
             <IconButton
               ref={editRef}
               label={`Edit ${title}`}
@@ -227,7 +230,7 @@ export function NodeCard({
           </div>
         </div>
         {(next !== null || actions) && (
-          <div className="flex flex-wrap items-center gap-1.5">
+          <div {...EXPORT_SKIP} className="flex flex-wrap items-center gap-1.5">
             {next !== null && (
               <Button
                 ref={addRef}
@@ -248,21 +251,23 @@ export function NodeCard({
         )}
       </article>
       {mode === "add" && next !== null && (
-        <NodeForm
-          key={prefill?.n ?? "add"}
-          format={format}
-          level={next}
-          initial={() => ({ ...emptyNodeDraft(format), text: prefill?.text ?? "" })}
-          validate={(d) => validate(d, next)}
-          onSave={(values) => {
-            onAdd(node, values);
-            close("add");
-          }}
-          onCancel={() => close("add")}
-          submitLabel={`Add ${nextLabel.toLowerCase()}`}
-          label={`New ${nextLabel.toLowerCase()} under “${title}”`}
-          extraFields={extraFields ? (f) => extraFields(f, next) : undefined}
-        />
+        <div {...EXPORT_SKIP}>
+          <NodeForm
+            key={prefill?.n ?? "add"}
+            format={format}
+            level={next}
+            initial={() => ({ ...emptyNodeDraft(format), text: prefill?.text ?? "" })}
+            validate={(d) => validate(d, next)}
+            onSave={(values) => {
+              onAdd(node, values);
+              close("add");
+            }}
+            onCancel={() => close("add")}
+            submitLabel={`Add ${nextLabel.toLowerCase()}`}
+            label={`New ${nextLabel.toLowerCase()} under “${title}”`}
+            extraFields={extraFields ? (f) => extraFields(f, next) : undefined}
+          />
+        </div>
       )}
     </>
   );

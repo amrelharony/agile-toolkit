@@ -403,8 +403,12 @@ describe("the digest summary", () => {
       ],
     });
     renderStandup();
+    // It says all it sends: today's updates, older open blockers and who hasn't posted.
+    // The summary loads after the page, once today has updates.
     expect(
-      screen.getByText("Sends today's updates, with names, to the AI service.")
+      await screen.findByText(
+        "Sends today's updates, older open blockers and who hasn't posted, with names and places, to the AI service."
+      )
     ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Summarise" }));
     expect(await screen.findByText("Built from the updates")).toBeInTheDocument();

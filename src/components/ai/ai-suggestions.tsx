@@ -78,7 +78,12 @@ export interface AiSuggestionsProps<T> {
 }
 
 /** Past tenses the "-ed" rule gets wrong. */
-const IRREGULAR_PAST: Record<string, string> = { deal: "dealt" };
+const IRREGULAR_PAST: Record<string, string> = {
+  deal: "dealt",
+  keep: "kept",
+  plan: "planned",
+  set: "set",
+};
 
 /**
  * The line once nothing is left, in the add button's own word: "All

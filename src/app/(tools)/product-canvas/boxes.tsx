@@ -96,7 +96,7 @@ function EvidenceToggle({ handle, item }: { handle: CanvasHandle; item: ProductC
       });
   };
   return (
-    <fieldset className="flex flex-wrap items-center gap-1.5">
+    <fieldset className="flex min-w-0 flex-wrap items-center gap-1.5">
       <legend className="sr-only">Is “{shortText(item.text)}” a fact or a guess?</legend>
       {(["assumption", "fact"] as const).map((v) => (
         <label key={v} className="relative inline-flex cursor-pointer">
@@ -143,12 +143,12 @@ function NiceToHaveToggle({ handle, item }: { handle: CanvasHandle; item: Produc
 function AnswerField({ handle, item }: { handle: CanvasHandle; item: ProductCanvasItem }) {
   return (
     <BlurTextarea
-      rows={2}
+      rows={3}
       value={item.detail ?? ""}
       maxLength={DETAIL_MAX}
       placeholder="Our answer"
       aria-label={`Answer to “${shortText(item.text, 80)}”`}
-      className="text-sm"
+      className="max-h-72 text-sm [field-sizing:content]"
       onCommit={(text) => {
         const detail = text.trim() ? text : null;
         if ((item.detail ?? "") === (detail ?? "")) return;
@@ -193,7 +193,7 @@ function LinkPicker({
       });
   };
   return (
-    <fieldset className="flex flex-wrap items-center gap-1.5">
+    <fieldset className="flex min-w-0 flex-wrap items-center gap-1.5">
       <legend className="mb-1 text-xs text-sub">{verb}:</legend>
       {targets.map((t) => (
         <label key={t.id} className="relative inline-flex max-w-full cursor-pointer">

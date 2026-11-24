@@ -179,7 +179,6 @@ const NEW_TOOLS: [
     STRATEGY_TREE_ACTIONS,
     [
       "TREE_CREATED",
-      "TREE_UPDATED",
       "TREE_REMOVED",
       "NODE_ADDED",
       "NODE_UPDATED",
@@ -208,21 +207,13 @@ const NEW_TOOLS: [
       "READINGS_IMPORTED",
       "FUNNEL_PERIOD_ADDED",
       "NORTH_STAR_SET",
-      "METRICS_RESET",
     ],
     "north_star_set",
   ],
   [
     "ab-calculator",
     AB_CALCULATOR_ACTIONS,
-    [
-      "TEST_SAVED",
-      "TEST_UPDATED",
-      "TEST_REMOVED",
-      "COUNTS_RECORDED",
-      "DECISION_SET",
-      "TESTS_RESET",
-    ],
+    ["TEST_SAVED", "TEST_UPDATED", "TEST_REMOVED", "COUNTS_RECORDED", "DECISION_SET"],
     "decision_set",
   ],
   [
@@ -235,7 +226,6 @@ const NEW_TOOLS: [
       "READING_ADDED",
       "STRATEGIC_GOAL_SET",
       "REVIEW_RECORDED",
-      "EBM_RESET",
     ],
     "review_recorded",
   ],

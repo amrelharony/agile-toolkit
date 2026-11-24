@@ -14,6 +14,13 @@
  * | system      | 10 s              | yes        | —                | —      | held               | held         | held           |
  * | celebration | never a toast: the Activity inbox                                                                    |
  *
+ * Amr's chat open as the phone's full-height sheet, or down the side with too
+ * little room beside it for a toast (`amrSheet`; not a dialog: in the sheet
+ * the toaster sits over the site header, one at a time): a success waits
+ * for it to close, up to a minute, after which one with no action is dropped
+ * (the chat's own steps already show what Amr finished); info and system are
+ * held as for a dialog. Error, warning, undo, progress and echo show as usual.
+ *
  * Echo ("Copied", "Exported") is confirmed inline by the control itself
  * unless the user turned on "Show confirmations as pop-ups". Haptics are
  * still gated by the haptics prefs: a warning only vibrates in Full mode
@@ -46,6 +53,8 @@ export const DURATION_MS = {
 export const TYPING_DEFER_MAX_MS = 3000;
 /** A success waits at most this long for a dialog to close. */
 export const DIALOG_DEFER_MAX_MS = 5000;
+/** A success waits at most this long for Amr's phone sheet to close; then, without an action, it is dropped. */
+export const AMR_SHEET_SUCCESS_MAX_MS = 60_000;
 /** An info toast held by the quiet state is dropped after this, unless it has an action. */
 export const INFO_HOLD_MAX_MS = 30 * 60_000;
 /** How often a toast held by a dialog or typing asks again. */
@@ -136,6 +145,10 @@ export function decide(req: NotifyRequest, ctx: PolicyContext): NotifyDecision {
           ? { ...d, reason: `quiet:${ctx.quiet.reason}` }
           : drop(d, `quiet:${ctx.quiet.reason}`);
       }
+      if (ctx.amrSheet) {
+        if (waited < AMR_SHEET_SUCCESS_MAX_MS) return defer(d, HOLD_RETRY_MS, "amr-sheet");
+        if (!req.hasAction) return drop(d, "amr-sheet");
+      }
       if (ctx.dialogOpen && waited < DIALOG_DEFER_MAX_MS) {
         return defer(d, Math.min(500, DIALOG_DEFER_MAX_MS - waited), "dialog");
       }
@@ -158,11 +171,11 @@ export function decide(req: NotifyRequest, ctx: PolicyContext): NotifyDecision {
       const d = base(req, DURATION_MS.info);
       d.closeButton = ctx.touch;
       if (!req.hasAction && ctx.mutedKeys.includes(d.dedupeKey)) return drop(d, "muted");
-      if (quiet || ctx.dialogOpen) {
+      if (quiet || ctx.dialogOpen || ctx.amrSheet) {
         if (!req.hasAction && waited >= INFO_HOLD_MAX_MS) return drop(d, "expired");
         return quiet
           ? defer(d, QUIET_RETRY_MS, `quiet:${ctx.quiet.reason}`)
-          : defer(d, HOLD_RETRY_MS, "dialog");
+          : defer(d, HOLD_RETRY_MS, ctx.dialogOpen ? "dialog" : "amr-sheet");
       }
       if (typingOnPhone) {
         const held = typingDefer(d, waited, TYPING_DEFER_MAX_MS);
@@ -175,7 +188,9 @@ export function decide(req: NotifyRequest, ctx: PolicyContext): NotifyDecision {
       const d = base(req, DURATION_MS.system);
       d.closeButton = true;
       if (quiet) return defer(d, QUIET_RETRY_MS, `quiet:${ctx.quiet.reason}`);
-      if (ctx.dialogOpen) return defer(d, HOLD_RETRY_MS, "dialog");
+      if (ctx.dialogOpen || ctx.amrSheet) {
+        return defer(d, HOLD_RETRY_MS, ctx.dialogOpen ? "dialog" : "amr-sheet");
+      }
       if (typingOnPhone) return defer(d, HOLD_RETRY_MS, "typing");
       return d;
     }

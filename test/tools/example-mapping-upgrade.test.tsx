@@ -419,8 +419,8 @@ describe("what the map says and deciding", () => {
     const href = screen
       .getByRole("link", { name: "Ask the room in Quick Vote" })
       .getAttribute("href")!;
-    const params = new URLSearchParams(href.split("?")[1]);
-    expect(href.startsWith("/quick-vote?")).toBe(true);
+    const params = new URLSearchParams(href.split("#")[1]);
+    expect(href.startsWith("/quick-vote#")).toBe(true);
     expect(params.get("question")).toBe("Is this story ready to build?");
     expect(params.get("options")).toBe("Ready\nNot yet: open questions\nSplit it first");
   });

@@ -16,7 +16,7 @@ export function LiveRoomsOff() {
         </p>
         <Link
           href="/"
-          className="self-start rounded-md border border-border px-3 py-2 text-sm text-text hover:border-accent/40 hover:text-accent"
+          className="inline-flex items-center self-start rounded-md border border-border px-3 py-2 text-sm text-text hover:border-accent/40 hover:text-accent pointer-coarse:min-h-11"
         >
           Go to the Agile Toolkit
         </Link>

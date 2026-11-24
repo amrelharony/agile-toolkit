@@ -43,6 +43,7 @@ import type {
 import { CYNEFIN_ANSWERS } from "@/lib/stores/workspace-types";
 import { isExampleId } from "@/lib/utils/example-id";
 import { buildHypothesis, HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
+import { TRACKER_FULL, trackerFits } from "@/lib/hypotheses/model";
 import {
   ACTION_MAX,
   DOMAINS,
@@ -398,11 +399,15 @@ async function sendToHypothesis(store: CynefinStore, id: string) {
   }
   const h = buildHypothesis(hypothesisSourceOf(item));
   // Newest first, as the tracker (and the hand-off) add them.
-  await store.putTracker({
+  const next: HypothesisTracker = {
     ...(tracker ?? {}),
     id: HYPOTHESIS_TRACKER_ID,
     hypotheses: [h, ...hypotheses],
-  });
+  };
+  // The tracker's one row must hold it, as the page's send asks: past the cap
+  // the database refuses the row, and every later tracker write with it.
+  if (!trackerFits(next)) return { sent: false, reason: "too_big", message: TRACKER_FULL };
+  await store.putTracker(next);
   const link: HandoffLink = { route: "hypothesis", targetId: h.id, at: new Date().toISOString() };
   await store.put({ ...item, sentTo: withSentLink(item.sentTo, link) });
   return { sent: true, hypothesisId: h.id, believe: h.believe };
@@ -415,7 +420,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Turn a complex Cynefin item into a drafted hypothesis in the Hypothesis Tracker (its title as the 'We believe' line, without a leading 'We believe' since the tracker labels the field so; its rationale as what to learn), linked both ways, as the page's 'Turn into a hypothesis' does. Once per item while that hypothesis exists; complex items only. Params: id. Returns {sent: true, hypothesisId, believe} or {sent: false, reason: 'not_found' | 'not_complex' | 'example' | 'already_sent', hypothesisId?}.",
+    "Turn a complex Cynefin item into a drafted hypothesis in the Hypothesis Tracker (its title as the 'We believe' line, without a leading 'We believe' since the tracker labels the field so; its rationale as what to learn), linked both ways, as the page's 'Turn into a hypothesis' does. Once per item while that hypothesis exists; complex items only. Params: id. Returns {sent: true, hypothesisId, believe} or {sent: false, reason: 'not_found' | 'not_complex' | 'example' | 'already_sent' | 'too_big' (the tracker is full; with message), hypothesisId?}.",
   paramsSchema: z.object({ id: z.string() }),
   handler: async (params) => sendToHypothesis(browserStore, params.id),
   mcpHandler: async (params, ctx) => sendToHypothesis(serverStore(ctx.userId), params.id),
