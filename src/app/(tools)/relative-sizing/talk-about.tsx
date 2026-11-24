@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { X } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { AiButton, AiSuggestions } from "@/components/ai";
@@ -39,6 +39,11 @@ export function TalkAbout({
   const [questions, setQuestions] = useState<{ items: string[]; source: AiSource } | null>(null);
   const [splits, setSplits] = useState<{ items: string[]; source: AiSource } | null>(null);
   const cap = (t: string, max: number) => t.slice(0, max);
+  // The two ask buttons' wrappers: focus goes back to the one that asked when its answer closes.
+  const discussRef = useRef<HTMLSpanElement>(null);
+  const splitRef = useRef<HTMLSpanElement>(null);
+  const askButtonIn = (wrap: HTMLElement | null) =>
+    wrap?.querySelector<HTMLElement>('[data-testid="ai-button"]') ?? null;
 
   const discussInput = (): DiscussInput => ({
     title: cap(item.title, RELATIVE_SIZING_AI.title),
@@ -57,28 +62,32 @@ export function TalkAbout({
   return (
     <div className="space-y-2 border-t border-border pt-2">
       <div className="flex flex-wrap gap-2">
-        <AiButton
-          task={sizingDiscussTask}
-          input={discussInput}
-          label="Ask Amr what to ask"
-          fallbackLabel="Questions to ask"
-          variant="outline"
-          onResult={(data, meta) => {
-            setQuestions({ items: data.questions, source: meta.source });
-            announce(`${data.questions.length} questions to ask about “${item.title}”, below.`);
-          }}
-        />
-        <AiButton
-          task={sizingSplitTask}
-          input={splitInput}
-          label="Ask Amr to split it"
-          fallbackLabel="Split it without AI"
-          variant="outline"
-          onResult={(data, meta) => {
-            setSplits({ items: data.titles, source: meta.source });
-            announce(`${data.titles.length} smaller stories below. Add the ones that fit.`);
-          }}
-        />
+        <span ref={discussRef} className="contents">
+          <AiButton
+            task={sizingDiscussTask}
+            input={discussInput}
+            label="Ask Amr what to ask"
+            fallbackLabel="Questions to ask"
+            variant="outline"
+            onResult={(data, meta) => {
+              setQuestions({ items: data.questions, source: meta.source });
+              announce(`${data.questions.length} questions to ask about “${item.title}”, below.`);
+            }}
+          />
+        </span>
+        <span ref={splitRef} className="contents">
+          <AiButton
+            task={sizingSplitTask}
+            input={splitInput}
+            label="Ask Amr to split it"
+            fallbackLabel="Split it without AI"
+            variant="outline"
+            onResult={(data, meta) => {
+              setSplits({ items: data.titles, source: meta.source });
+              announce(`${data.titles.length} smaller stories below. Add the ones that fit.`);
+            }}
+          />
+        </span>
       </div>
       {questions && (
         <div className="rounded-md border border-border bg-surface p-2">
@@ -91,7 +100,11 @@ export function TalkAbout({
               icon={<X aria-hidden="true" />}
               variant="ghost"
               size="icon"
-              onClick={() => setQuestions(null)}
+              onClick={() => {
+                // The close button goes with the box: focus back on the button that asked.
+                askButtonIn(discussRef.current)?.focus();
+                setQuestions(null);
+              }}
             />
           </div>
           <ul className="list-disc space-y-1 pl-5 text-sm text-text">
@@ -109,6 +122,7 @@ export function TalkAbout({
           onAccept={(t) => onSplit([t])}
           onAcceptAll={(all) => onSplit(all)}
           onDismiss={() => setSplits(null)}
+          returnFocus={() => askButtonIn(splitRef.current)}
         />
       )}
     </div>
