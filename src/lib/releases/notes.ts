@@ -111,12 +111,12 @@ export function linkedIds(release: Pick<Release, "storyIds">): string[] {
     : [];
 }
 
-/** Said when a save of notes would make the release list too big to sync. */
+/** Said when a save of notes would make the release list too big to save. */
 export const NOTES_ROW_FULL =
-  "These notes would make the release list too big to sync: shorten them, or remove old releases.";
-/** Said when linking stories would make the release list too big to sync. */
+  "These notes would make the release list too big to save: shorten them, or remove old releases.";
+/** Said when linking stories would make the release list too big to save. */
 export const LINKS_ROW_FULL =
-  "Linking these would make the release list too big to sync: remove old releases first.";
+  "Linking these would make the release list too big to save: remove old releases first.";
 
 /**
  * Whether `after` in place of its release grows the release list past one

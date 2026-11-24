@@ -704,7 +704,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Link the stories a release ships, as the page's 'Link N stories' does: mode add (default) adds to its list, set replaces it ([] unlinks all). A story another release links, an unknown id and an example story are skipped. Linking changes two numbers: for a release in planning, the Definition of Done gate checks the linked stories instead of the DoD's old team-level ticks, and DORA's lead time uses the link. Every release lives in one synced row, so a link that would grow it past the row's cap is refused (reason 'too_large'). Params: releaseId, storyIds, mode?. Returns {updated: true, storyIds, added, removed, skipped: {id, reason: 'unknown' | 'linked_elsewhere'}[]} or {updated: false, reason, message?}.",
+    "Link the stories a release ships, as the page's 'Link N stories' does: mode add (default) adds to its list, set replaces it ([] unlinks all). A story another release links, an unknown id and an example story are skipped. Linking changes two numbers: for a release in planning, the Definition of Done gate checks the linked stories instead of the DoD's old team-level ticks, and DORA's lead time uses the link. Every release lives in one saved row, so a link that would grow it past the row's cap is refused (reason 'too_large'). Params: releaseId, storyIds, mode?. Returns {updated: true, storyIds, added, removed, skipped: {id, reason: 'unknown' | 'linked_elsewhere'}[]} or {updated: false, reason, message?}.",
   paramsSchema: LinkParams,
   handler: async (params) => linkStories(browserStore, params),
   mcpHandler: async (params, ctx) => linkStories(serverStore(ctx.userId), params),
@@ -799,7 +799,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Save a release's notes, as the page's Save does: plain text for customers or for the team, stamped now. An empty text clears them. Reopening and shipping again keep the notes; the page then asks to check them before the next ship. Every release lives in one synced row, so notes that would grow it past the row's cap are refused (reason 'too_large': shorten them, or remove old releases). Params: releaseId, audience (customers | team), text (at most 3,000 characters). Returns {updated: true, cleared, length} or {updated: false, reason, message?}.",
+    "Save a release's notes, as the page's Save does: plain text for customers or for the team, stamped now. An empty text clears them. Reopening and shipping again keep the notes; the page then asks to check them before the next ship. Every release lives in one saved row, so notes that would grow it past the row's cap are refused (reason 'too_large': shorten them, or remove old releases). Params: releaseId, audience (customers | team), text (at most 3,000 characters). Returns {updated: true, cleared, length} or {updated: false, reason, message?}.",
   paramsSchema: SetNotesParams,
   handler: async (params) => setNotes(browserStore, params),
   mcpHandler: async (params, ctx) => setNotes(serverStore(ctx.userId), params),

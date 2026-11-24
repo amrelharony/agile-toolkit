@@ -60,11 +60,11 @@ export interface ReleaseNotesPanelProps {
   /** The example is on screen: its notes stay in the example. */
   preview: boolean;
   epicTitle: (epicId: string | undefined) => string | undefined;
-  /** Links them; says why when it can't (the release list would be too big to sync). */
+  /** Links them; says why when it can't (the release list would be too big to save). */
   onLink: (r: Release, storyIds: string[]) => string | null;
   onUnlink: (r: Release, story: Story) => void;
   onDrafted: (r: Release, audience: NotesAudience, source: AiSource) => void;
-  /** Saves or clears them; says why when it can't (the release list would be too big to sync). */
+  /** Saves or clears them; says why when it can't (the release list would be too big to save). */
   onSave: (r: Release, notes: { audience: NotesAudience; text: string } | null) => string | null;
 }
 
