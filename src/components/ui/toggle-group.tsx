@@ -96,9 +96,10 @@ export function ToggleGroup<T extends string | number>({
               "inline-flex items-center justify-center rounded-md border font-medium transition-colors",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
               "disabled:cursor-not-allowed disabled:opacity-50",
-              // 32/36 px with a mouse; 44 px on touch screens of any width.
+              // 32/36 px with a mouse; 44 × 44 px at least on touch screens of
+              // any width, so a one-letter option ("1", "No") is a full tap.
               size === "sm" ? "min-h-8 px-2.5 text-xs" : "min-h-9 px-3 text-sm",
-              "pointer-coarse:min-h-11",
+              "pointer-coarse:min-h-11 pointer-coarse:min-w-11",
               checked
                 ? "border-accent bg-accent/15 text-text"
                 : "border-border bg-card text-sub hover:border-accent/40 hover:text-text"
