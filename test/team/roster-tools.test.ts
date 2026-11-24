@@ -48,6 +48,26 @@ describe("ROSTER_TOOLS", () => {
     expect(use("code-review-metrics")).toMatch(/author/);
   });
 
+  it("lists every tool whose page picks names from the team list", () => {
+    const tools = join(process.cwd(), "src", "app", "(tools)");
+    const picks = /<PersonPicker|<PeoplePicker|useTeamRoster\(/;
+    const readsRoster = (dir: string): boolean =>
+      readdirSync(dir, { withFileTypes: true }).some((e) =>
+        e.isDirectory()
+          ? readsRoster(join(dir, e.name))
+          : /\.tsx?$/.test(e.name) && picks.test(readFileSync(join(dir, e.name), "utf8"))
+      );
+    const found = readdirSync(tools, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && readsRoster(join(tools, e.name)))
+      .map((e) => e.name);
+    // The Strategy Tree's owner field is the shared strategy-map node form's PersonPicker.
+    const ids = ROSTER_TOOLS.map((t) => t.toolId);
+    expect(ids).toEqual(expect.arrayContaining([...found, "strategy-tree"]));
+    const use = (id: string) => ROSTER_TOOLS.find((t) => t.toolId === id)?.use ?? "";
+    expect(use("premortem")).toMatch(/each cause's owner/);
+    expect(use("premortem")).toMatch(/dot-voting budget/);
+  });
+
   it("says the Mood Tracker uses the roster only by name: the anonymous mode keeps team pulses", () => {
     const use = ROSTER_TOOLS.find((t) => t.toolId === "mood-tracker")?.use ?? "";
     expect(use).toMatch(/each person .* by name/);
