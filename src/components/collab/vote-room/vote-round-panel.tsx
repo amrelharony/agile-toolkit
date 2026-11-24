@@ -116,7 +116,7 @@ import { toast } from "@/lib/utils/toast";
 import { FacilitatorAllocation } from "./facilitator-allocation";
 import { FacilitatorPair } from "./facilitator-pair";
 import { FacilitatorTally } from "./facilitator-tally";
-import type { HostVoteSession } from "./host-vote-room";
+import type { EndLiveRoomRef, HostVoteSession } from "./host-vote-room";
 import { kindSpreadNote } from "./round-views";
 import type {
   SaveAllocationRound,
@@ -164,6 +164,12 @@ interface VoteRoundPanelBase {
    * round out of a room that would show results sooner.
    */
   onLiveChange?: (room: { minN: number } | null) => void;
+  /**
+   * Set while a live room this panel hosts is open to a function that ends
+   * it for every phone and resolves once the end has gone out: for a tool
+   * about to take the room away (`HostVoteRoomProps.endRoomRef`).
+   */
+  endRoomRef?: EndLiveRoomRef;
   /**
    * Scale rounds: counted from paper slips only, never a show of hands,
    * where nobody's answer may be seen even in the room (Quick Vote's
@@ -450,6 +456,7 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
         onSave={saveAny}
         renderResults={renderAny}
         crypto={crypto}
+        endRoomRef={props.endRoomRef}
         onClosed={() => {
           clearVisitorIdentity(live.code);
           refocus.current = true;

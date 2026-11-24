@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { nanoid } from "nanoid";
 import { Columns3, Plus, Radio, Save, Send, Trash2, Users } from "lucide-react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
+import type { EndLiveRoomRef } from "@/components/collab/vote-room/host-vote-room";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -163,6 +164,8 @@ export function RelativeSizingClient() {
    * and the host's own switch or delete asks first.
    */
   const [liveBoardId, setLiveBoardId] = useState<string | null>(null);
+  /** Set while the room is open: ends it for every phone (signed), before a switch, delete or clear. */
+  const endLiveRef = useRef<(() => Promise<void>) | null>(null);
   const liveRef = useRef(liveBoardId);
   liveRef.current = liveBoardId;
   /** The board held on screen while the store's active board moved; null follows the store. */
@@ -722,6 +725,7 @@ export function RelativeSizingClient() {
               stories={stories}
               names={names ?? roster.map((m) => m.name).join(", ")}
               onNames={setNames}
+              endRoomRef={endLiveRef}
               actions={{
                 move: (itemId, lane, focus) => move(board, itemId, lane, focus),
                 remove: (itemId) => removeItem(board, itemId),
@@ -772,7 +776,22 @@ export function RelativeSizingClient() {
         onConfirm={() => {
           const go = pending?.go;
           setPending(null);
-          go?.();
+          if (!go) return;
+          const end = endLiveRef.current;
+          if (!end) {
+            go();
+            return;
+          }
+          // End the room first, so every phone hears "The host ended the
+          // room" now; then switch, delete or clear (after 3 s whatever happens).
+          let done = false;
+          const once = () => {
+            if (done) return;
+            done = true;
+            go();
+          };
+          void end().then(once);
+          window.setTimeout(once, 3000);
         }}
       />
     </div>
@@ -816,12 +835,15 @@ function BoardView({
   stories,
   names,
   onNames,
+  endRoomRef,
   actions: a,
 }: {
   board: SizingBoard;
   stories: readonly Story[];
   names: string;
   onNames: (v: string) => void;
+  /** Set while the live room is open: see LiveRound. */
+  endRoomRef?: EndLiveRoomRef;
   actions: BoardActions;
 }) {
   const c = boardCounts(board);
@@ -944,6 +966,7 @@ function BoardView({
           onSave={a.saveRound}
           onStart={a.startLive}
           onLiveChange={a.liveChange}
+          endRoomRef={endRoomRef}
         />
       </SectionCard>
 

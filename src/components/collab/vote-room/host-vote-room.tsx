@@ -28,7 +28,7 @@
  * tool its own typed `onSave`.
  */
 
-import { useEffect, useId, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { Check, Eye, ListChecks, RefreshCw, ShieldAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -101,7 +101,18 @@ export interface HostVoteRoomProps {
   onClosed: () => void;
   /** Tests inject a fake. */
   crypto?: VoteCrypto | null;
+  /**
+   * Set while the room is open to a function that ends it for every phone
+   * (signed, as End room does) and resolves once the end has gone out, for
+   * a tool about to take the room away (another board shown, its board
+   * deleted). Phones then hear "The host ended the room" at once, not "The
+   * host left" when the channel times out.
+   */
+  endRoomRef?: EndLiveRoomRef;
 }
+
+/** See `HostVoteRoomProps.endRoomRef`. */
+export type EndLiveRoomRef = MutableRefObject<(() => Promise<void>) | null>;
 
 const LIVE: ReadonlySet<VoteRoomStatus> = new Set<VoteRoomStatus>([
   "preparing",
@@ -140,6 +151,7 @@ export function HostVoteRoom({
   renderResults,
   onClosed,
   crypto,
+  endRoomRef,
 }: HostVoteRoomProps) {
   // The round goes in named by its kind; the hook checks the tool runs it.
   const kindAsked = kindProp ?? roundKindOf(tool);
@@ -171,6 +183,31 @@ export function HostVoteRoom({
   const result = roomResult(room);
   const live = LIVE.has(status);
   const saved = isSaved(result?.roundId);
+
+  // The tool's own way to end the room before it takes it away (endRoomRef).
+  const endNow = useRef(room.end);
+  endNow.current = room.end;
+  const liveNow = useRef(live);
+  liveNow.current = live;
+  const waitingForEnd = useRef<(() => void)[]>([]);
+  useEffect(() => {
+    if (!live) waitingForEnd.current.splice(0).forEach((done) => done());
+  }, [live]);
+  useEffect(() => {
+    if (!endRoomRef) return;
+    const waiting = waitingForEnd.current;
+    const endIt = () =>
+      new Promise<void>((resolve) => {
+        if (!liveNow.current) return resolve();
+        waiting.push(resolve);
+        endNow.current();
+      });
+    endRoomRef.current = endIt;
+    return () => {
+      if (endRoomRef.current === endIt) endRoomRef.current = null;
+      waiting.splice(0).forEach((done) => done());
+    };
+  }, [endRoomRef]);
 
   const lastStatus = useRef<VoteRoomStatus | null>(null);
   useEffect(() => {

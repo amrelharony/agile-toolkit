@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { VoteRoundPanel } from "@/components/collab/vote-room";
+import { VoteRoundPanel, type EndLiveRoomRef } from "@/components/collab/vote-room";
 import type { SaveVoteRound } from "@/components/collab/vote-room/save-round";
 import { CONSENSUS_LABELS } from "@/lib/estimation/consensus";
 import type { VoteRoundResult } from "@/lib/realtime/vote-room/aggregate";
@@ -28,6 +28,7 @@ export function LiveRound({
   onSave,
   onStart,
   onLiveChange,
+  endRoomRef,
   crypto,
 }: {
   board: SizingBoard;
@@ -36,6 +37,8 @@ export function LiveRound({
   onStart?: (stories: number) => void;
   /** The room opened (true), or ended or the panel went (false): the page holds the board meanwhile. */
   onLiveChange?: (live: boolean) => void;
+  /** Set while the room is open: ends it for every phone, before the page takes it away. */
+  endRoomRef?: EndLiveRoomRef;
   /** Tests inject a fake (undefined: WebCrypto). */
   crypto?: VoteCrypto | null;
 }) {
@@ -115,6 +118,7 @@ export function LiveRound({
           if (room) onStart?.(questionnaire?.questions.length ?? 0);
         }}
         renderResults={(result) => <SizingResults result={result} board={board} />}
+        endRoomRef={endRoomRef}
         {...(crypto !== undefined ? { crypto } : {})}
       />
     </div>
