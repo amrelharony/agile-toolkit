@@ -39,7 +39,7 @@ import {
   type Story,
 } from "@/lib/stores/workspace-types";
 import type { NextStep } from "@/lib/tools/next-steps";
-import { unitAfter } from "@/lib/utils/formatters";
+import { unitAfter } from "@/lib/utils/unit-after";
 import { cleanLine, cleanText } from "@/lib/root-cause/model";
 import { isActionDone, targetDoneIn } from "@/lib/retro/actions";
 import { krProgress } from "@/lib/okrs/progress";

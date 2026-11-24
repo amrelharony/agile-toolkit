@@ -166,6 +166,15 @@ describe("what a tool page's first load leaves out", () => {
     }
   });
 
+  it("home reads the shared formatters without the metric tools' unit words", () => {
+    const reached = firstLoad("src/components/home/home-page.tsx");
+    expect(reached).toContain("src/lib/utils/formatters.ts");
+    expect(reached, "src/lib/utils/unit-after.ts").not.toContain("src/lib/utils/unit-after.ts");
+    // The metric tools that say "1 day" still reach it.
+    expect(firstLoad("src/lib/improve/model.ts")).toContain("src/lib/utils/unit-after.ts");
+    expect(firstLoad("src/lib/hypotheses/model.ts")).toContain("src/lib/utils/unit-after.ts");
+  });
+
   it("Kickoff's Send to… loads its items and the sender when the menu is near; the reasons keep the registry", () => {
     const reached = firstLoad("src/app/(tools)/kickoff/kickoff-client.tsx");
     expect(reached).toContain("src/app/(tools)/kickoff/send-menu.tsx");

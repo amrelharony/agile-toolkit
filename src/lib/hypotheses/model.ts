@@ -25,7 +25,7 @@ import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
 import type { HandoffSource } from "@/lib/handoffs/types";
 import { isExampleId } from "@/lib/utils/example-id";
 import { isBlank, parseNumber, type FormErrors, type Validation } from "@/lib/utils/form";
-import { unitAfter } from "@/lib/utils/formatters";
+import { unitAfter } from "@/lib/utils/unit-after";
 import { isIsoDate } from "@/lib/sprints/calendar";
 import { jsonBytes } from "@/lib/utils/json-bytes";
 
