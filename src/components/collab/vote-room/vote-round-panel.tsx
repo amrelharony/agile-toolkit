@@ -329,15 +329,20 @@ export function unavailableReason(
   }
 }
 
-/** The kind's count entry: the same totals, minN rule and save as a live round. */
+/**
+ * The kind's count entry: the same totals, minN rule and save as a live
+ * round. `ledIn`: the line above it already says how to collect the answers.
+ */
 function CountEntry({
   props,
   round,
   need,
+  ledIn = false,
 }: {
   props: VoteRoundPanelProps;
   round: RoundInput;
   need: number;
+  ledIn?: boolean;
 }) {
   if (isPairPanel(props)) {
     return (
@@ -368,6 +373,7 @@ function CountEntry({
         questionnaire={round as Questionnaire}
         minN={need}
         paperOnly={props.paperOnly}
+        ledIn={ledIn}
         onSave={props.onSave}
         renderResults={props.renderResults}
       />
@@ -520,7 +526,7 @@ export function VoteRoundPanel(props: VoteRoundPanelProps) {
                 : `This round can't be shared live: ${problem} Collect paper answers and enter them here.`
             : reason}
         </p>
-        <CountEntry props={props} round={round} need={need} />
+        <CountEntry props={props} round={round} need={need} ledIn />
       </div>
     );
   }

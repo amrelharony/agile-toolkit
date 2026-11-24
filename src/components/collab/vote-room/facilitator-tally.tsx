@@ -54,6 +54,12 @@ export interface FacilitatorTallyProps {
    * may be seen even in the room (Quick Vote's safety check).
    */
   paperOnly?: boolean;
+  /**
+   * The line above the form already says how to collect the answers (live
+   * rounds are off, say): the form starts at the blank-box rule, so the
+   * same instruction isn't read twice in a row.
+   */
+  ledIn?: boolean;
 }
 
 type Cells = Record<string, string[]>;
@@ -73,6 +79,7 @@ export function FacilitatorTally({
   onSave,
   renderResults,
   paperOnly = false,
+  ledIn = false,
 }: FacilitatorTallyProps) {
   const need = effectiveMinN(minN, tool);
   const [cells, setCells] = useState<Cells>(() => blankCells(questionnaire));
@@ -188,9 +195,11 @@ export function FacilitatorTally({
     <div className="space-y-4">
       <form ref={formRef} onSubmit={showTotals} noValidate className="space-y-4">
         <p className="text-sm text-sub">
-          {paperOnly
-            ? "Collect paper slips, so nobody's answer is seen, count them, then enter how many people chose each answer."
-            : "Count hands or collect paper answers, then enter how many people chose each answer."}{" "}
+          {ledIn
+            ? "Enter how many people chose each answer."
+            : paperOnly
+              ? "Collect paper slips, so nobody's answer is seen, count them, then enter how many people chose each answer."
+              : "Count hands or collect paper answers, then enter how many people chose each answer."}{" "}
           A blank box counts as nobody. Results show from {need} answers.
         </p>
         <ol className="space-y-3">
