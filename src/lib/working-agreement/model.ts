@@ -812,11 +812,16 @@ export function agreementVerdict(
   if (doc.rules.length === 0) return "No rules agreed yet.";
   const { meta } = doc;
   const isPublished = meta.version > 0 && Boolean(meta.publishedAt);
-  const head = isPublished
-    ? `${rulesWord(doc.rules.length)} in v${meta.version} (published ${dayLabel(meta.publishedAt)}${
-        needsSnapshot(doc) ? ", before versions were kept: publish once to keep a snapshot" : ""
-      })${hasUnpublishedChanges(doc) ? ", with changes not yet published" : ""}`
-    : `${rulesWord(doc.rules.length)}, not published yet`;
+  const snapshotNote = needsSnapshot(doc)
+    ? ", before versions were kept: publish once to keep a snapshot"
+    : "";
+  // With changes since, the count is the draft's, not the version's: "6
+  // rules in v2" read as if v2 held six.
+  const head = !isPublished
+    ? `${rulesWord(doc.rules.length)}, not published yet`
+    : hasUnpublishedChanges(doc)
+      ? `${rulesWord(doc.rules.length)}, last published as v${meta.version} (${dayLabel(meta.publishedAt)}${snapshotNote}), with changes not yet published`
+      : `${rulesWord(doc.rules.length)} in v${meta.version} (published ${dayLabel(meta.publishedAt)}${snapshotNote})`;
   const c = agreementConsent(doc, roster);
   const answered = doc.rules.some((r) => consentEntries(r).length > 0);
   let consent: string;

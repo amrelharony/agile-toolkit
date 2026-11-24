@@ -202,7 +202,8 @@ describe("the working agreement card", () => {
     expect(agreement({ meta: doc.meta, versions: doc.versions }).detail).toBe("Not published yet");
     // With its day, both say it is published.
     const dated = { ...doc.meta, publishedAt: "2026-10-05T10:00:00.000Z" };
-    expect(agreementVerdict({ ...doc, meta: dated }, ROSTER)).toMatch(/in v2 \(published/);
+    // Its rules differ from the v1 snapshot kept, so the verdict counts the draft's.
+    expect(agreementVerdict({ ...doc, meta: dated }, ROSTER)).toMatch(/last published as v2 \(/);
     expect(agreement({ meta: dated }).detail).toBe("Version 2, published 2026-10-05");
   });
 });
