@@ -32,7 +32,7 @@ export const WALL_KIND_HINT: Record<WallKind, string> = {
   answers: "Short answers to one question, as a list or a word cloud.",
   questions: "People ask and upvote; the most wanted rise. Mark each one answered.",
   hands: "A queue to speak, in the order hands went up.",
-  brainwriting: "Everyone writes, then builds on each other's posts with Yes, and….",
+  brainwriting: "Everyone writes, then builds on each other's posts with “Yes, and…” replies.",
   crowd: "Everyone writes one bold idea, scores five others from 1 to 5, and the top ten show.",
 };
 
