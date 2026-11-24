@@ -560,8 +560,9 @@ export function EstimationGuideClient() {
           className="mb-4"
           action={<LoadExampleButton onLoad={loadExample} />}
         >
-          No team examples on the {activeScale.name} scale yet. Under each card, write a story your
-          team knows{numericScale ? " or pin one it finished" : ""}, or load an example to see how a
+          {/* The line above already says no card has an example yet: this says what to do. */}
+          Under each card, write a story your team knows
+          {numericScale ? " or pin one it finished" : ""}, or load an example to see how a
           calibrated guide reads.
         </EmptyState>
       )}
