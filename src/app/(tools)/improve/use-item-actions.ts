@@ -242,6 +242,9 @@ export function useItemActions(itemId: string, log: Log) {
         label: `Added a${noun === "experiment" ? "n" : ""} ${noun}`,
         description: `“${short(input.text)}”`,
         kind: "success",
+        // One toast for ideas added in a row (Add all among them): its
+        // "(×N)" Undo takes back every one of them, newest first.
+        id: `improve-ai-steps-${itemId}`,
         apply,
         revert: () => write((c, now) => withoutStep(c, stepId, now)),
       });
