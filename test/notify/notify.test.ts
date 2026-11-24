@@ -126,6 +126,18 @@ describe("dedupe", () => {
     expect(calls(h.sonner.success)[0]).toEqual(["Saved", expect.objectContaining({ id: "save" })]);
   });
 
+  it("two successes with an Undo button and the same title stay separate, unless the caller gave the id", () => {
+    const opts = { action: { label: "Undo", onClick: () => {} } };
+    const a = notify("success", "Planned it", opts);
+    const b = notify("success", "Planned it", opts);
+    expect(b).not.toBe(a);
+    expect(calls(h.sonner.success).map(([m]) => m)).toEqual(["Planned it", "Planned it"]);
+    const c = notify("success", "Sent it", { ...opts, id: "send:x" });
+    const d = notify("success", "Sent it", { ...opts, id: "send:x" });
+    expect(d).toBe(c);
+    expect(calls(h.sonner.success).at(-1)![0]).toBe("Sent it (×2)");
+  });
+
   it("two Undo toasts with the same label stay separate", () => {
     const opts = { kind: "undo" as const, action: { label: "Undo", onClick: () => {} } };
     const a = notify("plain", "Card deleted", opts);

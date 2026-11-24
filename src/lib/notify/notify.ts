@@ -7,7 +7,10 @@
  * - **Dedupe.** A repeat of the same key (`opts.id ?? kind:title`) within
  *   10 s, while the first is still on screen, updates that toast in place as
  *   "Title (×N)" and plays no second sound or haptic. Undo and progress
- *   toasts are never merged: two Undo toasts are two different changes.
+ *   toasts are never merged: two Undo toasts are two different changes. Nor
+ *   is any toast with an action or cancel button (a success with Undo, say),
+ *   unless the caller gave the id: then the caller chains what the button
+ *   does (see `undoable`), so the merged toast's button still covers it all.
  * - **Burst cap.** At most 2 success/info toasts per 10 s; a third closes
  *   the newest one and takes its place under a fresh id (an in-place update
  *   would keep the old toast's action, description and icon: sonner merges
@@ -366,9 +369,12 @@ function show(
   };
 
   // 1. A repeat within the window updates the toast on screen as "(×N)".
+  //    A toast with a button merges only under the caller's own id: the
+  //    caller then chains the buttons (undoable), and nothing is lost.
   const rec = dedupe.get(key);
   if (
     DEDUPED_KINDS.has(kind) &&
+    (callerGaveId || !hasActionButton(opts)) &&
     rec &&
     rec.kind === kind &&
     rec.title === title &&
