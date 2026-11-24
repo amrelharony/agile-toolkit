@@ -349,7 +349,10 @@ export function AreaPanel({
           </ul>
         )}
         {weakest && (
-          <Link href={testFixHref(weakest.id)} className="text-sm text-accent hover:underline">
+          <Link
+            href={testFixHref(weakest.id)}
+            className="inline-flex items-center text-sm text-accent hover:underline pointer-coarse:min-h-11"
+          >
             Run an experiment
             <span className="sr-only"> for {AREA_LABEL[area]}</span>
           </Link>
