@@ -811,7 +811,7 @@ describe("the Poker page", () => {
     expectCountsOnly(["Lee"]);
   });
 
-  it("says to open a reply on the device that made the round", async () => {
+  it("says to open a reply on the device that made the round, or signed in", async () => {
     const r = round();
     window.history.replaceState(null, "", `/planning-poker#reply=${codeFor(r, "Lee", ["5", "8"])}`);
     render(<PlanningPokerClient />);

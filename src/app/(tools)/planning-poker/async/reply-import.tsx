@@ -8,7 +8,8 @@
  * The very same reply opened again says it is in already, with Done only.
  * Either way the hash is cleared from the address, so a refresh or a shared
  * address doesn't bring the question back. A reply for a round this browser
- * doesn't hold says to open the link on the device that made the round.
+ * doesn't hold says to open the link on the device that made the round, or
+ * in a browser signed in to the account that saved it.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
