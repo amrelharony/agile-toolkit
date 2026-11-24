@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { ROSTER_TOOLS } from "@/app/(meta)/team/roster-tools";
 import { getToolById } from "@/lib/constants/tools";
+import { STRATEGY_FORMATS, TREE_FORMATS } from "@/lib/strategy-map/formats";
 
 /**
  * The Team page's "Where the team list is used": every entry is a real
@@ -66,6 +67,20 @@ describe("ROSTER_TOOLS", () => {
     const use = (id: string) => ROSTER_TOOLS.find((t) => t.toolId === id)?.use ?? "";
     expect(use("premortem")).toMatch(/each cause's owner/);
     expect(use("premortem")).toMatch(/dot-voting budget/);
+  });
+
+  it("says the Strategy Tree offers owners on every level with an Owner field, not only where one is asked for", () => {
+    // The node form shows the owner picker wherever a level has the field
+    // (the Lean Value Tree's Initiative), not only where the level asks for one.
+    const optional = TREE_FORMATS.flatMap((f) =>
+      STRATEGY_FORMATS[f].levels.filter(
+        (l) => l.fields.includes("owner") && !l.required.includes("owner")
+      )
+    );
+    expect(optional.length).toBeGreaterThan(0);
+    const use = ROSTER_TOOLS.find((t) => t.toolId === "strategy-tree")?.use ?? "";
+    expect(use).toMatch(/levels with an Owner field/);
+    expect(use).not.toMatch(/ask for/);
   });
 
   it("says the Mood Tracker uses the roster only by name: the anonymous mode keeps team pulses", () => {

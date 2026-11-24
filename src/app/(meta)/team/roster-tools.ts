@@ -94,6 +94,6 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   { toolId: "pi-planning", use: "Offers teammates as each risk's owner under Risks: ROAM." },
   { toolId: "product-metrics", use: "Offers teammates as each metric's owner." },
   { toolId: "retro", use: "Offers teammates as each action item's owner." },
-  { toolId: "strategy-tree", use: "Offers teammates as owners on the levels that ask for one." },
+  { toolId: "strategy-tree", use: "Offers teammates as owners on the levels with an Owner field." },
   { toolId: "test-sessions", use: "Offers teammates as each session's tester." },
 ];
