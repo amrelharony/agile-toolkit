@@ -197,11 +197,14 @@ describe("empty state and new canvases", () => {
       "Value Proposition",
       "Lean UX canvas",
       "PR/FAQ",
-      "Business case",
       "Shape Up pitch",
     ]) {
       expect(within(cards).getByRole("button", { name: `Start a ${name}` })).toBeInTheDocument();
     }
+    // A generic name reads in sentence case mid-sentence.
+    expect(
+      within(cards).getByRole("button", { name: "Start a business case" })
+    ).toBeInTheDocument();
     // An idea is logged in the inbox, not started like a canvas.
     expect(within(cards).getByRole("button", { name: "Log an idea" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Load an example/ })).toBeInTheDocument();

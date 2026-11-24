@@ -535,7 +535,7 @@ describe("the idea inbox", () => {
     renderPage();
     const nav = screen.getByRole("navigation", { name: "Canvases" });
     expect(within(nav).getByRole("button", { name: /^All 1/ })).toBeInTheDocument();
-    expect(within(nav).getByRole("button", { name: /^Idea intake 1/ })).toBeInTheDocument();
+    expect(within(nav).getByRole("button", { name: /^Idea inbox 1/ })).toBeInTheDocument();
     expect(within(nav).queryByRole("button", { name: /^Tips/ })).toBeNull();
   });
 });

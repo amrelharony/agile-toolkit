@@ -514,7 +514,7 @@ const PR_FAQ: ProductFormat = {
  */
 const IDEA: ProductFormat = {
   id: "idea",
-  name: "Idea intake",
+  name: "Idea inbox",
   startLabel: "Log an idea",
   useWhen:
     "Ideas and requests pile up, and you want to see which keep coming back and which to look at first.",
@@ -607,6 +607,7 @@ const IDEA: ProductFormat = {
 const BUSINESS_CASE: ProductFormat = {
   id: "business-case",
   name: "Business case",
+  startLabel: "Start a business case",
   useWhen:
     "A big piece of work needs a go or a no-go, and you want to test it small before betting on all of it.",
   time: "About 45 minutes",
