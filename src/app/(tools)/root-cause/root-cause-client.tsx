@@ -652,7 +652,7 @@ export function RootCauseClient() {
           ) : (
             <>
               <p className="text-sm font-medium text-text">{verdict}</p>
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
                 <nav aria-label="Analyses" className="space-y-2">
                   <ul className="space-y-1.5">
                     {analyses.map((a) => {
