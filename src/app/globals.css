@@ -278,6 +278,13 @@
   [data-theme="hc"] a {
     text-decoration: underline;
   }
+  /* The selected tab: light and dark raise it with a fill and a shadow,
+   * and HC flattens both (no shadows, near-black surfaces), so it looked
+   * like every other tab. A solid accent ring inside it marks it instead. */
+  .hc [role="tab"][data-state="active"],
+  [data-theme="hc"] [role="tab"][data-state="active"] {
+    box-shadow: inset 0 0 0 2px var(--accent);
+  }
   /* Canvas objects use sticky/shape colours baked into inline styles
    * (sticky background, shape stroke). In HC mode we paint a solid
    * white 2px outline on top so borders are unambiguously visible
