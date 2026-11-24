@@ -391,16 +391,27 @@ export function RoamSection({
     setAnnounce(items.length === 0 ? "No suggestions for the risks still to sort." : "");
   };
 
-  const accept = (s: RoamSuggestion) => {
-    const before = latest().items.find((i) => i.id === s.itemId);
-    if (!before || before.kind !== "risk") return;
-    undoable({
-      label: `“${short(before.title)}” is now ${ROAM_LABEL[s.roam].toLowerCase()}`,
-      kind: "success",
-      apply: () => patch(s.itemId, (i) => ({ ...i, roam: s.roam })),
-      revert: () => patch(s.itemId, (i) => withField(i, "roam", before.roam)),
+  /** Set the ROAM of each risk (one, or every one left with Set all), under one Undo. */
+  const accept = (list: readonly RoamSuggestion[]) => {
+    const items = latest().items;
+    const moves = list.flatMap((s) => {
+      const before = items.find((i) => i.id === s.itemId);
+      return before && before.kind === "risk" ? [{ s, before }] : [];
     });
-    log(PI_PLANNING_ACTIONS.RISK_ROAMED, { riskId: s.itemId, roam: s.roam, suggested: true });
+    const first = moves[0];
+    if (!first) return;
+    undoable({
+      label:
+        moves.length === 1
+          ? `“${short(first.before.title)}” is now ${ROAM_LABEL[first.s.roam].toLowerCase()}`
+          : `Set the ROAM of ${moves.length} risks`,
+      kind: "success",
+      apply: () => moves.forEach(({ s }) => patch(s.itemId, (i) => ({ ...i, roam: s.roam }))),
+      revert: () =>
+        moves.forEach(({ s, before }) => patch(s.itemId, (i) => withField(i, "roam", before.roam))),
+    });
+    for (const { s } of moves)
+      log(PI_PLANNING_ACTIONS.RISK_ROAMED, { riskId: s.itemId, roam: s.roam, suggested: true });
   };
 
   if (total === 0) {
@@ -457,7 +468,8 @@ export function RoamSection({
             title: `${s.title}: ${ROAM_LABEL[s.roam]}`,
             detail: `${s.reason} ${s.action}`,
           })}
-          onAccept={accept}
+          onAccept={(s) => accept([s])}
+          onAcceptAll={accept}
           onDismiss={() => setSuggested(null)}
           returnFocus={() =>
             askRef.current?.querySelector<HTMLElement>('[data-testid="ai-button"]')
