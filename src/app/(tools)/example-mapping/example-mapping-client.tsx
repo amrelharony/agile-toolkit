@@ -854,6 +854,32 @@ function acceptWithUndo(label: string, add: () => string | null, remove: (id: st
   });
 }
 
+/**
+ * Add all: each card added in turn (one that has no room says why, as a
+ * single add does), then one Undo for every card that went in. One card
+ * reads as its own add (`one`).
+ */
+function acceptAllWithUndo<T>(
+  items: readonly T[],
+  one: (item: T) => string,
+  add: (item: T) => string | null,
+  remove: (id: string) => void
+) {
+  const added = items.flatMap((item) => {
+    const id = add(item);
+    return id ? [{ id, item }] : [];
+  });
+  const first = added[0];
+  if (!first) return;
+  undoable({
+    label: added.length === 1 ? one(first.item) : `Added ${added.length} cards`,
+    kind: "success",
+    // Already added above.
+    apply: () => {},
+    revert: () => [...added].reverse().forEach(({ id }) => remove(id)),
+  });
+}
+
 function MapBoard({
   map,
   story,
@@ -883,6 +909,10 @@ function MapBoard({
     items: { text: string; ruleId?: string }[];
     source: AiSource;
   } | null>(null);
+  /** The ask buttons' wrappers, for focus after a list is dismissed. */
+  const ruleAskRef = useRef<HTMLDivElement>(null);
+  const questionAskRef = useRef<HTMLDivElement>(null);
+  const exampleAskRefs = useRef(new Map<string, HTMLDivElement>());
 
   const signals = mapSignals(map);
   const counts = mapCounts(map);
@@ -926,15 +956,26 @@ function MapBoard({
       .map((q) => cap(q.text, EXAMPLE_MAPPING_AI.text)),
   });
 
+  const ideaLabel = (idea: RuleSuggestion) =>
+    idea.kind === "rule"
+      ? `Added the rule “${shortText(idea.text, 40)}”`
+      : `Added the question “${shortText(idea.text, 40)}”`;
+  const addIdea = (idea: RuleSuggestion) =>
+    idea.kind === "rule" ? a.addRule(map, idea.text) : a.addQuestion(map, { text: idea.text });
   const acceptIdea = (idea: RuleSuggestion) =>
-    acceptWithUndo(
-      idea.kind === "rule"
-        ? `Added the rule “${shortText(idea.text, 40)}”`
-        : `Added the question “${shortText(idea.text, 40)}”`,
-      () =>
-        idea.kind === "rule" ? a.addRule(map, idea.text) : a.addQuestion(map, { text: idea.text }),
-      removeCard
-    );
+    acceptWithUndo(ideaLabel(idea), () => addIdea(idea), removeCard);
+
+  const exampleLabel = (e: SuggestedExample) => `Added the example “${shortText(e.text, 40)}”`;
+  const addSuggestedExample = (ruleId: string, e: SuggestedExample) =>
+    a.addExample(map, ruleId, {
+      text: e.text,
+      ...(e.given && e.when && e.then ? { given: e.given, when: e.when, then: e.then } : {}),
+    });
+  const questionLabel = (q: { text: string }) => `Added the question “${shortText(q.text, 40)}”`;
+
+  /** The ask button inside `wrap`: where focus goes back when its list is dismissed. */
+  const askButtonIn = (wrap: HTMLElement | null | undefined) =>
+    wrap?.querySelector<HTMLElement>('[data-testid="ai-button"]') ?? null;
 
   const splitHref = (rule: ExampleMapRule) => {
     const link = storyLink(rule.sentTo, storyExists);
@@ -1048,24 +1089,26 @@ function MapBoard({
             }}
             fullReason={ruleFull}
           />
-          <AiButton
-            task={mapRulesTask}
-            input={rulesInput}
-            label="Ask Amr for rules"
-            fallbackLabel="Suggest rules without AI"
-            onResult={(data, meta) => {
-              const items: RuleSuggestion[] = [
-                ...data.rules.map((r) => ({ kind: "rule" as const, text: r.text })),
-                ...data.questions.map((q) => ({ kind: "question" as const, text: q.text })),
-              ];
-              setRuleIdeas({ items, source: meta.source });
-              announce(
-                items.length === 0
-                  ? "No new rules to suggest."
-                  : `${plural(items.length, "suggestion", "suggestions")} below. Add the ones that fit.`
-              );
-            }}
-          />
+          <div ref={ruleAskRef}>
+            <AiButton
+              task={mapRulesTask}
+              input={rulesInput}
+              label="Ask Amr for rules"
+              fallbackLabel="Suggest rules without AI"
+              onResult={(data, meta) => {
+                const items: RuleSuggestion[] = [
+                  ...data.rules.map((r) => ({ kind: "rule" as const, text: r.text })),
+                  ...data.questions.map((q) => ({ kind: "question" as const, text: q.text })),
+                ];
+                setRuleIdeas({ items, source: meta.source });
+                announce(
+                  items.length === 0
+                    ? "No new rules to suggest."
+                    : `${plural(items.length, "suggestion", "suggestions")} below. Add the ones that fit.`
+                );
+              }}
+            />
+          </div>
           {ruleIdeas && (
             <AiSuggestions
               items={ruleIdeas.items}
@@ -1073,7 +1116,9 @@ function MapBoard({
               title="Possible rules and questions"
               render={(i) => ({ title: i.text, detail: i.kind === "rule" ? "Rule" : "Question" })}
               onAccept={acceptIdea}
+              onAcceptAll={(items) => acceptAllWithUndo(items, ideaLabel, addIdea, removeCard)}
               onDismiss={() => setRuleIdeas(null)}
+              returnFocus={() => askButtonIn(ruleAskRef.current)}
             />
           )}
           {map.rules.length === 0 ? (
@@ -1097,7 +1142,13 @@ function MapBoard({
                     onEdit={(text) => a.editRule(map, rule.id, text)}
                     onDelete={() => a.deleteRule(map, rule)}
                     actions={
-                      <div className="space-y-2">
+                      <div
+                        className="space-y-2"
+                        ref={(el) => {
+                          if (el) exampleAskRefs.current.set(rule.id, el);
+                          else exampleAskRefs.current.delete(rule.id);
+                        }}
+                      >
                         <AiButton
                           task={mapExamplesTask}
                           input={() => examplesInput(rule)}
@@ -1131,18 +1182,21 @@ function MapBoard({
                             })}
                             onAccept={(e) =>
                               acceptWithUndo(
-                                `Added the example “${shortText(e.text, 40)}”`,
-                                () =>
-                                  a.addExample(map, rule.id, {
-                                    text: e.text,
-                                    ...(e.given && e.when && e.then
-                                      ? { given: e.given, when: e.when, then: e.then }
-                                      : {}),
-                                  }),
+                                exampleLabel(e),
+                                () => addSuggestedExample(rule.id, e),
+                                removeCard
+                              )
+                            }
+                            onAcceptAll={(items) =>
+                              acceptAllWithUndo(
+                                items,
+                                exampleLabel,
+                                (e) => addSuggestedExample(rule.id, e),
                                 removeCard
                               )
                             }
                             onDismiss={() => setExampleIdeas(null)}
+                            returnFocus={() => askButtonIn(exampleAskRefs.current.get(rule.id))}
                           />
                         )}
                       </div>
@@ -1165,7 +1219,7 @@ function MapBoard({
                       what="example"
                       label={`An example of “${shortText(rule.text, 40)}”`}
                       hideLabel
-                      placeholder="An example, with real names and numbers"
+                      placeholder="An example with real numbers"
                       submitLabel="Add example"
                       onAdd={(text) => a.addExample(map, rule.id, { text })}
                       fullReason={exampleRoomProblem(map, rule.id)}
@@ -1195,22 +1249,24 @@ function MapBoard({
               })
             }
           />
-          <AiButton
-            task={mapQuestionsTask}
-            input={questionsInput}
-            label="Ask Amr for questions"
-            fallbackLabel="Suggest questions without AI"
-            variant="outline"
-            onResult={(data, meta) => {
-              const known = keepKnownRules(data, questionsInput());
-              setQuestionIdeas({ items: known.questions, source: meta.source });
-              announce(
-                known.questions.length === 0
-                  ? "No new questions to suggest."
-                  : `${plural(known.questions.length, "question", "questions")} below.`
-              );
-            }}
-          />
+          <div ref={questionAskRef}>
+            <AiButton
+              task={mapQuestionsTask}
+              input={questionsInput}
+              label="Ask Amr for questions"
+              fallbackLabel="Suggest questions without AI"
+              variant="outline"
+              onResult={(data, meta) => {
+                const known = keepKnownRules(data, questionsInput());
+                setQuestionIdeas({ items: known.questions, source: meta.source });
+                announce(
+                  known.questions.length === 0
+                    ? "No new questions to suggest."
+                    : `${plural(known.questions.length, "question", "questions")} below.`
+                );
+              }}
+            />
+          </div>
           {questionIdeas && (
             <AiSuggestions
               items={questionIdeas.items}
@@ -1221,13 +1277,13 @@ function MapBoard({
                 detail: q.ruleId ? `About “${ruleOf(map, q.ruleId)?.text ?? ""}”` : undefined,
               })}
               onAccept={(q) =>
-                acceptWithUndo(
-                  `Added the question “${shortText(q.text, 40)}”`,
-                  () => a.addQuestion(map, q),
-                  removeCard
-                )
+                acceptWithUndo(questionLabel(q), () => a.addQuestion(map, q), removeCard)
+              }
+              onAcceptAll={(items) =>
+                acceptAllWithUndo(items, questionLabel, (q) => a.addQuestion(map, q), removeCard)
               }
               onDismiss={() => setQuestionIdeas(null)}
+              returnFocus={() => askButtonIn(questionAskRef.current)}
             />
           )}
           {map.questions.length > 0 ? (
