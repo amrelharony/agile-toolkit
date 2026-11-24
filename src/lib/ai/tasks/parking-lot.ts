@@ -1,28 +1,35 @@
 /**
- * Parking Lot's AI task, the browser-safe half: where each open parked point
- * could go (the backlog, an impediment, a retro action, or dropped), with a
- * short reason. The person accepts each suggestion; an accepted one goes
- * through the hand-off routes (or the drop), with Undo. Nothing is sent by
- * the AI itself.
+ * Parking Lot's AI task, the def: where each open parked point could go
+ * (the backlog, an impediment, a retro action, or dropped), with a short
+ * reason. The person accepts each suggestion; an accepted one goes through
+ * the hand-off routes (or the drop), with Undo. Nothing is sent by the AI
+ * itself.
  *
  * Without AI the keyword rules answer (lib/parking-lot/route-rules), so the
- * review works the same with AI off. The prompt is in `parking-lot.server.ts`.
+ * review works the same with AI off. That fallback and the caps live in
+ * `parking-lot.lite.ts`, which pages import. The prompt is in
+ * `parking-lot.server.ts`.
  */
 
 import { z } from "zod";
 import { defineAiTask } from "../define-task";
 import { PARKING_DESTINATIONS } from "@/lib/parking-lot/model";
-import { ROUTE_REASON_MAX, routeByRules } from "@/lib/parking-lot/route-rules";
+import { ROUTE_REASON_MAX } from "@/lib/parking-lot/route-rules";
+import {
+  PARKING_ROUTE_ID_MAX,
+  PARKING_ROUTE_MAX_ITEMS,
+  PARKING_ROUTE_TEXT_MAX,
+  parkingRouteFallback,
+} from "./parking-lot.lite";
 
-/** At most this many points per ask: a meeting's parking lot, not a backlog. */
-export const PARKING_ROUTE_MAX_ITEMS = 30;
-/** A point's words as sent: the first 500 characters say where it belongs. */
-export const PARKING_ROUTE_TEXT_MAX = 500;
-/**
- * Ids are the items' own ("parking_x1y2z3w4"). A stored id can be longer (an
- * agent may choose one), so the page leaves such a point out of the ask.
- */
-export const PARKING_ROUTE_ID_MAX = 64;
+export {
+  PARKING_ROUTE_ID_MAX,
+  PARKING_ROUTE_MAX_ITEMS,
+  PARKING_ROUTE_TEXT_MAX,
+  fallbackRoutes,
+  parkingRouteFallback,
+} from "./parking-lot.lite";
+
 const ID_MAX = PARKING_ROUTE_ID_MAX;
 
 const input = z.object({
@@ -51,12 +58,8 @@ const output = z.object({
 });
 
 export type ParkingRouteInput = z.infer<typeof input>;
-export type ParkingRouteSuggestion = z.infer<typeof output>["routes"][number];
-
-/** The suggestions without AI: the keyword rules, one per point, in the points' order. */
-export function fallbackRoutes(items: ParkingRouteInput["items"]): ParkingRouteSuggestion[] {
-  return items.map((item) => ({ id: item.id, ...routeByRules(item.text) }));
-}
+export type ParkingRouteOutput = z.infer<typeof output>;
+export type ParkingRouteSuggestion = ParkingRouteOutput["routes"][number];
 
 export const parkingRouteTask = defineAiTask({
   id: "parking-lot.route",
@@ -66,7 +69,7 @@ export const parkingRouteTask = defineAiTask({
   maxTokens: 4096,
   input,
   output,
-  fallback: ({ items }) => ({ routes: fallbackRoutes(items) }),
+  fallback: parkingRouteFallback,
   sample: {
     items: [
       {

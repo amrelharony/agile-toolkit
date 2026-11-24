@@ -13,6 +13,9 @@
  *
  * The hypothesis itself is built by lib/hypotheses/model
  * (hypothesisFromSource), which the agent actions call on the server too.
+ * A send the tracker's one row can't hold (ENTITY_ROW_MAX_BYTES) is
+ * refused before anything is made (`problem`), as the page's own growing
+ * writes are.
  */
 
 import { nanoid } from "nanoid";
@@ -22,8 +25,11 @@ import { todayLocalISO } from "@/lib/utils/formatters";
 import {
   HYPOTHESIS_TEXT_MAX,
   HYPOTHESIS_TRACKER_ID,
+  TRACKER_FULL,
   hypothesisFromSource,
   isResolved,
+  trackerFits,
+  withHypothesis,
 } from "@/lib/hypotheses/model";
 import type { HandoffRoute, HandoffSource } from "../types";
 
@@ -56,6 +62,13 @@ export const hypothesisRoute: HandoffRoute = {
   doneLabel: "Added as a hypothesis",
   targetToolId: "hypothesis-tracker",
   targetHref: () => "/hypothesis-tracker",
+  // Every hypothesis lives in the tracker's one row: a send it can't hold makes nothing.
+  problem: (src) =>
+    trackerFits(
+      withHypothesis(currentHypothesisTracker() ?? null, buildHypothesis(src, "probe-id"))
+    )
+      ? null
+      : TRACKER_FULL,
   send: (src) => {
     const h = buildHypothesis(src);
     updateTracker((list) => [h, ...list]);

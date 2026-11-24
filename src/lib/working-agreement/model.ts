@@ -35,6 +35,7 @@ import type {
 import { WORKING_AGREEMENT_ID } from "@/lib/stores/workspace-types";
 import { findRosterMember, nameKey } from "@/lib/team/names";
 import { enoughData } from "@/lib/analytics/min-sample";
+import { normalizeTemplates, readTemplateRef } from "./template-values";
 
 /** The agreement's one document id. */
 export const WA_ID = WORKING_AGREEMENT_ID;
@@ -109,6 +110,10 @@ export const resultOfMark = (mark: CheckInMark): CharterCheckInResult =>
 export const markOfResult = (result: CharterCheckInResult): CheckInMark =>
   result === "partly" ? "partly" : result === "working";
 
+/** A rule's text as a dedupe key: case, spacing and a closing full stop don't make a new rule. */
+export const ruleKey = (text: string): string =>
+  text.trim().replace(/\s+/g, " ").replace(/\.$/, "").toLowerCase();
+
 /** An agreement with nothing in it yet: version 0, unpublished. */
 export function emptyAgreement(): WorkingAgreement {
   return { id: WA_ID, rules: [], meta: { version: 0 } };
@@ -166,7 +171,39 @@ function normalizeRule(raw: unknown): CharterRule | null {
   else delete rule.description;
   if (isCheckInMark(raw.stillWorking)) rule.stillWorking = raw.stillWorking;
   else delete rule.stillWorking;
+  // A charter template's line keeps its mark; anything else in its place goes.
+  const template = readTemplateRef(raw.template);
+  if (template) rule.template = template;
+  else delete rule.template;
   return rule;
+}
+
+/**
+ * `rule` as edited by hand: its text, its description (undefined leaves it;
+ * an emptied one goes) and, when given, its category. A change makes the
+ * rule the team's own: it loses its charter template's mark, so applying
+ * the template again won't overwrite it. Where it came from (`sourceRef`, a
+ * kickoff's rule) stays. Nothing changed gives `rule` back as it is.
+ */
+export function withRuleText(
+  rule: CharterRule,
+  text: string,
+  description: string | undefined,
+  category?: CharterRuleCategory
+): CharterRule {
+  const next: CharterRule = { ...rule, text };
+  if (description !== undefined) {
+    if (description.trim()) next.description = description.trim();
+    else delete next.description;
+  }
+  if (category) next.category = category;
+  const changed =
+    next.text !== rule.text ||
+    (next.description ?? "") !== (rule.description ?? "") ||
+    next.category !== rule.category;
+  if (!changed) return rule;
+  delete next.template;
+  return next;
 }
 
 function normalizeMeta(raw: unknown): CharterMeta {
@@ -276,7 +313,7 @@ export function normalizeAgreement(raw: unknown): WorkingAgreement {
   // the page always stamped publishedAt when it published. Read such a
   // document as never published, so the first Publish makes it v1.
   if (meta.version > 0 && !meta.publishedAt && versions.length === 0) meta.version = 0;
-  return {
+  const doc: WorkingAgreement = {
     ...(raw as Partial<WorkingAgreement>),
     id: WA_ID,
     rules,
@@ -284,6 +321,11 @@ export function normalizeAgreement(raw: unknown): WorkingAgreement {
     checkIns,
     versions,
   };
+  // The charter templates applied, read back to a usable shape (absent when none is).
+  const templates = normalizeTemplates(raw.templates);
+  if (templates) doc.templates = templates;
+  else delete doc.templates;
+  return doc;
 }
 
 /* ── Consent ────────────────────────────────────────────────────────── */
@@ -770,11 +812,16 @@ export function agreementVerdict(
   if (doc.rules.length === 0) return "No rules agreed yet.";
   const { meta } = doc;
   const isPublished = meta.version > 0 && Boolean(meta.publishedAt);
-  const head = isPublished
-    ? `${rulesWord(doc.rules.length)} in v${meta.version} (published ${dayLabel(meta.publishedAt)}${
-        needsSnapshot(doc) ? ", before versions were kept: publish once to keep a snapshot" : ""
-      })${hasUnpublishedChanges(doc) ? ", with changes not yet published" : ""}`
-    : `${rulesWord(doc.rules.length)}, not published yet`;
+  const snapshotNote = needsSnapshot(doc)
+    ? ", before versions were kept: publish once to keep a snapshot"
+    : "";
+  // With changes since, the count is the draft's, not the version's: "6
+  // rules in v2" read as if v2 held six.
+  const head = !isPublished
+    ? `${rulesWord(doc.rules.length)}, not published yet`
+    : hasUnpublishedChanges(doc)
+      ? `${rulesWord(doc.rules.length)}, last published as v${meta.version} (${dayLabel(meta.publishedAt)}${snapshotNote}), with changes not yet published`
+      : `${rulesWord(doc.rules.length)} in v${meta.version} (published ${dayLabel(meta.publishedAt)}${snapshotNote})`;
   const c = agreementConsent(doc, roster);
   const answered = doc.rules.some((r) => consentEntries(r).length > 0);
   let consent: string;

@@ -57,25 +57,23 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "async-standup",
     summary:
-      "The Async Standup Digest is the standup's written mode: each person posts one update a day, you see who hasn't posted yet, and you copy a daily digest with blockers first. It uses the same entries as the live Standup Tracker, so both modes show the same day.",
+      "The Async Standup Digest is the standup's written mode: each person posts one update a day, classic or Progress/Plans/Problems, you see who hasn't posted, and you copy a daily digest with blockers first. It shares its entries with the live Standup Tracker.",
     whenToUse: [
       "Teams spread across time zones, with little overlap for a daily call.",
-      "To cut meeting load on focus days while keeping everyone informed.",
       "When someone misses the live Daily Scrum and posts their update later.",
     ],
     steps: [
-      "Pick your name under Team member, or click Post for next to your name in Who hasn't posted. Yesterday is filled in from your last Today; change it if plans changed.",
-      "Fill in Today (required), any Blockers and Notes, and click Post update, or press Ctrl/⌘+Enter. Change the Day to backdate a missed update. Posting again for the same day asks first, and Replace entry swaps in the new one.",
-      "Who hasn't posted lists the team from the Team page, minus anyone who is out. For someone who is off today, click Not in today's standup next to their name. It counts for today only, in this browser, and Back in undoes it.",
-      "On the Today tab, click Copy digest and paste today's digest, blockers first, into your team channel.",
-      "On the Blockers tab, chase the Open blockers, oldest first. Each shows its age and turns red at 3 days. Click Send to… and pick Impediment to raise it in the Impediment Tracker. Resolving it there doesn't close it here, so click Resolve once it's cleared.",
-      "Each week, check the Last 14 days strip on the History tab. Pale days mean people stopped posting, so ask why. Export next to Week gives the last 7 days per person.",
+      "Pick your name under Team member, or click Post for in Who hasn't posted. Yesterday is filled in from your last Today.",
+      "Pick Yesterday · Today · Blockers or Progress · Plans · Problems (this browser remembers it). Fill in Today, any Blockers and Notes, and click Post update. Change the Day to backdate one.",
+      "With a blocker, name the DRI under Who can clear it?: the one person who owns clearing it.",
+      "When Team Time knows where people work, Hand over to the next shift leaves a note for the next time zone, and Hand-overs shows the chain east to west and who has posted.",
+      "On the Today tab, click Copy digest and paste it into your team channel. Summarise with AI (or Summarise, without AI) adds a short summary you can copy with it; nothing is saved. With AI it sends today's updates, older open blockers and who hasn't posted, with names and places, to the AI service.",
+      "On the Blockers tab, chase the Open blockers, oldest first; they turn red at 3 days. Send to… → Impediment raises one, its DRI as owner.",
     ],
     tips: [
       "Write for a reader who wasn't there: name the story or ticket, not just “continued work”.",
-      "Switch to Live at the top to run the Daily Scrum over the same entries. Async posts show there with an Async badge.",
-      "When blockers have been logged in the Impediment Tracker in the last 7 days, a Recent blocker activity badge at the top shows how many. Bring them up with the team too.",
-      "The Sprint Cockpit's Daily Scrum card shows how many people have updated today, live and async together.",
+      "Mark someone off today with Not in today's standup; Back in undoes it.",
+      "Switch to Live at the top to run the Daily Scrum over the same entries.",
     ],
     timebox: "A few minutes per person, posted by an agreed time each day.",
   },
@@ -269,25 +267,25 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "impediments",
     summary:
-      "An impediment is anything slowing the team down that it can't easily remove on its own. The tracker keeps each one with a severity, owner and due date, flags old and overdue ones, and measures how long they take to resolve.",
+      "An impediment is anything slowing the team down that it can't easily remove on its own. The tracker keeps each one with a severity, owner and due date, flags old and overdue ones, and shows which blockers cost the most time.",
     whenToUse: [
       "When blockers raised at the Daily Scrum need follow-up.",
       "When the same problems keep coming back and you need evidence to escalate them.",
       "Before a retro, to see what got in the team's way and how fast it was cleared.",
     ],
     steps: [
-      "Click Log impediment. Write what is in the way under Impediment and pick a Severity. Both are required. Add a Category and a Description if they help.",
-      "Pick the Owner and Raised by from the team, or type a name. Move Raised on back if it started before today, and set Due by. Once 3 are resolved, a button under Due by offers a date from your average. Click Log impediment to save.",
-      "Review open items at the Daily Scrum or weekly. The sentence above the list names the one to chase first. The age badge turns amber at 3 days old and red at 7, and past its due date a card says Overdue by N days.",
-      "Click Escalate when the team can't remove it alone; De-escalate moves it back to open. Click Resolve when it's gone, move Resolved on back if it went before today, then click Mark resolved. Click Reopen if it comes back.",
-      "Use Show (All, Open, Escalated, Overdue, Resolved) and the Category and Severity filters to spot recurring problems. Once the list spans three weeks, Raised per week compares new impediments with those open at week end.",
-      "Click Export, then Copy as Markdown for the team channel or a status report, or Export CSV. Both include every impediment, filtered or not.",
+      "Click Log impediment. Write what is in the way under Impediment and pick a Severity; both are required. Add a Category, a Cluster (the kind of blocker) and a Description if they help.",
+      "Pick the Owner and Raised by from the team, or type a name. Move Raised on back if it started before today, and set Due by. Click Log impediment to save.",
+      "Review open items at the Daily Scrum or weekly. The sentence above the list names the one to chase first; the age badge turns amber at 3 days and red at 7.",
+      "Click Escalate when the team can't remove it alone, Resolve when it's gone, and Reopen if it comes back.",
+      "Under Blockers: where the time goes, see which clusters cost the most, inside the team or outside it. Pick a cluster for each blocker not clustered yet and click Set, or name a new one as inside or outside the team. Cluster with AI groups them for you to accept; Group by keywords works without AI. Raise a top cluster as one impediment, or open the one already raised. Blocked stories and cards show here even before any impediment is logged.",
+      "Click Export, then Copy as Markdown for the team channel or a status report, or Export CSV.",
     ],
     tips: [
       "Describe the blocker, not a person: “test environment down for two days”, not “Ops is slow”.",
       "Every impediment needs an owner, even if their job is only to escalate it. A card without one says Nobody yet.",
-      "Items sent from Standup, Retro, Retro Actions and Scrum of Scrums arrive at Medium severity with no category, so check both. Resolving one sent from a retro closes that action.",
-      "The Sprint Cockpit's Open blockers card lists the unresolved ones in the sprint's way. Deleting a card offers Undo.",
+      "Blocked time counts from the day tracking began; items blocked before then say so and aren't counted.",
+      "Items sent from other tools arrive at Medium severity with no category, so check both; a risk sent from the Risk Register keeps its level. Resolving one sent from a retro closes that action.",
     ],
     scales: [
       {
@@ -366,7 +364,7 @@ export const GUIDES: ToolGuide[] = [
       "A raised-hands wall takes no posts, so phones show Raise my hand first. Call on the first in line and press Done when they've finished.",
       "In brainwriting, people press Yes, and… on a post to build on it, and the replies show under it.",
       "In a 25/10 round, start the scoring once the wall is full: everyone scores five posts from 1 to 5, then show the top ten.",
-      "Save the round. A saved wall shows as a list, a word cloud or the top ten. Ask Amr to group it into themes, find duplicates or draft backlog items: you see the draft first, and nothing changes until you accept it. In a live room a merge asks first, because it can't be split again.",
+      "Save the round. A saved wall shows as a list, a word cloud or the top ten. Ask Amr to group it into themes, find duplicates or draft backlog items: you see the draft first, and nothing changes until you accept it. In a live room you see Amr's merges before they happen, and Undo puts the posts back for a few seconds after.",
     ],
     tips: [
       "Ask for one idea per post: the answers are easier to group.",
@@ -445,7 +443,7 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "root-cause",
     summary:
-      "Root Cause takes a problem back to its causes with 5 Whys or a fishbone diagram, shows which causes matter most on a Pareto chart, and ends with a countermeasure the team can act on.",
+      "Root Cause takes a problem back to its causes with 5 Whys, a fishbone diagram or a causal loop, shows which causes matter most on a Pareto chart, and ends with a countermeasure the team can act on.",
     whenToUse: [
       "A problem that keeps coming back after a retro said it was fixed.",
       "After an incident: a post-mortem's contributing factor opens here with Analyze in Root Cause.",
@@ -455,13 +453,15 @@ export const GUIDES: ToolGuide[] = [
       "Write the problem as a fact: what happened, where and how often, with no blame.",
       "For 5 Whys, ask why it happened and write the answer, then ask why again, usually about five times. Under each answer, check Is this really why? If fixing it wouldn't stop the line above, try another answer.",
       "For a fishbone, add causes under people, process, tools, environment, measurement or your own categories (rename one to change it, or remove an empty one), and count how often each one happens.",
+      "For a causal loop, add the things that go up or down, then arrows: + when both move the same way, − when they move opposite ways. Arrows that lead back to the start make a loop: R feeds itself, B holds itself back.",
       "The Pareto chart puts the causes in order of their count and names the few behind most of the problem.",
-      "Mark a why or a cause as the root cause and write a countermeasure. Send to Retro Actions makes it an action someone owns; under Post-mortem, link the analysis to the incident it came from.",
-      "Ask Amr suggests the next why, a category for each cause, or countermeasures with a check of whether each worked. You pick what fits; nothing is added on its own.",
+      "Mark a why, a cause or a thing on the loop as the root cause and write a countermeasure. Send to Retro Actions makes it an action someone owns; under Post-mortem, link the analysis to the incident it came from. Plan and check it in Improve carries it on.",
+      "Ask Amr suggests the next why, a category for each cause, the arrows for a loop, or countermeasures with a check of whether each worked. You pick what fits; nothing is added on its own.",
     ],
     tips: [
       "Stop at a cause you can act on. “People make mistakes” isn't a root cause; the process that let the mistake through is.",
       "Most problems have more than one cause, and a fishbone shows them side by side.",
+      "A problem that comes back after every fix is often a loop: look for the thing that sits in the most loops.",
     ],
     timebox: "Twenty to forty-five minutes.",
   },
@@ -486,5 +486,51 @@ export const GUIDES: ToolGuide[] = [
       "The story-splitting cards follow the SPIDR patterns: spikes, paths, interfaces, data and rules.",
     ],
     timebox: "Two to ten minutes per card.",
+  },
+  {
+    toolId: "notes-to-actions",
+    summary:
+      "Notes to Actions turns the notes from any meeting into work that doesn't get lost. Paste the notes, find the actions, decisions, blockers, bugs and open questions in them, keep the ones that are real and send each to the tool that tracks it.",
+    whenToUse: [
+      "After a meeting that ended with a page of notes.",
+      "With the minutes from someone else's meeting.",
+      "Before a retro, to collect what was promised.",
+    ],
+    steps: [
+      "Paste the notes and name the meeting.",
+      "Find the actions: Ask Amr to find the actions lists what Amr finds in the notes, each with the line it came from. Find them without AI picks the lines that start like an action or a decision.",
+      "Keep or drop each item, and fix its words, owner and due date.",
+      "Send actions to Retro Actions, decisions to the Decision Log as proposed, blockers to Impediments, stories to the backlog and bugs to Bug Triage, each with Undo.",
+      "Once you're done, forget the pasted text and keep only the items.",
+    ],
+    tips: [
+      "Names and private details go to the AI service too, so take them out first if they shouldn't.",
+      "An answered question needs no tool: mark it answered.",
+    ],
+    timebox: "Five minutes after the meeting.",
+  },
+  {
+    toolId: "improve",
+    summary:
+      "Improve works on one thing at a time, in one of two ways. An A3 fits a problem on one page: why it matters, where things stand, the target, the cause, what you'll change and whether it worked. The Improvement Kata moves towards a target in small experiments, with a short coaching talk after each one.",
+    whenToUse: [
+      "When a retro or a Root Cause analysis names something worth more than one action.",
+      "When the team wants to move one number, such as review wait or lead time, step by step.",
+      "To coach a team or a person through small experiments, a few minutes at a time.",
+    ],
+    steps: [
+      "Start one: name it and pick A3 or Improvement Kata. From a Root Cause analysis, Plan and check it in Improve fills in the problem, its root cause and its countermeasure.",
+      "Say where things are today and where you want them, each with a number and a date, then log a reading each time you measure. The chart shows the readings against the target.",
+      "On an A3, write why it happens or link a Root Cause analysis, then list what you'll change, each with an owner and a date. Send one to Retro Actions, with its date, or to the Backlog: it reads as done once it's done there.",
+      "On a Kata, list the obstacles and pick the one you're on. Each experiment says what you'll try and what you expect, then what happened and what you learned.",
+      "Coach me walks a short talk over the Kata: what the last try showed, today's number, the aim, the obstacle, the next try and when to look again. Reached it keeps the target as a past one.",
+      "Ask Amr suggests countermeasures for an A3 or next experiments for a Kata. You pick what fits; nothing is added on its own.",
+    ],
+    tips: [
+      "One target at a time: a Kata target is a few weeks away, never the whole challenge.",
+      "The checks under an A3 say what's still missing before you call it done.",
+      "The Kata and its coaching talk come from Mike Rother's Toyota Kata; the words here are our own.",
+    ],
+    timebox: "Fifteen minutes per coaching talk; an hour or two to write an A3.",
   },
 ];

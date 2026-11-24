@@ -32,7 +32,7 @@ import {
   type BacklogOutput,
   type ClusterOutput,
   type MergeOutput,
-} from "@/lib/ai/tasks/audience-wall";
+} from "@/lib/ai/tasks/audience-wall.lite";
 import {
   WALL_KIND_LABEL,
   isScored,

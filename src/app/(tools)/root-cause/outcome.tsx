@@ -11,19 +11,32 @@
  * alternatives, so the person picks one (there is no "use all"): it fills
  * the countermeasure (with Undo) and focus moves to the countermeasure, to
  * read or adjust it. Example analyses can't be sent anywhere.
+ *
+ * With a root cause, "Plan and check it in Improve" opens Improve's start
+ * form filled from the analysis (`/improve?from=`), and "Used in Improve"
+ * links the team's improvements that name this analysis, leaving out the
+ * one it came from (the page already says "From improvement"). Neither
+ * shows on an example analysis.
  */
 
-import { useId, useRef, useState } from "react";
+import { useId, useMemo, useRef, useState } from "react";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import Link from "next/link";
 import { ArrowRight, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { BlurTextarea } from "@/components/shared/blur-fields";
 import { AiButton, AiSuggestions } from "@/components/ai";
-import { countermeasureTask } from "@/lib/ai/tasks/root-cause";
+import { countermeasureTask } from "@/lib/ai/tasks/root-cause.lite";
+import { fitCountermeasureInput } from "@/lib/ai/tasks/improve.lite";
 import type { AiSource } from "@/lib/ai/task-types";
 import { liveLink, getHandoffRoute } from "@/lib/handoffs/registry";
-import { TOOL_TEXT_MAX, type RootCauseAnalysis } from "@/lib/stores/workspace-types";
+import { IMPROVE_TOOL, newestFirst, readImprovements } from "@/lib/improve/model";
+import { useWorkspaceStore } from "@/lib/stores/workspace-store";
+import {
+  TOOL_TEXT_MAX,
+  type Improvement,
+  type RootCauseAnalysis,
+} from "@/lib/stores/workspace-types";
 import { whyLines } from "@/lib/root-cause/model";
 import { isExampleId } from "@/lib/utils/example-id";
 
@@ -41,6 +54,28 @@ export interface OutcomeProps {
   onCountermeasure: (text: string, opts?: { fromAi?: boolean }) => void;
   onSend: () => void;
   onLinkPostMortem: (id: string | undefined) => void;
+}
+
+/** Where Root Cause's "Plan and check it in Improve" goes for an analysis. */
+export function planInImproveHref(analysisId: string): string {
+  return `/improve?from=${encodeURIComponent(analysisId)}`;
+}
+
+/**
+ * The team's improvements that name `analysis` as their Root Cause
+ * analysis, newest first, without the one it came from (its sourceRef, which
+ * the page shows as "From improvement") and without example ones. None for
+ * an example analysis.
+ */
+export function improvementsUsing(
+  analysis: Pick<RootCauseAnalysis, "id" | "sourceRef">,
+  raw: unknown
+): Improvement[] {
+  if (isExampleId(analysis.id)) return [];
+  const from = analysis.sourceRef?.tool === IMPROVE_TOOL ? analysis.sourceRef.id : null;
+  return newestFirst(readImprovements(raw)).filter(
+    (i) => !isExampleId(i.id) && i.rootCauseId === analysis.id && i.id !== from
+  );
 }
 
 /** "Text\nCheck: …": what a countermeasure suggestion fills in. */
@@ -71,6 +106,11 @@ export function Outcome({
   const linked = analysis.postMortemId
     ? postMortems.find((p) => p.id === analysis.postMortemId)
     : undefined;
+  const storedImprovements = useWorkspaceStore((s) => s.improvements);
+  const usedIn = useMemo(
+    () => improvementsUsing(analysis, storedImprovements),
+    [analysis, storedImprovements]
+  );
 
   return (
     <section aria-labelledby={`${ids}-heading`} className="space-y-3">
@@ -99,15 +139,18 @@ export function Outcome({
             <div ref={askRef}>
               <AiButton
                 task={countermeasureTask}
-                input={() => ({
-                  problem: [analysis.title, analysis.problem]
-                    .filter((s) => s.trim())
-                    .join(". ")
-                    .slice(0, 1000),
-                  rootCause: root.slice(0, 1000),
-                  whys: whyLines(analysis.whys).map((w) => w.slice(0, 1000)),
-                  causes: analysis.causes.slice(0, 20).map((c) => c.text.slice(0, 300)),
-                })}
+                input={() =>
+                  // The same fitter an A3 uses: causes go first, then the whys from the last.
+                  fitCountermeasureInput({
+                    problem: [analysis.title, analysis.problem]
+                      .filter((s) => s.trim())
+                      .join(". ")
+                      .slice(0, 1000),
+                    rootCause: root.slice(0, 1000),
+                    whys: whyLines(analysis.whys).map((w) => w.slice(0, 1000)),
+                    causes: analysis.causes.slice(0, 20).map((c) => c.text.slice(0, 300)),
+                  })
+                }
                 label="Ask Amr for countermeasures"
                 fallbackLabel="Suggest countermeasures without AI"
                 onResult={(data, meta) => {
@@ -190,6 +233,36 @@ export function Outcome({
                 : "Write the countermeasure first."}
         </p>
       </div>
+
+      {!example && (root || usedIn.length > 0) && (
+        <div className="space-y-1">
+          {root && (
+            <Link
+              href={planInImproveHref(analysis.id)}
+              className="inline-flex items-center gap-1 text-sm font-medium text-accent hover:underline"
+            >
+              Plan and check it in Improve
+              <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+            </Link>
+          )}
+          {usedIn.length > 0 && (
+            <p className="text-xs text-sub">
+              Used in Improve:{" "}
+              {usedIn.map((i, n) => (
+                <span key={i.id}>
+                  {n > 0 && ", "}
+                  <Link
+                    href={`/improve?item=${encodeURIComponent(i.id)}`}
+                    className="font-medium text-accent hover:underline"
+                  >
+                    {i.title}
+                  </Link>
+                </span>
+              ))}
+            </p>
+          )}
+        </div>
+      )}
 
       <div className="space-y-1">
         <label htmlFor={`${ids}-pm`} className="block text-xs font-medium text-sub">

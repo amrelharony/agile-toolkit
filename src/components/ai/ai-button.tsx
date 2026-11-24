@@ -18,6 +18,10 @@
  *   - errors in plain words, with the task's answer without AI on offer.
  * With `fallbackLabel`, a page where AI is off still gets the button, which
  * then answers with the task's fallback straight away.
+ *
+ * The task is usually a page's lazy ref (`@/lib/ai/tasks/<toolId>.lite`):
+ * hovering, focusing or touching the button starts loading its schemas
+ * while AI is available, and the answer without AI never waits for them.
  */
 
 import { useCallback, useId, useRef, useState } from "react";
@@ -25,7 +29,8 @@ import { Loader2, PenLine, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { AiFallbackReason, AiSource, AiTaskDef } from "@/lib/ai/task-types";
+import { answerWithoutAi, type AiTaskLike } from "@/lib/ai/task-ref";
+import type { AiFallbackReason, AiSource } from "@/lib/ai/task-types";
 import { useToolAi, type ToolAiRunResult } from "@/lib/ai/use-tool-ai";
 import { AiConsentCompact } from "./ai-consent-compact";
 
@@ -35,8 +40,8 @@ export interface AiResultMeta {
 }
 
 export interface AiButtonProps<I, O> {
-  /** The task, imported from its browser-safe module (`@/lib/ai/tasks/<toolId>`). */
-  task: AiTaskDef<I, O>;
+  /** The task's ref, imported from its lite module (`@/lib/ai/tasks/<toolId>.lite`), or its def. */
+  task: AiTaskLike<I, O>;
   /** The input, or a function that builds it when the button is pressed. */
   input: I | (() => I);
   /** The answer, from the AI or the task's fallback (`meta.source` says which). */
@@ -99,20 +104,22 @@ export function AiButton<I, O>({
     [onResult]
   );
 
+  // Synchronous whether or not the def has loaded: with it, the input is
+  // checked first; without it, the ref's fallback (the same function) answers.
   const answerWithFallback = useCallback(() => {
+    let data: O | null;
     try {
-      const parsed = task.input.safeParse(readInput(input));
-      if (!parsed.success) {
-        setNote(FILL_IN_FIRST);
-        return;
-      }
-      const data = task.fallback(parsed.data);
-      setNote(null);
-      setOffer(false);
-      onResult(data, { source: "fallback" });
+      data = answerWithoutAi(task, readInput(input));
     } catch {
-      setNote(FILL_IN_FIRST);
+      data = null;
     }
+    if (data === null) {
+      setNote(FILL_IN_FIRST);
+      return;
+    }
+    setNote(null);
+    setOffer(false);
+    onResult(data, { source: "fallback" });
   }, [task, input, onResult]);
 
   const press = useCallback(async () => {
@@ -159,6 +166,10 @@ export function AiButton<I, O>({
       variant={variant}
       ref={mainRef}
       onClick={press}
+      // Load the task's schemas before the press, while AI can run here.
+      onPointerEnter={ai.preload}
+      onFocus={ai.preload}
+      onTouchStart={ai.preload}
       aria-disabled={blockedReason || running ? true : undefined}
       aria-busy={running || undefined}
       aria-describedby={blockedReason || note ? noteId : undefined}

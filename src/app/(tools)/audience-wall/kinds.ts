@@ -90,7 +90,7 @@ export const WALL_KIND_HOW: Record<WallKind, string> = {
   hands:
     "People raise a hand from their phone and join the queue. Call on the first in line, then lower their hand. The wall takes no posts until you press Take posts again.",
   brainwriting:
-    "Everyone writes ideas, then builds on each other's with Yes, and…. The replies show under the post they build on.",
+    "Everyone writes ideas, then builds on each other's with “Yes, and…” replies. The replies show under the post they build on.",
   crowd:
     "Each person writes one bold idea. When the wall is full, start the scoring: everyone scores five posts from 1 to 5, then show the top ten.",
 };

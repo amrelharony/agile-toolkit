@@ -303,13 +303,16 @@ export function runReport(run: Run, agenda: Agenda, now: number): RunReport {
 /**
  * What the shell's docked timer shows while the facilitator is on another
  * page: the current segment counting down. Null once there is nothing to
- * show (no run, or it finished).
+ * show (no run, or it finished). `chime` is the timer's own "Chime when time
+ * is up" switch, carried so the segment rings with it away from the page;
+ * left out, the dock uses the shared setting.
  */
 export function dockFor(
   run: Run | null,
   agenda: Agenda,
   href: string,
-  now: number
+  now: number,
+  chime?: boolean
 ): DockedTimer | null {
   if (!run || run.finished) return null;
   const view = runView(run, agenda, [], now);
@@ -326,6 +329,7 @@ export function dockFor(
     totalSeconds: view.segment.seconds,
     endsAt: view.running ? now + left : null,
     pausedRemaining: Math.ceil(left / 1000),
+    ...(chime === undefined ? {} : { chime }),
   };
 }
 

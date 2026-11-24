@@ -9,7 +9,10 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { HandoffLink, RetroBoard } from "@/lib/stores/workspace-types";
+import type { HandoffLink, HypothesisTracker, RetroBoard } from "@/lib/stores/workspace-types";
+import { ENTITY_ROW_MAX_BYTES } from "@/lib/stores/workspace-types";
+import { TRACKER_FULL } from "@/lib/hypotheses/model";
+import { jsonBytes } from "@/lib/utils/json-bytes";
 import { retroFormats } from "@/lib/constants/retro-formats";
 import { collectRetroActions } from "@/lib/retro/actions";
 import { registry } from "@/lib/actions/registry";
@@ -30,7 +33,7 @@ import { SOURCE_TOOLS, getHandoffRoute, sourceHref, sourceLabel } from "@/lib/ha
 import { sendHandoff, sendHandoffBatch } from "@/lib/handoffs/send";
 import type { HandoffSource } from "@/lib/handoffs/types";
 import { STORY_TITLE_MAX, buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
-import { RETRO_BOARD_ID, retroColumnFor } from "@/lib/handoffs/targets/retro-board";
+import { RETRO_BOARD_ID, RETRO_CARD_MAX, retroColumnFor } from "@/lib/handoffs/targets/retro-board";
 import { HYPOTHESIS_TEXT_MAX, HYPOTHESIS_TRACKER_ID } from "@/lib/handoffs/targets/hypothesis";
 import { DECISION_LOG_KEY, DECISION_LOG_MOVED_KEY } from "@/lib/decisions/legacy-log";
 import { todayLocalISO } from "@/lib/utils/formatters";
@@ -131,6 +134,26 @@ describe("backlog-story", () => {
     expect(buildBacklogStory(src({ title: "x".repeat(500) })).title).toHaveLength(STORY_TITLE_MAX);
   });
 
+  it("keeps a cut title's whole text first in the notes, as a sent risk does", () => {
+    // An Improve countermeasure runs to 1000 characters; the story's title holds 200.
+    const long = `${"Pair on the deploy script ".repeat(38)}end`;
+    const story = buildBacklogStory(
+      src({ title: `  ${long}  `, description: "From the A3 “CI”." })
+    );
+    expect(story.title.length).toBeLessThanOrEqual(STORY_TITLE_MAX);
+    expect(long.startsWith(story.title)).toBe(true);
+    expect(story.notes).toBe(`${long}\n\nFrom the A3 “CI”.`);
+    // With no description, the whole text is the notes.
+    expect(buildBacklogStory(src({ title: long, description: undefined })).notes).toBe(long);
+    // A title that fits keeps the notes as they came.
+    expect(buildBacklogStory(src({ title: "x".repeat(STORY_TITLE_MAX) })).notes).toBe(
+      "Two reviewers said so."
+    );
+    // The cut never splits a character.
+    const emoji = buildBacklogStory(src({ title: `${"a".repeat(STORY_TITLE_MAX - 1)}🙂 more` }));
+    expect(emoji.title).toBe("a".repeat(STORY_TITLE_MAX - 1));
+  });
+
   it("is done when the story is", () => {
     const link = sendHandoff("backlog-story", src(), linkStore())!;
     const route = getHandoffRoute("backlog-story");
@@ -169,6 +192,34 @@ describe("retro-topic and retro-action", () => {
     ]);
   });
 
+  it("end a source longer than a card in “…”, never through a character", () => {
+    ws().upsertRetroBoard(boardWith("4ls"));
+    const long = "Pair on the deploy script ".repeat(40).trim();
+    const link = sendHandoff("retro-action", src({ title: long }), linkStore())!;
+    const card = board()!.cards.find((c) => c.id === link.targetId)!;
+    expect(card.text.length).toBeLessThanOrEqual(RETRO_CARD_MAX);
+    expect(card.text.length).toBeGreaterThan(RETRO_CARD_MAX - 5);
+    expect(card.text.endsWith("…")).toBe(true);
+    expect(long.startsWith(card.text.slice(0, -1))).toBe(true);
+    const emoji = sendHandoff(
+      "retro-topic",
+      src({ title: `${"a".repeat(RETRO_CARD_MAX - 2)}🙂 tail` }),
+      linkStore()
+    )!;
+    expect(board()!.cards.find((c) => c.id === emoji.targetId)!.text).toBe(
+      `${"a".repeat(RETRO_CARD_MAX - 2)}…`
+    );
+    // A source that fits is kept as it is.
+    const fits = sendHandoff(
+      "retro-topic",
+      src({ title: "b".repeat(RETRO_CARD_MAX) }),
+      linkStore()
+    )!;
+    expect(board()!.cards.find((c) => c.id === fits.targetId)!.text).toBe(
+      "b".repeat(RETRO_CARD_MAX)
+    );
+  });
+
   it("put a concern and an appreciation in the columns that fit the format", () => {
     ws().upsertRetroBoard(boardWith("4ls"));
     sendHandoff("retro-topic", src(), linkStore());
@@ -195,6 +246,12 @@ describe("retro-topic and retro-action", () => {
       retroFormats.map((f) => [f.id, expect.not.stringMatching(/^(?:stop|mad|drop|anchor|rocks)$/)])
     );
     expect(column("lean-coffee")).toBe("to-discuss");
+    // An Emotional Seismograph board: a concern is a low, an appreciation a
+    // high and a question a steady stretch, never the first column, Highs.
+    const seismo = retroFormats.find((f) => f.id === "seismograph");
+    expect(column("seismograph")).toBe("steady");
+    expect(retroColumnFor(seismo, "concern")).toBe("lows");
+    expect(retroColumnFor(seismo, "appreciation")).toBe("highs");
     ws().upsertRetroBoard(boardWith("4ls"));
     sendHandoff("retro-topic", src({ tone: "question", title: "What can wait?" }), linkStore());
     expect(board()!.cards.map((c) => c.columnKey)).toEqual(["learned"]);
@@ -324,6 +381,36 @@ describe("hypothesis", () => {
     for (const key of ["believe", "toLearn", "willDo", "experiment", "successMetric"] as const) {
       expect(h[key]).toHaveLength(HYPOTHESIS_TEXT_MAX);
     }
+  });
+
+  it("refuses a send the tracker's one row can't hold, and makes nothing", () => {
+    const filler = (believe: string): HypothesisTracker => ({
+      id: HYPOTHESIS_TRACKER_ID,
+      hypotheses: [
+        {
+          id: "h0",
+          believe,
+          willDo: "",
+          toLearn: "",
+          successMetric: "",
+          status: "running",
+          raisedAt: "2026-10-01",
+        },
+      ],
+    });
+    // Ten bytes short of the row: no new hypothesis fits beside it.
+    const room = ENTITY_ROW_MAX_BYTES - jsonBytes(filler("")) - 10;
+    ws().upsertHypothesisTracker(filler("x".repeat(room)));
+    const route = getHandoffRoute("hypothesis");
+    expect(route.problem?.(src())).toBe(TRACKER_FULL);
+    const links = linkStore();
+    expect(sendHandoff("hypothesis", src(), links)).toBeNull();
+    expect(hypotheses().map((h) => h.id)).toEqual(["h0"]);
+    expect(links.links).toEqual([]);
+    // With room again, the same send goes ahead.
+    ws().upsertHypothesisTracker(filler("x"));
+    expect(route.problem?.(src())).toBeNull();
+    expect(sendHandoff("hypothesis", src(), linkStore())).not.toBeNull();
   });
 
   it("is done once tested either way", () => {

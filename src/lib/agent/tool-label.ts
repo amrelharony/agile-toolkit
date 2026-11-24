@@ -206,6 +206,7 @@ const VERBS: ReadonlySet<string> = new Set([
  * is a change.
  */
 const READ_VERBS: ReadonlySet<string> = new Set([
+  "analyze",
   "classify",
   "compare",
   "compute",
@@ -228,18 +229,25 @@ const READ_VERBS: ReadonlySet<string> = new Set([
 
 /**
  * Whole verbs that only read but don't open on a read word: a report or a
- * figure named as a noun ("Room status", "Weekly summary", "Risk"), a pick
- * ("Surprise me"), a look ("Check goal", where "Check in" is a change), and
- * the order worked out from the scores ("Decide order"). Keyed in lower case.
+ * figure named as a noun ("Room status", "Weekly summary", "Risk",
+ * "Predictability", "Sample size", "Three point"), a pick ("Surprise me",
+ * "Similar stories"), a look ("Check goal", where "Check in" is a change), a
+ * draft the caller saves elsewhere ("Draft notes"), and the order worked out
+ * from the scores ("Decide order"). Keyed in lower case.
  */
 const READ_NAMES: ReadonlySet<string> = new Set([
   "by stage",
   "check goal",
   "decide order",
+  "draft notes",
   "meeting cost",
+  "predictability",
   "risk",
   "room status",
+  "sample size",
+  "similar stories",
   "surprise me",
+  "three point",
   "throughput forecast",
   "weekly summary",
 ]);

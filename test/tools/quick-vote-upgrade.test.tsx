@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { LiveAnnouncerProvider } from "@/components/a11y/live-announcer";
@@ -60,6 +60,13 @@ import { validateFormatName } from "@/app/(tools)/quick-vote/save-format-form";
 import { cardFace, faceBigClass, gridBigClass } from "@/app/(tools)/quick-vote/hold-up-cards";
 import { quickVoteHref } from "@/app/(tools)/picker/names-panel";
 import "@/lib/actions/tools/quick-vote";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 /* ── Helpers ────────────────────────────────────────────────────────── */
 
@@ -147,9 +154,9 @@ describe("picking a format", () => {
     expect(within(group).getAllByRole("button")).toHaveLength(QUICK_VOTE_PRESETS.length);
     expect(format("Fist of five")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByRole("heading", { name: "Set up: Fist of five" })).toBeInTheDocument();
-    expect(screen.getByText(/No saved rounds yet/)).toBeInTheDocument();
+    expect(screen.getByText(/^Run a round and press Save round/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Load an example" })).toBeInTheDocument();
-    expect(screen.getByTestId("quick-vote-verdict")).toHaveTextContent("No results saved yet");
+    expect(screen.getByTestId("quick-vote-verdict")).toHaveTextContent("No rounds saved yet");
   });
 
   it("sets a format up in one tap, saved to the tool's store", async () => {
@@ -435,7 +442,17 @@ describe("a poll from a link", () => {
     // A reload doesn't set it up again; nothing the host typed was lost.
     expect(window.location.pathname).toBe("/quick-vote");
     expect(window.location.search).toBe("");
+    expect(window.location.hash).toBe("");
     expect(toastSpy).not.toHaveBeenCalled();
+  });
+
+  it("still opens an older link that carries the poll in its query", async () => {
+    open(
+      `/quick-vote?${new URLSearchParams({ preset: "poll", question: "Which?", options: "A\nB" })}`
+    );
+    await renderPage();
+    expect(qv().draft).toMatchObject({ presetId: "poll", question: "Which?", optionsText: "A\nB" });
+    expect(window.location.search).toBe("");
   });
 
   it("brings the round the host had typed back with Undo", async () => {
@@ -449,7 +466,7 @@ describe("a poll from a link", () => {
 
   it("keeps up to 20 names, and the form says how many a round takes", async () => {
     const names = Array.from({ length: 25 }, (_, i) => `Name ${i + 1}`);
-    open(`/quick-vote?${new URLSearchParams({ preset: "poll", options: names.join("\n") })}`);
+    open(`/quick-vote#${new URLSearchParams({ preset: "poll", options: names.join("\n") })}`);
     await renderPage();
     expect(qv().draft!.optionsText.split("\n")).toEqual(names.slice(0, 20));
     // No question in the link: the poll's own.
@@ -461,7 +478,7 @@ describe("a poll from a link", () => {
 
   it("caps each value and ignores the rest", async () => {
     open(
-      `/quick-vote?${new URLSearchParams({
+      `/quick-vote#${new URLSearchParams({
         preset: "poll",
         question: "Which?",
         options: `${"X".repeat(50)}\nNile\nnile`,
@@ -484,6 +501,13 @@ describe("a poll from a link", () => {
     expect(qv().draft).toBeNull();
     expect(format("Fist of five")).toHaveAttribute("aria-pressed", "true");
     expect(window.location.search).toBe("?preset=dots&options=A%0AB");
+  });
+
+  it("leaves a fragment that asks for another format where it is", async () => {
+    open("/quick-vote#preset=dots&options=A%0AB");
+    await renderPage();
+    expect(qv().draft).toBeNull();
+    expect(window.location.hash).toBe("#preset=dots&options=A%0AB");
   });
 });
 
@@ -665,8 +689,9 @@ describe("hold-up cards", () => {
     expect(
       screen.getByText(/^Live rounds are off on this site, so collect paper slips/)
     ).toBeInTheDocument();
+    // The line above says how to collect them, so the count entry doesn't say it again.
     expect(
-      screen.getByText(/^Collect paper slips, so nobody's answer is seen/)
+      screen.getByText(/^Enter how many people chose each answer\. A blank box/)
     ).toBeInTheDocument();
     expect(screen.queryByText(/count hands/i)).toBeNull();
   });
@@ -942,7 +967,7 @@ describe("the example", () => {
     expect(qv().results).toEqual([]);
     expect(qv().customPresets).toEqual([]);
     fireEvent.click(screen.getByRole("button", { name: /Clear example/ }));
-    expect(screen.getByText(/No saved rounds yet/)).toBeInTheDocument();
+    expect(screen.getByText(/^Run a round and press Save round/)).toBeInTheDocument();
   });
 });
 

@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import { usePathname } from "next/navigation";
-import { getToolByPath } from "@/lib/constants/tools";
+import { getToolByPath, type ToolDefinition } from "@/lib/constants/tools";
+import { getSectionForTool } from "@/lib/constants/sections";
 import { isVipOnly } from "@/lib/tools/catalog";
 import { VIP_TITLE } from "@/lib/vip/constants";
 import {
@@ -82,6 +83,17 @@ const PAGE_TITLES = new Map<string, string>([
   ["/vip", VIP_TITLE],
   ["/s", "Shared snapshot"],
 ]);
+
+/**
+ * The middle crumb for a tool: its section's name, as home and the page's
+ * "More in …" call it (Decision D7: "Run the sprint", not the category
+ * "Workshops & Facilitation"), else its category. Never the book readers'
+ * section: a VIP tool's bar stays generic (see `onVipTool` below).
+ */
+function crumbFor(tool: ToolDefinition): string {
+  const section = getSectionForTool(tool.id);
+  return section && section.id !== "vip" ? section.label : tool.category;
+}
 
 /** The title for a non-tool address, or undefined when it has none. */
 function pageTitleFor(pathname: string | null): string | undefined {
@@ -245,7 +257,7 @@ export function Header({ onOpenSearch, onOpenSidebar }: HeaderProps) {
               <>
                 <BreadcrumbSeparator className="text-sub hidden lg:block" />
                 <BreadcrumbItem className="hidden lg:list-item">
-                  <span className="text-sub text-sm truncate max-w-[14rem]">{tool.category}</span>
+                  <span className="text-sub text-sm truncate max-w-[14rem]">{crumbFor(tool)}</span>
                 </BreadcrumbItem>
                 <BreadcrumbSeparator className="text-sub hidden lg:block" />
                 <BreadcrumbItem className="min-w-0">

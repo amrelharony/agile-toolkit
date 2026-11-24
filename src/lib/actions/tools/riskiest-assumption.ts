@@ -54,10 +54,12 @@ import {
 } from "@/lib/assumptions/model";
 import {
   HYPOTHESIS_TRACKER_ID,
+  TRACKER_FULL,
   hypothesisFromSource,
   hypothesisLink,
   linkedTest,
   missingFields,
+  trackerFits,
   withHypothesis,
 } from "@/lib/hypotheses/model";
 
@@ -338,7 +340,11 @@ async function testAssumption(store: CanvasStore, id: string) {
   const src = assumptionHypothesisSource(a);
   if (!src.title.trim()) return { sent: false, reason: "blank" };
   const h = hypothesisFromSource(src, nanoid(8), todayLocalISO());
-  await store.putTracker(withHypothesis(tracker, h));
+  const next = withHypothesis(tracker, h);
+  // The tracker's one row must hold it, as the page's send asks: past the cap
+  // the database refuses the row, and every later tracker write with it.
+  if (!trackerFits(next)) return { sent: false, reason: "too_big", message: TRACKER_FULL };
+  await store.putTracker(next);
   // Only the link is written: the assumption's status stays the user's call.
   const link: HandoffLink = { route: "hypothesis", targetId: h.id, at: new Date().toISOString() };
   await store.put(
@@ -357,7 +363,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Test an assumption, as the page's 'Test' does: a drafted hypothesis in the Hypothesis Tracker (the statement as 'We believe', its description as what to learn, its test idea as what we'll do), linked both ways. The tracker then needs the success metric (and what we'll do, when there was no test idea) before it runs: fill them, and a target, with tool.hypothesis_tracker.update_hypothesis. Once per assumption while that hypothesis exists; the assumption's status is left as it is. Params: assumptionId. Returns {sent: true, hypothesisId, believe, missing} or {sent: false, reason: 'not_found' | 'example' | 'already_sent' (with hypothesisId) | 'tested' | 'blank'}.",
+    "Test an assumption, as the page's 'Test' does: a drafted hypothesis in the Hypothesis Tracker (the statement as 'We believe', its description as what to learn, its test idea as what we'll do), linked both ways. The tracker then needs the success metric (and what we'll do, when there was no test idea) before it runs: fill them, and a target, with tool.hypothesis_tracker.update_hypothesis. Once per assumption while that hypothesis exists; the assumption's status is left as it is. Params: assumptionId. Returns {sent: true, hypothesisId, believe, missing} or {sent: false, reason: 'not_found' | 'example' | 'already_sent' (with hypothesisId) | 'tested' | 'blank' | 'too_big' (the tracker is full; with message)}.",
   paramsSchema: z.object({ assumptionId: z.string() }),
   handler: async (params) => testAssumption(browserStore, params.assumptionId),
   mcpHandler: async (params, ctx) => testAssumption(serverStore(ctx.userId), params.assumptionId),

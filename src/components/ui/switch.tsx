@@ -15,8 +15,9 @@ const Switch = React.forwardRef<
       // and clears WCAG 2.2's 44-px touch floor without bloating the
       // desktop visual. Thumb adjusts in tandem (h-4 → h-5).
       "peer relative inline-flex h-5 w-9 [@media(pointer:coarse)]:h-6 [@media(pointer:coarse)]:w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input",
-      // Invisible expand-hitbox so taps adjacent to the switch still register.
-      "after:absolute after:inset-[-6px] after:content-['']",
+      // Invisible expand-hitbox so taps adjacent to the switch still register:
+      // 10 px above and below on touch, so the 24 px track is a 44 px tap.
+      "after:absolute after:inset-[-6px] after:content-[''] pointer-coarse:after:inset-y-[-10px]",
       className
     )}
     {...props}

@@ -12,6 +12,8 @@
  *   public keys) into an AES-GCM-256 key, a random 12-byte nonce, and an AAD
  *   binding the ballot to its round, sender and ballot id. Only the host's
  *   tab can open it, and a ballot moved to another round or sender fails.
+ *   The sender's tab secret is sealed the same way beside it, under an AAD
+ *   of its own (`ballotTabAad`).
  * - Private keys are generated non-extractable and never leave memory.
  *
  * `VoteCrypto` is an interface so the room hook can take a fake in tests.
@@ -164,6 +166,16 @@ export function voteJoinUrl(tool: VoteRoomTool, code: string, fp: string): strin
 /** The AAD every ballot is sealed under: it can't be replayed for another round or sender. */
 export function ballotAad(roundId: string, by: string, bid: string): string {
   return `agile-toolkit:vote-ballot:v1|${roundId}|${by}|${bid}`;
+}
+
+/**
+ * The AAD a ballot's tab secret is sealed under: its own domain, so it never
+ * opens as answers (nor answers as it), bound like the answers to the
+ * round, sender and ballot id, and to the answers' ciphertext `ct`, so the
+ * secret can't be lifted onto other answers under the same ballot id.
+ */
+export function ballotTabAad(roundId: string, by: string, bid: string, ct: string): string {
+  return `agile-toolkit:vote-tab:v1|${roundId}|${by}|${bid}|${ct}`;
 }
 
 // ── WebCrypto implementation ─────────────────────────────────────────

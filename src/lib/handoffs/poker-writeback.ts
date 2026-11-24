@@ -34,32 +34,57 @@ export interface QueuedSessionStory {
   finalEstimate: null;
 }
 
-/** Queue items not in the session yet: never pulled in, or pulled into a
- *  session that has since ended (their story id isn't in `sessionStoryIds`). */
+/**
+ * Queue items not in the session yet: never pulled in, or pulled into a
+ * session that has since ended (their story id isn't in `sessionStoryIds`).
+ * An item an estimate-without-a-meeting round holds (its story id is in
+ * `held`, lib/estimation/async-rounds `heldStoryIds`) isn't pending either:
+ * pulling it into a session would stamp it again and break that round's
+ * write-back.
+ */
 export function pendingQueueItems(
   queue: readonly PokerQueueItem[] | undefined,
-  sessionStoryIds: readonly string[] = []
+  sessionStoryIds: readonly string[] = [],
+  held: readonly string[] = []
 ): PokerQueueItem[] {
-  const inSession = new Set(sessionStoryIds);
-  return (queue ?? []).filter((q) => !q.sessionStoryId || !inSession.has(q.sessionStoryId));
+  const taken = new Set([...sessionStoryIds, ...held]);
+  return (queue ?? []).filter((q) => !q.sessionStoryId || !taken.has(q.sessionStoryId));
 }
 
 /**
  * Turn the pending queue items into session stories, and stamp each queue
  * item with the story id it became (the write-back's only key). At most
- * `room` stories, so a session never passes its 500-story limit.
+ * `room` stories, so a session never passes its 500-story limit. Items an
+ * async round holds (`held`) stay where they are.
  */
 export function takeQueuedStories(
   sessionStoryIds: readonly string[] = [],
-  room = MAX_SESSION_STORIES - sessionStoryIds.length
+  room = MAX_SESSION_STORIES - sessionStoryIds.length,
+  held: readonly string[] = []
 ): QueuedSessionStory[] {
-  const pending = pendingQueueItems(currentPokerLog()?.queue, sessionStoryIds).slice(
+  const pending = pendingQueueItems(currentPokerLog()?.queue, sessionStoryIds, held).slice(
     0,
     Math.max(0, room)
   );
-  if (pending.length === 0) return [];
+  return stampQueued(pending);
+}
+
+/**
+ * Only the chosen queue items (by queue item id) as session stories,
+ * stamped as `takeQueuedStories` stamps them: an estimate-without-a-meeting
+ * round takes the stories the host ticked and leaves the rest queued.
+ * Unknown ids are skipped; the stories come back in queue order.
+ */
+export function takeQueuedStoriesById(queueIds: readonly string[]): QueuedSessionStory[] {
+  const wanted = new Set(queueIds);
+  return stampQueued((currentPokerLog()?.queue ?? []).filter((q) => wanted.has(q.id)));
+}
+
+/** Session stories for `items`, each one's id stamped on its queue item. */
+function stampQueued(items: readonly PokerQueueItem[]): QueuedSessionStory[] {
+  if (items.length === 0) return [];
   const stamped = new Map<string, string>();
-  const stories = pending.map((q) => {
+  const stories = items.map((q) => {
     const id = crypto.randomUUID();
     stamped.set(q.id, id);
     const title = q.title.trim().slice(0, POKER_TITLE_MAX) || "Untitled story";

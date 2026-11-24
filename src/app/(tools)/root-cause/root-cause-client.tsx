@@ -1,9 +1,10 @@
 "use client";
 
 /**
- * Root Cause: a problem taken back to its causes with 5 Whys, a fishbone or
- * both, a Pareto chart of the fishbone's counts, then the root cause and a
- * countermeasure sent to Retro Actions so someone owns it.
+ * Root Cause: a problem taken back to its causes with 5 Whys, a fishbone, a
+ * causal loop or all three, a Pareto chart of the fishbone's counts, then
+ * the root cause and a countermeasure sent to Retro Actions so someone owns
+ * it, or planned and checked in Improve.
  *
  * Analyses live in the workspace (rootCauseAnalyses), so Amr, the hand-off
  * routes and Post-Mortem read the same records: a post-mortem's
@@ -17,7 +18,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { GitBranch, ListTree, Plus, Search, Trash2 } from "lucide-react";
+import dynamic from "next/dynamic";
+import { GitBranch, ListTree, Plus, RefreshCcwDot, Search, Trash2 } from "lucide-react";
 import { nanoid } from "nanoid";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -62,6 +64,7 @@ import {
   withWhyText,
   type NewCause,
 } from "@/lib/root-cause/model";
+import { findLoops } from "@/lib/root-cause/loops";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   TOOL_TEXT_MAX,
@@ -83,6 +86,26 @@ import { rootCauseToMarkdown } from "./markdown";
 import { NewAnalysisForm, type NewAnalysisValues } from "./new-analysis-form";
 import { Outcome, type PostMortemOption } from "./outcome";
 import { Pareto } from "./pareto";
+
+// The loop view loads when it's opened, not with the page.
+const CausalLoop = dynamic(() => import("./causal-loop").then((m) => m.CausalLoop), {
+  ssr: false,
+  loading: () => <p className="text-xs text-sub">Loading the causal loop…</p>,
+});
+
+/** The three views, each with its icon. */
+const METHOD_ICON: Record<RootCauseMethod, typeof ListTree> = {
+  "five-whys": ListTree,
+  fishbone: GitBranch,
+  "causal-loop": RefreshCcwDot,
+};
+
+/** What to do first in a new analysis, announced when it starts. */
+const METHOD_FIRST_STEP: Record<RootCauseMethod, string> = {
+  "five-whys": "Ask why it happened.",
+  fishbone: "Add its causes.",
+  "causal-loop": "Add the things that go up or down.",
+};
 
 const TOOL_ID = "root-cause";
 const NONE: RootCauseAnalysis[] = [];
@@ -132,6 +155,12 @@ function AnalysisView({
   const id = analysis.id;
   const from = sourceLabel(analysis.sourceRef);
   const fromHref = sourceHref(analysis.sourceRef);
+  const loops = useMemo(() => findLoops(analysis.loop).loops.length, [analysis.loop]);
+  const counts: Record<RootCauseMethod, number> = {
+    "five-whys": analysis.whys.length,
+    fishbone: analysis.causes.length,
+    "causal-loop": loops,
+  };
 
   /**
    * Name the root cause. Marking a why or a cause is finding one (logged as
@@ -371,30 +400,38 @@ function AnalysisView({
       </div>
 
       <div role="group" aria-label="Method" className="flex flex-wrap gap-2">
-        {(["five-whys", "fishbone"] as const).map((m) => (
-          <Button
-            key={m}
-            type="button"
-            size="sm"
-            variant={view === m ? "default" : "outline"}
-            aria-pressed={view === m}
-            onClick={() => setView(m)}
-            className="gap-1.5"
-          >
-            {m === "five-whys" ? (
-              <ListTree className="h-4 w-4" aria-hidden="true" />
-            ) : (
-              <GitBranch className="h-4 w-4" aria-hidden="true" />
-            )}
-            {ROOT_CAUSE_METHOD_LABEL[m]}
-            <span className="font-mono text-xs opacity-80">
-              {m === "five-whys" ? analysis.whys.length : analysis.causes.length}
-            </span>
-          </Button>
-        ))}
+        {(["five-whys", "fishbone", "causal-loop"] as const).map((m) => {
+          const Icon = METHOD_ICON[m];
+          return (
+            <Button
+              key={m}
+              type="button"
+              size="sm"
+              variant={view === m ? "default" : "outline"}
+              aria-pressed={view === m}
+              onClick={() => setView(m)}
+              className="gap-1.5"
+            >
+              <Icon className="h-4 w-4" aria-hidden="true" />
+              {ROOT_CAUSE_METHOD_LABEL[m]}
+              <span className="font-mono text-xs opacity-80">
+                {counts[m]}
+                {m === "causal-loop" && <span className="sr-only"> loops</span>}
+              </span>
+            </Button>
+          );
+        })}
       </div>
 
-      {view === "five-whys" ? (
+      {view === "causal-loop" ? (
+        <CausalLoop
+          analysis={analysis}
+          readOnlyAi={example}
+          onWrite={onWrite}
+          onLog={onLog}
+          onMarkRoot={markRoot}
+        />
+      ) : view === "five-whys" ? (
         <FiveWhys
           analysis={analysis}
           checks={checks}
@@ -546,9 +583,7 @@ export function RootCauseClient() {
     });
     select(a.id);
     setCreating(false);
-    announce(
-      `Started “${short(a.title)}”. ${a.method === "five-whys" ? "Ask why it happened." : "Add its causes."}`
-    );
+    announce(`Started “${short(a.title)}”. ${METHOD_FIRST_STEP[a.method]}`);
   };
 
   const remove = (a: RootCauseAnalysis) => {
@@ -617,7 +652,7 @@ export function RootCauseClient() {
           ) : (
             <>
               <p className="text-sm font-medium text-text">{verdict}</p>
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
+              <div className="grid grid-cols-[minmax(0,1fr)] gap-4 lg:grid-cols-[minmax(0,16rem)_minmax(0,1fr)]">
                 <nav aria-label="Analyses" className="space-y-2">
                   <ul className="space-y-1.5">
                     {analyses.map((a) => {

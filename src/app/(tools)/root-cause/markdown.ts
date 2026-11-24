@@ -7,6 +7,7 @@ import {
   causesIn,
   paretoRows,
 } from "@/lib/root-cause/model";
+import { LOOPS_TRUNCATED_NOTE, describeLoop, findLoops, loopName } from "@/lib/root-cause/loops";
 
 const oneLine = (s: string) => s.replace(/\s*[\r\n]+\s*/g, " ").trim();
 /** A table cell: one line, with pipes escaped so they don't split the cell. */
@@ -19,7 +20,47 @@ export interface RootCauseMarkdownOptions {
   postMortemTitle?: (id: string) => string | undefined;
 }
 
-/** One analysis: the problem, its whys, its fishbone with the Pareto order, the outcome. */
+/**
+ * The causal loop: its things, its arrows ("A → B (same way, takes time)")
+ * and the loops they close, each with its name and its path. Nothing when
+ * the analysis has no thing on a loop.
+ */
+export function loopToMarkdown(a: RootCauseAnalysis): string[] {
+  const loop = a.loop;
+  if (!loop || loop.nodes.length === 0) return [];
+  const text = new Map(loop.nodes.map((n) => [n.id, oneLine(n.text)]));
+  const lines = ["### Causal loop", "", "**Things that go up or down**", ""];
+  for (const n of loop.nodes) lines.push(`- ${oneLine(n.text)}`);
+  lines.push("");
+  if (loop.links.length > 0) {
+    lines.push("**Arrows**", "");
+    for (const l of loop.links) {
+      const how = [
+        l.polarity === "same" ? "same way" : "opposite ways",
+        l.delay ? "takes time" : "",
+      ]
+        .filter(Boolean)
+        .join(", ");
+      lines.push(`- ${text.get(l.from) ?? "?"} → ${text.get(l.to) ?? "?"} (${how})`);
+    }
+    lines.push("");
+  }
+  const found = findLoops(loop);
+  if (found.loops.length === 0) {
+    lines.push("No loop closes yet.", "");
+    return lines;
+  }
+  lines.push("**Loops**", "");
+  for (const l of found.loops) {
+    const name = loopName(loop, l.key);
+    lines.push(`- ${l.label}${name ? ` “${oneLine(name)}”` : ""}: ${describeLoop(loop, l)}`);
+  }
+  if (found.truncated) lines.push("", LOOPS_TRUNCATED_NOTE);
+  lines.push("");
+  return lines;
+}
+
+/** One analysis: the problem, its whys, its fishbone with the Pareto order, its loop, the outcome. */
 export function analysisToMarkdown(
   a: RootCauseAnalysis,
   { postMortemTitle }: Pick<RootCauseMarkdownOptions, "postMortemTitle"> = {}
@@ -58,6 +99,7 @@ export function analysisToMarkdown(
       );
     }
   }
+  lines.push(...loopToMarkdown(a));
   if (a.rootCause?.trim()) lines.push(`**Root cause:** ${oneLine(a.rootCause)}`, "");
   if (a.countermeasure?.trim()) {
     lines.push("**Countermeasure:**", "", ...a.countermeasure.trim().split("\n"), "");

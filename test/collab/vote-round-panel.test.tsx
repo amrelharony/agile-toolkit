@@ -417,6 +417,34 @@ describe("VoteRoundPanel: a live round", () => {
     expect(await screen.findByRole("button", { name: "Run a live round" })).toBeInTheDocument();
   });
 
+  it("hands the tool an end that ends the room for every phone, signed, and resolves after", async () => {
+    // A tool about to take the room away (another board shown) ends it first.
+    const endRoomRef: { current: (() => Promise<void>) | null } = { current: null };
+    const { ch } = await startRound({ endRoomRef });
+    expect(endRoomRef.current).toBeTypeOf("function");
+    let ended = false;
+    // Not awaited inside act: it resolves once the room's closed render has run.
+    act(() => {
+      void endRoomRef.current!().then(() => {
+        ended = true;
+      });
+    });
+    await waitFor(() => expect(ended).toBe(true));
+    expect(ch.sent(VOTE_ROOM_EVENTS.end)).toEqual([expect.objectContaining({ reason: "host" })]);
+    expect(
+      await screen.findByRole("heading", { name: "You ended the live round" })
+    ).toBeInTheDocument();
+    // A room already over resolves at once, and ends nothing more.
+    let again = false;
+    act(() => {
+      void endRoomRef.current?.().then(() => {
+        again = true;
+      });
+    });
+    await waitFor(() => expect(again).toBe(true));
+    expect(ch.sent(VOTE_ROOM_EVENTS.end)).toHaveLength(1);
+  });
+
   async function revealThree(ch: FakeChannel, crypto: VoteCrypto) {
     await answer(ch, crypto, A, "bid_00000001");
     await answer(ch, crypto, B, "bid_00000002");

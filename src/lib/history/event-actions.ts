@@ -49,6 +49,10 @@ export const IMPEDIMENT_ACTIONS = {
   IMPEDIMENT_RESOLVED: "impediment_resolved", // milestone
   IMPEDIMENT_REMOVED: "impediment_removed",
   IMPEDIMENT_STATUS_CHANGED: "impediment_status_changed",
+  /** Payload: how many blockers, how many clusters and the source (ai, rules, or manual for one blocker's cluster set by hand). */
+  BLOCKERS_CLUSTERED: "blockers_clustered",
+  /** A cluster of blockers was raised as one impediment. Payload: impedimentId and the cluster's size. */
+  CLUSTER_RAISED: "cluster_raised",
 } as const;
 
 export const STANDUP_ACTIONS = {
@@ -63,6 +67,16 @@ export const PLANNING_POKER_ACTIONS = {
   ESTIMATE_COMMITTED: "estimate_committed", // milestone
   ROUND_RESET: "round_reset",
   STORY_CHANGED: "story_changed",
+  /** The host ran a Three-point check after Reveal. Payload: the expected size and the card it rounds up to. */
+  THREE_POINT_USED: "three_point_used",
+  /** Estimate without a meeting: a round was opened. Payload: roundId and its story count; counts only. */
+  ASYNC_ROUND_CREATED: "async_round_created",
+  /** Payload: roundId and the reply count; never a name, a card or a note. */
+  ASYNC_REPLY_ADDED: "async_reply_added",
+  /** Payload: roundId and its reply and story counts. */
+  ASYNC_REVEALED: "async_revealed",
+  /** Payload: roundId and how many of its stories got an estimate. */
+  ASYNC_CLOSED: "async_closed",
 } as const;
 
 export const KUDOS_ACTIONS = {
@@ -184,6 +198,14 @@ export const KANBAN_ACTIONS = {
   COLUMN_ADDED: "column_added",
   COLUMN_REMOVED: "column_removed",
   KANBAN_RESET: "kanban_reset", // milestone
+  /** The Definition of Workflow changed. Payload: which part (work types, policies, WIP, pull, blockers or the SLE). */
+  WORKFLOW_UPDATED: "workflow_updated",
+  /** Payload: the version number. */
+  WORKFLOW_VERSION_SAVED: "workflow_version_saved", // milestone
+  /** Payload: the STATIK step saved. */
+  STATIK_STEP_SAVED: "statik_step_saved",
+  /** A blocked spell got a cluster or a side. Payload: cardId, whether the cluster is a default one (and its index in DEFAULT_BLOCKER_CLUSTERS) or custom, and side; never the cluster's or the cause's text. */
+  BLOCK_NOTED: "block_noted",
 } as const;
 
 export const CYCLE_TIME_ACTIONS = {
@@ -212,6 +234,14 @@ export const PI_PLANNING_ACTIONS = {
   ITEM_UPDATED: "item_updated",
   PI_PLAN_COMMITTED: "pi_plan_committed", // milestone
   PI_RESET: "pi_reset", // milestone
+  /** Payload: riskId and its ROAM status. */
+  RISK_ROAMED: "risk_roamed",
+  /** Payload: objectiveId, its planned and its actual business value. */
+  OBJECTIVE_SCORED: "objective_scored",
+  /** Payload: the vote count and the average. */
+  CONFIDENCE_SAVED: "confidence_saved",
+  /** Payload: the PI's predictability, as a whole percentage. */
+  PI_CLOSED: "pi_closed", // milestone
 } as const;
 
 export const SCRUM_OF_SCRUMS_ACTIONS = {
@@ -290,6 +320,12 @@ export const HYPOTHESIS_ACTIONS = {
   RESULT_RECORDED: "result_recorded",
   /** The measured result was cleared, back to blank until measured. Payload: hypothesisId. */
   RESULT_CLEARED: "result_cleared",
+  /** A shipped story or epic got a check that it delivered. Payload: hypothesisId and the shipped kind and id. */
+  VALUE_CHECK_ADDED: "value_check_added",
+  /** Payload: hypothesisId and the kind (metric, key-result or words). */
+  MEASURED_BY_SET: "measured_by_set",
+  /** An A/B test's result was recorded as the result. Payload: hypothesisId and testId. */
+  AB_RESULT_USED: "ab_result_used",
 } as const;
 
 export const INTERVIEW_ACTIONS = {
@@ -399,6 +435,8 @@ export const EPIC_ROADMAP_ACTIONS = {
   EPIC_REMOVED: "epic_removed",
   EPIC_UPDATED: "epic_updated",
   ROADMAP_RESET: "roadmap_reset", // milestone
+  /** An epic moved on the Now, Next, Later board. Payload: epicId and its horizon, or none when set back to its quarters. */
+  HORIZON_CHANGED: "horizon_changed",
 } as const;
 
 export const REFINEMENT_ACTIONS = {
@@ -533,6 +571,12 @@ export const RELEASE_READINESS_ACTIONS = {
   RELEASE_REOPENED: "release_reopened",
   RELEASE_UPDATED: "release_updated",
   GATES_CHANGED: "gates_changed",
+  /** Shipped stories were linked to a release. Payload: releaseId and how many. */
+  STORIES_LINKED: "stories_linked",
+  /** Release notes were drafted. Payload: releaseId, the audience and the source (ai or template). */
+  NOTES_DRAFTED: "notes_drafted",
+  /** Payload: releaseId and the audience; never the text. */
+  NOTES_SAVED: "notes_saved",
 } as const;
 
 export const RUNBOOK_SCORER_ACTIONS = {
@@ -627,6 +671,8 @@ export const WORKING_AGREEMENT_ACTIONS = {
   CHARTER_RESET: "charter_reset",
   CHECK_IN_SAVED: "check_in_saved",
   CHECK_IN_REMOVED: "check_in_removed",
+  /** Payload: templateId (urgency-ladder, core-hours, focus-time or ai-use) and how many rules it added, updated, removed and skipped; never their text. */
+  TEMPLATE_APPLIED: "template_applied",
 } as const;
 
 export const LIBERATING_STRUCTURES_ACTIONS = {
@@ -681,6 +727,8 @@ export const ASYNC_STANDUP_ACTIONS = {
   UPDATE_REMOVED: "update_removed",
   DIGEST_GENERATED: "digest_generated", // milestone
   ASYNC_STANDUP_RESET: "async_standup_reset",
+  /** The daily digest was summarised. Payload: the day, the source (ai or rules) and the day's updateCount and blockerCount; never the summary. */
+  DIGEST_SUMMARISED: "digest_summarised",
 } as const;
 
 export const ONE_ON_ONE_ACTIONS = {
@@ -1149,6 +1197,12 @@ export const ROOT_CAUSE_ACTIONS = {
   ROOT_CAUSE_FOUND: "root_cause_found", // milestone
   /** The countermeasure went to Retro Actions. */
   COUNTERMEASURE_SENT: "countermeasure_sent",
+  /** Payload: analysisId and the loop's node count. */
+  LOOP_NODE_ADDED: "loop_node_added",
+  /** Payload: analysisId, the polarity (same or opposite) and whether it has a delay. */
+  LOOP_LINK_ADDED: "loop_link_added",
+  /** Payload: analysisId and the loop's kind (reinforcing or balancing). */
+  LOOP_NAMED: "loop_named",
 } as const;
 
 export const CARD_DECKS_ACTIONS = {
@@ -1186,6 +1240,353 @@ export const MEETING_AUDIT_ACTIONS = {
   /** Keep, change or drop. Payload: meetingId, verdict. */
   VERDICT_SET: "verdict_set",
   AUDIT_RESET: "audit_reset",
+} as const;
+
+// ── Phase 43 — the tools plan's phase 2 ─────────────────────────────
+/** Example Mapping. Payloads hold ids and counts, never a rule's, an example's or a question's text. */
+export const EXAMPLE_MAPPING_ACTIONS = {
+  /** Payload: mapId, and the storyId when it maps a backlog story. */
+  MAP_CREATED: "map_created",
+  /** The title, story, timebox or a card changed. Payload: mapId, the fields changed (names only), and storyId when Add to backlog linked a story. */
+  MAP_UPDATED: "map_updated",
+  /** Payload: mapId. */
+  MAP_REMOVED: "map_removed",
+  /** Payload: mapId, ruleId and the map's rule count. */
+  RULE_ADDED: "rule_added",
+  /** Payload: mapId, ruleId, exampleId and whether it is written as Given, When, Then. */
+  EXAMPLE_ADDED: "example_added",
+  /** Payload: mapId and questionId; never the owner. */
+  QUESTION_ADDED: "question_added",
+  /** Payload: mapId, questionId and its new status (answered or dropped). */
+  QUESTION_ANSWERED: "question_answered",
+  /** Ready, split or not yet. Payload: mapId and the verdict. */
+  VERDICT_SET: "verdict_set",
+  /** The rules and examples went to the story. Payload: mapId, storyId and how many lines. */
+  SENT_TO_STORY: "sent_to_story", // milestone
+  /** A rule became a story of its own. Payload: mapId, ruleId and the new storyId. */
+  SPLIT_BY_RULE: "split_by_rule",
+} as const;
+
+/** Relative Sizing. Counts only: no story titles and no names. */
+export const RELATIVE_SIZING_ACTIONS = {
+  /** Payload: boardId, its story count and its bucket count. */
+  BOARD_CREATED: "board_created",
+  /** Payload: boardId. */
+  BOARD_REMOVED: "board_removed",
+  /** A timebox, a deal or a live room began. Payload: boardId, the mode (silent, buckets or live) and the story count. */
+  ROUND_STARTED: "round_started",
+  /** Payload: boardId, how many stories were placed and how many were outliers. */
+  ROUND_SAVED: "round_saved",
+  /** Save sizes wrote points to the stories. Payload: boardId and how many stories. */
+  SIZES_APPLIED: "sizes_applied", // milestone
+  /** The hardest stories were queued for Planning Poker. Payload: boardId and how many. */
+  SENT_TO_POKER: "sent_to_poker",
+} as const;
+
+/** Bug Triage. Payloads hold ids, grid cells, routes and reasons, never a bug's text. */
+export const BUG_TRIAGE_ACTIONS = {
+  /** Payload: bugId, and the tool that sent it when another tool did. */
+  BUG_LOGGED: "bug_logged",
+  /** Placed on the grid. Payload: bugId, its severity and its priority. */
+  BUG_TRIAGED: "bug_triaged",
+  /** Payload: bugId. */
+  BUG_UPDATED: "bug_updated",
+  /** Fix now, next or later. Payload: bugId and the route (interrupt or backlog-story). */
+  BUG_SENT: "bug_sent",
+  /** Payload: bugId and the close reason. */
+  BUG_CLOSED: "bug_closed",
+  /** Payload: bugId. */
+  BUG_REOPENED: "bug_reopened",
+  /** Payload: bugId. */
+  BUG_REMOVED: "bug_removed",
+  /** No new bug is left untriaged. Payload: how many were triaged in the sitting. */
+  TRIAGE_DONE: "triage_done", // milestone
+} as const;
+
+/** Hill Chart. Payloads hold ids and positions (0 to 100), never a scope's title or note. */
+export const HILL_CHART_ACTIONS = {
+  /** Payload: chartId, and the sprint or epic id it follows. */
+  CHART_CREATED: "chart_created",
+  /** Payload: chartId. */
+  CHART_UPDATED: "chart_updated",
+  /** Payload: chartId. */
+  CHART_REMOVED: "chart_removed",
+  /** Payload: chartId, scopeId and the linked story or epic id. */
+  SCOPE_ADDED: "scope_added",
+  /** Payload: chartId, scopeId and its position before and after. */
+  SCOPE_MOVED: "scope_moved",
+  /** Payload: chartId and scopeId. */
+  SCOPE_REMOVED: "scope_removed",
+  /** A stuck scope was raised as an impediment. Payload: chartId, scopeId and impedimentId. */
+  SCOPE_RAISED: "scope_raised",
+  /** The week's positions were saved. Payload: chartId, the scope count and how many moved. */
+  CHECKED_IN: "checked_in",
+  /** A scope reached the bottom of the hill. Payload: chartId and scopeId. */
+  SCOPE_DONE: "scope_done", // milestone
+} as const;
+
+/** Test Sessions. Payloads hold ids, kinds and counts, never a charter's or a note's text, or the tester. */
+export const TEST_SESSIONS_ACTIONS = {
+  /** Payload: sessionId, the minutes, and the storyId when it tests one. */
+  SESSION_PLANNED: "session_planned",
+  /** Payload: sessionId. */
+  SESSION_STARTED: "session_started",
+  /** Payload: sessionId, the minutes it ran and its note count. */
+  SESSION_ENDED: "session_ended",
+  /** Payload: sessionId and the note's kind. */
+  NOTE_ADDED: "note_added",
+  /** The session's bugs went to Bug Triage. Payload: sessionId and how many. */
+  BUGS_SENT: "bugs_sent",
+  /** Payload: sessionId, the coverage and the time split. */
+  SESSION_DEBRIEFED: "session_debriefed", // milestone
+  /** Payload: sessionId. */
+  SESSION_REMOVED: "session_removed",
+} as const;
+
+/** Notes to Actions. No payload carries the notes, an item's text, an owner or a quote. */
+export const NOTES_TO_ACTIONS_ACTIONS = {
+  /** Notes were pasted. Payload: noteId and the text's length. */
+  NOTES_ADDED: "notes_added",
+  /** Payload: noteId, the source (ai or rules) and how many items. */
+  ITEMS_FOUND: "items_found",
+  /** Payload: noteId and how many. */
+  ITEMS_KEPT: "items_kept",
+  /** Payload: noteId, the route and how many. */
+  ITEMS_SENT: "items_sent",
+  /** Payload: noteId, itemId and the item's kind. */
+  ITEM_DROPPED: "item_dropped",
+  /** Payload: noteId and itemId. */
+  ITEM_ANSWERED: "item_answered",
+  /** Every item was sent, dropped or answered. Payload: noteId and the counts by status. */
+  NOTE_DONE: "note_done", // milestone
+  /** The pasted text was cleared and the items kept. Payload: noteId. */
+  NOTES_TEXT_FORGOTTEN: "notes_text_forgotten",
+  /** Payload: noteId. */
+  NOTES_REMOVED: "notes_removed",
+} as const;
+
+/** Product Canvas. Payloads hold ids, formats, sections, routes and counts, never a note's text or a requester. */
+export const PRODUCT_CANVAS_ACTIONS = {
+  /** Payload: canvasId and the format. */
+  CANVAS_CREATED: "canvas_created",
+  /** Payload: canvasId and the section changed, or the field (title, evidence, answer, links, nice_to_have, demand, appetite, decision; bet with its new status). A cycle's new dates: the cycle and how many pitches it holds, no canvasId. */
+  CANVAS_UPDATED: "canvas_updated",
+  /** Payload: canvasId and the format. */
+  CANVAS_REMOVED: "canvas_removed",
+  /** Drafted lines were added. Payload: canvasId, the source (ai or starter) and how many. */
+  DRAFT_ACCEPTED: "draft_accepted",
+  /** Payload: canvasId, the section (none for a whole idea or business case) and the route. */
+  ITEM_SENT: "item_sent",
+  /** An idea joined the inbox. Payload: canvasId and the idea's source kind. */
+  IDEA_LOGGED: "idea_logged",
+  /** Payload: the kept canvasId and how many were merged into it. */
+  IDEAS_MERGED: "ideas_merged",
+  /** Payload: canvasId and the idea's new status. */
+  IDEA_TRIAGED: "idea_triaged",
+  /** Payload: canvasId and the verdict. */
+  CASE_DECIDED: "case_decided",
+  /** A lean business case got a go. Payload: canvasId. */
+  CASE_APPROVED: "case_approved", // milestone
+  /** A pitch was bet on at the betting table. Payload: canvasId, the cycle and its weeks. */
+  BET_PLACED: "bet_placed",
+} as const;
+
+/** Impact Map. Payloads hold ids, levels, routes and counts, never a node's text. */
+export const IMPACT_MAP_ACTIONS = {
+  /** Payload: mapId, and the productGoalId when it starts from one. */
+  MAP_CREATED: "map_created",
+  /** Payload: mapId. */
+  MAP_UPDATED: "map_updated",
+  /** Payload: mapId and its node count. */
+  MAP_REMOVED: "map_removed",
+  /** Payload: mapId, nodeId and its level (1 actor, 2 impact, 3 deliverable). */
+  NODE_ADDED: "node_added",
+  /** Payload: mapId and nodeId. */
+  NODE_UPDATED: "node_updated",
+  /** Payload: mapId, nodeId and how many nodes went with it. */
+  NODE_REMOVED: "node_removed",
+  /** The map's first focus impact was picked. Payload: mapId and nodeId. */
+  FOCUS_SET: "focus_set", // milestone
+  /** Payload: mapId and the new focus nodeId. */
+  FOCUS_CHANGED: "focus_changed",
+  /** Payload: mapId, nodeId and the route (backlog-story or epic). */
+  DELIVERABLE_SENT: "deliverable_sent",
+  /** An impact went to the Hypothesis Tracker. Payload: mapId and nodeId. */
+  IMPACT_TESTED: "impact_tested",
+  /** Payload: mapId, the source (ai or rules) and how many nodes. */
+  DRAFT_ACCEPTED: "draft_accepted",
+} as const;
+
+/** Strategy Tree. Payloads hold ids, formats, levels, statuses and routes, never a node's text or owner. */
+export const STRATEGY_TREE_ACTIONS = {
+  /** Payload: treeId and the format (dibb, lean-value-tree or hoshin). */
+  TREE_CREATED: "tree_created",
+  /** Payload: treeId and the format. */
+  TREE_REMOVED: "tree_removed",
+  /** Payload: treeId, nodeId and its level. */
+  NODE_ADDED: "node_added",
+  /** Payload: treeId and nodeId. */
+  NODE_UPDATED: "node_updated",
+  /** Payload: treeId, nodeId and how many nodes went with it. */
+  NODE_REMOVED: "node_removed",
+  /** Payload: treeId, nodeId and the status. */
+  STATUS_CHANGED: "status_changed",
+  /** Every part is agreed or dropped. Payload: treeId and its node count. */
+  TREE_AGREED: "tree_agreed", // milestone
+  /** Payload: treeId, nodeId and the route (hypothesis or epic). */
+  BET_SENT: "bet_sent",
+  /** Payload: treeId and how many nodes. */
+  DRAFT_ACCEPTED: "draft_accepted",
+} as const;
+
+/** Persona Library. Payloads hold ids, tiers and counts, never a persona's name or words. */
+export const PERSONA_LIBRARY_ACTIONS = {
+  /** Payload: personaId, its tier and how much is researched. */
+  PERSONA_CREATED: "persona_created",
+  /** Payload: personaId. */
+  PERSONA_UPDATED: "persona_updated",
+  /** Payload: personaId. */
+  PERSONA_REMOVED: "persona_removed",
+  /** A persona was drafted from interview notes. Payload: the source (ai or rules) and how many interviews. */
+  PERSONA_DRAFTED: "persona_drafted",
+} as const;
+
+/** Product Metrics. Payloads hold ids, days, roles and counts. */
+export const PRODUCT_METRICS_ACTIONS = {
+  /** Payload: metricId and its role, HEART category or AARRR stage. */
+  METRIC_ADDED: "metric_added",
+  /** Payload: metricId. */
+  METRIC_UPDATED: "metric_updated",
+  /** Payload: metricId. */
+  METRIC_REMOVED: "metric_removed",
+  /** Payload: metricId and the day. */
+  READING_ADDED: "reading_added",
+  /** Payload: metricId and the day. */
+  READING_REMOVED: "reading_removed",
+  /** Readings were pasted. Payload: how many readings and how many metrics. */
+  READINGS_IMPORTED: "readings_imported",
+  /** A reading for every funnel stage on one day. Payload: the day and the stage count. */
+  FUNNEL_PERIOD_ADDED: "funnel_period_added",
+  /** Payload: metricId. */
+  NORTH_STAR_SET: "north_star_set", // milestone
+} as const;
+
+/** A/B Calculator. Payloads hold ids, sizes, days and verdicts. */
+export const AB_CALCULATOR_ACTIONS = {
+  /** Payload: testId, the people each version needs and the days planned. */
+  TEST_SAVED: "test_saved",
+  /** Payload: testId. */
+  TEST_UPDATED: "test_updated",
+  /** Payload: testId. */
+  TEST_REMOVED: "test_removed",
+  /** Visitors and conversions were typed. Payload: testId and whether the result is significant. */
+  COUNTS_RECORDED: "counts_recorded",
+  /** Ship, keep or rerun. Payload: testId and the decision. */
+  DECISION_SET: "decision_set", // milestone
+} as const;
+
+/** EBM Dashboard. Payloads hold ids, value areas, days and counts, never the goal's text. */
+export const EBM_DASHBOARD_ACTIONS = {
+  /** Payload: metricId, its key value area, and its source when read from the toolkit. */
+  MEASURE_ADDED: "measure_added",
+  /** Payload: metricId. */
+  MEASURE_UPDATED: "measure_updated",
+  /** Payload: metricId. */
+  MEASURE_REMOVED: "measure_removed",
+  /** Payload: metricId and the day. */
+  READING_ADDED: "reading_added",
+  /** Payload: whether the goal and its why are written. */
+  STRATEGIC_GOAL_SET: "strategic_goal_set",
+  /** Payload: reviewId, the area to focus on next and how many areas were measured. */
+  REVIEW_RECORDED: "review_recorded", // milestone
+} as const;
+
+/** Flow Insights. Payloads hold ids, types and counts. */
+export const FLOW_INSIGHTS_ACTIONS = {
+  /** Payload: the item's id, whether it is a story or a card, and its type. */
+  WORK_TYPE_SET: "work_type_set",
+  /** Several items were sorted at once. Payload: how many. */
+  WORK_TYPES_SORTED: "work_types_sorted",
+  /** Payload: the four target percentages, or none when cleared. */
+  TARGET_SPLIT_SET: "target_split_set",
+} as const;
+
+/** Improve (an A3 or an Improvement Kata). Payloads hold ids, methods, days and routes, never the text. */
+export const IMPROVE_ACTIONS = {
+  /** Payload: itemId, its method (a3 or kata), and the analysisId when a Root Cause analysis started it. */
+  ITEM_CREATED: "item_created",
+  /** Payload: itemId. */
+  ITEM_UPDATED: "item_updated",
+  /** Payload: itemId and its method. */
+  ITEM_REMOVED: "item_removed",
+  /** Payload: itemId and the status (closed or dropped). */
+  ITEM_CLOSED: "item_closed",
+  /** A countermeasure or an experiment. Payload: itemId and stepId. */
+  STEP_ADDED: "step_added",
+  /** Payload: itemId and stepId. */
+  STEP_DONE: "step_done",
+  /** Payload: itemId, stepId and the route (retro-action or backlog-story). */
+  STEP_SENT: "step_sent",
+  /** Payload: itemId and the day. */
+  READING_LOGGED: "reading_logged",
+  /** Payload: itemId and obstacleId. */
+  OBSTACLE_ADDED: "obstacle_added",
+  /** Payload: itemId and obstacleId. */
+  OBSTACLE_CLEARED: "obstacle_cleared",
+  /** Payload: itemId, obstacleId and the route. */
+  OBSTACLE_SENT: "obstacle_sent",
+  /** A coaching talk was walked through. Payload: itemId and the next coaching day. */
+  COACHING_DONE: "coaching_done",
+  /** Payload: itemId and how many targets it has reached. */
+  TARGET_REACHED: "target_reached", // milestone
+} as const;
+
+/** Kickoff. Payloads hold ids, formats, sections, routes and counts, never an item's text or a participant. */
+export const KICKOFF_ACTIONS = {
+  /** Payload: kickoffId and the format. */
+  KICKOFF_CREATED: "kickoff_created",
+  /** Payload: kickoffId. */
+  KICKOFF_UPDATED: "kickoff_updated",
+  /** Payload: kickoffId and the format. */
+  KICKOFF_REMOVED: "kickoff_removed",
+  /** Payload: kickoffId and the section. */
+  ITEM_ADDED: "item_added",
+  /** Payload: kickoffId, the source (ai or starter) and how many. */
+  ITEMS_DRAFTED: "items_drafted",
+  /** Answers from the room's phones were added. Payload: kickoffId, the section and how many. */
+  ITEMS_COLLECTED: "items_collected",
+  /** The trade-offs were put in order. Payload: kickoffId and the slider count. */
+  SLIDERS_SET: "sliders_set",
+  /** Payload: kickoffId, the section and the route. */
+  ITEM_SENT: "item_sent",
+  /** Payload: kickoffId, the format and the item count. */
+  KICKOFF_AGREED: "kickoff_agreed", // milestone
+} as const;
+
+/** Team Time. Ids and counts only, never names or time zones. */
+export const TEAM_TIME_ACTIONS = {
+  /** Payload: personId and the people count. */
+  PERSON_SAVED: "person_saved",
+  /** Payload: personId. */
+  PERSON_REMOVED: "person_removed",
+  /** Payload: pollId, its slot count and the minutes. */
+  POLL_CREATED: "poll_created",
+  /** Payload: pollId and its answer count. */
+  POLL_ANSWERED: "poll_answered",
+  /** Payload: pollId and slotId. */
+  SLOT_CHOSEN: "slot_chosen", // milestone
+  /** Payload: pollId. */
+  POLL_REMOVED: "poll_removed",
+  /** Payload: rotationId, its option count and the mode. */
+  ROTATION_SAVED: "rotation_saved",
+  /** Payload: rotationId. */
+  ROTATION_REMOVED: "rotation_removed",
+  /** Payload: rotationId and optionId. */
+  OCCURRENCE_HELD: "occurrence_held",
+  /** Payload: rotationId. */
+  OCCURRENCE_SKIPPED: "occurrence_skipped",
+  /** Payload: how many people, polls and rotations were removed. */
+  TEAM_TIME_RESET: "team_time_reset",
 } as const;
 
 /**
@@ -1309,6 +1710,24 @@ const MILESTONE_PAIRS: ReadonlySet<string> = new Set([
   `interrupt-buffer:${INTERRUPT_BUFFER_ACTIONS.EMERGENCY_STARTED}`,
   `product-goal:${PRODUCT_GOAL_ACTIONS.GOAL_ACHIEVED}`,
   `root-cause:${ROOT_CAUSE_ACTIONS.ROOT_CAUSE_FOUND}`,
+  // Phase 43 — the tools plan's phase 2
+  `example-mapping:${EXAMPLE_MAPPING_ACTIONS.SENT_TO_STORY}`,
+  `relative-sizing:${RELATIVE_SIZING_ACTIONS.SIZES_APPLIED}`,
+  `bug-triage:${BUG_TRIAGE_ACTIONS.TRIAGE_DONE}`,
+  `hill-chart:${HILL_CHART_ACTIONS.SCOPE_DONE}`,
+  `test-sessions:${TEST_SESSIONS_ACTIONS.SESSION_DEBRIEFED}`,
+  `notes-to-actions:${NOTES_TO_ACTIONS_ACTIONS.NOTE_DONE}`,
+  `product-canvas:${PRODUCT_CANVAS_ACTIONS.CASE_APPROVED}`,
+  `impact-map:${IMPACT_MAP_ACTIONS.FOCUS_SET}`,
+  `strategy-tree:${STRATEGY_TREE_ACTIONS.TREE_AGREED}`,
+  `product-metrics:${PRODUCT_METRICS_ACTIONS.NORTH_STAR_SET}`,
+  `ab-calculator:${AB_CALCULATOR_ACTIONS.DECISION_SET}`,
+  `ebm-dashboard:${EBM_DASHBOARD_ACTIONS.REVIEW_RECORDED}`,
+  `improve:${IMPROVE_ACTIONS.TARGET_REACHED}`,
+  `kickoff:${KICKOFF_ACTIONS.KICKOFF_AGREED}`,
+  `team-time:${TEAM_TIME_ACTIONS.SLOT_CHOSEN}`,
+  `kanban:${KANBAN_ACTIONS.WORKFLOW_VERSION_SAVED}`,
+  `pi-planning:${PI_PLANNING_ACTIONS.PI_CLOSED}`,
 ]);
 
 export function isMilestoneAction(toolId: string, action: string): boolean {

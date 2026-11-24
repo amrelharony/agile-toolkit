@@ -16,37 +16,100 @@ import { nanoid } from "nanoid";
 import { defineCrudActions, type CrudEnv } from "../define-crud";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
+  AARRR_STAGES,
+  AB_DECISIONS,
+  AB_TEST_STATUSES,
   ADKAR_DOC_ID,
   ADKAR_ELEMENTS,
+  AI_USE_NEVER_IN,
+  AI_USE_REVIEW,
   ALLOCATION_ROUND_TOOLS,
+  BLOCKER_CLUSTER_MAX,
+  BLOCK_SIDES,
+  BUG_CLOSE_REASONS,
+  BUG_PRIORITIES,
+  BUG_REACH,
+  BUG_SEVERITIES,
+  BUG_STATUSES,
   BUY_A_FEATURE_ID,
   CEREMONY_CADENCE_ID,
+  CHARTER_TEMPLATE_IDS,
+  CHARTER_TEMPLATE_MAX,
+  CORE_HOURS_PURPOSES,
   CYNEFIN_ANSWERS,
   CYNEFIN_QUESTION_IDS,
   DECISION_STATUSES,
   DECISION_TEMPLATES,
   DEFAULT_WEIGHTED_MATRIX_ID,
   DOD_DOC_ID,
+  EBM_BOARD_ID,
+  EBM_VALUE_AREAS,
+  ENTITY_ROW_MAX_BYTES,
+  EPIC_HORIZONS,
+  EXAMPLE_MAP_VERDICTS,
+  EXAMPLE_QUESTION_STATUSES,
   HANDOFF_ROUTE_IDS,
   HEALTH_DASHBOARD_ID,
+  HEART_CATEGORIES,
+  IMPROVEMENT_METHODS,
+  IMPROVEMENT_STATUSES,
+  IMPROVEMENT_STEP_STATUSES,
+  IMPROVEMENT_UNIT_MAX,
   INTERRUPT_KINDS,
+  KATA_OBSTACLE_STATUSES,
+  KICKOFF_BRIEF_MAX,
+  KICKOFF_FORMATS,
+  KICKOFF_ITEM_MAX,
+  KICKOFF_SLIDER_LABEL_MAX,
+  KICKOFF_STATUSES,
   KR_CHECK_IN_CAP,
+  LOOP_POLARITIES,
+  LOOP_TEXT_MAX,
+  MEASURED_BY_KINDS,
   MEETING_CADENCES,
+  MEETING_NOTE_ITEM_KINDS,
+  MEETING_NOTE_ITEM_STATUSES,
   MEETING_VERDICTS,
+  METRIC_ROLES,
+  METRIC_SOURCE_IDS,
   MOOD_TRACKER_ID,
   NPS_TAG_LIMIT,
   NPS_TAG_MAX_LENGTH,
   PARKING_LOT_STATUSES,
+  PERSONA_EVIDENCE,
+  PERSONA_TIERS,
+  PRODUCT_BET_STATUSES,
+  PRODUCT_CANVAS_EVIDENCE,
+  PRODUCT_CANVAS_FORMATS,
+  PRODUCT_CANVAS_MAX,
+  PRODUCT_CASE_VERDICTS,
   PRODUCT_GOAL_STATUSES,
+  PRODUCT_IDEA_SOURCES,
+  PRODUCT_IDEA_STATUSES,
   RACI_ID,
   REACH_PERIODS,
   ROOT_CAUSE_METHODS,
+  SHIPPED_KINDS,
+  STANDUP_FORMATS,
+  STRATEGY_MAP_FORMATS,
+  STRATEGY_NODE_STATUSES,
+  TEAM_TIME_ANSWERS,
+  TEAM_TIME_MAX,
+  TEAM_TIME_POLL_STATUSES,
+  TEAM_TIME_ROTATION_MODES,
+  TEST_NOTE_KINDS,
+  TEST_SESSION_COVERAGE,
+  TEST_SESSION_STATUSES,
   TOOL_LIST_MAX,
   TOOL_TEXT_MAX,
   WEIGHTED_CRITERION_KIND,
   WEIGHTED_MATRIX_KIND,
   WEIGHTED_OPTION_KIND,
+  WORKFLOW_DEFINITION_ID,
+  WORKFLOW_SLE_PERCENTILES,
   WORKING_AGREEMENT_ID,
+  WORK_DEMANDS,
+  WORK_TYPES,
   weightedMatrixRemoval,
   withoutWeightedScores,
 } from "@/lib/stores/workspace-types";
@@ -84,17 +147,27 @@ import {
   withPendingTechDebt,
 } from "@/lib/tech-debt/legacy";
 import { readLegacyBlob } from "../user-state-blob";
+import { sectionsSchema } from "./sectioned-schema";
+import { strategyMapProblems } from "@/lib/strategy-map/rules";
+import { HYPOTHESIS_UNIT_MAX } from "@/lib/hypotheses/model";
+import { isExampleId } from "@/lib/utils/example-id";
+import { isTimeZone } from "@/lib/team-time/zones";
+import { personProblems, pollProblems, rotationProblems, samePerson } from "@/lib/team-time/rows";
 import { RESPONDENT_MAX, VERBATIM_MAX, normalizeTags, tagsProblem } from "@/lib/nps/score";
 import { withMirroredCheckIns } from "@/lib/okrs/progress";
 import { targetClashes } from "@/lib/opportunity-tree/model";
 import { isDay } from "@/lib/notebook/model";
 import { CATEGORY_MAX, CAUSE_COUNT_MAX } from "@/lib/root-cause/model";
+import { kickoffCatalogProblem } from "@/lib/kickoff/model";
+import { productCanvasWriteProblems } from "@/lib/product-canvas/model";
+import { sourceProblem } from "@/lib/ebm/model";
 import {
   STORY_STATUSES,
   STORY_SPRINT_HISTORY_CAP,
   STORY_STATUS_HISTORY_CAP,
   stampStoryWrite,
 } from "@/lib/sprints/story-status";
+import { cleanCardFlowFields, stampBoardBlocks } from "@/lib/flow/block-stamps";
 import {
   STORY_CRITERIA_MAX,
   STORY_LINK_MAX,
@@ -219,6 +292,24 @@ import type {
   ParkingLotItem,
   ProductGoal,
   RootCauseAnalysis,
+  // Phase 43 — the tools plan's phase 2
+  ExampleMap,
+  BugReport,
+  HillChart,
+  TestSession,
+  MeetingNote,
+  ProductCanvas,
+  StrategyMap,
+  Persona,
+  ProductMetric,
+  AbTest,
+  EbmBoard,
+  WorkflowDefinition,
+  Improvement,
+  Kickoff,
+  TeamTimePerson,
+  TeamTimePoll,
+  TeamTimeRotation,
   // Phase 22 — Canvas (board only — objects have a dedicated tool action set)
   Whiteboard,
 } from "@/lib/stores/workspace-types";
@@ -277,6 +368,29 @@ const HandoffLinkSchema = z.object({
   route: z.enum(HANDOFF_ROUTE_IDS),
   targetId: z.string(),
   at: z.string(),
+});
+
+// A blocked spell on a story or a Kanban card (workspace-types BlockSpell),
+// stamped by lib/flow/block-stamps when the blocked flag changes. Listed so
+// an update keeps the log; send one only to backfill or annotate it.
+const BlockSpellSchema = z.object({
+  from: z.string().describe("ISO time the flag went on."),
+  to: z.string().optional().describe("ISO time it went off; absent while still blocked."),
+  cause: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  cluster: z.string().max(BLOCKER_CLUSTER_MAX).optional(),
+  side: z.enum(BLOCK_SIDES).optional(),
+  earlier: z
+    .literal(true)
+    .optional()
+    .describe("Flagged before tracking began: its time is a lower bound."),
+  sentTo: z
+    .array(HandoffLinkSchema)
+    .max(HANDOFF_ROUTE_IDS.length)
+    .refine((links) => new Set(links.map((l) => l.route)).size === links.length, {
+      message: "one link per route",
+    })
+    .optional()
+    .describe("Where the spell was sent: one link per route."),
 });
 
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -483,6 +597,23 @@ const StorySchema = z.object({
     .max(STORY_TICKET_KEY_MAX)
     .optional()
     .describe('Its key in the tracker, such as "PAY-12" (at most 50 characters). "" clears it.'),
+  workType: z
+    .enum(WORK_TYPES)
+    .optional()
+    .describe("What kind of work it is: a feature, a defect, debt or risk."),
+  demand: z
+    .enum(WORK_DEMANDS)
+    .optional()
+    .describe(
+      "value: new work people asked for; failure: repeat work caused by an earlier failure."
+    ),
+  blockLog: z
+    .array(BlockSpellSchema)
+    .max(TOOL_LIST_MAX.blockLog)
+    .optional()
+    .describe(
+      `Its blocked spells, oldest first (latest ${TOOL_LIST_MAX.blockLog}), stamped when blocked changes.`
+    ),
 }) as unknown as z.ZodType<Story>;
 
 const ImpedimentSchema = z.object({
@@ -501,6 +632,15 @@ const ImpedimentSchema = z.object({
   escalatedAt: z.string().optional(),
   dueDate: z.string().optional(),
   expectedResolutionDays: z.number().int().min(0).optional(),
+  cluster: z
+    .string()
+    .max(BLOCKER_CLUSTER_MAX)
+    .optional()
+    .describe('The blocker cluster it belongs to, such as "Waiting for a review".'),
+  blockSide: z
+    .enum(BLOCK_SIDES)
+    .optional()
+    .describe("Whether the blocker sits inside the team or outside it."),
 }) as unknown as z.ZodType<Impediment>;
 
 // Mirrors `Risk` field for field (z.object drops keys it doesn't know).
@@ -1846,6 +1986,92 @@ const CharterRuleSchema = z.object({
     .optional()
     .describe("The draft of the check-in in progress: true, false or 'partly'."),
   consent: z.array(CharterConsentSchema).optional().describe("Each person's answer to the rule."),
+  sourceRef: HandoffRefSchema.optional().describe("The item it was sent from (a kickoff's rule)."),
+  template: z
+    .object({
+      id: z.enum(CHARTER_TEMPLATE_IDS),
+      slot: z.string().max(CHARTER_TEMPLATE_MAX.slot),
+    })
+    .optional()
+    .describe("The charter template that wrote it, and which of its lines."),
+});
+
+/* The Working Agreement's charter templates (P2.9), every field listed so an
+ * update keeps them. Times are plain strings here: IsoTime is defined
+ * further down. */
+
+/** A weekday, 0 Sunday to 6 Saturday. */
+const Weekday = z.number().int().min(0).max(6);
+
+/** An IANA time zone Intl knows, such as "Europe/Berlin". */
+const TimeZoneName = z
+  .string()
+  .max(TEAM_TIME_MAX.zone)
+  .refine(isTimeZone, { message: 'an IANA time zone, such as "Europe/Berlin"' });
+
+const CharterTemplatesSchema = z.object({
+  urgencyLadder: z
+    .object({
+      levels: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(64),
+            label: z.string().max(CHARTER_TEMPLATE_MAX.levelLabel),
+            when: z.string().max(CHARTER_TEMPLATE_MAX.levelWhen),
+            channel: z.string().max(CHARTER_TEMPLATE_MAX.levelChannel),
+            replyWithin: z.string().max(CHARTER_TEMPLATE_MAX.levelReplyWithin),
+          })
+        )
+        .min(CHARTER_TEMPLATE_MAX.levelsMin)
+        .max(CHARTER_TEMPLATE_MAX.levels),
+      afterHours: z.boolean(),
+      appliedAt: z.string(),
+    })
+    .optional(),
+  coreHours: z
+    .object({
+      start: TimeSchema,
+      end: TimeSchema,
+      timeZone: TimeZoneName,
+      days: z.array(Weekday).max(7),
+      purposes: z.array(z.enum(CORE_HOURS_PURPOSES)).min(1).max(CORE_HOURS_PURPOSES.length),
+      anchorDays: z
+        .array(
+          z.object({
+            site: z.string().max(CHARTER_TEMPLATE_MAX.site),
+            days: z.array(Weekday).max(7),
+          })
+        )
+        .max(CHARTER_TEMPLATE_MAX.anchorDays)
+        .optional(),
+      appliedAt: z.string(),
+    })
+    .optional(),
+  focusTime: z
+    .object({
+      days: z.array(Weekday).max(7),
+      start: TimeSchema,
+      end: TimeSchema,
+      timeZone: TimeZoneName.nullable().describe("null: each person's own clock."),
+      weeklyMinHours: z
+        .number()
+        .min(CHARTER_TEMPLATE_MAX.weeklyMinHoursMin)
+        .max(CHARTER_TEMPLATE_MAX.weeklyMinHours)
+        .optional(),
+      appliedAt: z.string(),
+    })
+    .optional(),
+  aiUse: z
+    .object({
+      tools: z.array(z.string().max(CHARTER_TEMPLATE_MAX.aiTool)).max(CHARTER_TEMPLATE_MAX.aiTools),
+      neverIn: z.array(z.enum(AI_USE_NEVER_IN)).max(AI_USE_NEVER_IN.length),
+      neverInOther: z.string().max(CHARTER_TEMPLATE_MAX.aiNote).optional(),
+      review: z.enum(AI_USE_REVIEW),
+      customerFacing: z.boolean(),
+      shareWhere: z.string().max(CHARTER_TEMPLATE_MAX.aiNote).optional(),
+      appliedAt: z.string(),
+    })
+    .optional(),
 });
 
 const CharterMetaSchema = z.object({
@@ -1894,6 +2120,9 @@ const WorkingAgreementSchema = z.object({
     .array(CharterVersionSchema)
     .optional()
     .describe("Published versions, oldest first (the latest 20 are kept)."),
+  templates: CharterTemplatesSchema.optional().describe(
+    "The charter templates applied: an urgency ladder, core hours, focus time and AI use."
+  ),
 }) as unknown as z.ZodType<WorkingAgreement>;
 
 const LsFavoriteSchema = z.object({
@@ -2087,6 +2316,15 @@ const EpicSchema = z.object({
   progress: z.number(),
   owner: z.string().optional(),
   color: z.string().optional(),
+  horizon: z
+    .enum(EPIC_HORIZONS)
+    .optional()
+    .describe(
+      "Its place on the Now, Next, Later board, set by hand; absent: read from its quarters."
+    ),
+  sourceRef: HandoffRefSchema.optional().describe(
+    "The item it was sent from (an impact map's deliverable, a strategy tree's initiative)."
+  ),
 });
 
 const EpicRoadmapSchema = z.object({
@@ -2117,6 +2355,39 @@ const HypothesisSchema = z.object({
     .optional()
     .describe("Success is at least (increase) or at most (decrease) value."),
   actual: z.number().finite().optional().describe("The measured result, in target.unit."),
+  // Value checks (P2.5). Plain strings for the ids and times: the Phase 43
+  // helpers are defined further down.
+  measuredBy: z
+    .object({
+      kind: z.enum(MEASURED_BY_KINDS),
+      metricId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      okrId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      keyResultId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      note: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    })
+    .refine(
+      (m) =>
+        m.kind === "metric"
+          ? Boolean(m.metricId)
+          : m.kind === "key-result"
+            ? Boolean(m.okrId && m.keyResultId)
+            : Boolean(m.note?.trim()),
+      { message: "metric needs metricId, key-result needs okrId and keyResultId, words a note" }
+    )
+    .optional()
+    .describe(
+      "How it is measured: a product metric (metricId), a key result (okrId and keyResultId) or in words (note)."
+    ),
+  shipped: z
+    .object({
+      kind: z.enum(SHIPPED_KINDS),
+      id: z.string().min(1).max(TOOL_TEXT_MAX.short),
+      title: z.string().max(TOOL_TEXT_MAX.short),
+      doneAt: z.string(),
+    })
+    .optional()
+    .describe("The shipped story or epic it checks: set, it is a value check."),
+  checkOn: IsoDay.optional().describe("The day to read the result."),
 });
 
 const HypothesisTrackerSchema = z.object({
@@ -2512,6 +2783,11 @@ const ReleaseShipSchema = z.object({
   gateIds: z.array(z.string()).optional(),
   gates: z.record(z.string(), z.boolean()).optional(),
   gatesOpenAtShip: z.number().optional(),
+  // IsoTime is defined further down; this is the same check.
+  reopenedAt: z.iso
+    .datetime({ offset: true })
+    .optional()
+    .describe("When the release was reopened after this ship (ISO time)."),
 });
 
 const ReleaseSchema = z.object({
@@ -2527,6 +2803,14 @@ const ReleaseSchema = z.object({
   rolledBackAt: z.string().optional(),
   previousShips: z.array(ReleaseShipSchema).optional(),
   storyIds: z.array(z.string()).optional(),
+  releaseNotes: z
+    .object({
+      audience: z.enum(["customers", "team"]),
+      text: z.string().max(TOOL_TEXT_MAX.releaseNotes),
+      updatedAt: z.string(),
+    })
+    .optional()
+    .describe("Its release notes, for customers or for the team."),
 });
 
 const ReleaseGateDefSchema = z.object({
@@ -3170,6 +3454,18 @@ const StandupEntrySchema = z.object({
   sentTo: z.array(HandoffLinkSchema).optional(),
   mode: z.enum(["live", "async"]).optional(),
   description: z.string().optional(),
+  format: z
+    .enum(STANDUP_FORMATS)
+    .optional()
+    .describe(
+      "classic (yesterday, today, blockers) or ppp (Progress, Plans, Problems); absent: classic."
+    ),
+  blockerDri: z
+    .string()
+    .max(120)
+    .optional()
+    .describe("Who is directly responsible for the blocker."),
+  handoff: z.string().max(4000).optional().describe("A hand-over to the next time zone."),
 }) as unknown as z.ZodType<StandupEntry>;
 
 const SprintReviewSchema = z.object({
@@ -4050,6 +4346,17 @@ defineCrudActions<KanbanBoard>({
   upsert: (x) => ws().upsertKanbanBoard(x),
   remove: (id) => ws().removeKanbanBoard(id),
   generateId: () => `kanban_${nanoid(8)}`,
+  // The schema takes cards as loose records, so each card's flow fields are
+  // cleaned and capped here (a bad blockLog, workType or demand), and a
+  // card's blocked flag going on or off opens or closes a blocked spell, as
+  // the store's own writes do (lib/flow/block-stamps). In the browser the
+  // store then sees a log this write set and keeps it: nothing is stamped
+  // twice.
+  prepare: (next, current) =>
+    stampBoardBlocks(
+      { ...next, cards: next.cards.map((card) => cleanCardFlowFields(card)) },
+      current
+    ),
 });
 
 defineCrudActions<DependencyMap>({
@@ -4188,6 +4495,31 @@ const RootCauseAnalysisSchema = z.object({
     .array(HandoffLinkSchema)
     .optional()
     .describe("Where the countermeasure was sent (Retro Actions)."),
+  loop: z
+    .object({
+      nodes: z
+        .array(z.object({ id: z.string().min(1).max(64), text: Filled(LOOP_TEXT_MAX.node) }))
+        .max(TOOL_LIST_MAX.loopNodes),
+      links: z
+        .array(
+          z.object({
+            id: z.string().min(1).max(64),
+            from: z.string().min(1).max(64),
+            to: z.string().min(1).max(64),
+            polarity: z
+              .enum(LOOP_POLARITIES)
+              .describe("same: both move the same way (+); opposite: they move apart (−)."),
+            delay: z.boolean().optional().describe("The effect comes later."),
+          })
+        )
+        .max(TOOL_LIST_MAX.loopLinks),
+      names: z
+        .array(z.object({ key: z.string().max(1000), name: Filled(LOOP_TEXT_MAX.name) }))
+        .max(TOOL_LIST_MAX.loopNames)
+        .optional(),
+    })
+    .optional()
+    .describe("Its causal loop: the things that go up or down, and the arrows between them."),
   createdAt: StampedAt,
   updatedAt: StampedAt,
 }) as unknown as z.ZodType<RootCauseAnalysis>;
@@ -4288,6 +4620,9 @@ const InterruptItemSchema = z.object({
     .array(HandoffLinkSchema)
     .optional()
     .describe("Where it was sent (the backlog, the Impediment Tracker)."),
+  sourceRef: HandoffRefSchema.optional().describe(
+    "The item it was sent from (a bug fixed now, from Bug Triage)."
+  ),
 }) as unknown as z.ZodType<InterruptItem>;
 
 /**
@@ -4429,4 +4764,1267 @@ defineCrudActions<Whiteboard>({
   // A board id names its Realtime channels (tool:canvas:room:<id>), so it
   // must not be guessable: nanoid's full 21 characters (~126 bits).
   generateId: () => `wb_${nanoid()}`,
+});
+
+/* ────────────────────────────────────────────────────────────────────
+ * Phase 43 — the tools plan's phase 2, by PR in plan order.
+ *
+ * New collections, so each schema holds the caps the pages use too, as in
+ * Phase 42: a record a page saved always validates, and every field is
+ * listed, since update writes what the schema parsed. createdAt and
+ * updatedAt are stamped (stampedTimes), never taken from the caller. Each
+ * toolId's suffix camelCases to its registered kind (EXAMPLE_MAP_KIND, …).
+ * The records that can grow past a synced row's limit at their caps refuse
+ * a row over ENTITY_ROW_MAX_BYTES (fitsRow), worded the same for each.
+ * ────────────────────────────────────────────────────────────────── */
+
+/** Whether a record fits one synced row (ENTITY_ROW_MAX_BYTES of UTF-8 JSON). */
+const fitsRow = (row: unknown) =>
+  new TextEncoder().encode(JSON.stringify(row)).length <= ENTITY_ROW_MAX_BYTES;
+
+/** The refusal of a record too big for one row, naming what it is. */
+const tooBigToSave = (entity: string) => ({
+  message: `This ${entity} is too big to save. Shorten or remove some lines. Nothing was saved.`,
+});
+
+/** An id inside a record (a rule's, a node's): what the pages mint, and a bound on it. */
+const ItemId = z.string().min(1).max(64);
+
+/** Where an item was sent: one link per route, as every hand-off source records it. */
+const SentTo = z.array(HandoffLinkSchema).optional();
+
+/* P2.1 — Example Mapping. Planning Poker's estimates without a meeting
+ * (pokerAsyncRounds) have no CRUD: their replies hold other people's names
+ * and notes. */
+
+const ExampleMapSchema = z
+  .object({
+    id: z.string(),
+    title: Filled(TOOL_TEXT_MAX.short).describe("The story it maps, as typed or its title."),
+    storyId: z
+      .string()
+      .max(TOOL_TEXT_MAX.short)
+      .optional()
+      .describe("The backlog story it maps (a workspace.story id)."),
+    rules: z
+      .array(
+        z.object({
+          id: ItemId,
+          text: z.string().max(TOOL_TEXT_MAX.short),
+          sentTo: SentTo.describe('The story "Split by rule" made from it ("backlog-story").'),
+        })
+      )
+      .max(TOOL_LIST_MAX.mapRules)
+      .describe("The rules the story must follow."),
+    examples: z
+      .array(
+        z
+          .object({
+            id: ItemId,
+            ruleId: ItemId.describe("The rule it illustrates."),
+            text: z.string().max(TOOL_TEXT_MAX.short),
+            given: z.string().max(TOOL_TEXT_MAX.text).optional(),
+            when: z.string().max(TOOL_TEXT_MAX.text).optional(),
+            then: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          })
+          .refine(
+            (e) =>
+              [e.given, e.when, e.then].every((v) => v === undefined) ||
+              [e.given, e.when, e.then].every((v) => v !== undefined),
+            { message: "an example has Given, When and Then all three, or none" }
+          )
+      )
+      .max(TOOL_LIST_MAX.mapExamples)
+      .describe("Concrete examples, each under a rule; Given, When and Then all three or none."),
+    questions: z
+      .array(
+        z.object({
+          id: ItemId,
+          text: z.string().max(TOOL_TEXT_MAX.short),
+          ruleId: ItemId.optional().describe("The rule it is about, when it is about one."),
+          owner: z.string().max(TOOL_TEXT_MAX.short).optional().describe("Who finds the answer."),
+          status: z.enum(EXAMPLE_QUESTION_STATUSES),
+          answer: z.string().max(TOOL_TEXT_MAX.text).optional(),
+        })
+      )
+      .max(TOOL_LIST_MAX.mapQuestions)
+      .describe("Questions nobody can answer yet."),
+    verdict: z
+      .enum(EXAMPLE_MAP_VERDICTS)
+      .optional()
+      .describe("Ready to build, split by rule, or not yet (waiting on answers)."),
+    timeboxMinutes: z.number().int().min(5).max(60).optional(),
+    sentAt: IsoTime.optional().describe("When its rules and examples were last sent to the story."),
+    sentTo: SentTo.describe('Where it was sent: the story ("backlog-story").'),
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  // The page reads a map with readMap, which drops an example whose rule isn't on the
+  // map, so the next save would delete it with no word: refuse it here instead.
+  .refine((m) => m.examples.every((e) => m.rules.some((r) => r.id === e.ruleId)), {
+    message: "Every example goes under a rule on the map.",
+  })
+  .refine(fitsRow, tooBigToSave("example map")) as unknown as z.ZodType<ExampleMap>;
+
+defineCrudActions<ExampleMap>({
+  toolId: "workspace.example_map",
+  entityName: "example map (a story's rules, examples and open questions)",
+  schema: ExampleMapSchema,
+  selectAll: () => ws().exampleMaps ?? [],
+  upsert: (x) => ws().upsertExampleMap(x),
+  remove: (id) => ws().removeExampleMap(id),
+  generateId: () => `exmap_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.2 — Bug Triage, Hill Chart, Test Sessions and Notes to Actions. */
+
+const BugReportSchema = z.object({
+  id: z.string(),
+  title: Filled(TOOL_TEXT_MAX.short).describe("The bug in one line."),
+  steps: z.string().max(TOOL_TEXT_MAX.text).optional().describe("How to make it happen."),
+  expected: z.string().max(TOOL_TEXT_MAX.text).optional().describe("What should have happened."),
+  actual: z.string().max(TOOL_TEXT_MAX.text).optional().describe("What happened instead."),
+  environment: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  area: z.string().max(TOOL_TEXT_MAX.short).optional().describe("The product area."),
+  reportedBy: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  severity: z.enum(BUG_SEVERITIES).optional().describe("How bad it is."),
+  priority: z.enum(BUG_PRIORITIES).optional().describe("How soon it needs fixing."),
+  checks: z
+    .object({
+      dataLoss: z.boolean().optional(),
+      security: z.boolean().optional(),
+      workaround: z.boolean().optional(),
+      blocksRelease: z.boolean().optional(),
+      reach: z.enum(BUG_REACH).optional(),
+    })
+    .optional()
+    .describe("The quick checks answered before it is placed on the grid."),
+  status: z.enum(BUG_STATUSES),
+  closeReason: z.enum(BUG_CLOSE_REASONS).optional().describe('Why it was closed ("closed").'),
+  duplicateOf: z
+    .string()
+    .max(TOOL_TEXT_MAX.short)
+    .optional()
+    .describe('The bug it repeats (closed as "duplicate").'),
+  triagedAt: IsoTime.optional(),
+  closedAt: IsoTime.optional(),
+  sourceRef: HandoffRefSchema.optional(),
+  sentTo: SentTo.describe("Where it was sent: the backlog or an interrupt in the sprint."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<BugReport>;
+
+defineCrudActions<BugReport>({
+  toolId: "workspace.bug_report",
+  entityName: "bug report (Bug Triage)",
+  schema: BugReportSchema,
+  selectAll: () => ws().bugReports ?? [],
+  upsert: (x) => ws().upsertBugReport(x),
+  remove: (id) => ws().removeBugReport(id),
+  generateId: () => `bug_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/** A spot on the hill: a whole number from 0 (just started) to 100 (done); 50 is the top. */
+const HillPosition = z.number().int().min(0).max(100);
+
+const HillChartSchema = z.object({
+  id: z.string(),
+  title: Filled(TOOL_TEXT_MAX.short),
+  about: z.string().max(TOOL_TEXT_MAX.text).optional().describe("What it covers."),
+  sprintId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  epicId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  scopes: z
+    .array(
+      z.object({
+        id: ItemId,
+        title: z.string().max(TOOL_TEXT_MAX.short),
+        position: HillPosition.describe(
+          "Uphill (below 50) while it is being worked out, downhill after; 100 is done."
+        ),
+        storyId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        epicId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        note: z.string().max(TOOL_TEXT_MAX.capture).optional(),
+        movedAt: IsoTime.describe("When its position last changed."),
+        doneAt: IsoTime.optional(),
+        sentTo: SentTo.describe("Where it was sent (an impediment, when it is stuck)."),
+      })
+    )
+    .max(TOOL_LIST_MAX.hillScopes)
+    .describe("The pieces of work on the hill."),
+  checkIns: z
+    .array(
+      z.object({
+        id: ItemId,
+        at: IsoTime,
+        positions: z
+          .array(z.object({ scopeId: ItemId, position: HillPosition }))
+          .max(TOOL_LIST_MAX.hillScopes),
+        note: z.string().max(TOOL_TEXT_MAX.capture).optional(),
+      })
+    )
+    .max(TOOL_LIST_MAX.hillCheckIns)
+    .describe("Weekly check-ins, oldest first: every scope's position at the time."),
+  archived: z.boolean().optional(),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<HillChart>;
+
+defineCrudActions<HillChart>({
+  toolId: "workspace.hill_chart",
+  entityName: "hill chart (scopes uphill or downhill, with weekly check-ins)",
+  schema: HillChartSchema,
+  selectAll: () => ws().hillCharts ?? [],
+  upsert: (x) => ws().upsertHillChart(x),
+  remove: (id) => ws().removeHillChart(id),
+  generateId: () => `hill_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/** A whole percent. */
+const Percent = z.number().int().min(0).max(100);
+
+const TestSessionSchema = z
+  .object({
+    id: z.string(),
+    charter: z
+      .object({
+        target: Filled(TOOL_TEXT_MAX.short).describe("What to explore."),
+        using: z.string().max(TOOL_TEXT_MAX.short).optional().describe("With what."),
+        toLearn: z.string().max(TOOL_TEXT_MAX.text).describe("What you want to learn."),
+      })
+      .describe("What the session explores, with what, and what it wants to learn."),
+    tester: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    storyId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    area: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    minutes: z.number().int().min(15).max(240).describe("Its length in minutes."),
+    status: z.enum(TEST_SESSION_STATUSES),
+    startedAt: IsoTime.optional(),
+    endedAt: IsoTime.optional(),
+    coverage: z
+      .enum(TEST_SESSION_COVERAGE)
+      .optional()
+      .describe("How much of the charter it covered."),
+    split: z
+      .object({ testing: Percent, bugs: Percent, setup: Percent })
+      .refine((s) => s.testing + s.bugs + s.setup === 100, {
+        message: "the time split adds up to 100",
+      })
+      .optional()
+      .describe("How the time split between testing, bugs and setup, in whole percents (sum 100)."),
+    notes: z
+      .array(
+        z.object({
+          id: ItemId,
+          at: IsoTime,
+          kind: z.enum(TEST_NOTE_KINDS),
+          text: z.string().max(TOOL_TEXT_MAX.capture),
+          sentTo: SentTo.describe("Where it was sent (a bug, to Bug Triage)."),
+        })
+      )
+      .max(TOOL_LIST_MAX.sessionNotes)
+      .describe("Notes, bugs, questions and ideas, one line each."),
+    debrief: z.string().max(TOOL_TEXT_MAX.text).optional(),
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("test session")) as unknown as z.ZodType<TestSession>;
+
+defineCrudActions<TestSession>({
+  toolId: "workspace.test_session",
+  entityName: "exploratory test session (a charter, notes and a debrief)",
+  schema: TestSessionSchema,
+  selectAll: () => ws().testSessions ?? [],
+  upsert: (x) => ws().upsertTestSession(x),
+  remove: (id) => ws().removeTestSession(id),
+  generateId: () => `tsess_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+const MeetingNoteSchema = z
+  .object({
+    id: z.string(),
+    meeting: z.string().max(TOOL_TEXT_MAX.short).optional().describe("The meeting's name."),
+    date: IsoDay.describe("The day of the meeting."),
+    text: z
+      .string()
+      .max(TOOL_TEXT_MAX.paste)
+      .describe('The pasted notes; "" once they are forgotten.'),
+    forgottenAt: IsoTime.optional().describe("When the pasted text was forgotten."),
+    items: z
+      .array(
+        z.object({
+          id: ItemId,
+          kind: z.enum(MEETING_NOTE_ITEM_KINDS),
+          text: z.string().max(TOOL_TEXT_MAX.short),
+          detail: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          owner: z.string().max(TOOL_TEXT_MAX.short).optional(),
+          due: IsoDay.optional(),
+          quote: z
+            .string()
+            .max(TOOL_TEXT_MAX.short)
+            .optional()
+            .describe("The line of the notes it came from."),
+          status: z.enum(MEETING_NOTE_ITEM_STATUSES),
+          keptAt: IsoTime,
+          sentTo: SentTo.describe("Where it was sent: one link per route."),
+        })
+      )
+      .max(TOOL_LIST_MAX.noteItems)
+      .describe("The actions, decisions, blockers, stories, bugs and questions kept."),
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("meeting note")) as unknown as z.ZodType<MeetingNote>;
+
+defineCrudActions<MeetingNote>({
+  toolId: "workspace.meeting_note",
+  entityName: "meeting note (pasted notes and the items kept from them)",
+  schema: MeetingNoteSchema,
+  selectAll: () => ws().meetingNotes ?? [],
+  upsert: (x) => ws().upsertMeetingNote(x),
+  remove: (id) => ws().removeMeetingNote(id),
+  generateId: () => `mnote_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.3 — Product Canvas. Its items are the sectioned kit's, keyed by the
+ * format's section ids (sectionsSchema). The CRUD can't tell a list box
+ * from a long one without the format catalog, so every item takes up to
+ * TOOL_TEXT_MAX.text; the page's own per-kind caps are its write guard. */
+
+const ProductCanvasSchema = z
+  .object({
+    id: z.string(),
+    format: z.enum(PRODUCT_CANVAS_FORMATS),
+    title: Filled(TOOL_TEXT_MAX.short),
+    sections: sectionsSchema({
+      itemMax: TOOL_TEXT_MAX.text,
+      itemExtra: {
+        detail: z.string().max(TOOL_TEXT_MAX.text).optional(),
+        evidence: z
+          .enum(PRODUCT_CANVAS_EVIDENCE)
+          .optional()
+          .describe("A known fact, or an assumption still to test."),
+        links: z.array(z.string().max(40)).max(TOOL_LIST_MAX.itemLinks).optional(),
+        promptId: z
+          .string()
+          .max(TOOL_TEXT_MAX.short)
+          .optional()
+          .describe("The hard question it answers."),
+        niceToHave: z.boolean().optional(),
+      },
+      totalMax: TOOL_LIST_MAX.canvasItems,
+    }).describe("The items by the format's section id."),
+    appetiteWeeks: z
+      .number()
+      .int()
+      .min(1)
+      .max(PRODUCT_CANVAS_MAX.weeks)
+      .optional()
+      .describe("A Shape Up pitch's appetite, in weeks."),
+    intake: z
+      .object({
+        requesters: z.array(z.string().max(TOOL_TEXT_MAX.short)).max(TOOL_LIST_MAX.requesters),
+        source: z.enum(PRODUCT_IDEA_SOURCES),
+        demand: z
+          .number()
+          .int()
+          .min(1)
+          .max(PRODUCT_CANVAS_MAX.demand)
+          .describe("How many asked for it."),
+        status: z.enum(PRODUCT_IDEA_STATUSES),
+        mergedInto: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      })
+      .optional()
+      .describe("The idea inbox's fields: who asked, where from, how many, and its status."),
+    decision: z
+      .object({
+        verdict: z.enum(PRODUCT_CASE_VERDICTS),
+        note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+        decidedAt: IsoTime.optional(),
+      })
+      .optional()
+      .describe("A business case's decision."),
+    bet: z
+      .object({
+        status: z.enum(PRODUCT_BET_STATUSES),
+        cycle: z.number().int().min(1).max(PRODUCT_CANVAS_MAX.cycle).optional(),
+        start: IsoDay.optional(),
+        weeks: z.number().int().min(1).max(PRODUCT_CANVAS_MAX.weeks).optional(),
+        decidedAt: IsoTime.optional(),
+      })
+      .optional()
+      .describe("A Shape Up pitch's place on the betting table."),
+    productGoalId: z
+      .string()
+      .max(TOOL_TEXT_MAX.short)
+      .optional()
+      .describe("The Product Goal it was drafted from."),
+    sentTo: SentTo,
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("product canvas")) as unknown as z.ZodType<ProductCanvas>;
+
+defineCrudActions<ProductCanvas>({
+  toolId: "workspace.product_canvas",
+  entityName:
+    "product canvas (a product vision, value proposition, idea in the inbox, Lean UX canvas, PR/FAQ, lean business case or Shape Up pitch)",
+  schema: ProductCanvasSchema,
+  selectAll: () => ws().productCanvases ?? [],
+  upsert: (x) => ws().upsertProductCanvas(x),
+  remove: (id) => ws().removeProductCanvas(id),
+  generateId: () => `pcanvas_${nanoid(8)}`,
+  prepare: (next, current) =>
+    stampedTimes(unlessRefused(next, productCanvasWriteProblems(next, current)), current),
+});
+
+/* P2.4 — Impact Map and Strategy Tree (one StrategyMap entity, by format)
+ * and the Persona Library. A map's tree rules (one root, each node one
+ * level below its parent, the impact map's own fields) are judged by
+ * strategyMapProblems on both transports. */
+
+const StrategyMapSchema = z
+  .object({
+    id: z.string(),
+    format: z
+      .enum(STRATEGY_MAP_FORMATS)
+      .describe("An impact map, or a strategy tree's shape; fixed once the map is made."),
+    title: Filled(TOOL_TEXT_MAX.short),
+    nodes: z
+      .array(
+        z.object({
+          id: ItemId,
+          parentId: ItemId.nullable().describe("The node above it; null for the root."),
+          level: z
+            .number()
+            .int()
+            .min(0)
+            .max(3)
+            .describe("0 the root; impact map: 1 actor, 2 impact, 3 deliverable."),
+          text: Filled(TOOL_TEXT_MAX.short),
+          detail: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          measure: z.string().max(TOOL_TEXT_MAX.short).optional(),
+          owner: z.string().max(TOOL_TEXT_MAX.short).optional(),
+          status: z
+            .enum(STRATEGY_NODE_STATUSES)
+            .optional()
+            .describe("A strategy tree's part only."),
+          note: z.string().max(TOOL_TEXT_MAX.text).optional().describe("A strategy tree's only."),
+          personaId: z
+            .string()
+            .max(TOOL_TEXT_MAX.short)
+            .optional()
+            .describe("The persona an impact map's actor (level 1) is."),
+          focus: z.boolean().optional().describe("The impact map's one focus impact (level 2)."),
+          sentTo: SentTo,
+        })
+      )
+      .max(TOOL_LIST_MAX.strategyNodes)
+      .describe("The tree: one root at level 0, each node one level below its parent."),
+    productGoalId: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    targetDate: IsoDay.optional(),
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("strategy map")) as unknown as z.ZodType<StrategyMap>;
+
+defineCrudActions<StrategyMap>({
+  toolId: "workspace.strategy_map",
+  entityName:
+    "strategy map (an impact map, or a DIBB, Lean Value Tree or Hoshin Kanri strategy tree)",
+  schema: StrategyMapSchema,
+  selectAll: () => ws().strategyMaps ?? [],
+  upsert: (x) => ws().upsertStrategyMap(x),
+  remove: (id) => ws().removeStrategyMap(id),
+  generateId: () => `strategyMap_${nanoid(8)}`,
+  prepare: (next, current) =>
+    stampedTimes(unlessRefused(next, strategyMapProblems(next, current)), current),
+});
+
+/** A persona's goals, frustrations or habits: short points, at most TOOL_LIST_MAX.personaPoints. */
+const PersonaPoints = z.array(z.string().max(TOOL_TEXT_MAX.short)).max(TOOL_LIST_MAX.personaPoints);
+
+const PersonaSchema = z.object({
+  id: z.string(),
+  name: Filled(TOOL_TEXT_MAX.short).describe("A made-up name."),
+  role: Filled(TOOL_TEXT_MAX.short),
+  summary: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  tier: z.enum(PERSONA_TIERS).describe("A main, secondary or anti-persona."),
+  evidence: z.enum(PERSONA_EVIDENCE).describe("How much of it comes from research."),
+  goals: PersonaPoints,
+  pains: PersonaPoints.describe("Frustrations."),
+  behaviours: PersonaPoints.describe("Habits: how they work."),
+  quote: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  context: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  tags: z.array(z.string().max(TOOL_TEXT_MAX.short)).max(TOOL_LIST_MAX.tags),
+  interviewIds: z
+    .array(z.string().max(TOOL_TEXT_MAX.short))
+    .max(TOOL_LIST_MAX.personaInterviews)
+    .optional()
+    .describe("The User Interview Log interviews it comes from."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<Persona>;
+
+defineCrudActions<Persona>({
+  toolId: "workspace.persona",
+  entityName: "persona (someone the team builds for)",
+  schema: PersonaSchema,
+  selectAll: () => ws().personas ?? [],
+  upsert: (x) => ws().upsertPersona(x),
+  remove: (id) => ws().removePersona(id),
+  generateId: () => `persona_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.5 — Product Metrics, the A/B Calculator and the EBM Dashboard. */
+
+/** A day an agent writes: the YYYY-MM-DD shape, and a day the calendar has. */
+const CalendarDay = IsoDay.refine(isDay, { message: "a day on the calendar (YYYY-MM-DD)" });
+
+const ProductMetricSchema = z.object({
+  id: z.string(),
+  name: Filled(TOOL_TEXT_MAX.short),
+  definition: z.string().max(TOOL_TEXT_MAX.text).optional().describe("What it means."),
+  unit: z.string().max(HYPOTHESIS_UNIT_MAX).optional(),
+  direction: z.enum(["increase", "decrease"]).describe("Which way counts as progress."),
+  baseline: z.number().finite().optional(),
+  target: z.number().finite().optional(),
+  owner: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  role: z
+    .enum(METRIC_ROLES)
+    .optional()
+    .describe(
+      `The North Star (one) or one of its inputs (at most ${TOOL_LIST_MAX.northStarInputs}).`
+    ),
+  heart: z
+    .object({
+      category: z.enum(HEART_CATEGORIES),
+      feature: Filled(TOOL_TEXT_MAX.short),
+      goal: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      signal: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    })
+    .optional()
+    .describe("Its HEART goal for one feature: one metric per feature and category."),
+  aarrr: z.enum(AARRR_STAGES).optional().describe("Its funnel stage: one metric per stage."),
+  kva: z.enum(EBM_VALUE_AREAS).optional().describe("Its EBM key value area (an EBM measure)."),
+  source: z
+    .enum(METRIC_SOURCE_IDS)
+    .optional()
+    .describe("The toolkit's own number its readings come from."),
+  readings: z
+    .array(
+      z.object({
+        id: ItemId,
+        date: CalendarDay,
+        value: z.number().finite(),
+        note: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      })
+    )
+    .max(KR_CHECK_IN_CAP)
+    .describe(
+      `Dated readings, at most ${KR_CHECK_IN_CAP}; stored oldest first, one per day (a later one on the same day replaces it).`
+    ),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<ProductMetric>;
+
+/** Times stamped, and the readings oldest first, one per day: the later one on a day wins. */
+function prepareProductMetric(
+  next: ProductMetric,
+  current: ProductMetric | undefined
+): ProductMetric {
+  const byDay = new Map<string, ProductMetric["readings"][number]>();
+  for (const reading of next.readings) byDay.set(reading.date, reading);
+  const readings = Array.from(byDay.values()).sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0
+  );
+  return stampedTimes({ ...next, readings }, current);
+}
+
+/**
+ * One North Star, at most TOOL_LIST_MAX.northStarInputs inputs, one metric
+ * per funnel stage and per HEART feature and category, and at most
+ * TOOL_LIST_MAX.productMetrics metrics, each counted among the rows of the
+ * same kind (real rows apart from the example's).
+ */
+async function beforeProductMetricWrite(
+  next: ProductMetric,
+  current: ProductMetric | undefined,
+  env: CrudEnv<ProductMetric>
+): Promise<void> {
+  const example = isExampleId(next.id);
+  const others = (await env.all()).filter((m) => m.id !== next.id && isExampleId(m.id) === example);
+  const problems: string[] = [];
+  const northStar = others.find((m) => m.role === "north-star");
+  if (next.role === "north-star" && northStar) {
+    problems.push(
+      `Another metric is the North Star (“${northStar.name}”, ${northStar.id}). Make it an input or clear its role first: there is one North Star.`
+    );
+  }
+  const inputs = others.filter((m) => m.role === "input");
+  if (next.role === "input" && inputs.length >= TOOL_LIST_MAX.northStarInputs) {
+    problems.push(
+      `The North Star already has ${inputs.length} inputs, the most it takes. Remove one or clear its role first.`
+    );
+  }
+  const onStage = next.aarrr ? others.find((m) => m.aarrr === next.aarrr) : undefined;
+  if (onStage) {
+    problems.push(
+      `Another metric is on the ${next.aarrr} stage (“${onStage.name}”, ${onStage.id}): one metric per funnel stage.`
+    );
+  }
+  const heart = next.heart;
+  const feature = heart?.feature.trim().toLowerCase();
+  const sameGoal = heart
+    ? others.find(
+        (m) =>
+          m.heart?.category === heart.category && m.heart.feature.trim().toLowerCase() === feature
+      )
+    : undefined;
+  if (heart && sameGoal) {
+    problems.push(
+      `Another metric covers ${heart.category} for “${heart.feature.trim()}” (“${sameGoal.name}”, ${sameGoal.id}): one metric per HEART feature and category.`
+    );
+  }
+  if (!current && others.length >= TOOL_LIST_MAX.productMetrics) {
+    problems.push(
+      `There are already ${others.length} metrics, the most the tool keeps. Remove one first.`
+    );
+  }
+  // An EBM measure read from the toolkit takes the source's own area and direction.
+  if (next.kva && next.source) {
+    const wrong = sourceProblem(next.kva, next.source, next.direction);
+    if (wrong) problems.push(wrong);
+  }
+  unlessRefused(next, problems);
+}
+
+defineCrudActions<ProductMetric>({
+  toolId: "workspace.product_metric",
+  entityName:
+    "product metric (a North Star, an input, a HEART goal, a funnel stage or an EBM measure)",
+  schema: ProductMetricSchema,
+  selectAll: () => ws().productMetrics ?? [],
+  upsert: (x) => ws().upsertProductMetric(x),
+  remove: (id) => ws().removeProductMetric(id),
+  generateId: () => `metric_${nanoid(8)}`,
+  prepare: prepareProductMetric,
+  beforeWrite: beforeProductMetricWrite,
+});
+
+/** A whole-number count, 0 or more. */
+const Count = z.number().int().min(0);
+
+const AbTestSchema = z.object({
+  id: z.string(),
+  name: Filled(TOOL_TEXT_MAX.short),
+  question: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  metricName: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  metricId: z.string().max(TOOL_TEXT_MAX.short).optional().describe("The product metric it moves."),
+  hypothesisId: z
+    .string()
+    .max(TOOL_TEXT_MAX.short)
+    .optional()
+    .describe("The hypothesis it tests (Hypothesis Tracker)."),
+  plan: z
+    .object({
+      baseline: z.number().min(0).max(1).describe("The current conversion rate, a fraction."),
+      mde: z.number().positive().finite().describe("The smallest change worth finding."),
+      mdeMode: z.enum(["relative", "absolute"]),
+      confidence: z.union([z.literal(0.9), z.literal(0.95), z.literal(0.99)]),
+      power: z.union([z.literal(0.8), z.literal(0.9)]),
+      sided: z.enum(["two", "one"]),
+      dailyTraffic: z.number().int().positive().optional().describe("Visitors a day."),
+    })
+    .refine((p) => p.mdeMode === "relative" || p.mde <= 1, {
+      message: "an absolute smallest change is a fraction, at most 1",
+    })
+    .describe("The plan, every rate a fraction from 0 to 1."),
+  variants: z
+    .array(
+      z
+        .object({
+          id: ItemId,
+          name: z.string().max(TOOL_TEXT_MAX.short),
+          visitors: Count,
+          conversions: Count,
+        })
+        .refine((v) => v.conversions <= v.visitors, {
+          message: "conversions are at most visitors",
+        })
+    )
+    .length(2)
+    .describe("Exactly two: the control, then B."),
+  guardrails: z
+    .array(
+      z.object({
+        name: z.string().max(TOOL_TEXT_MAX.short),
+        why: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      })
+    )
+    .max(TOOL_LIST_MAX.abGuardrails)
+    .optional(),
+  status: z.enum(AB_TEST_STATUSES),
+  startedOn: IsoDay.optional(),
+  endedOn: IsoDay.optional(),
+  decision: z.enum(AB_DECISIONS).optional(),
+  note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<AbTest>;
+
+defineCrudActions<AbTest>({
+  toolId: "workspace.ab_test",
+  entityName: "A/B test (its plan, two versions' counts and the decision)",
+  schema: AbTestSchema,
+  selectAll: () => ws().abTests ?? [],
+  upsert: (x) => ws().upsertAbTest(x),
+  remove: (id) => ws().removeAbTest(id),
+  generateId: () => `abtest_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/** A key value area's score, from 0 to 1. */
+const AreaScore = z.number().min(0).max(1);
+
+const EbmBoardSchema = z.object({
+  id: SingletonId(EBM_BOARD_ID),
+  strategicGoal: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  strategicWhy: z.string().max(TOOL_TEXT_MAX.text).optional().describe("Why it matters."),
+  reviews: z
+    .array(
+      z.object({
+        id: ItemId,
+        date: IsoDay,
+        focus: z.enum(EBM_VALUE_AREAS).describe("The area to focus on next."),
+        note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+        areas: z
+          .object(Object.fromEntries(EBM_VALUE_AREAS.map((area) => [area, AreaScore.optional()])))
+          .describe("Each area's score, 0 to 1; an area left out was not measured."),
+      })
+    )
+    .max(TOOL_LIST_MAX.ebmReviews)
+    .describe("Recorded reviews, oldest first."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<EbmBoard>;
+
+// A singleton: create needs EBM_BOARD_ID (see SingletonId). The measures are
+// workspace.product_metric rows with kva set.
+defineCrudActions<EbmBoard>({
+  toolId: "workspace.ebm_board",
+  entityName: "EBM board (the strategic goal and the reviews; one document)",
+  schema: EbmBoardSchema,
+  selectAll: () => ws().ebmBoards ?? [],
+  upsert: (x) => ws().upsertEbmBoard(x),
+  remove: (id) => ws().removeEbmBoard(id),
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.6 — Kanban's Definition of Workflow, one document. Flow Insights reads
+ * its work-type targets; the stories' and cards' work types and blocked
+ * spells ride StorySchema above and the Kanban board's cards. Every policy
+ * and short text is capped at TOOL_TEXT_MAX.short, so 12 saved versions
+ * keep the row small. */
+
+const KANBAN_COLUMNS = ["backlog", "ready", "in_progress", "review", "done"] as const;
+const KANBAN_CLASSES = ["standard", "expedite", "fixed_date", "intangible"] as const;
+
+/** The workflow fields a saved version keeps a copy of. */
+const WorkflowFields = {
+  board: z.enum(["sprint", "flow"]).optional().describe("The board it describes."),
+  workItem: z.string().max(TOOL_TEXT_MAX.short).optional().describe("What one item of work is."),
+  startPoint: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  finishPoint: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  workTypes: z
+    .array(
+      z.object({
+        type: z.enum(WORK_TYPES),
+        meaning: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        targetPct: Percent.optional().describe("The target share of finished work, 0–100."),
+      })
+    )
+    .max(WORK_TYPES.length)
+    .optional(),
+  policies: z
+    .array(
+      z.object({
+        stage: z.string().max(20),
+        enter: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        exit: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      })
+    )
+    .max(6)
+    .optional()
+    .describe("When work enters and leaves each stage."),
+  classPolicies: z
+    .array(z.object({ class: z.enum(KANBAN_CLASSES), policy: z.string().max(TOOL_TEXT_MAX.short) }))
+    .max(KANBAN_CLASSES.length)
+    .optional(),
+  wipPolicy: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  pullPolicy: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  blockerPolicy: z.string().max(TOOL_TEXT_MAX.short).optional(),
+  sle: z
+    .object({
+      days: z.number().int().min(1).max(365),
+      pct: z.literal(WORKFLOW_SLE_PERCENTILES),
+    })
+    .optional()
+    .describe("The service level expectation: pct percent of items finish within days."),
+};
+
+const WorkflowDefinitionSchema = z.object({
+  id: SingletonId(WORKFLOW_DEFINITION_ID),
+  ...WorkflowFields,
+  statik: z
+    .object({
+      inside: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      outside: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      demand: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      capability: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      workflow: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      classes: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      design: z.string().max(TOOL_TEXT_MAX.text).optional(),
+      rollout: z.string().max(TOOL_TEXT_MAX.text).optional(),
+    })
+    .optional()
+    .describe("Notes from the STATIK steps, one per step."),
+  cadences: z
+    .array(
+      z.object({
+        id: ItemId,
+        name: Filled(TOOL_TEXT_MAX.short),
+        cadence: z.enum(MEETING_CADENCES),
+        minutes: z.number().int().min(5).max(240).optional(),
+        purpose: z.string().max(TOOL_TEXT_MAX.short).optional(),
+      })
+    )
+    .max(TOOL_LIST_MAX.kanbanCadences)
+    .optional()
+    .describe("The team's recurring Kanban meetings."),
+  versions: z
+    .array(
+      z.object({
+        version: z.number().int().min(1),
+        savedAt: z.string(),
+        note: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        expect: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        snapshot: z.object({
+          ...WorkflowFields,
+          wipLimits: z.partialRecord(z.enum(KANBAN_COLUMNS), z.number()),
+        }),
+      })
+    )
+    .max(TOOL_LIST_MAX.workflowVersions)
+    .optional()
+    .describe(
+      `Saved versions, oldest first (the latest ${TOOL_LIST_MAX.workflowVersions}), each with the board's WIP limits at the time.`
+    ),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<WorkflowDefinition>;
+
+// A singleton: create needs WORKFLOW_DEFINITION_ID (see SingletonId).
+defineCrudActions<WorkflowDefinition>({
+  toolId: "workspace.workflow_definition",
+  entityName: "workflow definition (Kanban's Definition of Workflow; one document)",
+  schema: WorkflowDefinitionSchema,
+  selectAll: () => ws().workflowDefinitions ?? [],
+  upsert: (x) => ws().upsertWorkflowDefinition(x),
+  remove: (id) => ws().removeWorkflowDefinition(id),
+  prepare: (next, current) => stampedTimes(next, current),
+});
+
+/* P2.7 — Improve: an A3 or an Improvement Kata. Root Cause's causal loop
+ * rides RootCauseAnalysisSchema (Phase 42 block) and a retro card's day the
+ * retro board's cards. Only the title can't be blank: between "Reached it"
+ * and the next target a Kata's target text is blank, and updates must still
+ * be taken. */
+
+const ImprovementConditionSchema = z.object({
+  text: z.string().max(TOOL_TEXT_MAX.text),
+  metric: z.string().max(TOOL_TEXT_MAX.short).optional().describe("What is measured."),
+  value: z.number().finite().optional(),
+  unit: z.string().max(IMPROVEMENT_UNIT_MAX).optional(),
+  date: IsoDay.optional(),
+});
+
+const ImprovementSchema = z
+  .object({
+    id: z.string(),
+    title: Filled(TOOL_TEXT_MAX.short),
+    method: z
+      .enum(IMPROVEMENT_METHODS)
+      .describe("An A3 or an Improvement Kata; fixed when it starts."),
+    status: z
+      .enum(IMPROVEMENT_STATUSES)
+      .describe("closedAt is stamped when it is closed or dropped, cleared when it is open again."),
+    owner: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    coach: z.string().max(TOOL_TEXT_MAX.short).optional(),
+    background: z
+      .string()
+      .max(TOOL_TEXT_MAX.text)
+      .describe("Why it matters (an A3), or the challenge (a Kata)."),
+    current: ImprovementConditionSchema.describe("Where things stand today."),
+    target: ImprovementConditionSchema.describe("Where the team wants them."),
+    pastTargets: z
+      .array(ImprovementConditionSchema.extend({ reachedAt: IsoTime }))
+      .max(TOOL_LIST_MAX.improvePastTargets)
+      .optional()
+      .describe("Kata targets reached, oldest first."),
+    analysis: z.string().max(TOOL_TEXT_MAX.text).optional().describe("Why it happens (an A3)."),
+    rootCauseId: z.string().max(64).optional().describe("The Root Cause analysis it links."),
+    obstacles: z
+      .array(
+        z.object({
+          id: ItemId,
+          text: z.string().max(TOOL_TEXT_MAX.text),
+          status: z.enum(KATA_OBSTACLE_STATUSES).describe("At most one is working."),
+          sentTo: SentTo,
+        })
+      )
+      .max(TOOL_LIST_MAX.kataObstacles)
+      .describe("A Kata's obstacles to its target."),
+    steps: z
+      .array(
+        z.object({
+          id: ItemId,
+          text: z.string().max(TOOL_TEXT_MAX.text),
+          expect: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          result: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          learned: z.string().max(TOOL_TEXT_MAX.text).optional(),
+          obstacleId: ItemId.optional().describe("The obstacle a Kata experiment works on."),
+          owner: z.string().max(TOOL_TEXT_MAX.short).optional(),
+          due: IsoDay.optional(),
+          status: z.enum(IMPROVEMENT_STEP_STATUSES),
+          doneAt: IsoTime.optional().describe("Stamped when the step is done."),
+          sentTo: SentTo.describe("Where it was sent: Retro Actions or the backlog."),
+        })
+      )
+      .max(TOOL_LIST_MAX.improveSteps)
+      .describe("An A3's countermeasures or a Kata's experiments."),
+    readings: z
+      .array(
+        z.object({
+          id: ItemId,
+          date: IsoDay,
+          value: z.number().finite(),
+          note: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        })
+      )
+      .max(TOOL_LIST_MAX.improveReadings)
+      .describe("Dated readings of its number."),
+    check: z.string().max(TOOL_TEXT_MAX.text).optional().describe("What the check showed (an A3)."),
+    followUp: z.string().max(TOOL_TEXT_MAX.text).optional(),
+    nextCoachingAt: IsoDay.optional().describe("The next coaching talk (a Kata)."),
+    closedAt: IsoTime.optional(),
+    sentTo: SentTo,
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("improvement")) as unknown as z.ZodType<Improvement>;
+
+/**
+ * Times stamped; closedAt set when the improvement is closed or dropped
+ * (when it has none) and cleared when it is open or being checked; a done
+ * step gets doneAt when it has none, and a step that isn't done loses it;
+ * only the first working obstacle stays working, the rest read as open.
+ */
+function prepareImprovement(next: Improvement, current: Improvement | undefined): Improvement {
+  const stamped = stampedTimes(next, current);
+  let item: Improvement;
+  if (stamped.status === "closed" || stamped.status === "dropped") {
+    item = stamped.closedAt ? stamped : { ...stamped, closedAt: stamped.updatedAt };
+  } else {
+    const { closedAt: _closed, ...open } = stamped;
+    void _closed;
+    item = open;
+  }
+  const steps = item.steps.map((step) => {
+    if (step.status === "done") return step.doneAt ? step : { ...step, doneAt: item.updatedAt };
+    if (step.doneAt === undefined) return step;
+    const { doneAt: _done, ...rest } = step;
+    void _done;
+    return rest;
+  });
+  let working = false;
+  const obstacles = item.obstacles.map((obstacle) => {
+    if (obstacle.status !== "working") return obstacle;
+    if (!working) {
+      working = true;
+      return obstacle;
+    }
+    return { ...obstacle, status: "open" as const };
+  });
+  return { ...item, steps, obstacles };
+}
+
+/** An update that changes the method is refused: an A3 and a Kata hold different things. */
+async function beforeImprovementWrite(
+  next: Improvement,
+  current: Improvement | undefined
+): Promise<void> {
+  if (current && current.method !== next.method) {
+    throw new Error("An improvement keeps the method it started with. Nothing was saved.");
+  }
+}
+
+defineCrudActions<Improvement>({
+  toolId: "workspace.improvement",
+  entityName: "improvement (an A3 or an Improvement Kata)",
+  schema: ImprovementSchema,
+  selectAll: () => ws().improvements ?? [],
+  upsert: (x) => ws().upsertImprovement(x),
+  remove: (id) => ws().removeImprovement(id),
+  generateId: () => `improve_${nanoid(8)}`,
+  prepare: prepareImprovement,
+  beforeWrite: beforeImprovementWrite,
+});
+
+/* P2.8 — Kickoff. Its items are the sectioned kit's (sectionsSchema), with a
+ * worry's ratings and the worry an item answers. */
+
+/** Whether every item has its text, or an owner (a person whose role isn't known yet). */
+const textOrOwner = (sections: Record<string, { text: string; owner?: string }[]>) =>
+  Object.values(sections).every((items) =>
+    items.every((item) => item.text.trim() !== "" || (item.owner ?? "").trim() !== "")
+  );
+
+const KickoffSchema = z
+  .object({
+    id: z.string(),
+    title: Filled(TOOL_TEXT_MAX.short),
+    format: z.enum(KICKOFF_FORMATS),
+    brief: z.string().max(KICKOFF_BRIEF_MAX).optional().describe("What the kickoff is for."),
+    date: IsoDay.optional(),
+    participants: z
+      .array(z.string().max(TOOL_TEXT_MAX.short))
+      .max(TOOL_LIST_MAX.kickoffParticipants)
+      .optional(),
+    sections: sectionsSchema({
+      itemMax: KICKOFF_ITEM_MAX,
+      itemExtra: {
+        likelihood: Scale5.optional().describe("A worry's likelihood, 1–5."),
+        impact: Scale5.optional().describe("A worry's impact, 1–5."),
+        covers: ItemId.optional().describe("The worry item in this kickoff it answers."),
+      },
+    })
+      .refine(textOrOwner, {
+        message: "a kickoff item needs its text, or an owner when it has none",
+      })
+      .describe("The items by the format's section id."),
+    sliders: z
+      .array(
+        z.object({
+          id: ItemId,
+          label: Filled(KICKOFF_SLIDER_LABEL_MAX),
+          position: z
+            .number()
+            .int()
+            .min(1)
+            .max(TOOL_LIST_MAX.kickoffSliders)
+            .describe("Its place in the order, 1 first; each position once."),
+          note: z.string().max(TOOL_TEXT_MAX.short).optional(),
+        })
+      )
+      .max(TOOL_LIST_MAX.kickoffSliders)
+      .refine((sliders) => new Set(sliders.map((s) => s.position)).size === sliders.length, {
+        message: "each slider has its own position",
+      })
+      .optional()
+      .describe("The trade-off sliders, in their order."),
+    slidersSetAt: IsoTime.optional(),
+    status: z.enum(KICKOFF_STATUSES),
+    agreedAt: IsoTime.optional(),
+    sentTo: SentTo.describe("The slider order's decision link."),
+    createdAt: StampedAt,
+    updatedAt: StampedAt,
+  })
+  .refine(fitsRow, tooBigToSave("kickoff")) as unknown as z.ZodType<Kickoff>;
+
+defineCrudActions<Kickoff>({
+  toolId: "workspace.kickoff",
+  entityName:
+    "kickoff (Team Alignment Map, Project Poster, Team Canvas, Inception deck, trade-off sliders or problem framing)",
+  schema: KickoffSchema,
+  selectAll: () => ws().kickoffs ?? [],
+  upsert: (x) => ws().upsertKickoff(x),
+  remove: (id) => ws().removeKickoff(id),
+  generateId: () => `kickoff_${nanoid(8)}`,
+  prepare: (next, current) => {
+    // What the kickoff's format doesn't take, the page's reader drops, and
+    // the next page or verb write would delete it: refused, not saved.
+    const problem = kickoffCatalogProblem(next);
+    if (problem) throw new Error(`${problem} Nothing was saved.`);
+    return stampedTimes(next, current);
+  },
+});
+
+/* P2.9 — Team Time: people, meeting-time polls and rotations. The rules a
+ * write is refused for live in lib/team-time/rows, which the page shares;
+ * none of them is "in the future". */
+
+/** A meeting's length in minutes: a whole number up to a day. */
+const MeetingMinutes = z
+  .number()
+  .int()
+  .min(1)
+  .max(24 * 60);
+
+const TeamTimePersonSchema = z.object({
+  id: z.string(),
+  teamMemberId: z
+    .string()
+    .max(TOOL_TEXT_MAX.short)
+    .optional()
+    .describe("The roster member it is (workspace.team_member id)."),
+  name: Filled(TOOL_TEXT_MAX.short),
+  timeZone: TimeZoneName.describe('Their IANA time zone, such as "Asia/Tokyo".'),
+  start: TimeSchema.describe("Working hours start, HH:MM in their zone."),
+  end: TimeSchema.describe("Working hours end, HH:MM in their zone."),
+  workingDays: z.array(Weekday).min(1).max(7).describe("Days they work, 0 Sunday to 6 Saturday."),
+  officeDays: z
+    .array(Weekday)
+    .max(7)
+    .optional()
+    .describe("Days in the office, among the working days."),
+  site: z.string().max(TEAM_TIME_MAX.site).optional().describe("Their office."),
+  note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<TeamTimePerson>;
+
+/**
+ * One row per person (the same roster member, or the same name when either
+ * has none), and at most TEAM_TIME_MAX.people of them.
+ */
+async function beforeTeamTimePersonWrite(
+  next: TeamTimePerson,
+  current: TeamTimePerson | undefined,
+  env: CrudEnv<TeamTimePerson>
+): Promise<void> {
+  const others = (await env.all()).filter((p) => p.id !== next.id);
+  const twin = others.find((p) => samePerson(p, next));
+  const problems: string[] = [];
+  if (twin) {
+    problems.push(
+      `${twin.name} is already on Team Time (${twin.id}). Edit that row instead: one row per person.`
+    );
+  }
+  if (!current && others.length >= TEAM_TIME_MAX.people) {
+    problems.push(
+      `Team Time already has ${others.length} people, the most it keeps. Remove one first.`
+    );
+  }
+  unlessRefused(next, problems);
+}
+
+defineCrudActions<TeamTimePerson>({
+  toolId: "workspace.team_time_person",
+  entityName: "Team Time person (their time zone, working hours and office days)",
+  schema: TeamTimePersonSchema,
+  selectAll: () => ws().teamTimePeople ?? [],
+  upsert: (x) => ws().upsertTeamTimePerson(x),
+  remove: (id) => ws().removeTeamTimePerson(id),
+  generateId: () => `ttp_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(unlessRefused(next, personProblems(next)), current),
+  beforeWrite: beforeTeamTimePersonWrite,
+});
+
+const TeamTimePollSchema = z.object({
+  id: z.string(),
+  title: Filled(TOOL_TEXT_MAX.short),
+  minutes: MeetingMinutes.describe("The meeting's length."),
+  slots: z
+    .array(z.object({ id: ItemId, start: IsoTime.describe("The time offered, an ISO instant.") }))
+    .max(TEAM_TIME_MAX.slots)
+    .describe("The times the poll offers."),
+  answers: z
+    .array(
+      z.object({
+        name: z.string().max(TOOL_TEXT_MAX.short),
+        picks: z
+          .record(z.string().max(64), z.enum(TEAM_TIME_ANSWERS))
+          .describe("Yes, maybe or no, by slot id."),
+      })
+    )
+    .max(TEAM_TIME_MAX.answers)
+    .describe("Who can make each time, recorded by the facilitator."),
+  status: z.enum(TEAM_TIME_POLL_STATUSES),
+  chosenSlotId: z.string().max(64).optional(),
+  note: z.string().max(TOOL_TEXT_MAX.text).optional(),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<TeamTimePoll>;
+
+defineCrudActions<TeamTimePoll>({
+  toolId: "workspace.team_time_poll",
+  entityName: "Team Time poll for a meeting time",
+  schema: TeamTimePollSchema,
+  selectAll: () => ws().teamTimePolls ?? [],
+  upsert: (x) => ws().upsertTeamTimePoll(x),
+  remove: (id) => ws().removeTeamTimePoll(id),
+  generateId: () => `ttpoll_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(unlessRefused(next, pollProblems(next)), current),
+});
+
+const TeamTimeRotationSchema = z.object({
+  id: z.string(),
+  meeting: Filled(TOOL_TEXT_MAX.short).describe("The meeting that rotates."),
+  minutes: MeetingMinutes,
+  everyWeeks: z.literal([1, 2, 3, 4]).describe("How often it meets, in weeks."),
+  startDate: IsoDay,
+  mode: z
+    .enum(TEAM_TIME_ROTATION_MODES)
+    .describe("in-turn: each time in order; fairest: whoever has had it worst."),
+  options: z
+    .array(
+      z.object({
+        id: ItemId,
+        label: z.string().max(TEAM_TIME_MAX.label).optional(),
+        weekday: Weekday,
+        time: TimeSchema,
+        timeZone: TimeZoneName,
+      })
+    )
+    .max(TEAM_TIME_MAX.options)
+    .describe(`The times it moves between, 2 to ${TEAM_TIME_MAX.options}.`),
+  attendees: z
+    .array(z.string().max(TOOL_TEXT_MAX.short))
+    .max(TEAM_TIME_MAX.attendees)
+    .optional()
+    .describe("Who attends (workspace.team_time_person ids)."),
+  held: z
+    .array(
+      z.object({
+        date: IsoDay.describe("The day, in the option's zone."),
+        optionId: ItemId,
+        skipped: z.literal(true).optional(),
+      })
+    )
+    .max(TEAM_TIME_MAX.held)
+    .describe("Meetings held or skipped, oldest first."),
+  meetingAuditId: z
+    .string()
+    .max(TOOL_TEXT_MAX.short)
+    .optional()
+    .describe("The Meeting Audit row of the same meeting."),
+  createdAt: StampedAt,
+  updatedAt: StampedAt,
+}) as unknown as z.ZodType<TeamTimeRotation>;
+
+defineCrudActions<TeamTimeRotation>({
+  toolId: "workspace.team_time_rotation",
+  entityName: "Team Time meeting rotation (a meeting that moves between times)",
+  schema: TeamTimeRotationSchema,
+  selectAll: () => ws().teamTimeRotations ?? [],
+  upsert: (x) => ws().upsertTeamTimeRotation(x),
+  remove: (id) => ws().removeTeamTimeRotation(id),
+  generateId: () => `ttrot_${nanoid(8)}`,
+  prepare: (next, current) => stampedTimes(unlessRefused(next, rotationProblems(next)), current),
 });

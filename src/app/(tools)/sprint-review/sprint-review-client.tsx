@@ -55,7 +55,20 @@ import { VelocitySummaryTab } from "./components/velocity-summary-tab";
 const NO_REVIEWS: SprintReview[] = [];
 
 const TAB_CLASS =
-  "data-[state=active]:bg-card data-[state=active]:text-text data-[state=active]:ring-1 data-[state=active]:ring-accent/60 text-sub gap-1.5";
+  "min-w-0 px-1.5 text-xs sm:px-3 sm:text-sm data-[state=active]:bg-card data-[state=active]:text-text data-[state=active]:ring-1 data-[state=active]:ring-accent/60 text-sub gap-1.5";
+
+/**
+ * The review's four tabs. Below `sm` they sit four across in one row
+ * (Picker's pattern) with a short word each, no icon; the word is part of
+ * the tab's full name, which stays its name (`aria-label`), so what a voice
+ * user sees is what they can say.
+ */
+const REVIEW_TABS = [
+  { value: "demo", label: "Demo Script", short: "Demo", Icon: Presentation },
+  { value: "feedback", label: "Stakeholder Feedback", short: "Feedback", Icon: MessageSquare },
+  { value: "checklist", label: "Showcase Checklist", short: "Checklist", Icon: CheckSquare },
+  { value: "velocity", label: "Velocity Summary", short: "Velocity", Icon: BarChart3 },
+] as const;
 
 /** "sprint-12" for a file name. */
 const slug = (s: string) =>
@@ -85,7 +98,9 @@ export function SprintReviewClient() {
       category="Ceremonies"
     >
       {!hydrated ? (
-        <LoadingSprints />
+        // Tall: the review is taller than a desktop screen, so "More in Run
+        // the sprint" starts below the first screen before it loads, as after.
+        <LoadingSprints tall />
       ) : example ? (
         <ExampleReview
           example={example}
@@ -404,23 +419,16 @@ function ReviewScreen({
       )}
 
       <Tabs value={tab} onValueChange={onTabChange}>
-        <TabsList className="h-auto flex-wrap gap-1 border border-border bg-surface-deep p-1">
-          <TabsTrigger value="demo" className={TAB_CLASS}>
-            <Presentation className="h-3.5 w-3.5" aria-hidden="true" />
-            Demo Script
-          </TabsTrigger>
-          <TabsTrigger value="feedback" className={TAB_CLASS}>
-            <MessageSquare className="h-3.5 w-3.5" aria-hidden="true" />
-            Stakeholder Feedback
-          </TabsTrigger>
-          <TabsTrigger value="checklist" className={TAB_CLASS}>
-            <CheckSquare className="h-3.5 w-3.5" aria-hidden="true" />
-            Showcase Checklist
-          </TabsTrigger>
-          <TabsTrigger value="velocity" className={TAB_CLASS}>
-            <BarChart3 className="h-3.5 w-3.5" aria-hidden="true" />
-            Velocity Summary
-          </TabsTrigger>
+        <TabsList className="grid h-auto w-full grid-cols-4 gap-1 border border-border bg-surface-deep p-1 sm:inline-flex sm:w-auto sm:flex-wrap">
+          {REVIEW_TABS.map(({ value, label, short, Icon }) => (
+            <TabsTrigger key={value} value={value} aria-label={label} className={TAB_CLASS}>
+              <Icon className="hidden h-3.5 w-3.5 sm:inline" aria-hidden="true" />
+              <span aria-hidden="true" className="sm:hidden">
+                {short}
+              </span>
+              <span className="hidden sm:inline">{label}</span>
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         <div className="mt-6">

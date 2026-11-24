@@ -399,25 +399,26 @@ export const GUIDES: ToolGuide[] = [
   {
     toolId: "working-agreement",
     summary:
-      "A working agreement is a short set of rules the team writes together about how it communicates, meets, decides and handles conflict. The builder records each person's consent, saves check-ins on whether the rules work in practice, and keeps published versions you can compare.",
+      "A working agreement is a short set of rules the team writes together about how it communicates, meets, decides and works. The builder records each person's consent, writes rules from four templates, saves check-ins on whether the rules work and keeps versions you can compare.",
     whenToUse: [
       "When a new team forms or several people join.",
-      "When the same friction keeps coming up in retros, like slow reviews or meetings without agendas.",
+      "When the same friction keeps coming up in retros, like slow reviews or late replies.",
       "Every few months, to check the rules still fit.",
     ],
     steps: [
-      "Under Add a rule, pick a Category, write the Rule (and an optional Description) and click Add rule, or pick one from the Starter catalog.",
-      "Open a rule's Consent and answer for each teammate: Consent, Concern (with a note) or Object. For someone not on the team, type them under Someone else, pick Their answer and click Record answer.",
-      "Every month or so, mark each rule Working, Partly or Not working on its card, then under Check-in round set the Day of the check-in (and a Sprint) and click Save check-in round.",
+      "Under Add a rule, pick a Category, write the Rule and click Add rule, or pick one from the Starter catalog.",
+      "Or open a template under Templates: Urgency ladder, Core hours (filled from Team Time's shared hours), Focus time or AI use. Answer it, check the Preview and click Add rules. Apply it again to change them: consent stays.",
+      "Open a rule's Consent and answer for each teammate: Consent, Concern (with a note) or Object.",
+      "Every month or so, mark each rule Working, Partly or Not working on its card, then under Check-in round set the Day and click Save check-in round.",
       "Adherence by check-in charts the saved rounds from two, a rule partly working counting as half; its Advanced analysis adds a trend test from six.",
-      "Under Publish and versions, add the team name and purpose and click Publish vN to keep the rules as a version. Changes since vN lists what moved, and Compare … with … shows any two versions or the draft.",
+      "Under Publish and versions, add the team name and click Publish vN to keep the rules as a version. Compare … with … shows any two versions or the draft.",
     ],
     tips: [
       "Keep it short. Five to ten rules people remember beat thirty nobody reads.",
       "Write behaviors (“PRs reviewed within one working day”), not values (“be respectful”).",
       "A concern still counts as consent; one objection means the rule doesn't have everyone's consent.",
+      "Edit a template's rule by hand and it becomes your own: applying the template again leaves it alone.",
       "A rule not working, or only partly, in the last check-in can go to the retro with Send to… → Retro topic.",
-      "Delete a rule or a saved round with Undo. Clear the charter asks first and can be undone too.",
     ],
     timebox: "60–90 minutes for the first version",
   },
@@ -568,5 +569,49 @@ export const GUIDES: ToolGuide[] = [
       "The Scrum events each have a purpose: change how you run one before you drop it.",
     ],
     timebox: "Thirty to sixty minutes, once a quarter.",
+  },
+  {
+    toolId: "kickoff",
+    summary:
+      "Kickoff helps a new team or new work start on the same page: pick a format, fill it in together, agree it, and send what came out to the tools that keep it.",
+    whenToUse: [
+      "The first sprint of a new team or a new piece of work.",
+      "When people join or leave the team.",
+      "Work that has no one-line problem statement yet.",
+    ],
+    steps: [
+      "Under Start a kickoff, pick a format, type a Name and a Brief (what this is and why now), and press Start the kickoff. A Team Canvas starts with the people on the Team page; an Inception deck and trade-off sliders start with Scope, Date, Cost and Quality.",
+      "Fill the sections in together. Rate each worry How likely and How bad, and press What would take this away? to add the line that covers it.",
+      "Or press Collect answers from phones, then Open the room: people answer without names, and nothing is added until you pick a section and press Save round.",
+      "Under Draft with Amr, press Ask Amr to draft, or Draft without AI for starter lines. Nothing is added until you accept it, and every add has Undo.",
+      "Under Trade-offs, put what holds firm at the top with Move up and Move down, then press This order is right.",
+      "Send to… puts worries in the Risk Register, rules in the Working Agreement, assumptions in the Hypothesis Tracker, scope in the backlog, the problem statement in the Opportunity Tree or Root Cause, and the order in the Decision Log.",
+      "When What's still open is empty, press Agree it, then Export. A change after that shows Changed since you agreed.",
+    ],
+    tips: [
+      "Lines with [brackets] still need filling in.",
+      "A canvas is agreed when everyone can say its goal in one line.",
+      "Start another format from this brief keeps the name and brief, for a second way in.",
+    ],
+    timebox: "15 minutes for trade-offs; 45–90 for a canvas; half a day for an inception deck.",
+  },
+  {
+    toolId: "team-time",
+    summary:
+      "Team Time helps a team spread across time zones and offices meet fairly: the hours everyone shares, a poll for a meeting time, a rotation so the same people don't always take the late call, and the days people are in the office.",
+    whenToUse: [
+      "A team spread across time zones.",
+      "Choosing a time for a new recurring meeting.",
+      "A hybrid team picking its office days.",
+    ],
+    steps: [
+      "People: add each person's time zone, working hours, working days and office days.",
+      "Shared hours shows when everyone overlaps. Make those hours your core hours in the Working Agreement.",
+      "Find a time: pick a few slots, record who can make each one, then choose one.",
+      "Rotate: a recurring meeting moves between times, in turn or by who has had the worst of it so far. A meeting nobody skips counts as held a day after it starts.",
+      "Office days: for each site, the best anchor day and who never meets the others in person.",
+      "Ask Amr writes a short note on the schedule with tips, and the page's own summary works without AI. Follow-the-sun hand-overs live in the Async Standup.",
+    ],
+    timebox: "Ten minutes to set up.",
   },
 ];

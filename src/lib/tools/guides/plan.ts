@@ -87,6 +87,7 @@ export const GUIDES: ToolGuide[] = [
       "Read the Description on each card and rewrite it in your team's own words.",
       "Under Example, write a story the team agrees was that size.",
       "On a points scale, done stories with those points appear under Reference stories. Click one to pin it as the reference for that card, up to three per card.",
+      "Three-point check: type the best, likely and worst case to see the expected size and, on a points scale, the card it rounds up to.",
       "Click Share to copy a link to the guide, or Export it as Markdown, and keep it open whenever you estimate.",
       "Every few sprints, pin fresher stories and adjust descriptions that no longer fit.",
     ],
@@ -213,11 +214,14 @@ export const GUIDES: ToolGuide[] = [
       "For a dependency, pick the team it Waits on and, if it has a deadline, the date it's Due: it goes on the Dependency Map, and its status shows on the card. Use Move to put any item in another cell.",
       "Watch each cell's planned / velocity points. A cell over capacity turns red: cut scope or move work to a later iteration. Load vs capacity charts every team.",
       "Under PI objectives, add each team's objectives as Committed or Uncommitted, and score Business value once the business owners have.",
+      "Under Risks: ROAM, sort each risk as Resolved, Owned, Accepted or Mitigated, with an owner and a note, and log owned or mitigated ones in the Risk Register. Suggest ROAM asks Amr; Suggest from keywords needs no AI.",
+      "Under Confidence vote, ask the train or one team how sure they are, from 1 to 5, on phones or by a count, and talk through every vote under 3 before you commit.",
+      "At the end, score each objective's Actual value under Predictability, then Close this PI to keep its predictability in the history.",
     ],
     tips: [
       "Keep the last iteration free of features. In SAFe it's for innovation, planning and buffer.",
       "Chase each open dependency's owner and due date on the Dependency Map.",
-      "Sort each risk as Resolved, Owned, Accepted or Mitigated (ROAM), and log the open ones in the Risk Register.",
+      "80–100% predictability is a common aim, not a rule: set the band your train agrees on.",
     ],
     scales: [
       {
@@ -247,6 +251,7 @@ export const GUIDES: ToolGuide[] = [
       "If some linked stories have no points, click Queue N for Planning Poker so progress can count points.",
       "With no stories linked, edit the epic and type Progress, typed (%); the row marks it as typed.",
       "Under Roadmap, set View from and View to to choose the quarters shown. Fit to epics then puts the view back on every epic's quarters.",
+      "Switch the Roadmap to Now, Next, Later to see epics by horizon. Move one by hand, or set it back to its quarters.",
       "Review it every sprint or two. A note appears when sprints or OKRs changed in the last 14 days.",
     ],
     tips: [
@@ -346,5 +351,52 @@ export const GUIDES: ToolGuide[] = [
       "A long tail of stale items is a decision waiting to be made, usually to drop them.",
     ],
     timebox: "Ten minutes before each refinement.",
+  },
+  {
+    toolId: "example-mapping",
+    summary:
+      "Example Mapping helps the team understand a story before building it. In a short timebox you write the rules the story must follow, a concrete example for each rule, and the questions nobody can answer yet. The cards show whether the story is ready, too big, or waiting on answers.",
+    whenToUse: [
+      "Refining a story the team only half understands.",
+      "When acceptance criteria keep changing in the middle of the sprint.",
+      "Before writing tests, so they check the rules the team agreed.",
+    ],
+    steps: [
+      "Pick a story from the backlog or type one, then start the 25-minute timebox.",
+      "Add the rules the story must follow, one card each.",
+      "Under each rule, add real examples. Write an example as Given, When, Then once it's clear.",
+      "Put each question nobody can answer yet on its own card, with the owner who will find out.",
+      "Read what the map says: many rules mean a big story, many questions mean it isn't ready.",
+      "Decide ready, split by rule or not yet, then send the rules and examples to the story, with Undo.",
+      "Ask Amr suggests rules, examples and questions, and you pick what to keep. The map works the same without AI.",
+    ],
+    tips: [
+      "Use concrete names and numbers in examples, not “a user” and “some items”.",
+      "A timebox that runs out is an answer too: the story isn't ready yet.",
+    ],
+    timebox: "25 minutes per story.",
+  },
+  {
+    toolId: "relative-sizing",
+    summary:
+      "Relative Sizing sizes many stories at once by comparing them with each other. The team places each story in a bucket without talking, then talks only about the stories people put far apart. It is quicker than Planning Poker for a long backlog.",
+    whenToUse: [
+      "A long backlog of unsized stories, before a release plan or a new product.",
+      "When estimating story by story in Planning Poker would take too long.",
+    ],
+    steps: [
+      "Start from the backlog's unsized stories or paste titles, one per line, and pick the buckets.",
+      "Silent sort: everyone moves cards between buckets without talking. A card moved three times goes to Talk about it.",
+      "Or sort in buckets: place an anchor story first, deal out the rest, let each person place theirs, then walk the buckets together.",
+      "Live: Ask the room sends up to 20 stories to every phone (32 at most), and the room sees only the totals for each bucket.",
+      "Talk only about the outliers, the stories people placed far apart, and send the hardest to Planning Poker.",
+      "Save sizes writes the points to the stories, with one Undo.",
+      "Ask Amr suggests questions to ask about an outlier and ways to split a story that's too big. Sorting never needs AI.",
+    ],
+    tips: [
+      "The dashed reference cards come from the Estimation Guide, so each bucket means what your team agreed.",
+      "Sizes are relative to each other, not days of work.",
+    ],
+    timebox: "About 30 seconds a story.",
   },
 ];

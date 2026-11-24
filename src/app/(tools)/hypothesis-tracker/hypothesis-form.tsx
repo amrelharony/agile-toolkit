@@ -12,7 +12,7 @@ import { Lightbulb, Plus } from "lucide-react";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { SectionCard } from "@/components/shared/section-card";
 import { Button } from "@/components/ui/button";
-import type { Hypothesis } from "@/lib/stores/workspace-types";
+import type { Hypothesis, HypothesisMeasuredBy } from "@/lib/stores/workspace-types";
 import {
   emptyHypothesisDraft,
   hypothesisDraftFrom,
@@ -23,21 +23,35 @@ import {
 } from "@/lib/hypotheses/model";
 import { HypothesisFields } from "./hypothesis-fields";
 
+/** A New hypothesis form opened pre-filled (a `?metric=` link): a new `key` opens it again. */
+export interface HypothesisSeed {
+  key: number;
+  draft: HypothesisDraft;
+  measuredBy?: HypothesisMeasuredBy;
+  /** How it is measured, in words, shown above the fields. */
+  measuredLabel?: string;
+}
+
 export function NewHypothesisForm({
   today,
   onAdd,
+  seed,
 }: {
   today: string;
-  onAdd: (values: HypothesisValues) => void;
+  onAdd: (values: HypothesisValues, measuredBy?: HypothesisMeasuredBy) => void;
+  seed?: HypothesisSeed | null;
 }) {
   const [open, setOpen] = useState(false);
   const openerRef = useRef<HTMLButtonElement>(null);
   const reopenFocus = useRef(false);
+  const [measured, setMeasured] = useState<Pick<HypothesisSeed, "measuredBy" | "measuredLabel">>(
+    {}
+  );
   const form = useItemForm<HypothesisDraft, HypothesisValues, HypothesisField>({
     initial: () => emptyHypothesisDraft(today),
     validate: (d) => validateHypothesis(d, today),
     onSave: (values) => {
-      onAdd(values);
+      onAdd(values, measured.measuredBy);
       close();
     },
   });
@@ -46,8 +60,18 @@ export function NewHypothesisForm({
   function close() {
     setOpen(false);
     reset();
+    setMeasured({});
     reopenFocus.current = true;
   }
+
+  // A seed opens the form with its draft and its measure.
+  useEffect(() => {
+    if (!seed) return;
+    reset(seed.draft);
+    setMeasured({ measuredBy: seed.measuredBy, measuredLabel: seed.measuredLabel });
+    setOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- once per seed
+  }, [seed?.key]);
 
   // Open on the first line; closed, back to the button that opened it.
   useEffect(() => {
@@ -82,6 +106,9 @@ export function NewHypothesisForm({
         submitIcon={<Plus className="h-4 w-4" aria-hidden="true" />}
         onCancel={close}
       >
+        {measured.measuredLabel && (
+          <p className="text-sm text-sub">Measured by {measured.measuredLabel}.</p>
+        )}
         <HypothesisFields form={form} today={today} />
       </ItemForm>
     </SectionCard>

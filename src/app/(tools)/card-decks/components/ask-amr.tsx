@@ -14,7 +14,7 @@ import {
   type CardForMoodInput,
   type CardForMoodOutput,
   type GenerateCardsInput,
-} from "@/lib/ai/tasks/card-decks";
+} from "@/lib/ai/tasks/card-decks.lite";
 import {
   CARD_DECK_LIMITS,
   builtInDeckFor,

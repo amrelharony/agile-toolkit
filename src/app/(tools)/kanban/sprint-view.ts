@@ -286,8 +286,11 @@ function isLatestMove(current: Story, before: Story, movedTo: StoryStatus): bool
  * `current` with the move to `movedTo` undone: status, flow stamps and
  * history as they were in `before`, and every other field (an owner or a
  * blocked flag set since) as it is now. The flag comes back only when the
- * move itself cleared it, by going to Done. Null when the story has moved
- * again since, so Undo never drags it back over a newer move.
+ * move itself cleared it, by going to Done, and with it the blocked spells
+ * as they were, so the spell the move closed is open again (the store keeps
+ * a log the write sets itself). Not through `FLOW_KEYS`: a spell opened
+ * after a move to Review stays. Null when the story has moved again since,
+ * so Undo never drags it back over a newer move.
  */
 export function revertMove(current: Story, before: Story, movedTo: StoryStatus): Story | null {
   if (!isLatestMove(current, before, movedTo)) return null;
@@ -297,6 +300,10 @@ export function revertMove(current: Story, before: Story, movedTo: StoryStatus):
     if (before[key] === undefined) delete target[key];
     else target[key] = before[key];
   }
-  if (movedTo === "done" && before.blocked) next.blocked = true;
+  if (movedTo === "done" && before.blocked) {
+    next.blocked = true;
+    if (before.blockLog === undefined) delete next.blockLog;
+    else next.blockLog = before.blockLog;
+  }
   return next;
 }

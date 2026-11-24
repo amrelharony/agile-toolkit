@@ -79,9 +79,9 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   },
   {
     toolId: "pi-planning",
-    // Nothing logs a finished plan: he admires the full board between moves.
+    // Closing a PI is the finished plan; he admires the full board between moves.
     open: ["pi", "pi.done"],
-    actions: { item_assigned: ["pi.place"], team_added: ["pi.team"] },
+    actions: { item_assigned: ["pi.place"], team_added: ["pi.team"], pi_closed: ["pi.done"] },
   },
   { toolId: "epic-roadmap", open: ["roadmap"], actions: { epic_added: ["roadmap.add"] } },
   {
@@ -298,9 +298,39 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     actions: { interview_added: ["interview.note"], quote_sent: ["interview.quote"] },
   },
   {
+    toolId: "persona-library",
+    open: ["interview"],
+    actions: { persona_created: ["interview.note"] },
+  },
+  {
     toolId: "opportunity-tree",
     open: ["tree"],
     actions: { node_added: ["tree.grow"], experiment_sent: ["tree.share"] },
+  },
+  {
+    toolId: "impact-map",
+    open: ["goal.think"],
+    actions: { node_added: ["tree.grow"], deliverable_sent: ["tree.share"] },
+  },
+  {
+    toolId: "strategy-tree",
+    open: ["tree"],
+    actions: { node_added: ["tree.grow"], bet_sent: ["tree.share"] },
+  },
+  {
+    toolId: "product-metrics",
+    open: ["okr"],
+    actions: { reading_added: ["okr.checkin"], north_star_set: ["goal.hit"] },
+  },
+  {
+    toolId: "ab-calculator",
+    open: ["lab"],
+    actions: { counts_recorded: ["lab.pour"] },
+  },
+  {
+    toolId: "ebm-dashboard",
+    open: ["compass"],
+    actions: { review_recorded: ["compass.think"] },
   },
   // A test created hasn't run: X095 stops before its cart crosses. test_generated, logged in
   // the same handler, stays unbound, so the test created is what he answers.
@@ -362,11 +392,15 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
   { toolId: "async-standup", open: [], actions: { update_posted: ["timer.standup", "x094"] } },
   // wall_saved has no scene: the same tick cheers ("audience-wall", "result").
   { toolId: "audience-wall", open: [], actions: { themes_accepted: ["sticky.think"] } },
-  // Amr thinks along while the team asks why or lays out causes.
+  // Amr thinks along while the team asks why, lays out causes or draws a loop's arrows.
   {
     toolId: "root-cause",
     open: [],
-    actions: { why_added: ["sticky.think"], cause_added: ["sticky.think"] },
+    actions: {
+      why_added: ["sticky.think"],
+      cause_added: ["sticky.think"],
+      loop_link_added: ["sticky.think"],
+    },
   },
   // A point parked is written on a sticky and stuck up; one sent on is a to-do taken.
   {
@@ -381,6 +415,58 @@ export const TOOL_SCENES: readonly ToolScenes[] = [
     toolId: "card-decks",
     open: [],
     actions: { card_dealt: ["poker.reveal"], deck_shuffled: ["poker"] },
+  },
+  // A rule or an example on the map is a sticky stuck up; a question makes him think,
+  // and a rule split off is a to-do taken. sent_to_story cheers ("example-mapping",
+  // "done") in the same tick, as does the last open question answered: no scene.
+  {
+    toolId: "example-mapping",
+    open: [],
+    actions: {
+      rule_added: ["sticky"],
+      example_added: ["sticky"],
+      question_added: ["sticky.think"],
+      split_by_rule: ["todo.take"],
+    },
+  },
+  // A live round saved turns the cards face up; stories sent to Poker are a to-do taken.
+  // Save sizes cheers ("relative-sizing", "done") in the same tick: no scene.
+  {
+    toolId: "relative-sizing",
+    open: [],
+    actions: { round_saved: ["poker.reveal"], sent_to_poker: ["todo.take"] },
+  },
+  // A bug logged is written on a sticky; one sent on is a to-do taken. triage_done
+  // cheers ("bug-triage", "done") in the same tick as the last placement: no scene.
+  {
+    toolId: "bug-triage",
+    open: [],
+    actions: { bug_logged: ["sticky"], bug_sent: ["todo.take"] },
+  },
+  // A note taken in a session goes on a sticky; its bugs sent on are a to-do taken.
+  // session_debriefed cheers in the same tick: no scene. Hill Chart's scope_done
+  // cheers ("hill-chart", "milestone") too, so it has no row.
+  {
+    toolId: "test-sessions",
+    open: [],
+    actions: { note_added: ["sticky"], bugs_sent: ["todo.take"] },
+  },
+  // Items sent from the notes are a to-do taken, as in the Parking Lot.
+  { toolId: "notes-to-actions", open: [], actions: { items_sent: ["todo.take"] } },
+  // A kickoff started is a charter being written. Agreeing one cheers ("kickoff",
+  // "agreed") in the same tick as kickoff_agreed, and the cheer outranks the
+  // action's scene, so the cheer carries the published charter.
+  {
+    toolId: "kickoff",
+    open: ["charter"],
+    actions: { kickoff_created: ["charter.write"], amr_cheer: ["charter.publish"] },
+  },
+  // Amr thinks along as a countermeasure or experiment is added; a coaching talk is a
+  // to-do taken. target_reached cheers ("improve", "milestone") in the same tick: no scene.
+  {
+    toolId: "improve",
+    open: [],
+    actions: { step_added: ["sticky.think"], coaching_done: ["todo.take"] },
   },
 
   // ── The expansion's tool lab (X025–X056) ──

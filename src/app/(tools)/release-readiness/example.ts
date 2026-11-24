@@ -4,6 +4,7 @@ import type {
   Release,
   ReleaseGateDef,
   ReleaseReadiness,
+  Story,
 } from "@/lib/stores/workspace-types";
 import { RELEASE_GATE_IDS } from "@/lib/stores/workspace-types";
 import { BUILT_IN_GATES, DOD_GATE, RELEASE_DOC_ID } from "@/lib/releases/gates";
@@ -169,6 +170,61 @@ export function buildExample(today: string): ReleaseReadinessExample {
         },
         { id: "ex-dod-docs", label: "Docs updated", category: "docs", required: false },
       ],
+    },
+  };
+}
+
+/** The stories the example's release notes read, and which release links which. */
+export interface ReleaseNotesExample {
+  stories: Story[];
+  links: Record<string, string[]>;
+}
+
+/**
+ * The example's stories, for the release notes only: Payments retry shipped
+ * three (one a fix), and since it went out four more are done for Checkout
+ * redesign to link, one of them a change; one more is still in progress.
+ * The releases in `buildExample` stay unlinked, so their gates read the
+ * DoD's ticks as before; the notes panel reads `links` instead. Days count
+ * from `today`.
+ */
+export function buildNotesExample(today: string): ReleaseNotesExample {
+  const on = (n: number) => `${addDays(today, n) as string}T12:00:00`;
+  const story = (
+    key: string,
+    title: string,
+    doneDaysAgo: number,
+    over: Partial<Story> = {}
+  ): Story => ({
+    id: exampleId(`notes-story-${key}`),
+    title,
+    status: "done",
+    doneAt: new Date(on(-doneDaysAgo)).toISOString(),
+    ...over,
+  });
+  const stories: Story[] = [
+    story("retry", "Retry a failed card payment once, after 30 seconds", 14, {
+      ticketKey: "PAY-41",
+    }),
+    story("receipt", "Show the retried payment on the receipt", 13, { ticketKey: "PAY-44" }),
+    story("double", "Fix double charges when a retry and a refund cross", 12, {
+      ticketKey: "PAY-47",
+      tags: ["bug"],
+    }),
+    story("onepage", "One-page checkout for signed-in customers", 6, { ticketKey: "CHK-12" }),
+    story("postcode", "Fix the postcode check for Irish addresses", 5, { ticketKey: "CHK-15" }),
+    story("summary", "Update the order summary to show delivery dates", 3, {
+      ticketKey: "CHK-16",
+    }),
+    story("guest", "Guest checkout keeps the basket after sign-in", 2, { ticketKey: "CHK-18" }),
+    story("banner", "Checkout banner copy", 0, { status: "in_progress", doneAt: undefined }),
+  ];
+  return {
+    stories,
+    links: {
+      [exampleId("release-payments")]: ["retry", "receipt", "double"].map((k) =>
+        exampleId(`notes-story-${k}`)
+      ),
     },
   };
 }

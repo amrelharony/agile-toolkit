@@ -59,6 +59,7 @@ import { AcceptEstimate } from "./accept-estimate";
 import { AddStoryForm } from "./add-story-form";
 import { CardReferencePanel } from "./card-reference";
 import type { CardReferenceLookup } from "./use-card-references";
+import { SimilarStories, type SimilarSource } from "@/components/stories/similar-stories";
 import { PlayingCard, VotingDeck } from "./voting-deck";
 import {
   addPlayers,
@@ -125,6 +126,12 @@ interface Props {
   /** The Estimation Guide's notes for a card, shown under the deck. Owner
    *  side only; guests and visitor rooms pass nothing. */
   references?: CardReferenceLookup;
+  /**
+   * "Like this one": finished stories to compare the story with, shown to
+   * the host after Reveal only (before it, a size on screen would anchor
+   * the votes). Owner side only; guests and visitor rooms pass nothing.
+   */
+  similar?: SimilarSource;
   /** "Save to backlog" for the stories typed into this session. Owner side
    *  only, and never in a visitor room (nothing from it is kept). */
   backlog?: {
@@ -284,6 +291,7 @@ export function SessionScreen({
   onRemoveParticipant,
   recordHistory = true,
   references,
+  similar,
   backlog,
   revealAtZero = null,
 }: Props) {
@@ -333,6 +341,16 @@ export function SessionScreen({
   // Accepting an estimate takes the Accept block away with the round; focus
   // goes to the story the session moved on to rather than the page.
   const storyHeadingRef = useRef<HTMLHeadingElement>(null);
+  // The story queue scrolls: the story being estimated is kept in view in it.
+  const queueRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = queueRef.current;
+    const current = box?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!box || !current) return;
+    const top = current.offsetTop - box.offsetTop;
+    if (top < box.scrollTop || top + current.offsetHeight > box.scrollTop + box.clientHeight)
+      box.scrollTop = Math.max(0, top - 8);
+  }, [session.currentStoryIdx, session.stories.length]);
   const focusStoryNext = useRef(false);
   useEffect(() => {
     if (!focusStoryNext.current) return;
@@ -743,8 +761,9 @@ export function SessionScreen({
 
       {/* minmax(0,…) on the phone column too: an implicit auto track grows to
           the widest nowrap text (a long participant name), pushing every
-          session card past the screen edge instead of letting it truncate. */}
-      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_260px]">
+          session card past the screen edge instead of letting it truncate.
+          From xl the side column is 320px: names and stories read in it. */}
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_260px] xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="flex flex-col gap-5">
           {currentStory ? (
             <Card className="border-border bg-surface">
@@ -988,16 +1007,34 @@ export function SessionScreen({
                         deck={session.scale}
                         suggested={consensus?.suggested ?? null}
                         onAccept={saveEstimate}
-                      >
-                        {(pick) =>
-                          references && (
-                            <CardReferencePanel
-                              card={pick}
-                              reference={pick === null ? null : references(pick)}
-                              prompt="Pick a card to see what it means in your Estimation Guide."
-                            />
-                          )
+                        votes={castVotes(session.participants)}
+                        onThreePointUsed={(card, expected) =>
+                          log(PLANNING_POKER_ACTIONS.THREE_POINT_USED, {
+                            card,
+                            expected: Math.round(expected * 10) / 10,
+                          })
                         }
+                      >
+                        {(pick) => (
+                          <>
+                            {references && (
+                              <CardReferencePanel
+                                card={pick}
+                                reference={pick === null ? null : references(pick)}
+                                prompt="Pick a card to see what it means in your Estimation Guide."
+                              />
+                            )}
+                            {similar && currentStory && (
+                              <SimilarStories
+                                target={{
+                                  title: currentStory.title,
+                                  notes: currentStory.description,
+                                }}
+                                source={similar}
+                              />
+                            )}
+                          </>
+                        )}
                       </AcceptEstimate>
                     )}
                   </motion.div>
@@ -1109,7 +1146,7 @@ export function SessionScreen({
                 {isHost ? "No stories yet. Add one above." : "Host hasn't added any stories yet."}
               </p>
             ) : (
-              <div className="flex flex-col gap-1 max-h-60 overflow-y-auto pr-1">
+              <div ref={queueRef} className="flex flex-col gap-1 max-h-96 overflow-y-auto pr-1">
                 {session.stories.map((story, idx) => (
                   <StoryQueueItem
                     key={story.id}
@@ -1178,13 +1215,14 @@ export function SessionScreen({
             {session.participants.map((p) => (
               <div key={p.id} className="flex items-center gap-3 rounded-lg px-2 py-1.5">
                 <Avatar name={p.name} size={28} />
-                <span className="flex-1 text-sm text-text truncate">
-                  {p.name}
+                {/* The name is cut, never its (host) or (you): they sit outside the cut. */}
+                <span className="flex min-w-0 flex-1 items-baseline gap-1.5 text-sm text-text">
+                  <span className="truncate">{p.name}</span>
                   {p.id === session.hostId && (
-                    <span className="ml-1.5 text-xs text-sub">(host)</span>
+                    <span className="shrink-0 text-xs text-sub">(host)</span>
                   )}
                   {p.id === localParticipantId && p.id !== session.hostId && (
-                    <span className="ml-1.5 text-xs text-sub">(you)</span>
+                    <span className="shrink-0 text-xs text-sub">(you)</span>
                   )}
                 </span>
                 {p.vote !== null ? (

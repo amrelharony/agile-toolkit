@@ -227,6 +227,7 @@ export const GUIDES: ToolGuide[] = [
       "Under Add a release, enter the Name and Planned date (it can be in the past), then click Add release.",
       "Tick each gate on the release's card as it passes. Feature flag ready is checked from the Feature Flag Tracker (the flags that ship with the release), and Definition of Done met, once you add it, from the Definition of Done Builder. When a check can tell, it sets the tick; with nothing to check, tick it by hand.",
       "Under Gates, add your own gates, rename them, reorder them with the arrows, or archive the ones you don't use. Click Add the Definition of Done gate to add the DoD check.",
+      "Under Stories and release notes, link the stories it ships, then draft the notes: Ask Amr, or Draft from the stories.",
       "When the release goes out, click Ship. Pick the Shipped on day (today unless you move it back), check the gates still open, then confirm.",
       "If it's reverted, click Mark rolled back and pick the day. Send to… takes the rollback to the retro. Reopen for planning gives it another try with your ticks kept, and its earlier ship still counts.",
       "Edit a release in place with its pencil button. Ship, Mark rolled back, Reopen for planning and Delete all offer Undo.",
@@ -301,5 +302,46 @@ export const GUIDES: ToolGuide[] = [
         ],
       },
     ],
+  },
+  {
+    toolId: "hill-chart",
+    summary:
+      "Hill Chart shows where each piece of work really stands: uphill while the team is still working out how to do it, downhill once it is clear and only needs doing. Weekly check-ins show what moved and what is stuck.",
+    whenToUse: [
+      "When status updates say “in progress” for weeks.",
+      "Before a review, to show the unknowns honestly.",
+      "To follow the parts of one epic.",
+    ],
+    steps: [
+      "Add a chart for a sprint or an epic, then its scopes, each linked to a story or an epic if you like.",
+      "Drag a dot, or type its position from 0 to 100. The top of the hill is where the last unknown is solved.",
+      "Check in once a week to save the positions with a note. Pick an earlier check-in to see what moved forward, what moved back and what didn't move at all.",
+      "A scope stuck uphill for a week offers Raise as an impediment, and Check marks a scope its linked story disagrees with.",
+      "Ask Amr drafts the week's update and the questions to ask. Without AI, the page lists what moved and what is stuck.",
+    ],
+    tips: ["A dot that sits just below the top for weeks is the one to talk about."],
+    timebox: "Five minutes a week.",
+  },
+  {
+    toolId: "flow-insights",
+    summary:
+      "Flow Insights looks at the work you finish: how it splits between features, defects, debt and risk against the mix you aim for, how much of it is repeat work caused by earlier failures, and how stable the team has been.",
+    whenToUse: [
+      "The sprint is full, but little new value ships.",
+      "To agree a target mix with the Product Owner.",
+      "After people joined or left the team.",
+    ],
+    steps: [
+      "Pick the Sprint board (per finished sprint) or the Flow board (per week), and how many to read under Window.",
+      "Read the verdict and the tiles, then the work mix: one bar per sprint or week, guesses striped, each split in words.",
+      "Click Set a target and give four numbers that add up to 100. Kanban's Definition of Workflow shares the target.",
+      "Under Sort the work, pick a type for a row and click Set, or click Accept all guesses. Mark Repeat work where an item fixed or redid earlier work. Sort with AI suggests types for you to accept; Sort by keywords works without AI. Every change has Undo.",
+      "Read Repeat work and Team stability. Take repeat work to Root Cause or the retro, and record who's in each sprint in the Capacity Planner.",
+    ],
+    tips: [
+      "Repeat work above a fifth of what you finish is worth a retro.",
+      "A guess comes from a story's Fix or Bug title, its tags or the tool it came from; pick a type to make it yours.",
+    ],
+    timebox: "Ten minutes a sprint.",
   },
 ];

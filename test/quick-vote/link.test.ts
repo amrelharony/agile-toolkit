@@ -1,7 +1,8 @@
 /**
  * The link that opens Quick Vote with a poll set up (lib/quick-vote/link):
- * what Picker's "Vote in Quick Vote" sends, and how Quick Vote reads any
- * link, checking and capping every value and ignoring the rest.
+ * what Picker's "Vote in Quick Vote" sends (after the # sign, never to a
+ * server), and how Quick Vote reads any link, checking and capping every
+ * value and ignoring the rest.
  */
 
 import { describe, expect, it } from "vitest";
@@ -19,11 +20,33 @@ const search = (params: Record<string, string>) => `?${new URLSearchParams(param
 describe("the poll link", () => {
   it("reads back what it carries", () => {
     const href = pollLinkHref("Which name should we pick?", ["Volga", "Nile", "Amazon"]);
-    expect(href.startsWith("/quick-vote?")).toBe(true);
-    expect(readPollLink(href.slice(href.indexOf("?")))).toEqual({
+    expect(href.startsWith("/quick-vote#")).toBe(true);
+    expect(readPollLink(href.slice(href.indexOf("#")))).toEqual({
       question: "Which name should we pick?",
       options: ["Volga", "Nile", "Amazon"],
     });
+  });
+
+  it("carries the poll after the # sign, which browsers never send to a server", () => {
+    // A next/link fetches and prefetches the page for its address without
+    // the fragment, so typed titles stay out of the server's request logs.
+    const url = new URL(pollLinkHref("Which idea first?", ["Tips at checkout"]), "https://x.test");
+    expect(url.pathname).toBe("/quick-vote");
+    expect(url.search).toBe("");
+    expect(url.hash).toContain("Tips+at+checkout");
+    expect(readPollLink(url.hash)).toEqual({
+      question: "Which idea first?",
+      options: ["Tips at checkout"],
+    });
+  });
+
+  it("still reads an older link's query", () => {
+    expect(readPollLink(search({ preset: "poll", question: "Which?", options: "A\nB" }))).toEqual({
+      question: "Which?",
+      options: ["A", "B"],
+    });
+    expect(readPollLink("#preset=dots&options=A")).toBeNull();
+    expect(readPollLink("#")).toBeNull();
   });
 
   it("asks for a poll only", () => {

@@ -1,8 +1,18 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import { nanoid } from "nanoid";
-import { CalendarRange, Gauge, GitBranch, Plus, Target } from "lucide-react";
+import {
+  BarChart3,
+  CalendarRange,
+  Gauge,
+  GitBranch,
+  Plus,
+  ShieldAlert,
+  Target,
+  Vote,
+} from "lucide-react";
 import { ToolPageWrapper } from "@/components/layout/tool-page-wrapper";
 import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
@@ -24,6 +34,7 @@ import { generatePiPlanningPrompts } from "@/lib/ai-prompts/pi-planning";
 import { plural } from "@/lib/charts/chart-text";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { PI_PLANNING_ACTIONS } from "@/lib/history/event-actions";
+import { CONFIDENCE_MAX, HISTORY_MAX } from "@/lib/pi-planning/model";
 import type { DependencyStatus } from "@/lib/stores/workspace-types";
 import { todayLocalISO } from "@/lib/utils/formatters";
 import { undoable } from "@/lib/utils/undoable";
@@ -55,6 +66,8 @@ import { dependencyViews, isLegacyDependency, overloads, teamLoad, waitsOnTeam }
 import { LoadChart } from "./load-chart";
 import { toMarkdown } from "./markdown";
 import { ObjectivesPanel } from "./objectives";
+import { ClosedPis, PredictabilitySection } from "./predictability-section";
+import { RoamSection } from "./roam-section";
 import {
   MAX_ITERATIONS,
   usePiState,
@@ -64,6 +77,29 @@ import {
   type PiTeam,
 } from "./store";
 import { piVerdict } from "./verdict";
+
+/**
+ * The confidence vote loads only when the board has teams to vote, so the
+ * vote kit doesn't come down with every visit to the board.
+ */
+const ConfidenceVote = dynamic(() => import("./confidence-vote").then((m) => m.ConfidenceVote), {
+  ssr: false,
+  loading: () => (
+    <p role="status" className="text-sm text-sub">
+      Loading the confidence vote…
+    </p>
+  ),
+});
+
+/** The votes kept with no teams left on the board: loaded only when there are some. */
+const SavedVotes = dynamic(() => import("./saved-votes").then((m) => m.SavedVotes), {
+  ssr: false,
+  loading: () => (
+    <p role="status" className="text-sm text-sub">
+      Loading the saved votes…
+    </p>
+  ),
+});
 
 type Placed<T> = { item: T; index: number }[];
 
@@ -100,6 +136,9 @@ type Confirm =
 
 export function PiPlanningClient() {
   const [state, update] = usePiState();
+  // The board as last rendered, for a hand-off's links (read fresh, then on Undo).
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const map = useDependencyMap();
   const today = todayLocalISO();
   const { log } = useHistoryLogger("pi-planning");
@@ -508,6 +547,11 @@ export function PiPlanningClient() {
         teams: [...base.teams, ...ex.teams],
         items: [...base.items, ...items],
         objectives: [...(base.objectives ?? []), ...(ex.objectives ?? [])],
+        // The example's vote and closed PI go before the user's own (kept
+        // from teams they removed): a full list drops the example's first,
+        // and the user's latest vote stays the latest.
+        confidence: [...(ex.confidence ?? []), ...(base.confidence ?? [])].slice(-CONFIDENCE_MAX),
+        history: [...(ex.history ?? []), ...(base.history ?? [])].slice(-HISTORY_MAX),
       };
     });
   };
@@ -588,7 +632,7 @@ export function PiPlanningClient() {
     <ToolPageWrapper
       toolId="pi-planning"
       title="PI Planning Board"
-      description="SAFe Program Increment board — teams × iterations with features, dependencies, and risks."
+      description="SAFe Program Increment board: teams × iterations, PI objectives, ROAM risks, a confidence vote and predictability."
       category="Portfolio & Scaling"
     >
       <div ref={exportRef} className="space-y-4">
@@ -648,10 +692,30 @@ export function PiPlanningClient() {
         </SectionCard>
 
         {state.teams.length === 0 ? (
-          <EmptyState icon={CalendarRange} action={<LoadExampleButton onLoad={loadExample} />}>
-            No teams on the board yet. Add the teams in the release train above, or load an example
-            to see a planned PI.
-          </EmptyState>
+          <>
+            <EmptyState icon={CalendarRange} action={<LoadExampleButton onLoad={loadExample} />}>
+              No teams on the board yet. Add the teams in the release train above, or load an
+              example to see a planned PI.
+            </EmptyState>
+            {/* Removing a team keeps its votes and closed PIs: still here to read and delete. */}
+            {(state.confidence ?? []).length > 0 && (
+              <SectionCard title="Confidence vote" icon={Vote}>
+                <div className="space-y-4">
+                  <p className="text-sm text-sub">
+                    Kept from teams no longer on the board. Add a team to run a new vote.
+                  </p>
+                  <SavedVotes state={state} update={update} />
+                </div>
+              </SectionCard>
+            )}
+            {(state.history ?? []).length > 0 && (
+              <SectionCard title="Predictability" icon={BarChart3}>
+                <div className="space-y-2">
+                  <ClosedPis history={state.history ?? []} update={update} />
+                </div>
+              </SectionCard>
+            )}
+          </>
         ) : (
           <>
             <SectionCard title="Board" icon={CalendarRange}>
@@ -722,6 +786,23 @@ export function PiPlanningClient() {
                 onSave={saveObjective}
                 onRemove={removeObjective}
               />
+            </SectionCard>
+
+            <SectionCard title="Risks: ROAM" icon={ShieldAlert}>
+              <RoamSection
+                state={state}
+                latest={() => stateRef.current}
+                update={update}
+                log={log}
+              />
+            </SectionCard>
+
+            <SectionCard title="Confidence vote" icon={Vote}>
+              <ConfidenceVote state={state} update={update} log={log} />
+            </SectionCard>
+
+            <SectionCard title="Predictability" icon={BarChart3}>
+              <PredictabilitySection state={state} update={update} log={log} today={today} />
             </SectionCard>
           </>
         )}

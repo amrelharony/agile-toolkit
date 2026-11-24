@@ -25,10 +25,12 @@
  *   3. set_sprint — say which sprint the current board looks back on.
  *   4. set_votes  — the current board's Votes each (3, 5 or 8).
  *   5. add_card   — append a card to a column (the verb an agent uses to
- *                   seed a board).
+ *                   seed a board); on an Emotional Seismograph board, with
+ *                   the sprint day it happened.
  *   6. surprise_me — a random plan for the next retro (lib/retro/surprise):
  *                   a format the last three retros didn't use, an opening
  *                   and a closing activity. Reads only.
+ *   7. set_card_day — an Emotional Seismograph card's sprint day (or none).
  *
  * Entity kind is "workspace:retroBoard" (camelCase via kindFromToolId),
  * matching the browser sync engine so MCP-written cards round-trip.
@@ -38,6 +40,7 @@ import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import { serverGetEntity, serverListEntities, serverUpsertEntity } from "../server-store";
+import { isExampleId } from "@/lib/utils/example-id";
 import type {
   HandoffLink,
   Impediment,
@@ -51,7 +54,7 @@ import type {
   SprintGoal,
   Story,
 } from "@/lib/stores/workspace-types";
-import { MOOD_PULSE_KIND } from "@/lib/stores/workspace-types";
+import { MOOD_PULSE_KIND, RETRO_CARD_DAY_MAX } from "@/lib/stores/workspace-types";
 import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
 import { todayIso } from "@/lib/sprints/series";
 import {
@@ -83,6 +86,14 @@ import {
   type RetroActivity,
 } from "@/lib/retro/surprise";
 import { createRng } from "@/lib/utils/random";
+import {
+  BAND_LABEL,
+  isSeismograph,
+  momentCards,
+  placedCards,
+  seismographDays,
+  seismographRead,
+} from "@/lib/retro/seismograph";
 
 const KIND_RETRO = "workspace:retroBoard";
 
@@ -187,6 +198,60 @@ function summarize(board: RetroBoard | null) {
   };
 }
 
+/** The days a seismograph board draws: its sprint's (none on the example), Day 0–9 with none. */
+function boardDays(board: RetroBoard, sprints: readonly Sprint[]) {
+  const example = board.cards.some((c) => isExampleId(c.id));
+  const sprintId = example ? undefined : boardSprintId(board);
+  const sprint = sprintId ? sprints.find((s) => s.id === sprintId) : undefined;
+  return seismographDays(sprint);
+}
+
+/**
+ * Whether the board's chart draws `cardId` on its day, and the board's last
+ * day: a team moment (not an action, a carried action, another tool's card,
+ * or a card whose group charts by another card) on a day the board draws.
+ * The sprints are read only when the board looks back on one.
+ */
+async function chartedOn(store: RetroStore, board: RetroBoard, cardId: string) {
+  const sprints = boardSprintId(board) ? await store.listSprints() : [];
+  const days = boardDays(board, sprints);
+  const placement = placedCards(momentCards(board.cards), days);
+  return {
+    charted: placement.placed.some((m) => m.id === cardId),
+    lastDay: days.length > 0 ? days[days.length - 1].day : 0,
+  };
+}
+
+/**
+ * An Emotional Seismograph board's chart as list_state reports it: its days
+ * (from the board's sprint; Day 0–9 with none, and on the example), the
+ * moments on a day and those with none, and the read. The read uses the
+ * cards only, not the team's mood (the page adds that).
+ */
+function seismographSummary(board: RetroBoard | null, sprints: readonly Sprint[]) {
+  if (!board || !isSeismograph(board)) return null;
+  const days = boardDays(board, sprints);
+  const placement = placedCards(momentCards(board.cards), days);
+  return {
+    days: days.map((d) => ({ day: d.day, date: d.date })),
+    placed: placement.placed.map((m) => ({
+      cardId: m.id,
+      text: m.text,
+      band: BAND_LABEL[m.band].toLowerCase(),
+      day: m.day,
+      votes: m.votes,
+    })),
+    unplaced: placement.unplaced.map((m) => ({
+      cardId: m.id,
+      text: m.text,
+      band: BAND_LABEL[m.band].toLowerCase(),
+      day: m.day ?? null,
+      votes: m.votes,
+    })),
+    read: seismographRead(placement),
+  };
+}
+
 /** One of the previous retro's action items, as list_state reports it. */
 interface PreviousAction {
   id: string;
@@ -234,8 +299,10 @@ async function listState(store: RetroStore, params: { sprintId?: string }) {
   const named = params.sprintId ?? (board ? boardSprintId(board) : undefined);
   let facts = null;
   let ended = false;
+  // A seismograph board draws its sprint's days, so it reads the sprints too.
+  const needSprints = Boolean(named || !board || (board && isSeismograph(board)));
+  const sprints = needSprints ? await store.listSprints() : [];
   if (named || !board) {
-    const sprints = await store.listSprints();
     const sprint = named
       ? sprints.find((s) => s.id === named)
       : nextRetroSprint(boards, sprints, today);
@@ -263,6 +330,7 @@ async function listState(store: RetroStore, params: { sprintId?: string }) {
     previousActions: previousActions(board, previous),
     facts,
     suggestedFormat: suggestFormat(facts, { ended }),
+    seismograph: seismographSummary(board, sprints),
   };
 }
 
@@ -355,7 +423,10 @@ async function setSprint(store: RetroStore, params: { sprintId: string | null })
   return { updated: true };
 }
 
-async function addCard(store: RetroStore, params: { columnKey: string; text: string }) {
+async function addCard(
+  store: RetroStore,
+  params: { columnKey: string; text: string; day?: number }
+) {
   const board = await store.getBoard(RETRO_CURRENT_ID);
   if (!board || board.archivedAt) return { added: false, reason: "no_retro" as const };
   const columns = (board.format?.columns ?? []).map((c) => c.key);
@@ -364,10 +435,54 @@ async function addCard(store: RetroStore, params: { columnKey: string; text: str
   }
   const text = params.text.trim().slice(0, RETRO_CARD_MAX);
   if (!text) return { added: false, reason: "empty_text" as const };
-  const card = newCard(params.columnKey, text);
-  await store.putBoard({ ...board, cards: [...board.cards, card] });
-  return { added: true, id: card.id };
+  // Only an Emotional Seismograph board keeps a card's day.
+  const keepsDay = params.day !== undefined && isSeismograph(board);
+  const card: RetroCard = {
+    ...newCard(params.columnKey, text),
+    ...(keepsDay ? { day: params.day } : {}),
+  };
+  const next = { ...board, cards: [...board.cards, card] };
+  await store.putBoard(next);
+  return {
+    added: true,
+    id: card.id,
+    ...(keepsDay ? await chartedOn(store, next, card.id) : {}),
+    ...(params.day !== undefined && !keepsDay ? { dayIgnored: true } : {}),
+  };
 }
+
+async function setCardDay(store: RetroStore, params: { cardId: string; day: number | null }) {
+  const board = await store.getBoard(RETRO_CURRENT_ID);
+  if (!board || board.archivedAt) return { updated: false, reason: "no_retro" as const };
+  if (!isSeismograph(board)) return { updated: false, reason: "not_seismograph" as const };
+  if (!board.cards.some((c) => c.id === params.cardId)) {
+    return { updated: false, reason: "unknown_card" as const };
+  }
+  const cards = board.cards.map((c) => {
+    if (c.id !== params.cardId) return c;
+    const next = { ...c };
+    if (params.day === null) delete next.day;
+    else next.day = params.day;
+    return next;
+  });
+  const next = { ...board, cards };
+  await store.putBoard(next);
+  return {
+    updated: true,
+    day: params.day,
+    // No day, a day past the board's last, or a card the chart doesn't draw by its own day: false.
+    ...(await chartedOn(store, next, params.cardId)),
+  };
+}
+
+const CardDayParam = z
+  .number()
+  .int()
+  .min(0)
+  .max(RETRO_CARD_DAY_MAX)
+  .describe(
+    `The sprint day it happened, from 0 (the sprint's first day, as Burndown counts) to ${RETRO_CARD_DAY_MAX}.`
+  );
 
 const SprintIdParam = z.string().min(1).describe("The sprint (Sprint.id) the retro looks back on.");
 
@@ -382,7 +497,7 @@ registry.register({
   name: "list_state",
   category: "read",
   description:
-    "Summarise the current retro board. Returns {exists, formatId | null (a custom format's starts with 'custom-'), formatName, columns: {key, label}[] (the board's columns in order; add_card takes a key), votesPerPerson: 3 | 5 | 8 | null (the board's Votes each; null with no board), phase, sprintId (the sprint it looks back on) | null, totalCards, totalVotes, actionItems, byColumn: {columnKey, count}[], topVoted: {id, text, votes, columnKey}[] (≤5), previousActions: {id, text, assignee, retroId, carriedOver, done, sentTo: {route, targetId, at}[]}[] (the previous retro's action items), facts: null | {sprintName, goal, goalOutcome, committed, completed, sayDo, burndown: {shape: none|steady|late, lateShare, sentence} | null, impediments: {raised, resolvedInSprint, stillOpen, escalated}, mood: {average | null, checkIns (named check-ins plus anonymous pulse answers), people, anonymous? (pulse answers, when there are some)}, followThrough (the previous retro's actions: agreed, done (ticked, or the impediment, Kanban card or story it was sent to is finished), carried, open, rate) | null, kudos: {toName, fromName, message, sentAt}[]}, suggestedFormat: null | {formatId: mad-sad-glad|sailboat|daki, reason} (a hint for the next retro from the facts: low mood, then a missed goal, then unfinished work once the sprint is over; the page shows it in the format picker and never picks for the team)} — facts for sprintId when given, else the board's sprint, else with no board the sprint tool.retro.start would look back on (facts.sprintId names it).",
+    "Summarise the current retro board. Returns {exists, formatId | null (a custom format's starts with 'custom-'), formatName, columns: {key, label}[] (the board's columns in order; add_card takes a key), votesPerPerson: 3 | 5 | 8 | null (the board's Votes each; null with no board), phase, sprintId (the sprint it looks back on) | null, totalCards, totalVotes, actionItems, byColumn: {columnKey, count}[], topVoted: {id, text, votes, columnKey}[] (≤5), previousActions: {id, text, assignee, retroId, carriedOver, done, sentTo: {route, targetId, at}[]}[] (the previous retro's action items), facts: null | {sprintName, goal, goalOutcome, committed, completed, sayDo, burndown: {shape: none|steady|late, lateShare, sentence} | null, impediments: {raised, resolvedInSprint, stillOpen, escalated}, mood: {average | null, checkIns (named check-ins plus anonymous pulse answers), people, anonymous? (pulse answers, when there are some)}, followThrough (the previous retro's actions: agreed, done (ticked, or the impediment, Kanban card or story it was sent to is finished), carried, open, rate) | null, kudos: {toName, fromName, message, sentAt}[]}, suggestedFormat: null | {formatId: mad-sad-glad|sailboat|daki, reason} (a hint for the next retro from the facts: low mood, then a missed goal, then unfinished work once the sprint is over; the page shows it in the format picker and never picks for the team), seismograph: null (not an Emotional Seismograph board) | {days: {day, date | null}[] (Day 0 is the sprint's first day; Day 0–9 with no sprint), placed: {cardId, text, band: high|steady|low, day, votes}[], unplaced: {cardId, text, band, day | null (a day past the sprint's last stays here), votes}[] (the team's own cards, one per group; action items, carried actions and cards from other tools don't chart), read: string[] (up to 3 plain lines from the cards only, not the team's mood)}} — facts for sprintId when given, else the board's sprint, else with no board the sprint tool.retro.start would look back on (facts.sprintId names it).",
   paramsSchema: z.object({ sprintId: SprintIdParam.optional() }),
   handler: async (params) => listState(browserStore, params),
   mcpHandler: async (params, ctx) => listState(serverStore(ctx.userId), params),
@@ -449,13 +564,14 @@ registry.register({
   name: "add_card",
   category: "write",
   requiresConfirmation: false,
-  description: `Append a card to a column of the current retro board (text trimmed, at most ${RETRO_CARD_MAX} characters). Returns {added: true, id}, or {added: false, reason: 'no_retro' (start one with tool.retro.start) | 'unknown_column' (with the board's columns) | 'empty_text'}.`,
+  description: `Append a card to a column of the current retro board (text trimmed, at most ${RETRO_CARD_MAX} characters). On an Emotional Seismograph board (formatId seismograph: columns highs, steady, lows) give day, the sprint day it happened. Returns {added: true, id, charted?, lastDay? (with a day on a seismograph board: whether the chart draws the card on it, false for a day past lastDay, the board's last day; the card keeps the day), dayIgnored?: true (day was given but this board isn't a seismograph)}, or {added: false, reason: 'no_retro' (start one with tool.retro.start) | 'unknown_column' (with the board's columns) | 'empty_text'}.`,
   paramsSchema: z.object({
     columnKey: z
       .string()
       .min(1)
       .describe("Target column key (see list_state byColumn / the format)."),
     text: z.string().min(1),
+    day: CardDayParam.optional(),
   }),
   handler: async (params) => addCard(browserStore, params),
   mcpHandler: async (params, ctx) => addCard(serverStore(ctx.userId), params),
@@ -526,4 +642,21 @@ registry.register({
   }),
   handler: async (params) => surpriseMe(browserStore, params.seed),
   mcpHandler: async (params, ctx) => surpriseMe(serverStore(ctx.userId), params.seed),
+});
+
+// ──────── tool.retro.set_card_day ────────
+registry.register({
+  id: "tool.retro.set_card_day",
+  toolId: "tool.retro",
+  name: "set_card_day",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Place a card of the current Emotional Seismograph board on the sprint day it happened, or take its day away with day: null. Returns {updated: true, day, charted, lastDay (the board's last day: its sprint's last, Day 9 with no sprint)}, or {updated: false, reason: 'no_retro' | 'not_seismograph' | 'unknown_card'}. charted is true only when the chart draws the card on that day. It's false with day: null, with a day past lastDay (the card keeps it and list_state lists it under unplaced), and for a card the chart doesn't draw by its own day: an action item, a carried-over action, a card sent from another tool, or a card whose group charts by another card's day.",
+  paramsSchema: z.object({
+    cardId: z.string().min(1).describe("The card's id (see list_state)."),
+    day: CardDayParam.nullable(),
+  }),
+  handler: async (params) => setCardDay(browserStore, params),
+  mcpHandler: async (params, ctx) => setCardDay(serverStore(ctx.userId), params),
 });

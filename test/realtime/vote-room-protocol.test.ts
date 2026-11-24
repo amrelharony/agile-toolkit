@@ -4,6 +4,7 @@ import {
   VOTE_LIMITS,
   VOTE_ROOM_EVENTS,
   VOTE_ROOM_TOOLS,
+  VOTE_TAB_SECRET_CHARS,
   ballotCiphertextChars,
   encodeAnswers,
   isVoteRoomTool,
@@ -14,6 +15,7 @@ import {
   readVoteKick,
   readVoteState,
   signingInput,
+  tabCiphertextChars,
   toWireQuestionnaire,
   voteMinNFloor,
   type Questionnaire,
@@ -313,6 +315,46 @@ describe("readBallotEnvelope", () => {
     expect(ballotCiphertextChars(VOTE_LIMITS.maxQuestions)).toBeLessThanOrEqual(
       VOTE_LIMITS.maxCiphertextChars
     );
+  });
+
+  describe("the sealed tab secret", () => {
+    const tab = { epk: "T".repeat(87), iv: "t".repeat(16), ct: "s".repeat(tabCiphertextChars()) };
+
+    it("sizes it as the 21-character secret plus the 16-byte tag", () => {
+      expect(VOTE_TAB_SECRET_CHARS).toBe(21);
+      expect(tabCiphertextChars()).toBe(50); // 37 bytes
+    });
+
+    it("reads an envelope with a tab back with it, rebuilt field by field", () => {
+      expect(readBallotEnvelope({ ...env, tab: { ...tab, extra: "x" } })).toEqual({ ...env, tab });
+    });
+
+    it("reads an envelope without a tab exactly as v1", () => {
+      const read = readBallotEnvelope(env);
+      expect(read).toEqual(env);
+      expect(read).not.toHaveProperty("tab");
+    });
+
+    it.each([
+      ["null", null],
+      ["a string", "secret"],
+      ["an array", [tab]],
+      ["a short key", { ...tab, epk: "T".repeat(86) }],
+      ["a bad nonce", { ...tab, iv: "t".repeat(15) }],
+      ["a missing ciphertext", { epk: tab.epk, iv: tab.iv }],
+      ["a ciphertext one short", { ...tab, ct: "s".repeat(tabCiphertextChars() - 1) }],
+      ["a ciphertext one long", { ...tab, ct: "s".repeat(tabCiphertextChars() + 1) }],
+      ["a ciphertext outside base64url", { ...tab, ct: `${"s".repeat(48)}+/` }],
+    ])("refuses the whole envelope when its tab is %s", (_label, bad) => {
+      expect(readBallotEnvelope({ ...env, tab: bad })).toBeNull();
+    });
+
+    it("leaves the answers' 128-character limit as it was", () => {
+      expect(VOTE_LIMITS.maxCiphertextChars).toBe(128);
+      const full = { ...env, ct: "c".repeat(128), tab };
+      expect(readBallotEnvelope(full)).toEqual(full);
+      expect(readBallotEnvelope({ ...full, ct: "c".repeat(129) })).toBeNull();
+    });
   });
 });
 

@@ -5,6 +5,7 @@ import { webcrypto } from "node:crypto";
 import {
   FINGERPRINT_CHARS,
   ballotAad,
+  ballotTabAad,
   createWebVoteCrypto,
   fromBase64Url,
   readVoteLinkFragment,
@@ -12,7 +13,11 @@ import {
   voteJoinUrl,
   webVoteCrypto,
 } from "@/lib/realtime/vote-room/crypto";
-import { ballotCiphertextChars, type BallotEnvelope } from "@/lib/realtime/vote-room/protocol";
+import {
+  ballotCiphertextChars,
+  tabCiphertextChars,
+  type BallotEnvelope,
+} from "@/lib/realtime/vote-room/protocol";
 
 /**
  * The vote room's cryptography on real WebCrypto: ballots open only under
@@ -173,6 +178,69 @@ describe("ballots", () => {
 
   it("refuse to seal to something that isn't a key", async () => {
     await expect(c.seal("A".repeat(87), "aad", "0")).rejects.toThrow();
+  });
+});
+
+describe("a ballot's tab secret", () => {
+  const SECRET = "tabSecret_0123456789x"; // 21 characters, like nanoid(21)
+
+  async function sealedTab() {
+    const k = await c.createHostKeys();
+    const answers = await c.seal(k.publicKeys.ecdh, ballotAad(ROUND, BY, BID), "012");
+    const aad = ballotTabAad(ROUND, BY, BID, answers.ct);
+    const tab = await c.seal(k.publicKeys.ecdh, aad, SECRET);
+    // The host opens it as it opens the answers: the envelope with the tab's parts.
+    const env = envelope(answers, { tab });
+    const asTab = { ...env, epk: tab.epk, iv: tab.iv, ct: tab.ct };
+    return { k, answers, tab, aad, env, asTab };
+  }
+
+  it("seals to exactly tabCiphertextChars() and opens under its own AAD", async () => {
+    const { k, tab, aad, asTab } = await sealedTab();
+    expect(tab.ct).toHaveLength(tabCiphertextChars());
+    expect(tab.ct).not.toContain(SECRET);
+    expect(await c.open(k, asTab, aad)).toBe(SECRET);
+  });
+
+  it("opens under no other AAD: not the answers', not another ballot, round, sender or answers", async () => {
+    const { k, answers, asTab } = await sealedTab();
+    for (const aad of [
+      ballotAad(ROUND, BY, BID),
+      ballotTabAad(ROUND, BY, "bid_00000002", answers.ct),
+      ballotTabAad("round_000002", BY, BID, answers.ct),
+      ballotTabAad(ROUND, "mallory_00000000", BID, answers.ct),
+      // Lifted onto other answers under the same ballot id.
+      ballotTabAad(
+        ROUND,
+        BY,
+        BID,
+        `${answers.ct.slice(0, -1)}${answers.ct.endsWith("A") ? "B" : "A"}`
+      ),
+    ]) {
+      expect(await c.open(k, asTab, aad)).toBeNull();
+    }
+  });
+
+  it("is never read as the answers, nor the answers as it", async () => {
+    const { k, answers, env, aad } = await sealedTab();
+    // The answers under the tab's AAD, and the tab's parts under the answers' AAD.
+    expect(await c.open(k, envelope(answers), aad)).toBeNull();
+    expect(
+      await c.open(
+        k,
+        { ...env, epk: env.tab!.epk, iv: env.tab!.iv, ct: env.tab!.ct },
+        ballotAad(ROUND, BY, BID)
+      )
+    ).toBeNull();
+  });
+
+  it("ballotTabAad has its own domain and binds the round, sender, ballot and answers", () => {
+    expect(ballotTabAad(ROUND, BY, BID, "ctct")).toBe(
+      `agile-toolkit:vote-tab:v1|${ROUND}|${BY}|${BID}|ctct`
+    );
+    expect(ballotTabAad(ROUND, BY, BID, "ctct").startsWith("agile-toolkit:vote-ballot:")).toBe(
+      false
+    );
   });
 });
 

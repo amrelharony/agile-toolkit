@@ -9,8 +9,8 @@
  *
  * Amr's help here is the host's only: it reads the posts on the host's
  * screen (anonymous text), and its draft shows on that screen alone until
- * the host accepts a merge and confirms it (a merge can't be split again),
- * which is when the room sees it. While a live room is open, a visitor
+ * the host presses Merge, which is when the room sees it; Undo puts the
+ * posts back for a few seconds after. While a live room is open, a visitor
  * host's AI is off (useToolAi), and the duplicates come from the word rules
  * instead.
  */
@@ -20,7 +20,6 @@ import { Cloud, ListOrdered, Sparkles, Trophy } from "lucide-react";
 import { AiButton, AiSuggestions } from "@/components/ai";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { WallRoomHost } from "@/components/collab/wall-room/wall-room-host";
-import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import type { SaveRound } from "@/components/collab/vote-room/save-round";
 import { Button } from "@/components/ui/button";
 import type { AiSource } from "@/lib/ai/task-types";
@@ -29,7 +28,7 @@ import {
   cleanMerges,
   mergeQuestionsTask,
   type MergeOutput,
-} from "@/lib/ai/tasks/audience-wall";
+} from "@/lib/ai/tasks/audience-wall.lite";
 import { registerLiveWall } from "@/lib/audience-wall/live";
 import type { WallKind } from "@/lib/audience-wall/model";
 import { AUDIENCE_WALL_ACTIONS } from "@/lib/history/event-actions";
@@ -38,6 +37,7 @@ import { WALL_LIMITS, type WallRoundResult } from "@/lib/realtime/wall-room/prot
 import { scoreText } from "@/lib/realtime/wall-room/score";
 import type { WallRoom } from "@/lib/realtime/wall-room/use-wall-room";
 import type { VoteCrypto } from "@/lib/realtime/vote-room/crypto";
+import { undoable } from "@/lib/utils/undoable";
 import { WALL_KIND_HOW, WALL_KIND_SETUP } from "./kinds";
 import { WordCloud } from "./word-cloud";
 
@@ -193,6 +193,18 @@ function LiveControls({
   );
 }
 
+const questionCount = (n: number) => `${n} ${n === 1 ? "question" : "questions"}`;
+
+/** What an Undo of `n` merged questions says, when `back` of them came back. */
+function undoneText(back: number, n: number): string {
+  if (back >= n) return `Put ${questionCount(n)} back on the wall.`;
+  if (back > 0)
+    return `Put ${back} of ${questionCount(n)} back on the wall. The rest can't be undone now.`;
+  return n === 1
+    ? "That merge can't be undone now. The wall stays as it is."
+    : "Those merges can't be undone now. The wall stays as it is.";
+}
+
 /** Questions: Amr (or the word rules) finds duplicates; the host merges each group. */
 function DuplicateQuestions({ room }: { room: WallRoom }) {
   const announce = useAnnounce();
@@ -200,22 +212,45 @@ function DuplicateQuestions({ room }: { room: WallRoom }) {
   const [draft, setDraft] = useState<{ groups: MergeOutput["groups"]; source: AiSource } | null>(
     null
   );
-  // The groups waiting for the host's yes, and the list's key: a "no" puts
-  // them back in the draft (a fresh list, so it shows them again).
-  const [asked, setAsked] = useState<MergeOutput["groups"] | null>(null);
-  const [listKey, setListKey] = useState(0);
-  const confirmedRef = useRef(false);
-  const sectionRef = useRef<HTMLElement>(null);
+  // The room as it is when an Undo runs, seconds after the merge.
+  const roomRef = useRef(room);
+  roomRef.current = room;
   const textOf = (id: string) => posts.find((p) => p.id === id)?.text ?? "";
   const known = new Set(posts.map((p) => p.id));
   // A group whose posts left the wall since drops out of the draft.
   const groups = draft ? cleanMerges(draft.groups, known) : [];
   const sent = aiPosts(posts);
   if (room.round?.posts === null) return null;
-  const askedGroups = asked ? cleanMerges(asked, known) : [];
-  const askedPosts = askedGroups.reduce((n, g) => n + g.merge.length, 0);
+
+  /**
+   * Merge the accepted groups in the room, with Undo: the host saw them in
+   * the draft first, and Undo puts the posts back (unmerged in reverse
+   * order, from where things stand then: votes cast since stay).
+   */
+  const mergeGroups = (accepted: MergeOutput["groups"]) => {
+    const pairs = cleanMerges(accepted, known).flatMap((g) =>
+      g.merge.map((from) => ({ from, into: g.keep }))
+    );
+    if (pairs.length === 0) return;
+    const n = pairs.length;
+    const what = questionCount(n);
+    undoable({
+      label: `Merged ${what}`,
+      apply: () => {
+        for (const p of pairs) roomRef.current.merge(p.from, p.into);
+        announce(`Merged ${what} in the room. Undo is there for a few seconds.`);
+      },
+      revert: () => {
+        // A question that moved on, was taken back or scored since stays merged.
+        let back = 0;
+        for (const p of [...pairs].reverse()) if (roomRef.current.unmerge(p.from)) back++;
+        announce(undoneText(back, n));
+      },
+    });
+  };
+
   return (
-    <section ref={sectionRef} aria-label="Duplicate questions" className="space-y-2">
+    <section aria-label="Duplicate questions" className="space-y-2">
       <AiButton
         task={mergeQuestionsTask}
         label="Find duplicate questions"
@@ -245,8 +280,8 @@ function DuplicateQuestions({ room }: { room: WallRoom }) {
       {draft && groups.length > 0 && (
         <>
           <p className="text-xs text-sub">
-            Only you see this draft. Nothing changes in the room until you press Merge, and a merge
-            can&apos;t be split again.
+            Only you see this draft. Nothing changes in the room until you press Merge. Undo is
+            there for a few seconds after you merge.
           </p>
           <AiSuggestions
             items={groups}
@@ -259,53 +294,12 @@ function DuplicateQuestions({ room }: { room: WallRoom }) {
                 g.reason ? `. ${g.reason}` : ""
               }`,
             })}
-            onAccept={(g) => setAsked([g])}
-            onAcceptAll={(all) => setAsked(all)}
+            onAccept={(g) => mergeGroups([g])}
+            onAcceptAll={(all) => mergeGroups(all)}
             onDismiss={() => setDraft(null)}
-            key={listKey}
           />
         </>
       )}
-      <ConfirmDialog
-        open={askedGroups.length > 0}
-        onOpenChange={(open) => {
-          if (open) return;
-          if (!confirmedRef.current) {
-            // Not merged: the groups go back into the draft.
-            setListKey((k) => k + 1);
-            window.setTimeout(
-              () =>
-                sectionRef.current
-                  ?.querySelector<HTMLElement>('[data-testid="ai-suggestions"] h3')
-                  ?.focus(),
-              0
-            );
-          }
-          confirmedRef.current = false;
-          setAsked(null);
-        }}
-        title={
-          askedGroups.length === 1
-            ? "Merge these questions for everyone?"
-            : `Merge ${askedGroups.length} groups for everyone?`
-        }
-        description={
-          askedGroups.length === 1
-            ? `${askedGroups[0].merge.map((id) => `“${short(textOf(id))}”`).join(", ")} ${
-                askedGroups[0].merge.length === 1 ? "goes" : "go"
-              } under “${short(textOf(askedGroups[0].keep))}” on every screen in the room, and the votes join it. A merge can't be split again.`
-            : `${askedPosts} questions go under the ones they repeat, on every screen in the room, and their votes join them. A merge can't be split again.`
-        }
-        confirmLabel={askedGroups.length === 1 ? "Merge questions" : "Merge them all"}
-        tone="default"
-        onConfirm={() => {
-          confirmedRef.current = true;
-          for (const g of askedGroups) for (const id of g.merge) room.merge(id, g.keep);
-          announce(
-            `Merged ${askedPosts} ${askedPosts === 1 ? "question" : "questions"} in the room.`
-          );
-        }}
-      />
     </section>
   );
 }

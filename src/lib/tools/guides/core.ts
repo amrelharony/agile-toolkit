@@ -21,10 +21,10 @@ export const CORE_GUIDES: ToolGuide[] = [
       "Export gives the board as Markdown or JSON. New Retro moves it to Past retros, with Undo.",
     ],
     tips: [
-      "A fact with no data says what's missing; follow its link to fill it in.",
+      "On an Emotional Seismograph board, give each card the sprint day it happened to chart the highs and lows.",
       "Fewer, owned actions beat a long list nobody follows up.",
       "Example cards can't be sent to other tools; Clear example removes only them.",
-      "Past retros keep the latest 52; the New Retro confirmation names any that would drop off.",
+      "Past retros keep the latest 52.",
       "Everyone on their own device puts the board on everyone's phone. Until Vote each person sees only their own cards (Hide cards while writing).",
     ],
     timebox: "45 minutes for a one-week sprint, up to 90 for a month",
@@ -36,10 +36,10 @@ export const CORE_GUIDES: ToolGuide[] = [
     whenToUse: [
       "During refinement or sprint planning, for stories the team understands well enough to size.",
       "When estimates swing widely and you want the reasons to come out.",
-      "When Refinement, Sprint Planning or the Story Mapper queued unsized stories.",
+      "When other tools queued stories, or the team can't meet: use Estimate without a meeting.",
     ],
     steps: [
-      "Under Start a Session, name it, pick the Estimation scale (Fibonacci, T-Shirt or Custom card values) and your display name. Then pick how to run it: One screen is Start Session; Everyone on their own device is Start a live room, joined by link or QR code. Start with the queue brings in the stories other tools queued.",
+      "Under Start a Session, name it, pick the Estimation scale and your display name. Then pick how to run it: One screen is Start Session; Everyone on their own device is Start a live room, joined by link or QR code. Start with the queue brings in the stories other tools queued.",
       "Add stories in the Story Queue (or Add queued stories), then read the current one and its acceptance criteria aloud and answer questions. A queued story shows its notes and criteria under its title.",
       "Everyone picks a card without showing it: under Your vote, or record each person's card under Votes, or click Next voter to pass the screen round.",
       "Click Reveal. The verdict says how close the votes are, with Average, Median, Mode and Cards apart.",
@@ -50,7 +50,7 @@ export const CORE_GUIDES: ToolGuide[] = [
       "Estimate relative size and uncertainty, not hours.",
       "If a story needs more than two rounds, it probably needs splitting or more refinement.",
       "“?” means “I need more information”, and is a useful signal.",
-      "Under the deck, the Estimation Guide shows what the picked card means and its reference stories.",
+      "Under the deck, the Estimation Guide shows what a card means. After Reveal, the host also sees Like this one and a Three-point check.",
       "In a live room, Room timer counts down on everyone's phone; switch on Reveal the cards at zero to reveal when it runs out. Big screen puts the code, the QR code and the vote on a shared screen.",
     ],
     scales: [
@@ -71,23 +71,23 @@ export const CORE_GUIDES: ToolGuide[] = [
   {
     toolId: "kanban",
     summary:
-      "Two boards. The Sprint board shows the selected sprint's stories by status and saves every move on the story, so the Sprint Cockpit, the standup and the Sprint Review read it. The Flow board holds free cards with WIP limits, classes of service, cycle time and throughput.",
+      "Two boards. The Sprint board shows the selected sprint's stories by status and saves every move on the story, so the Sprint Cockpit, the standup and the Sprint Review read it. The Flow board holds free cards with WIP limits, classes of service, cycle time and throughput. Under both, How we work holds your Definition of Workflow.",
     whenToUse: [
       "During the sprint, to move stories as work starts and finishes.",
       "When work seems stuck: each card shows its days in the column, and a column over its WIP limit is flagged.",
-      "For work outside a sprint, or a team that doesn't run sprints, on the Flow board.",
+      "When the team wants to agree, and write down, how work moves on its board.",
     ],
     steps: [
       "Pick Sprint board or Flow board at the top. It opens on the Sprint board while a sprint is active, otherwise on the Flow board, and remembers your choice in this browser.",
-      "On the Sprint board, pick the sprint under Sprint. Drag a story by its grip, or use Move to… on the card, to put it in To do, In progress, Review or Done. Each move offers Undo.",
-      "Click No owner (Unassigned on the Flow board) to pick who has the card, then Save. Click Flag blocked when it's stuck and Unblock once it moves again.",
-      "Type WIP limits in the column headers. A column over its limit shows a warning but never blocks a move: finish something there before pulling more.",
-      "On the Flow board, type a New card title and click Add; paste several lines to add one card per line. Retro actions sent with Send to… land in Backlog too.",
-      "Above the Flow board, Cycle avg needs three finished cards and 85% within needs five; the Weekly throughput chart and Advanced analysis follow as history builds. Export gives the board on screen as Markdown, CSV or JSON.",
+      "Drag a card by its grip, or use Move to… on it. Each move offers Undo. Click Flag blocked when it's stuck, then Add why to say what blocks it, group it in a blocker cluster or log it as an impediment.",
+      "Type WIP limits in the column headers. A column over its limit shows a warning but never blocks a move.",
+      "On the Flow board, type a New card title and click Add; paste several lines to add one card per line. Pick each card's type (it reads No type until set) for Flow Insights.",
+      "Under How we work, write the Definition of Workflow: what one item is, when work enters and leaves each column, the pull and blocker policies and an SLE. Draft policies asks Amr, and Start from a template works without AI. Its policies fold under the columns of the board it describes.",
+      "Design it (STATIK) walks seven steps; Versions saves the workflow and compares cycle time and throughput before and after.",
     ],
     tips: [
       "The two boards share their WIP limits: the Sprint board's To do uses the Flow board's Ready limit.",
-      "A completed or cancelled sprint's board is read-only. Pick an open sprint to keep moving stories.",
+      "A completed or cancelled sprint's board is read-only.",
     ],
     scales: [
       {

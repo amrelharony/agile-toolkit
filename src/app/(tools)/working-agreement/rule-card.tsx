@@ -1,7 +1,9 @@
 "use client";
 
-import { ChevronDown, Trash2 } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, LayoutTemplate, Trash2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
 import { ToggleGroup, type ToggleOption } from "@/components/ui/toggle-group";
 import {
@@ -13,13 +15,16 @@ import {
 } from "@/components/ui/select";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import { SendToMenu } from "@/components/handoff/send-to-menu";
+import { sourceHref, sourceLabel } from "@/lib/handoffs/sources";
 import type { HandoffLink } from "@/lib/handoffs/types";
 import type {
   CharterCheckInResult,
   CharterConsentVote,
   CharterRule,
   CharterRuleCategory,
+  CharterTemplateId,
 } from "@/lib/stores/workspace-types";
+import { templateName } from "@/lib/working-agreement/templates";
 import {
   RULE_DESCRIPTION_MAX,
   RULE_TEXT_MAX,
@@ -86,6 +91,62 @@ export interface RuleCardProps {
   onMark: (rule: CharterRule, stillWorking: CheckInMark | undefined) => void;
   onVote: (rule: CharterRule, name: string, vote: CharterConsentVote | null, note?: string) => void;
   onDelete: (rule: CharterRule) => void;
+  /** Opens the charter template that wrote the rule. */
+  onEditTemplate?: (id: CharterTemplateId) => void;
+}
+
+/**
+ * Where the rule came from: the charter template that wrote it (with Edit
+ * in template), or the item it was sent from (a kickoff's rule), linked back.
+ */
+function RuleOrigin({
+  rule,
+  onEditTemplate,
+}: {
+  rule: CharterRule;
+  onEditTemplate?: (id: CharterTemplateId) => void;
+}) {
+  const template = rule.template;
+  const from = sourceLabel(rule.sourceRef);
+  const href = sourceHref(rule.sourceRef);
+  if (!template && !from) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-sub">
+      {template && (
+        <>
+          {template.id === "ai-use" && (
+            <Badge variant="outline" className="border-accent/40 text-xs text-accent">
+              AI use
+            </Badge>
+          )}
+          <span className="inline-flex items-center gap-1">
+            <LayoutTemplate className="h-3.5 w-3.5" aria-hidden="true" />
+            From the {templateName(template.id)} template
+          </span>
+          {onEditTemplate && (
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className="h-auto min-h-9 px-2 text-xs"
+              aria-label={`Edit in template: ${templateName(template.id)}`}
+              onClick={() => onEditTemplate(template.id)}
+            >
+              Edit in template
+            </Button>
+          )}
+        </>
+      )}
+      {from &&
+        (href ? (
+          <Link href={href} className="text-accent underline-offset-2 hover:underline">
+            {from}
+          </Link>
+        ) : (
+          <span>{from}</span>
+        ))}
+    </div>
+  );
 }
 
 /**
@@ -105,6 +166,7 @@ export function RuleCard({
   onMark,
   onVote,
   onDelete,
+  onEditTemplate,
 }: RuleCardProps) {
   const edit = useInlineEdit();
   const consent = consentOf(rule, roster);
@@ -157,6 +219,8 @@ export function RuleCard({
           onClick={() => onDelete(rule)}
         />
       </div>
+
+      <RuleOrigin rule={rule} onEditTemplate={onEditTemplate} />
 
       <div className="flex flex-wrap items-center gap-2">
         <Select

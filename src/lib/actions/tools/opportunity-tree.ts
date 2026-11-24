@@ -57,10 +57,12 @@ import {
 } from "@/lib/opportunity-tree/model";
 import {
   HYPOTHESIS_TRACKER_ID,
+  TRACKER_FULL,
   hypothesisFromSource,
   hypothesisLink,
   linkedTest,
   missingFields,
+  trackerFits,
   withHypothesis,
 } from "@/lib/hypotheses/model";
 
@@ -309,7 +311,11 @@ async function sendExperiment(store: TreeStore, nodeId: string) {
   const src = experimentHypothesisSource(node, nodes);
   if (!src.title.trim()) return { sent: false, reason: "blank" };
   const h = hypothesisFromSource(src, nanoid(8), todayLocalISO());
-  await store.putTracker(withHypothesis(tracker, h));
+  const next = withHypothesis(tracker, h);
+  // The tracker's one row must hold it, as the page's send asks: past the cap
+  // the database refuses the row, and every later tracker write with it.
+  if (!trackerFits(next)) return { sent: false, reason: "too_big", message: TRACKER_FULL };
+  await store.putTracker(next);
   const link: HandoffLink = { route: "hypothesis", targetId: h.id, at: new Date().toISOString() };
   await store.put(
     withNodes(
@@ -331,7 +337,7 @@ registry.register({
   category: "write",
   requiresConfirmation: false,
   description:
-    "Test an experiment as a drafted hypothesis in the Hypothesis Tracker, as the page does: we believe the solution it sits under (the experiment's own text when it has none), we'll do the experiment (its notes as the experiment field), to learn about the nearest opportunity above it; linked both ways. The tracker then needs the success metric before it runs: fill it, and a target, with tool.hypothesis_tracker.update_hypothesis. Once per experiment while that hypothesis exists. Params: nodeId. Returns {sent: true, hypothesisId, believe, missing} or {sent: false, reason: 'not_found' | 'not_experiment' | 'example' | 'already_sent' (with hypothesisId) | 'blank'}.",
+    "Test an experiment as a drafted hypothesis in the Hypothesis Tracker, as the page does: we believe the solution it sits under (the experiment's own text when it has none), we'll do the experiment (its notes as the experiment field), to learn about the nearest opportunity above it; linked both ways. The tracker then needs the success metric before it runs: fill it, and a target, with tool.hypothesis_tracker.update_hypothesis. Once per experiment while that hypothesis exists. Params: nodeId. Returns {sent: true, hypothesisId, believe, missing} or {sent: false, reason: 'not_found' | 'not_experiment' | 'example' | 'already_sent' (with hypothesisId) | 'blank' | 'too_big' (the tracker is full; with message)}.",
   paramsSchema: z.object({ nodeId: z.string() }),
   handler: async (params) => sendExperiment(browserStore, params.nodeId),
   mcpHandler: async (params, ctx) => sendExperiment(serverStore(ctx.userId), params.nodeId),

@@ -116,6 +116,7 @@ const TOOL_NAMES: Record<VisitorTool, string> = {
   picker: "Picker",
   "team-mixer": "Team Mixer",
   "card-decks": "Card Decks",
+  "relative-sizing": "Relative Sizing",
 };
 
 /** The room each kind of link opens (`VISITOR_ROOM_KIND`). */

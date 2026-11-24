@@ -11,6 +11,7 @@
  */
 
 import { useRef } from "react";
+import dynamic from "next/dynamic";
 import { ListChecks, Loader2, Radio } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +22,8 @@ import { LoadExampleButton } from "@/components/tool-frame/example-data";
 import { RunModeChoice } from "@/components/collab/run-modes";
 import { cn } from "@/lib/utils";
 import { SCALE_LABELS, type ScaleType } from "./types";
+import type { AsyncLiveStart } from "./async/async-round-card";
+import { DEFAULT_DISPLAY_NAME } from "./example";
 import {
   DISPLAY_NAME_MAX,
   INITIAL_LOBBY,
@@ -37,6 +40,15 @@ export interface StartData extends StartValues {
   fromQueue?: boolean;
 }
 
+export type { AsyncLiveStart };
+
+// "Estimate without a meeting" loads with the lobby's first paint done: the
+// rounds, their links and reply codes aren't part of a session.
+const AsyncRoundsPanel = dynamic(
+  () => import("./async/async-rounds-panel").then((m) => m.AsyncRoundsPanel),
+  { ssr: false }
+);
+
 type StartMode = "plain" | "queue" | "live";
 
 export function LobbyScreen({
@@ -44,9 +56,12 @@ export function LobbyScreen({
   onLoadExample,
   isOwner,
   queuedCount = 0,
+  heldCount = 0,
   onStartLive,
   liveRoomPending = false,
   onCancelLive,
+  sessionOpen = false,
+  onTalkLive,
 }: {
   onStart: (data: StartData) => void;
   /** Omitted until auth settles, so the example can't beat a stored
@@ -55,12 +70,18 @@ export function LobbyScreen({
   isOwner: boolean;
   /** Stories other tools queued for estimation (Story Mapper). */
   queuedCount?: number;
+  /** Queued stories an estimate-without-a-meeting round holds. */
+  heldCount?: number;
   /** Visitors with live rooms switched on: start a visitor live room with
    *  this form's settings (asks for consent first). Omitted otherwise. */
   onStartLive?: (data: StartData) => void;
   /** A live room is opening and hasn't connected yet. */
   liveRoomPending?: boolean;
   onCancelLive?: () => void;
+  /** A session is open or opening, so "Talk about it live" waits. */
+  sessionOpen?: boolean;
+  /** "Talk about it live" on a round without a meeting: open a session with its stories. */
+  onTalkLive?: (start: AsyncLiveStart) => void;
 }) {
   // Which start button was pressed; Enter in a field is a plain start.
   const mode = useRef<StartMode>("plain");
@@ -113,7 +134,7 @@ export function LobbyScreen({
                 maxLength={SESSION_NAME_MAX}
                 onChange={(e) => update({ sessionName: e.target.value })}
                 placeholder="e.g. Sprint 42 Planning"
-                className="bg-surface-deep border-border text-text"
+                className="border-border text-text"
               />
             )}
           </Field>
@@ -130,7 +151,7 @@ export function LobbyScreen({
                   onClick={() => update({ scaleType: s })}
                   aria-pressed={draft.scaleType === s}
                   className={cn(
-                    "flex-1 rounded-lg border py-2 px-3 text-sm font-medium transition-colors",
+                    "flex-1 rounded-lg border py-2 px-3 text-sm font-medium transition-colors pointer-coarse:min-h-11",
                     draft.scaleType === s
                       ? "border-accent/60 bg-accent/10 text-accent"
                       : "border-border bg-surface-deep text-sub hover:text-text"
@@ -152,7 +173,7 @@ export function LobbyScreen({
                     value={draft.customInput}
                     onChange={(e) => update({ customInput: e.target.value })}
                     placeholder="e.g. 1, 2, 4, 8"
-                    className="bg-surface-deep border-border text-text text-sm"
+                    className="border-border text-text"
                   />
                 )}
               </Field>
@@ -177,7 +198,7 @@ export function LobbyScreen({
                 maxLength={DISPLAY_NAME_MAX}
                 onChange={(e) => update({ displayName: e.target.value })}
                 placeholder="e.g. Alice"
-                className="bg-surface-deep border-border text-text"
+                className="border-border text-text"
               />
             )}
           </Field>
@@ -222,15 +243,30 @@ export function LobbyScreen({
           <div className="flex flex-col gap-2 rounded-lg border border-accent/30 bg-accent/10 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
             <p className="flex items-center gap-2 text-sm text-text">
               <ListChecks className="h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
-              {queuedCount} {queuedCount === 1 ? "story" : "stories"} queued for estimation
+              <span>
+                {queuedCount} {queuedCount === 1 ? "story" : "stories"} queued for estimation
+                {heldCount > 0 && <span className="text-sub">, {heldCount} in an async round</span>}
+              </span>
             </p>
             <Button type="button" variant="toolkit" size="sm" onClick={() => startAs("queue")}>
               Start with the queue
             </Button>
           </div>
         )}
+        {queuedCount === 0 && heldCount > 0 && (
+          <p className="flex items-center gap-2 text-sm text-sub">
+            <ListChecks className="h-4 w-4 shrink-0" aria-hidden="true" />
+            {heldCount} queued {heldCount === 1 ? "story is" : "stories are"} in an async round
+          </p>
+        )}
         {onLoadExample && <LoadExampleButton onLoad={onLoadExample} className="self-center" />}
       </SectionCard>
+
+      <AsyncRoundsPanel
+        hostName={draft.displayName.trim().slice(0, 40) || DEFAULT_DISPLAY_NAME}
+        sessionOpen={sessionOpen || liveRoomPending}
+        onTalkLive={onTalkLive}
+      />
 
       <SectionCard
         title={isOwner ? "Invite your squad" : "Running it with your team"}

@@ -338,7 +338,7 @@ export function ChartFigure({
       {(summary || alt.toggle) && (
         <div className="mb-3 flex flex-wrap items-start justify-between gap-x-3 gap-y-2">
           {summary && (
-            <p id={alt.summaryId} className="min-w-0 flex-1 text-xs text-sub">
+            <p id={alt.summaryId} className="min-w-0 flex-1 basis-64 text-xs text-sub">
               {summary}
             </p>
           )}

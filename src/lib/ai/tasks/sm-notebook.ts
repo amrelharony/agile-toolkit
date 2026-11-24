@@ -1,6 +1,7 @@
 /**
- * The Scrum Master Notebook's AI tasks, browser-safe half (the prompts are in
- * `sm-notebook.server.ts`):
+ * The Scrum Master Notebook's AI tasks, the defs (the prompts are in
+ * `sm-notebook.server.ts`; pages import `sm-notebook.lite.ts`, which holds
+ * the fallbacks, the tag caps and `notebookTagInput`):
  *
  *   - `sm-notebook.weekly_summary`: a week's notes (at most 60, each cut to
  *     800 characters by weeklyInput) → a short summary, up to 5 patterns and
@@ -16,8 +17,8 @@
  */
 
 import { z } from "zod";
-import { defineAiTask, type AiTaskInput } from "../define-task";
-import { NOTE_BODY_MAX, NOTE_TAGS_MAX, NOTE_TITLE_MAX } from "@/lib/notebook/model";
+import { defineAiTask } from "../define-task";
+import { NOTE_TAGS_MAX, NOTE_TITLE_MAX } from "@/lib/notebook/model";
 import {
   WEEKLY_BODY_MAX,
   WEEKLY_EVENT_MAX,
@@ -33,7 +34,24 @@ import {
   WEEKLY_WHY_MAX,
   weeklyFallback,
 } from "@/lib/notebook/summary";
-import { keywordTags } from "@/lib/notebook/themes";
+import {
+  TAG_BODY_MAX,
+  TAG_KNOWN_MAX,
+  TAG_SENT_MAX,
+  TAG_SUGGEST_LEN,
+  TAG_SUGGEST_MAX,
+  notebookTagFallback,
+} from "./sm-notebook.lite";
+
+export {
+  TAG_BODY_MAX,
+  TAG_KNOWN_MAX,
+  TAG_SENT_MAX,
+  TAG_SUGGEST_LEN,
+  TAG_SUGGEST_MAX,
+  notebookTagFallback,
+  notebookTagInput,
+} from "./sm-notebook.lite";
 
 const Day = z
   .string()
@@ -68,6 +86,9 @@ const weeklyOutputSchema = z.object({
     )
     .max(WEEKLY_TOOLS_MAX),
 });
+
+export type NotebookWeeklyInput = z.infer<typeof weeklyInputSchema>;
+export type NotebookWeeklyOutput = z.infer<typeof weeklyOutputSchema>;
 
 export const notebookWeeklySummaryTask = defineAiTask({
   id: "sm-notebook.weekly_summary",
@@ -114,16 +135,6 @@ export const notebookWeeklySummaryTask = defineAiTask({
 
 /* ── tag ──────────────────────────────────────────────────────────── */
 
-/** A note's text a tag suggestion reads, at most. */
-export const TAG_BODY_MAX = 2000;
-/** The notebook's tags it may reuse, at most (most used first). */
-export const TAG_KNOWN_MAX = 40;
-/** Each tag sent, at most; longer ones aren't sent. */
-export const TAG_SENT_MAX = 60;
-/** The answer: at most 5 tags of at most 40 characters. */
-export const TAG_SUGGEST_MAX = 5;
-export const TAG_SUGGEST_LEN = 40;
-
 const tagInputSchema = z.object({
   title: z.string().max(NOTE_TITLE_MAX).optional(),
   body: z.string().trim().min(1).max(TAG_BODY_MAX),
@@ -135,6 +146,9 @@ const tagOutputSchema = z.object({
   tags: z.array(z.string().trim().min(1).max(TAG_SUGGEST_LEN)).max(TAG_SUGGEST_MAX),
 });
 
+export type NotebookTagInput = z.infer<typeof tagInputSchema>;
+export type NotebookTagOutput = z.infer<typeof tagOutputSchema>;
+
 export const notebookTagTask = defineAiTask({
   id: "sm-notebook.tag",
   toolId: "sm-notebook",
@@ -143,11 +157,7 @@ export const notebookTagTask = defineAiTask({
   maxTokens: 4096,
   input: tagInputSchema,
   output: tagOutputSchema,
-  fallback: ({ title, body, known, current }) => ({
-    tags: keywordTags(`${title ?? ""}\n${body}`, { known, current, max: TAG_SUGGEST_MAX }).filter(
-      (t) => t.length <= TAG_SUGGEST_LEN
-    ),
-  }),
+  fallback: notebookTagFallback,
   sample: {
     title: "Quiet Daily Scrum",
     body: "Two people gave one-line updates again and nobody asked them anything. The payments story is still blocked on sandbox access.",
@@ -155,23 +165,3 @@ export const notebookTagTask = defineAiTask({
     current: [],
   },
 });
-
-/**
- * The tag task's input for a note being written: its title and text cut to
- * the caps, the tags it has, and the notebook's tags (most used first) that
- * fit. The text is required: with none, there is nothing to tag.
- */
-export function notebookTagInput(
-  note: { title?: string; body: string; tags: readonly string[] },
-  known: readonly string[]
-): AiTaskInput<typeof notebookTagTask> {
-  const fit = (tags: readonly string[], max: number) =>
-    tags.filter((t) => t.length <= TAG_SENT_MAX).slice(0, max);
-  const title = note.title?.trim().slice(0, NOTE_TITLE_MAX);
-  return {
-    ...(title ? { title } : {}),
-    body: note.body.trim().slice(0, Math.min(TAG_BODY_MAX, NOTE_BODY_MAX)),
-    known: fit(known, TAG_KNOWN_MAX),
-    current: fit(note.tags, NOTE_TAGS_MAX),
-  };
-}

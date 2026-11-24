@@ -10,10 +10,11 @@
 
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import type { Sprint, Story, StoryStatus } from "@/lib/stores/workspace-types";
+import type { BlockSpell, Sprint, Story, StoryStatus } from "@/lib/stores/workspace-types";
 import { setStoryBlocked, setStoryDodCheck, setStoryStatus } from "@/lib/sprints/store";
 import { withStoryBlocked, withStoryStatus } from "@/lib/sprints/story-status";
 import { withStoryDodCheck } from "@/lib/dod/model";
+import { withSpellNote, type SpellNote } from "@/lib/flow/block-stamps";
 
 export interface SprintBoardWriter {
   /** The story as stored right now. */
@@ -27,6 +28,22 @@ export interface SprintBoardWriter {
   setDodCheck(id: string, criterionId: string, checked: boolean): void;
   /** Put a story back as given (an Undo). */
   restore(story: Story): void;
+  /**
+   * Write why it is blocked on one of its blocked spells (`withSpellNote`:
+   * the open one by default; a block from before tracking gets one from
+   * now). False when nothing was written.
+   */
+  setBlockNote(id: string, note: SpellNote, opts?: { spellFrom?: string; at?: string }): boolean;
+  /** Put its blocked spells back as they were (an Undo of a note). */
+  setBlockLog(id: string, log: BlockSpell[] | undefined): void;
+}
+
+/** `story` with `log` as its blocked spells, or none. */
+function withBlockLog(story: Story, log: BlockSpell[] | undefined): Story {
+  const next: Story = { ...story };
+  if (log === undefined) delete next.blockLog;
+  else next.blockLog = log;
+  return next;
 }
 
 /** `story` with `owner` set, or without one for a blank name. */
@@ -60,6 +77,19 @@ export const liveSprintWriter: SprintBoardWriter = {
     setStoryDodCheck(id, criterionId, checked);
   },
   restore: (story) => useWorkspaceStore.getState().upsertStory(story),
+  setBlockNote: (id, note, opts) => {
+    const current = liveStory(id);
+    if (!current) return false;
+    const next = withSpellNote(current, note, opts);
+    if (!next || next === current) return false;
+    // The log differs from the stored one, so the store keeps it as written.
+    useWorkspaceStore.getState().upsertStory(next);
+    return true;
+  },
+  setBlockLog: (id, log) => {
+    const current = liveStory(id);
+    if (current) useWorkspaceStore.getState().upsertStory(withBlockLog(current, log));
+  },
 };
 
 export interface ExampleBoardState {
@@ -91,5 +121,13 @@ export function exampleSprintWriter(store: ExampleBoardStore): SprintBoardWriter
     setDodCheck: (id, criterionId, checked) =>
       update(id, (s) => withStoryDodCheck(s, criterionId, checked, new Date().toISOString())),
     restore: (story) => update(story.id, () => story),
+    setBlockNote: (id, note, opts) => {
+      const current = store.getState().stories.find((s) => s.id === id);
+      const next = current ? withSpellNote(current, note, opts) : null;
+      if (!next || next === current) return false;
+      update(id, () => next);
+      return true;
+    },
+    setBlockLog: (id, log) => update(id, (s) => withBlockLog(s, log)),
   };
 }

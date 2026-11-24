@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo, useRef, useState, type ClipboardEvent } from "react";
+import { useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from "react";
 import { nanoid } from "nanoid";
 import { useShallow } from "zustand/react/shallow";
 import { Activity, Clock, Columns3, Plus, Trash2, Zap } from "lucide-react";
@@ -46,11 +46,18 @@ import { usePredictedDefault } from "@/lib/predictions/use-predicted-default";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import {
   KANBAN_BOARD_ID,
+  WORK_TYPES,
+  type BlockSpell,
   type KanbanBoard,
   type KanbanCard,
   type KanbanClassOfService,
   type KanbanColumnId,
+  type WorkflowDefinition,
+  type WorkType,
 } from "@/lib/stores/workspace-types";
+import { describedBoard, sleText, stagePolicy } from "@/lib/kanban/workflow-view";
+import { WORK_TYPE_LABEL } from "@/lib/flow/work-types";
+import { withSpellNote, type SpellNote } from "@/lib/flow/block-stamps";
 import { cn } from "@/lib/utils";
 import { emit as sonify } from "@/lib/sonification/emit";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
@@ -61,7 +68,8 @@ import { PASTE_LINE_CAP, leftOutMessage, splitPastedLines } from "@/lib/utils/pa
 import { useReturnFocus } from "@/hooks/use-return-focus";
 import { buildExample } from "./example";
 import { KANBAN_DESCRIPTION_MAX, KANBAN_TITLE_MAX, KanbanCardText } from "./card-text";
-import { AgeBadge, BlockedBadge, BlockedToggle, PersonInPlace } from "./card-parts";
+import { AgeBadge, BlockedBadge, BlockedToggle, ColumnPolicy, PersonInPlace } from "./card-parts";
+import { BlockWhy } from "./block-note-dialog";
 import { BoardDnd, DragPreview, DraggableCard, DropColumn } from "./board-dnd";
 import { WipLimitInput, clampWipLimit } from "./wip-limit-input";
 import { useNow } from "./use-now";
@@ -147,6 +155,9 @@ const COS_BORDER: Record<KanbanClassOfService, string> = {
   intangible: "border-l-accent-magenta",
 };
 
+/** The Type select's value for a card with no work type. */
+const NO_TYPE = "none";
+
 const COS_LABEL: Record<KanbanClassOfService, string> = {
   standard: "Standard",
   expedite: "Expedite",
@@ -173,9 +184,15 @@ function shortName(name: string, max = 40): string {
 export function FlowBoard({
   state,
   setState,
+  definition = null,
 }: {
   state: KanbanState;
   setState: (updater: (prev: KanbanState) => KanbanState) => void;
+  /**
+   * The Definition of Workflow: when it describes the Flow board, its column
+   * policies fold under the headers and its SLE shows under the verdict.
+   */
+  definition?: WorkflowDefinition | null;
 }) {
   const { log } = useHistoryLogger("kanban");
   const announce = useAnnounce();
@@ -331,6 +348,39 @@ export function FlowBoard({
     log(KANBAN_ACTIONS.CARD_UPDATED, { cardId: id, assignee: name || null });
   };
 
+  const setWorkType = (id: string, type: WorkType | null) => {
+    patchCard(id, (c) => {
+      const next: KanbanCard = { ...c };
+      if (type) next.workType = type;
+      else delete next.workType;
+      return next;
+    });
+    log(KANBAN_ACTIONS.CARD_UPDATED, { cardId: id, workType: type });
+  };
+
+  // A note on a card's blocked spell: the store keeps the log the write set.
+  const writeNote = (id: string, note: SpellNote): boolean => {
+    let wrote = false;
+    setState((s) => ({
+      ...s,
+      cards: s.cards.map((c) => {
+        if (c.id !== id) return c;
+        const next = withSpellNote(c, note);
+        if (!next || next === c) return c;
+        wrote = true;
+        return next;
+      }),
+    }));
+    return wrote;
+  };
+  const restoreLog = (id: string, blockLog: BlockSpell[] | undefined) =>
+    patchCard(id, (c) => {
+      const next: KanbanCard = { ...c };
+      if (blockLog === undefined) delete next.blockLog;
+      else next.blockLog = blockLog;
+      return next;
+    });
+
   const toggleBlocked = (card: KanbanCard) => {
     const blocked = !card.blocked;
     patchCard(card.id, (c) => {
@@ -397,12 +447,16 @@ export function FlowBoard({
   const [wipEditBuffer, setWipEditBuffer] = useState<string | null>(null);
 
   const titleOf = (id: string) => state.cards.find((c) => c.id === id)?.title ?? "card";
+  // Policies and the SLE belong to the board the definition describes.
+  const workflow = describedBoard(definition) === "flow" ? definition : null;
+  const sle = sleText(workflow?.sle);
 
   return (
     <>
       {hasExampleItems(state.cards) && <ExampleNotice onClear={clearExample} />}
 
-      <p className="mb-3 text-sm font-medium text-text">{verdict}</p>
+      <p className={cn("text-sm font-medium text-text", sle ? "mb-1" : "mb-3")}>{verdict}</p>
+      {sle && <p className="mb-3 text-xs font-medium text-sub">{sle}</p>}
 
       <KpiGrid cols={4} gap="lg">
         <StatCard
@@ -619,6 +673,9 @@ export function FlowBoard({
                         onCommit={(n) => setWip(col.id, n)}
                       />
                     ))}
+                  {workflow && col.id !== "done" && (
+                    <ColumnPolicy column={col.label} {...stagePolicy(workflow, col.id)} />
+                  )}
                 </div>
                 {/* Card pile. Mobile gets a smaller min-height so empty
                     lanes don't waste a third of the viewport. */}
@@ -636,6 +693,17 @@ export function FlowBoard({
                       onEdit={(next) => editCard(c.id, next)}
                       onMove={(to) => moveCard(c.id, to)}
                       onClass={(cls) => setClass(c.id, cls)}
+                      onWorkType={(type) => setWorkType(c.id, type)}
+                      blockWhy={
+                        <BlockWhy
+                          item={c}
+                          idKey="cardId"
+                          fresh={() => storedBoard()?.cards.find((x) => x.id === c.id)}
+                          writeNote={(note) => writeNote(c.id, note)}
+                          restoreLog={(blockLog) => restoreLog(c.id, blockLog)}
+                          log={log}
+                        />
+                      }
                       onAssignee={(name) => setAssignee(c.id, name)}
                       onToggleBlocked={() => toggleBlocked(c)}
                       onRemove={() => removeCard(c.id)}
@@ -660,6 +728,8 @@ function FlowCard({
   onEdit,
   onMove,
   onClass,
+  onWorkType,
+  blockWhy,
   onAssignee,
   onToggleBlocked,
   onRemove,
@@ -672,6 +742,9 @@ function FlowCard({
   onEdit: (next: ItemText) => void;
   onMove: (to: KanbanColumnId) => void;
   onClass: (cls: KanbanClassOfService) => void;
+  onWorkType: (type: WorkType | null) => void;
+  /** "Add why" for a blocked card (it hides itself on example cards). */
+  blockWhy: ReactNode;
   onAssignee: (name: string) => void;
   onToggleBlocked: () => void;
   onRemove: () => void;
@@ -704,6 +777,7 @@ function FlowCard({
           </div>
           <div className="mb-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
             {blocked && <BlockedBadge />}
+            {blocked && blockWhy}
             <AgeBadge
               days={age}
               column={label}
@@ -767,13 +841,37 @@ function FlowCard({
                   ))}
                 </SelectContent>
               </Select>
-              <IconButton
-                label={`Remove ${c.title}`}
-                icon={<Trash2 className="h-4 w-4 xs:h-3.5 xs:w-3.5" />}
-                className="text-sub hover:text-danger"
-                onClick={onRemove}
-              />
             </div>
+          </div>
+          {/* What kind of work it is (Flow Insights reads it). */}
+          <div className="mt-1.5 flex items-center gap-1.5">
+            <Select
+              value={c.workType ?? NO_TYPE}
+              onValueChange={(v) => onWorkType(v === NO_TYPE ? null : (v as WorkType))}
+            >
+              <SelectTrigger
+                className="h-9 sm:h-7 pointer-coarse:min-h-11 text-xs bg-surface border-border flex-1"
+                aria-label={`Type of ${c.title}`}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_TYPE} className="text-xs">
+                  No type
+                </SelectItem>
+                {WORK_TYPES.map((t) => (
+                  <SelectItem key={t} value={t} className="text-xs">
+                    {WORK_TYPE_LABEL[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <IconButton
+              label={`Remove ${c.title}`}
+              icon={<Trash2 className="h-4 w-4 xs:h-3.5 xs:w-3.5" />}
+              className="text-sub hover:text-danger"
+              onClick={onRemove}
+            />
           </div>
         </>
       )}

@@ -38,7 +38,7 @@ export function CardReferencePanel({
         </p>
         <Link
           href="/estimation-guide"
-          className="text-xs text-accent underline-offset-4 hover:underline"
+          className="inline-flex items-center text-xs text-accent underline-offset-4 hover:underline pointer-coarse:min-h-11"
         >
           Estimation Guide
         </Link>

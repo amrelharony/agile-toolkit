@@ -128,18 +128,19 @@ export function claimDock(timer: DockedTimer): { ok: true } | { ok: false; holde
 /**
  * Owner pages that ring their own time's-up alarm while they are open, so
  * the docked timer (which runs on every page) stays quiet there and nothing
- * rings twice. The Ceremony Timer always does (its own flash, chime and
- * buzz, under its own switch). A page registers while it shows something
- * that rings (`useRingsOwnAlarm`), as the step timer panel does. On every
- * other owner page (Six Hats, Icebreaker, Premortem, Standup) the dock
- * rings the shared alarm itself.
+ * rings twice. A page registers while it shows something that rings
+ * (`useRingsOwnAlarm`): the Ceremony Timer for as long as it is mounted
+ * (its own flash, chime and buzz, under its own switch), the step timer
+ * panel and Facilitator Timers while they show a run. Away from its page, a
+ * timer rings the shared alarm with the switch it carries
+ * (`DockedTimer.chime`). On every other owner page (Six Hats, Icebreaker,
+ * Premortem, Standup) the dock rings the shared alarm itself.
  */
-const ALWAYS_RINGS_OWN: ReadonlySet<string> = new Set(["/ceremony-timer"]);
 const ringingHere = new Map<string, number>();
 
 /** Whether the page at `href` rings its own timer while it is open. */
 export function ringsOwnAlarm(href: string): boolean {
-  return ALWAYS_RINGS_OWN.has(href) || (ringingHere.get(href) ?? 0) > 0;
+  return (ringingHere.get(href) ?? 0) > 0;
 }
 
 /** While mounted: the page at `href` rings its own timer, so the dock doesn't there. */

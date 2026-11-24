@@ -38,7 +38,7 @@ import { hasSyntheticDates, sprintLengthDays } from "./series";
 export const CEREMONY_REMINDER_MINUTES = 10;
 
 /** The right-hand side of every UID. Fixed, so a preview host makes the same UIDs. */
-const UID_DOMAIN = "agile.amrelharony.com";
+export const UID_DOMAIN = "agile.amrelharony.com";
 
 const PRODID = "-//Agile Toolkit//Sprint ceremonies//EN";
 
@@ -149,7 +149,7 @@ function localDayStamp(at: Date): string {
  * becomes its code point between underscores ("," is "_2c_"), so the UID
  * needs no escaping and two ids never fold into one.
  */
-function uidPart(id: string): string {
+export function uidPart(id: string): string {
   return Array.from(id)
     .map((c) => (/[A-Za-z0-9.-]/.test(c) ? c : `_${(c.codePointAt(0) ?? 0).toString(16)}_`))
     .join("");

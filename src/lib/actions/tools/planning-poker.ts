@@ -21,6 +21,23 @@
  *                          the same verdict the session screen shows), plus
  *                          the numeric average/median/mode/spread.
  *   5. list_scales       — PURE: the decks (lib/estimation/decks).
+ *   6. three_point       — PURE: a best, likely and worst case weighed into an
+ *                          expected size, its spread and the card it rounds
+ *                          up to (lib/estimation/three-point), as the host's
+ *                          Three-point check shows after Reveal.
+ *   7. similar_stories   — READ: finished stories like a story being sized,
+ *                          with their points, and the Estimation Guide's
+ *                          reference stories (lib/estimation/similar). Words
+ *                          only: an action runs no AI task.
+ *   8. list_async        — READ: rounds without a meeting, counts only, and
+ *                          each story's verdict and agreed card after Reveal.
+ *   9. create_async_round — a round of typed titles; returns the link path
+ *                          for the person to send (lib/estimation/async-pack).
+ *  10. reveal_async_round — reveal a round: the same counts and verdicts.
+ *
+ *  Replies hold other people's names, cards and notes, and Amr is a model:
+ *  no verb returns a name, a note or anyone's card, and none adds a reply
+ *  (a pasted code would carry other people's data into the model).
  *
  * The log is agent-managed: the realtime client deliberately does NOT write to
  * it (session-screen renders for guests/promoted-hosts too, whose workspace
@@ -32,8 +49,38 @@
 import { z } from "zod";
 import { registry } from "../registry";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
-import { serverGetEntity, serverUpsertEntity } from "../server-store";
-import type { PokerEstimationLog, PokerEstimate, PokerRound } from "@/lib/stores/workspace-types";
+import {
+  serverGetEntity,
+  serverGetUserStateBlob,
+  serverListEntities,
+  serverUpsertEntity,
+} from "../server-store";
+import {
+  ENTITY_ROW_MAX_BYTES,
+  POKER_ASYNC_MAX,
+  POKER_ASYNC_ROUND_KIND,
+  type PokerAsyncRound,
+  type PokerEstimationLog,
+  type PokerEstimate,
+  type PokerRound,
+  type Story,
+} from "@/lib/stores/workspace-types";
+import { jsonBytes } from "@/lib/utils/json-bytes";
+import { todayIso } from "@/lib/sprints/series";
+import {
+  asyncDeckFor,
+  asyncRoundProblem,
+  asyncRoundSummary,
+  encodePack,
+  estimateLink,
+  newAsyncRound,
+  newAsyncRoundId,
+  packFor,
+  readAsyncRound,
+  readAsyncRounds,
+  readPokerAsyncRound,
+  revealAndFlag,
+} from "@/lib/estimation/async-pack";
 import { SCALES, SCALE_LABELS, type ScaleType } from "@/lib/estimation/decks";
 import {
   consensusLabel,
@@ -42,6 +89,18 @@ import {
   estimateCards,
   isEstimateCard,
 } from "@/lib/estimation/consensus";
+import {
+  THREE_POINT_MAX,
+  cardAtOrAbove,
+  isAboveDeck,
+  threePoint,
+  threePointNote,
+  validateThreePoint,
+} from "@/lib/estimation/three-point";
+import { SIMILAR_LIMIT, medianPoints, similarStories } from "@/lib/estimation/similar";
+import { scales } from "@/lib/constants/scales";
+import { pinnedIds, resolveReferenceStories } from "@/app/(tools)/estimation-guide/references";
+import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
 
 const KIND_PE = "workspace:pokerEstimationLog";
 // MUST match PE_ID in planning-poker-client.tsx.
@@ -261,6 +320,150 @@ registry.register({
     "List the built-in estimation scales. Returns {scales: {fibonacci, tshirt, custom}, labels}. Pure reference data.",
   paramsSchema: z.object({}),
   handler: async () => ({ scales: SCALES, labels: SCALE_LABELS }),
+});
+
+/* ---- three-point check and similar stories ---------------------------- */
+
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+/** Most matches `similar_stories` returns. */
+const SIMILAR_STORIES_MAX = 5;
+/** MUST match registerCollection("story", …) in workspace-store.ts. */
+const KIND_STORY = "workspace:story";
+/** The Estimation Guide's store key (createPersistedStore("estimation-guide")). */
+const GUIDE_STORE_KEY = "agile-toolkit:estimation-guide";
+
+function threePointCheck(p: {
+  optimistic: number;
+  likely: number;
+  pessimistic: number;
+  scale?: ScaleType;
+  deck?: string[];
+}) {
+  const r = threePoint(p);
+  if (!r) {
+    const checked = validateThreePoint({
+      optimistic: String(p.optimistic),
+      likely: String(p.likely),
+      pessimistic: String(p.pessimistic),
+    });
+    const problem =
+      (checked.ok ? undefined : Object.values(checked.errors).find(Boolean)) ??
+      "Give a best, likely and worst case with best <= likely <= worst.";
+    return { computed: false as const, problem };
+  }
+  const deck = deckFor([], p.scale, p.deck);
+  return {
+    computed: true as const,
+    expected: round2(r.expected),
+    sd: round2(r.sd),
+    low: round2(r.low),
+    high: round2(r.high),
+    // Null on a deck that isn't points (T-shirt sizes).
+    card: cardAtOrAbove(deck, r.expected),
+    // Past the largest card: `card` is only the top one, and the story
+    // wants splitting.
+    aboveDeck: isAboveDeck(deck, r.expected),
+    note: threePointNote(r),
+  };
+}
+
+/**
+ * The guide's pinned reference stories on its chosen scale (a numeric one;
+ * a T-shirt pick reads Fibonacci's pins), the team's stories only: the
+ * guide's example pins aren't the team's work.
+ */
+function guideReferences(guide: unknown, stories: readonly Story[]) {
+  const g = (guide && typeof guide === "object" ? guide : {}) as Record<string, unknown>;
+  const numeric = (name: string) =>
+    scales.some((s) => s.name === name && s.values.every((v) => typeof v === "number"));
+  const chosen = typeof g.selectedScale === "string" ? g.selectedScale : "";
+  const scale = numeric(chosen) ? chosen : "Fibonacci";
+  const values = scales.find((s) => s.name === scale)?.values ?? [];
+  const items: { card: string; id: string; title: string; points: number | null }[] = [];
+  for (const value of values) {
+    const ids = pinnedIds(g.referenceStoryIds, scale, value);
+    for (const story of resolveReferenceStories(ids, stories)) {
+      if (story.example) continue;
+      items.push({
+        card: String(value),
+        id: story.id,
+        title: story.title,
+        points: story.points ?? null,
+      });
+    }
+  }
+  return { scale, stories: items };
+}
+
+function similarResult(
+  params: { title: string; notes?: string; limit?: number },
+  stories: readonly Story[],
+  guide: unknown
+) {
+  const matches = similarStories({ title: params.title, notes: params.notes }, stories, {
+    limit: params.limit ?? SIMILAR_LIMIT,
+  });
+  return {
+    matches: matches.map((m) => ({
+      id: m.story.id,
+      title: m.story.title,
+      points: m.story.points ?? null,
+      shared: m.shared,
+      score: round2(m.score),
+      doneAt: m.story.doneAt ?? null,
+    })),
+    medianPoints: medianPoints(matches.map((m) => m.story.points ?? 0)),
+    references: guideReferences(guide, stories),
+  };
+}
+
+/** The guide as this browser holds it (its store waits to be asked, as Poker's panel does). */
+async function browserGuide(): Promise<unknown> {
+  const persist = useEstimationGuideStore.persist;
+  if (!persist.hasHydrated()) await persist.rehydrate();
+  return useEstimationGuideStore.getState();
+}
+
+// ──────── tool.planning_poker.three_point (pure) ────────
+registry.register({
+  id: "tool.planning_poker.three_point",
+  toolId: "tool.planning_poker",
+  name: "three_point",
+  category: "read",
+  description:
+    "Three-point check for one story, as the host's check after Reveal and the Estimation Guide show it: a best (optimistic), likely and worst (pessimistic) case in points, 0 to 1000, with best <= likely <= worst. Returns {computed: true, expected: (O + 4M + P) / 6, sd: (P - O) / 6, low and high (expected -/+ sd), card (the smallest card on the deck at or above expected, else the top card; null on a T-shirt deck), aboveDeck (true when expected is past the deck's largest card: card is then only the top card, so say the story is bigger than any card and should be split), note (narrow, some uncertainty or wide)}, or {computed: false, problem}. Give the deck as scale (fibonacci | tshirt) or deck (the cards in order); Fibonacci otherwise. Pure: it changes no estimate, the team still picks the card.",
+  paramsSchema: z.object({
+    optimistic: z.number().min(0).max(THREE_POINT_MAX),
+    likely: z.number().min(0).max(THREE_POINT_MAX),
+    pessimistic: z.number().min(0).max(THREE_POINT_MAX),
+    scale: z.enum(["fibonacci", "tshirt", "custom"]).optional(),
+    deck: z.array(z.string().max(32)).max(32).optional().describe("The cards in deck order."),
+  }),
+  handler: async (params) => threePointCheck(params),
+});
+
+// ──────── tool.planning_poker.similar_stories ────────
+registry.register({
+  id: "tool.planning_poker.similar_stories",
+  toolId: "tool.planning_poker",
+  name: "similar_stories",
+  category: "read",
+  description:
+    "Finished stories that read like a story being sized, with the points they took, so the team can compare (Planning Poker shows the same list to the host after Reveal, Refinement beside an unsized story). Matching is by shared title words (notes count less); done stories with points only, never the example's. Returns {matches: {id, title, points, shared (words both mention), score 0-1, doneAt}[] best first, medianPoints (null with no match), references: {scale, stories: {card, id, title, points}[]} (the Estimation Guide's pinned reference stories, to fall back on when nothing matches)}. Read only.",
+  paramsSchema: z.object({
+    title: z.string().trim().min(1).max(500),
+    notes: z.string().max(1000).optional(),
+    limit: z.number().int().min(1).max(SIMILAR_STORIES_MAX).optional(),
+  }),
+  handler: async (params) => similarResult(params, ws().stories ?? [], await browserGuide()),
+  mcpHandler: async (params, ctx) => {
+    const [stories, guide] = await Promise.all([
+      serverListEntities<Story>(ctx.userId, KIND_STORY),
+      serverGetUserStateBlob(ctx.userId, GUIDE_STORE_KEY),
+    ]);
+    return similarResult(params, stories, guide);
+  },
 });
 
 /* ======================================================================== *
@@ -529,4 +732,174 @@ registry.register({
   handler: async () => clientApply(txCancel(browserRound())),
   mcpHandler: async (_params, ctx) =>
     serverApply(ctx.userId, txCancel(await serverRound(ctx.userId))),
+});
+
+/* ======================================================================== *
+ *  Estimate without a meeting (workspace PokerAsyncRound, no CRUD)
+ *
+ *  People estimate from a link and send a reply code back to the host, who
+ *  pastes it on the Poker page. Amr can list rounds, make one from typed
+ *  titles and reveal one, and sees counts and verdicts only: never a name,
+ *  a note or anyone's card. There is no verb to add a reply.
+ * ======================================================================== */
+
+// Each row read into shape first (no CRUD checked it): a malformed one is repaired or left out.
+const asyncRoundsIn = (rounds: readonly PokerAsyncRound[] | undefined) =>
+  readAsyncRounds(rounds)
+    .map((r) => readAsyncRound(r))
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+
+function asyncList(rounds: readonly PokerAsyncRound[] | undefined) {
+  const all = asyncRoundsIn(rounds);
+  return { total: all.length, rounds: all.map(asyncRoundSummary) };
+}
+
+const CreateAsyncParams = z.object({
+  title: z.string().trim().min(1).max(POKER_ASYNC_MAX.title),
+  scale: z.enum(["fibonacci", "tshirt", "custom"]).default("fibonacci"),
+  deck: z
+    .array(z.string().trim().min(1).max(32))
+    .min(2)
+    .max(POKER_ASYNC_MAX.deck)
+    .optional()
+    .describe("The cards in order, lowest first; only for scale 'custom'."),
+  stories: z
+    .array(z.string().trim().min(1).max(POKER_ASYNC_MAX.storyTitle))
+    .min(1)
+    .max(POKER_ASYNC_MAX.stories),
+  dueDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe("The day replies are due, YYYY-MM-DD, from today to 90 days ahead."),
+  expected: z
+    .array(z.string().trim().min(1).max(POKER_ASYNC_MAX.name))
+    .max(POKER_ASYNC_MAX.expected)
+    .optional(),
+  host: z
+    .string()
+    .trim()
+    .min(1)
+    .max(POKER_ASYNC_MAX.name)
+    .optional()
+    .describe("The facilitator's name the estimators see."),
+});
+
+type CreateAsync =
+  | { created: false; problem: string }
+  | { created: true; id: string; path: string; chars: number; round: PokerAsyncRound };
+
+/** A new round from the params, or why not; the write is the caller's. */
+function planAsyncRound(p: z.infer<typeof CreateAsyncParams>): CreateAsync {
+  const input = {
+    title: p.title,
+    scaleType: p.scale,
+    deck: p.scale === "custom" ? (p.deck ?? []) : asyncDeckFor(p.scale),
+    stories: p.stories.map((title) => ({ id: crypto.randomUUID(), title })),
+    expected: p.expected,
+    dueDate: p.dueDate,
+  };
+  const problem = asyncRoundProblem(input, todayIso());
+  if (problem) return { created: false, problem };
+  const round = newAsyncRound(input, newAsyncRoundId(), now());
+  const packed = encodePack(packFor(round, { host: p.host }));
+  if (!packed.ok) return { created: false, problem: packed.problem };
+  if (jsonBytes(round) > ENTITY_ROW_MAX_BYTES) {
+    return { created: false, problem: "This round is too big to save." };
+  }
+  return {
+    created: true,
+    id: round.id,
+    path: estimateLink(packed.code),
+    chars: packed.chars,
+    round,
+  };
+}
+
+const createdView = (c: CreateAsync) =>
+  c.created ? { created: true, id: c.id, path: c.path, chars: c.chars } : c;
+
+type RevealAsync =
+  | { revealed: false; reason: "not_found" | "not_open" | "no_replies" }
+  | { revealed: true; round: PokerAsyncRound };
+
+function planAsyncReveal(raw: PokerAsyncRound | null | undefined): RevealAsync {
+  // A row that can't be read (no CRUD checked it) is as good as not there.
+  const stored = readPokerAsyncRound(raw);
+  if (!stored) return { revealed: false, reason: "not_found" };
+  const round = readAsyncRound(stored);
+  if (round.status !== "open") return { revealed: false, reason: "not_open" };
+  if (round.replies.length === 0) return { revealed: false, reason: "no_replies" };
+  return { revealed: true, round: revealAndFlag(round, now()) };
+}
+
+const revealedView = (r: RevealAsync) =>
+  r.revealed ? { revealed: true, ...asyncRoundSummary(r.round) } : r;
+
+// ──────── tool.planning_poker.list_async ────────
+registry.register({
+  id: "tool.planning_poker.list_async",
+  toolId: "tool.planning_poker",
+  name: "list_async",
+  category: "read",
+  description:
+    "List Planning Poker's rounds without a meeting (people estimate from a link and send the host a reply code), newest first. Returns {total, rounds: {id, title, status ('open' | 'revealed' | 'closed'), scaleType, dueDate, replyCount, expectedCount, storyCount, stories (null until revealed, then per story {title, label, verdict, suggested, agreed, voteCount})}[]}. Never a name, a note or anyone's card: those stay in the host's workspace, synced to their account when signed in. A round lists as closed once 14 days have passed since its due day (or the day it was made, when it has none), and its names and notes are dropped the next time the host opens the toolkit.",
+  paramsSchema: z.object({}),
+  handler: async () => asyncList(ws().pokerAsyncRounds),
+  mcpHandler: async (_params, ctx) =>
+    asyncList(await serverListEntities<PokerAsyncRound>(ctx.userId, POKER_ASYNC_ROUND_KIND)),
+});
+
+// ──────── tool.planning_poker.create_async_round ────────
+registry.register({
+  id: "tool.planning_poker.create_async_round",
+  toolId: "tool.planning_poker",
+  name: "create_async_round",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Make a round without a meeting from typed story titles (1 to 20, up to 120 characters each; stories queued from other tools are picked on the page). scale is fibonacci (default), tshirt, or custom with deck (2 to 16 cards, lowest first). Optional dueDate (YYYY-MM-DD, from today to 90 days ahead), expected (the names of who should reply, up to 20) and host (the facilitator's name shown to estimators). Returns {created: true, id, path, chars}: path is the estimator's link, /planning-poker/estimate#estimate=…, for the person to send themselves; or {created: false, problem} (for example a round too long for one link: split it). Replies come back to the Poker page as codes the host pastes in.",
+  paramsSchema: CreateAsyncParams,
+  handler: async (params) => {
+    const plan = planAsyncRound(params);
+    if (plan.created) ws().upsertPokerAsyncRound(plan.round);
+    return createdView(plan);
+  },
+  mcpHandler: async (params, ctx) => {
+    const plan = planAsyncRound(params);
+    if (plan.created) {
+      await serverUpsertEntity<PokerAsyncRound>(ctx.userId, POKER_ASYNC_ROUND_KIND, plan.round);
+    }
+    return createdView(plan);
+  },
+});
+
+// ──────── tool.planning_poker.reveal_async_round ────────
+registry.register({
+  id: "tool.planning_poker.reveal_async_round",
+  toolId: "tool.planning_poker",
+  name: "reveal_async_round",
+  category: "write",
+  requiresConfirmation: false,
+  description:
+    "Reveal an open round without a meeting that has at least one reply, so the host's page shows everyone's cards and the stories far apart are ticked to talk about live. Returns {revealed: true, id, title, status, scaleType, dueDate, replyCount, expectedCount, storyCount, stories: {title, label, verdict, suggested, agreed, voteCount}[]}, or {revealed: false, reason: 'not_found' | 'not_open' | 'no_replies'}. Counts and verdicts only: never a name, a note or anyone's card. The host agrees each estimate on the page.",
+  paramsSchema: z.object({ id: z.string().min(1).max(64) }),
+  handler: async (params) => {
+    const found = readAsyncRounds(ws().pokerAsyncRounds).find((r) => r.id === params.id);
+    const plan = planAsyncReveal(found);
+    if (plan.revealed) ws().upsertPokerAsyncRound(plan.round);
+    return revealedView(plan);
+  },
+  mcpHandler: async (params, ctx) => {
+    const found = await serverGetEntity<PokerAsyncRound>(
+      ctx.userId,
+      POKER_ASYNC_ROUND_KIND,
+      params.id
+    );
+    const plan = planAsyncReveal(found);
+    if (plan.revealed) {
+      await serverUpsertEntity<PokerAsyncRound>(ctx.userId, POKER_ASYNC_ROUND_KIND, plan.round);
+    }
+    return revealedView(plan);
+  },
 });

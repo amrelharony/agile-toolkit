@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_CADENCE } from "@/lib/sprints/cadence";
-import type { Sprint, Story } from "@/lib/stores/workspace-types";
+import type { Kickoff, Sprint, Story } from "@/lib/stores/workspace-types";
 import { agreementVerdict, normalizeAgreement } from "@/lib/working-agreement/model";
 import {
   charterCards,
   charterMarkdown,
+  charterPurpose,
   estimationCoverage,
   recentPassRate,
   type CharterDocs,
@@ -201,7 +202,8 @@ describe("the working agreement card", () => {
     expect(agreement({ meta: doc.meta, versions: doc.versions }).detail).toBe("Not published yet");
     // With its day, both say it is published.
     const dated = { ...doc.meta, publishedAt: "2026-10-05T10:00:00.000Z" };
-    expect(agreementVerdict({ ...doc, meta: dated }, ROSTER)).toMatch(/in v2 \(published/);
+    // Its rules differ from the v1 snapshot kept, so the verdict counts the draft's.
+    expect(agreementVerdict({ ...doc, meta: dated }, ROSTER)).toMatch(/last published as v2 \(/);
     expect(agreement({ meta: dated }).detail).toBe("Version 2, published 2026-10-05");
   });
 });
@@ -330,5 +332,58 @@ describe("charterMarkdown", () => {
     expect(md).toContain("No members listed yet.");
     expect(md).toContain("No rules agreed yet.");
     expect(md).toContain("Not written yet.");
+  });
+});
+
+describe("the team's purpose", () => {
+  const AT = "2026-11-20T10:00:00.000Z";
+  const canvas = (id: string, purpose: string, over: Partial<Kickoff> = {}): Kickoff => ({
+    id,
+    title: "Squad kickoff",
+    format: "team-canvas",
+    sections: { purpose: [{ id: `${id}-p`, text: purpose }] },
+    status: "agreed",
+    agreedAt: AT,
+    createdAt: AT,
+    updatedAt: AT,
+    ...over,
+  });
+
+  it("reads the newest agreed Team Canvas, with the link to that kickoff", () => {
+    const kickoffs = [
+      canvas("kickoff_old", "Old purpose", { agreedAt: "2026-11-01T10:00:00.000Z" }),
+      canvas("kickoff_new", "Make paying\n easy"),
+    ];
+    expect(charterPurpose({ kickoffs })).toEqual({
+      kickoffId: "kickoff_new",
+      text: "Make paying easy",
+      href: "/kickoff?kickoff=kickoff_new",
+    });
+  });
+
+  it("is absent without kickoffs, for a draft or an example canvas, and for other formats", () => {
+    expect(charterPurpose({})).toBeNull();
+    expect(charterPurpose({ kickoffs: [] })).toBeNull();
+    expect(
+      charterPurpose({ kickoffs: [canvas("kickoff_d", "Draft", { status: "draft" })] })
+    ).toBeNull();
+    expect(charterPurpose({ kickoffs: [canvas("example-squad", "Example purpose")] })).toBeNull();
+    expect(
+      charterPurpose({ kickoffs: [canvas("kickoff_i", "Not a canvas", { format: "inception" })] })
+    ).toBeNull();
+  });
+
+  it("puts it in the Markdown after the Product Goal and before the team, only when there is one", () => {
+    const md = charterMarkdown(
+      { ...FULL, productGoals: [], kickoffs: [canvas("kickoff_new", "Make paying easy")] },
+      "2026-11-23"
+    );
+    expect(md).toContain("## Team purpose\n\nMake paying easy\n\n## Team\n");
+    expect(md.indexOf("## Product Goal")).toBeLessThan(md.indexOf("## Team purpose"));
+    // Today's charter, without an agreed canvas, doesn't change.
+    expect(charterMarkdown({ ...FULL, kickoffs: [] }, "2026-11-23")).toBe(
+      charterMarkdown(FULL, "2026-11-23")
+    );
+    expect(charterMarkdown(FULL, "2026-11-23")).not.toContain("## Team purpose");
   });
 });

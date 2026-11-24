@@ -9,17 +9,48 @@
  *   3. deal / shuffle — from what the round can still deal, onto the table.
  *   4. add_card — into the team's own deck or a new one; built-in decks
  *      refused, repeats refused.
- *   5. the MCP path — reads the synced copy; never writes.
+ *   5. the MCP path — reads the synced copy, and writes it through
+ *      serverPatchUserStateBlob with the same planners as the browser:
+ *      refusals write nothing, a lost race re-plans on the winner's row, and
+ *      a row too big to grow is refused honestly.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const blobs = vi.hoisted(() => new Map<string, unknown>());
+/**
+ * How the stubbed blob writer behaves: `tooLarge` refuses a write as the real
+ * one does past its cap; `race` runs between a first and a second run of
+ * `mutate`, as another writer winning the compare-and-set would.
+ */
+const patch = vi.hoisted(() => ({
+  tooLarge: false,
+  race: null as null | (() => void),
+  runs: 0,
+}));
 vi.mock("@/lib/actions/server-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/actions/server-store")>();
   return {
     ...actual,
     serverGetUserStateBlob: vi.fn(async (_u: string, key: string) => blobs.get(key) ?? null),
+    serverPatchUserStateBlob: vi.fn(
+      async (_u: string, key: string, mutate: (current: unknown | null) => object | null) => {
+        if (!actual.SERVER_WRITABLE_BLOB_KEYS.includes(key))
+          throw new Error(`not writable: ${key}`);
+        let next = mutate(blobs.get(key) ?? null);
+        patch.runs += 1;
+        if (patch.race) {
+          patch.race();
+          patch.race = null;
+          next = mutate(blobs.get(key) ?? null);
+          patch.runs += 1;
+        }
+        if (next === null) return { written: false, reason: "unchanged" };
+        if (patch.tooLarge) return { written: false, reason: "too_large" };
+        blobs.set(key, next);
+        return { written: true, payload: next };
+      }
+    ),
   };
 });
 
@@ -28,6 +59,7 @@ import {
   CARD_DECK_LIMITS,
   CARD_DECKS_INITIAL,
   CARD_DECKS_STORE_KEY,
+  normalizeCardDecks,
   type CustomDeck,
 } from "@/lib/card-decks/model";
 import { readCardDecks, useCardDecks } from "@/lib/card-decks/store";
@@ -60,6 +92,9 @@ const OWN: CustomDeck = {
 
 beforeEach(() => {
   blobs.clear();
+  patch.tooLarge = false;
+  patch.race = null;
+  patch.runs = 0;
   window.localStorage.clear();
   useCardDecks.setState({ ...CARD_DECKS_INITIAL });
 });
@@ -244,18 +279,147 @@ describe("the MCP path", () => {
     expect(await callMcp("list_state")).toMatchObject({ deck: { id: "deck_own" }, hand: [] });
   });
 
-  it("deals without saving, and refuses shuffle and add_card", async () => {
+  const saved = () => normalizeCardDecks(blobs.get(CARD_DECKS_STORE_KEY) ?? null);
+
+  it("deals onto the saved table, and the deck goes on the table", async () => {
     blobs.set(CARD_DECKS_STORE_KEY, { ...CARD_DECKS_INITIAL, decks: [OWN] });
-    const out = await callMcp<{ dealt: boolean; saved: boolean; cards: unknown[] }>("deal", {
+    const out = await callMcp<{ dealt: boolean; cards: { id: string }[]; left: number }>("deal", {
       deckId: "deck_own",
     });
-    expect(out).toMatchObject({ dealt: true, saved: false });
+    expect(out).toMatchObject({ dealt: true, deck: { id: "deck_own", name: "Offsite" }, left: 1 });
+    expect(out).not.toHaveProperty("saved");
+    expect(out).not.toHaveProperty("note");
     expect(out.cards).toHaveLength(1);
-    expect(await callMcp("shuffle")).toMatchObject({ shuffled: false });
-    expect(await callMcp("add_card", { text: "Hi?", newDeckName: "Mine" })).toMatchObject({
-      added: false,
-    });
+    expect(saved().deckId).toBe("deck_own");
+    expect(saved().rounds.deck_own).toEqual([[out.cards[0].id]]);
+    // The whole blob is saved, every key of the store's initial state with it.
+    expect(Object.keys(blobs.get(CARD_DECKS_STORE_KEY) as object).sort()).toEqual(
+      Object.keys(CARD_DECKS_INITIAL).sort()
+    );
+    // The browser's own store is not what MCP writes.
     expect(readCardDecks().decks).toEqual([]);
+  });
+
+  it("deals on a first touch, with no saved row yet", async () => {
+    const out = await callMcp<{ dealt: boolean; deck: { id: string } }>("deal", { count: 2 });
+    expect(out).toMatchObject({ dealt: true, deck: { id: "retro" } });
+    expect(saved().rounds.retro?.[0]).toHaveLength(2);
+  });
+
+  it("refuses a deal when the round is done or the deck unknown, and writes nothing", async () => {
+    const done = {
+      ...CARD_DECKS_INITIAL,
+      decks: [OWN],
+      deckId: "deck_own",
+      rounds: { deck_own: [["c1", "c2"]] },
+    };
+    blobs.set(CARD_DECKS_STORE_KEY, done);
+    expect(await callMcp("deal")).toEqual({
+      dealt: false,
+      reason: "No cards left to deal this round. Shuffle (tool.card_decks.shuffle) to start again.",
+    });
+    expect(await callMcp("deal", { deckId: "nope" })).toMatchObject({ dealt: false });
+    expect(blobs.get(CARD_DECKS_STORE_KEY)).toBe(done);
+  });
+
+  it("shuffles the saved round: every dealt card goes back", async () => {
+    blobs.set(CARD_DECKS_STORE_KEY, {
+      ...CARD_DECKS_INITIAL,
+      decks: [OWN],
+      deckId: "deck_own",
+      rounds: { deck_own: [["c1"], ["c2"]], retro: [["retro-01"]] },
+    });
+    expect(await callMcp("shuffle")).toEqual({
+      shuffled: true,
+      deck: { id: "deck_own", name: "Offsite" },
+      back: 2,
+    });
+    expect(saved().rounds).toEqual({ retro: [["retro-01"]] });
+    // A deck whose round hadn't started: nothing to save.
+    const before = blobs.get(CARD_DECKS_STORE_KEY);
+    expect(await callMcp("shuffle")).toMatchObject({ shuffled: true, back: 0 });
+    expect(blobs.get(CARD_DECKS_STORE_KEY)).toBe(before);
+    expect(await callMcp("shuffle", { deckId: "nope" })).toMatchObject({ shuffled: false });
+  });
+
+  it("adds a card to the team's own deck, and starts a new deck", async () => {
+    blobs.set(CARD_DECKS_STORE_KEY, { ...CARD_DECKS_INITIAL, decks: [OWN], deckId: "deck_own" });
+    expect(await callMcp("add_card", { text: "Three?" })).toMatchObject({
+      added: true,
+      deckId: "deck_own",
+      cards: 3,
+      newDeck: false,
+    });
+    expect(saved().decks[0].cards.map((c) => c.text)).toEqual(["One?", "Two?", "Three?"]);
+    const made = await callMcp<{ added: boolean; deckId: string }>("add_card", {
+      text: "Hi?",
+      newDeckName: "Mine",
+    });
+    expect(made).toMatchObject({ added: true, newDeck: true, deckName: "Mine", cards: 1 });
+    expect(saved().deckId).toBe(made.deckId);
+    expect(saved().decks.map((d) => d.name)).toEqual(["Offsite", "Mine"]);
+  });
+
+  it("refuses a built-in deck, a repeat and a 41st deck, and writes nothing", async () => {
+    const full = Array.from({ length: CARD_DECK_LIMITS.decks }, (_, i) => ({
+      ...OWN,
+      id: `deck_${i}`,
+      name: `Deck ${i}`,
+    }));
+    const start = { ...CARD_DECKS_INITIAL, decks: full };
+    blobs.set(CARD_DECKS_STORE_KEY, start);
+    const builtIn = await callMcp<{ added: boolean; reason: string }>("add_card", { text: "Hi?" });
+    expect(builtIn).toMatchObject({ added: false });
+    expect(builtIn.reason).toContain("built-in deck");
+    expect(await callMcp("add_card", { text: "one?", deckId: "deck_0" })).toEqual({
+      added: false,
+      reason: "That card is in the deck already.",
+    });
+    const tooMany = await callMcp<{ added: boolean; reason: string }>("add_card", {
+      text: "One more?",
+      newDeckName: "One too many",
+    });
+    expect(tooMany.added).toBe(false);
+    expect(tooMany.reason).toContain("40 decks");
+    expect(blobs.get(CARD_DECKS_STORE_KEY)).toBe(start);
+  });
+
+  it("plans again on the winner's row when another write got there first", async () => {
+    blobs.set(CARD_DECKS_STORE_KEY, { ...CARD_DECKS_INITIAL, decks: [OWN], deckId: "deck_own" });
+    patch.race = () => {
+      const rival = normalizeCardDecks(blobs.get(CARD_DECKS_STORE_KEY));
+      blobs.set(CARD_DECKS_STORE_KEY, {
+        ...rival,
+        decks: [{ ...OWN, cards: [...OWN.cards, { id: "c3", text: "Rival?" }] }],
+      });
+    };
+    const out = await callMcp("add_card", { text: "Mine?" });
+    expect(patch.runs).toBe(2);
+    // The answer is the last run's: the rival's card is counted.
+    expect(out).toMatchObject({ added: true, cards: 4 });
+    expect(saved().decks[0].cards.map((c) => c.text)).toEqual(["One?", "Two?", "Rival?", "Mine?"]);
+  });
+
+  it("says so honestly when the saved decks are too big to grow, and keeps them", async () => {
+    const start = { ...CARD_DECKS_INITIAL, decks: [OWN], deckId: "deck_own" };
+    blobs.set(CARD_DECKS_STORE_KEY, start);
+    patch.tooLarge = true;
+    const added = await callMcp<{ added: boolean; reason: string }>("add_card", { text: "Big?" });
+    expect(added.added).toBe(false);
+    expect(added.reason).toContain("too big");
+    expect(added.reason).toContain("Remove some cards or decks on /card-decks");
+    const dealt = await callMcp<{ dealt: boolean; reason: string }>("deal");
+    expect(dealt).toMatchObject({ dealt: false });
+    expect(dealt.reason).toContain("too big");
+    expect(blobs.get(CARD_DECKS_STORE_KEY)).toBe(start);
+  });
+
+  it("tells an agent in each write's description that an open page picks the change up", () => {
+    for (const verb of ["deal", "shuffle", "add_card"]) {
+      const description = registry.get(`tool.card_decks.${verb}`)!.description;
+      expect(description).toContain("Over MCP it is saved to the synced decks");
+      expect(description).toContain("not saved yet");
+    }
   });
 
   it("reads an empty account as the built-in decks only", async () => {

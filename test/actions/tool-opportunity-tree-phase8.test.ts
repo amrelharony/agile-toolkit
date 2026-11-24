@@ -35,7 +35,8 @@ import {
   experimentHypothesisSource,
   withTarget,
 } from "@/lib/opportunity-tree/model";
-import { HYPOTHESIS_TRACKER_ID } from "@/lib/hypotheses/model";
+import { HYPOTHESIS_TRACKER_ID, TRACKER_FULL } from "@/lib/hypotheses/model";
+import { fullTracker } from "../hypotheses/full-tracker";
 
 import "@/lib/actions/tools/opportunity-tree";
 
@@ -268,5 +269,17 @@ describe.each(TRANSPORTS)("%s", (path) => {
     expect(await send("e2")).toEqual({ sent: false, reason: "blank" });
     expect(await send("nope")).toEqual({ sent: false, reason: "not_found" });
     expect(hypothesesOf(path)).toEqual([]);
+  });
+
+  it("makes nothing while the Hypothesis Tracker is full, as the page's send does", async () => {
+    const full = fullTracker();
+    seed(path, TREE, full.hypotheses);
+    expect(await run(path, "send_experiment_to_hypothesis", { nodeId: "e1" })).toEqual({
+      sent: false,
+      reason: "too_big",
+      message: TRACKER_FULL,
+    });
+    expect(hypothesesOf(path)).toEqual(full.hypotheses);
+    expect(nodesOf(path).find((n) => n.id === "e1")?.sentTo).toBeUndefined();
   });
 });

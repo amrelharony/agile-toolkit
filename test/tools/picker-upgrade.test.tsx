@@ -541,7 +541,9 @@ describe("team and sprint names", () => {
     // Quick Vote opens a poll set up with the shortlist: no copying and pasting.
     const href = new URL(link.getAttribute("href")!, "http://localhost");
     expect(href.pathname).toBe("/quick-vote");
-    expect(readPollLink(href.search)).toEqual({
+    // The names ride after the # sign, which never reaches a server.
+    expect(href.search).toBe("");
+    expect(readPollLink(href.hash)).toEqual({
       question: "Which name should we pick?",
       options: readPicker().shortlist,
     });

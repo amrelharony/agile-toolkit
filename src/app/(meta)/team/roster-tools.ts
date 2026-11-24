@@ -49,4 +49,57 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   { toolId: "risk-register", use: "Offers teammates as each risk's owner." },
   { toolId: "flaky-tests", use: "Offers teammates to pick who owns fixing a flaky test." },
   { toolId: "code-review-metrics", use: "Offers teammates as each pull request's author." },
+  {
+    toolId: "kickoff",
+    use: "Fills the Team Canvas with each person and their role, and offers teammates as who takes part and as owners.",
+  },
+  {
+    toolId: "team-time",
+    use: "Gives each person a time zone, working hours and office days, to find the hours you share.",
+  },
+  {
+    toolId: "planning-poker",
+    use: "Seats everyone at the table in one click, and offers teammates for who should reply to a round without a meeting.",
+  },
+  { toolId: "relative-sizing", use: "Fills the names the cards are dealt to." },
+  {
+    toolId: "notes-to-actions",
+    use: "Offers teammates as each item's owner, and spells an owner as the team list does when the notes name a teammate.",
+  },
+  { toolId: "facilitator-timers", use: "“Count the team” fills how many people are in the room." },
+  { toolId: "retro-actions", use: "Offers teammates as each action's owner." },
+  { toolId: "sprint-review", use: "Suggests teammates' names for who gave the feedback." },
+  {
+    toolId: "premortem",
+    use: "Offers teammates as each cause's owner, and sets the dot-voting budget from how many people are on the team.",
+  },
+  { toolId: "icebreaker", use: "Counts the team for how many people play." },
+  { toolId: "liberating-structures", use: "Offers the team's size to pick a structure that fits." },
+  { toolId: "adkar", use: "Offers teammates as each initiative's owner." },
+  { toolId: "bug-triage", use: "Offers teammates to pick who found each bug." },
+  { toolId: "dependency-map", use: "Offers teammates as each dependency's owner." },
+  {
+    toolId: "design-sprint",
+    use: "Offers teammates as the sprint's Decider and Facilitator, and each task's owner.",
+  },
+  { toolId: "epic-roadmap", use: "Offers teammates as each epic's owner." },
+  {
+    toolId: "example-mapping",
+    use: "Offers teammates to pick who finds out each question's answer.",
+  },
+  { toolId: "feature-flag-tracker", use: "Offers teammates as each flag's owner." },
+  { toolId: "impediments", use: "Offers teammates as each impediment's owner and who raised it." },
+  {
+    toolId: "improve",
+    use: "Offers teammates to lead each improvement, coach a Kata and own each countermeasure.",
+  },
+  { toolId: "kanban", use: "Offers teammates as each card's assignee and each story's owner." },
+  { toolId: "pi-planning", use: "Offers teammates as each risk's owner under Risks: ROAM." },
+  { toolId: "product-metrics", use: "Offers teammates as each metric's owner." },
+  {
+    toolId: "retro",
+    use: "Offers teammates as each action item's owner, and lists them under “Voting as” so each person spends their own votes.",
+  },
+  { toolId: "strategy-tree", use: "Offers teammates as owners on the levels with an Owner field." },
+  { toolId: "test-sessions", use: "Offers teammates as each session's tester." },
 ];

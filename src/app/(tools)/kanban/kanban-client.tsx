@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
 import { CalendarRange } from "lucide-react";
@@ -22,6 +23,7 @@ import { useWorkspaceHydrated } from "@/lib/team/use-team-roster";
 import { SPRINT_PARAM, useSelectedSprint } from "@/lib/sprints/use-selected-sprint";
 import { isExampleSprintId } from "@/lib/sprints/example";
 import { usePersistedLocal } from "@/lib/utils/use-persisted";
+import { describedBoard } from "@/lib/kanban/workflow-view";
 import {
   BOARD_PARAM,
   BOARD_VIEW_KEY,
@@ -41,6 +43,18 @@ import {
   liveSprintWriter,
   type ExampleBoardStore,
 } from "./sprint-writer";
+import { useWorkflow } from "./workflow/use-workflow";
+
+// The Definition of Workflow, STATIK and versions load with their card, not the board.
+const WorkflowSection = dynamic(
+  () => import("./workflow/workflow-section").then((m) => m.WorkflowSection),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="mt-6 h-40 w-full animate-pulse rounded-lg bg-muted/30" aria-hidden="true" />
+    ),
+  }
+);
 
 const NO_STORIES: Story[] = [];
 
@@ -91,6 +105,9 @@ export function KanbanClient() {
   // The team's DoD (or the DoD builder's old blob until it moves in): each
   // card on the Sprint board gets its checklist.
   const { doc: dod } = useDefinitionOfDone();
+  // The Definition of Workflow (or its example, while open): one board's policies and SLE.
+  const workflow = useWorkflow();
+  const definition = workflow.def;
   const [linked, setLinked] = useState<BoardView | null>(null);
   // The address bar is only readable after mount (the page is prerendered).
   useEffect(() => setLinked(linkedBoard(window.location.search)), []);
@@ -142,7 +159,11 @@ export function KanbanClient() {
     if (view === "flow") {
       return {
         filename: "kanban",
-        markdown: toMarkdown(board),
+        markdown: toMarkdown(
+          board,
+          new Date(),
+          describedBoard(definition) === "flow" ? definition : null
+        ),
         jsonData: board,
         csvData: {
           headers: [
@@ -184,6 +205,7 @@ export function KanbanClient() {
           stories: all,
           wipLimits: exampleStore ? DEFAULT_WIP_LIMITS : board.wipLimits,
           dod: exampleStore ? EXAMPLE_DOD : dod.items,
+          workflow: describedBoard(definition) === "sprint" ? definition : null,
         },
         now
       ),
@@ -200,7 +222,7 @@ export function KanbanClient() {
         ]),
       },
     };
-  }, [view, board, sprintOnScreen, exampleStore, dod.items]);
+  }, [view, board, sprintOnScreen, exampleStore, dod.items, definition]);
 
   const promptConfig = useMemo(() => {
     const stats = cycleStats(board.cards);
@@ -212,9 +234,10 @@ export function KanbanClient() {
         cycleAvg: stats.average ?? 0,
         cycleP85: stats.p85 ?? 0,
         throughputLast7: throughputLastWeek(board.cards, new Date()),
+        workflow: describedBoard(definition) === "flow" ? definition : null,
       }),
     };
-  }, [board]);
+  }, [board, definition]);
 
   /* ── The board ───────────────────────────────────────────────────────── */
 
@@ -222,7 +245,7 @@ export function KanbanClient() {
   if (!hydrated) {
     body = <WorkspaceLoading tall>Loading the board…</WorkspaceLoading>;
   } else if (view === "flow") {
-    body = <FlowBoard state={board} setState={setBoard} />;
+    body = <FlowBoard state={board} setState={setBoard} definition={definition} />;
   } else if (exampleStore && exampleWriter) {
     body = (
       <>
@@ -238,6 +261,7 @@ export function KanbanClient() {
           wipLimits={DEFAULT_WIP_LIMITS}
           example
           dod={EXAMPLE_DOD}
+          definition={definition}
           picker={
             <p className="text-sm text-sub">
               <span className="font-medium text-text">{exampleState.sprint.name}</span> · example
@@ -278,6 +302,7 @@ export function KanbanClient() {
         onWipChange={setWip}
         onExample={openExample}
         dod={dod.items}
+        definition={definition}
         picker={<SprintPicker sprints={sprints} selectedId={selected.id} onSelect={select} />}
       />
     );
@@ -287,7 +312,7 @@ export function KanbanClient() {
     <ToolPageWrapper
       toolId="kanban"
       title="Kanban Board"
-      description="Run the sprint on a board of its stories, or keep a WIP-limited flow board with classes of service, cycle time and throughput."
+      description="Run the sprint on a board of its stories, or keep a WIP-limited flow board with cycle time, throughput and a Definition of Workflow."
       category="Flow & Delivery"
     >
       <ActionRow
@@ -312,6 +337,16 @@ export function KanbanClient() {
         )}
       </ActionRow>
       {body}
+      {hydrated && (
+        <WorkflowSection
+          controller={workflow}
+          view={view}
+          wipLimits={board.wipLimits}
+          cards={board.cards}
+          stories={stories}
+          onSwitch={choose}
+        />
+      )}
     </ToolPageWrapper>
   );
 }

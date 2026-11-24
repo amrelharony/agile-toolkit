@@ -26,10 +26,12 @@ function CardFace({
   return faceDown ? (
     <div
       className="absolute inset-1 rounded-lg overflow-hidden"
-      // Theme variables, so the card back reads in the light theme too.
+      // Theme variables, so the card back reads in every theme: the stripes
+      // mix the secondary text colour into the deep surface (the light
+      // theme's two surfaces were too close to see as stripes).
       style={{
         background:
-          "repeating-linear-gradient(45deg, var(--surface-hover) 0px, var(--surface-hover) 4px, var(--surface-deep) 4px, var(--surface-deep) 8px)",
+          "repeating-linear-gradient(45deg, color-mix(in srgb, var(--sub) 22%, var(--surface-deep)) 0px, color-mix(in srgb, var(--sub) 22%, var(--surface-deep)) 4px, var(--surface-deep) 4px, var(--surface-deep) 8px)",
       }}
     />
   ) : (

@@ -25,7 +25,7 @@ export {
   type RankVoteRoundPanelProps,
   type NumberVoteRoundPanelProps,
 } from "./vote-round-panel";
-export type { HostVoteRoomProps, HostVoteSession } from "./host-vote-room";
+export type { EndLiveRoomRef, HostVoteRoomProps, HostVoteSession } from "./host-vote-room";
 export type { VoteJoinRoomProps } from "./vote-join-room";
 export { VoteAnswerForm, submitError, type VoteAnswerFormProps } from "./vote-answer-form";
 export { VoteLiveCount, liveCountText, type VoteLiveCountProps } from "./vote-live-count";

@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { ItemForm, useItemForm } from "@/components/shared/item-form";
 import { StoryDetailsPanel } from "@/components/stories/story-details";
+import { SimilarStories, type SimilarSource } from "@/components/stories/similar-stories";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/ui/icon-button";
@@ -118,6 +119,12 @@ export interface StoryCheckPanelProps {
     yes: readonly string[];
     onChange: (yes: string[]) => void;
   };
+  /**
+   * "Like this one" for a story with no points: finished stories to size it
+   * against. Refinement isn't a blind vote, so it shows at once. Absent: not
+   * shown.
+   */
+  similar?: SimilarSource;
 }
 
 /**
@@ -150,6 +157,7 @@ export function StoryCheckPanel({
   onDelete,
   onRemoveFromSprint,
   storyCheck,
+  similar,
 }: StoryCheckPanelProps) {
   const headingId = useId();
   const errorId = useId();
@@ -235,6 +243,12 @@ export function StoryCheckPanel({
               </Badge>
             )}
           </div>
+          {unsized && similar && (
+            <SimilarStories
+              target={{ id: story.id, title: story.title, notes: story.notes }}
+              source={similar}
+            />
+          )}
           {/* No bin, and nothing else here would say why. */}
           {keptNote && removal === "locked" && (
             <p className="mt-2 text-xs text-sub" data-field="kept-note">

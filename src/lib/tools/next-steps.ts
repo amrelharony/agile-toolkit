@@ -69,7 +69,13 @@ import {
   quarterBounds,
   quarterLabel,
 } from "@/lib/roadmap/quarters";
+import { NOW_CROWDED, horizonColumns } from "@/lib/roadmap/horizons";
+import { epicRollup, linkedStories } from "@/lib/roadmap/rollup";
 import { RELEASE_DOC_ID } from "@/lib/releases/gates";
+import { releaseNotesSteps } from "@/lib/releases/notes-steps";
+import { isValueCheck, valueCheckSteps } from "@/lib/hypotheses/value-steps";
+import { UNSIZED_BATCH_MIN, unsizedBacklog } from "@/lib/relative-sizing/unsized";
+import { asyncRevealSteps, heldQueueCount } from "@/lib/estimation/async-rounds";
 import { shipEvents, shippedBetween } from "@/lib/releases/model";
 import { gateResults, releaseChecks } from "@/lib/releases/auto-gates";
 import { flagSummary } from "@/lib/flags/model";
@@ -1292,6 +1298,8 @@ const RULES: Record<string, NextStepRule<object>> = {
         });
         break;
       }
+      // Release notes (the tools plan's phase 2): steps from lib/releases/notes-steps.
+      steps.push(...releaseNotesSteps({ doc, stories: linkable, today }));
       return steps;
     },
   }),
@@ -1419,27 +1427,31 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   "planning-poker": rule({
-    select: (ws) => ({ stories: ws.stories }),
-    steps: ({ stories }) => {
+    select: (ws) => ({ stories: ws.stories, asyncRounds: ws.pokerAsyncRounds }),
+    steps: ({ stories, asyncRounds }) => {
+      // Rounds without a meeting to reveal: due, or everyone expected replied.
+      const steps: NextStep[] = asyncRevealSteps(asyncRounds, todayIso());
       const saved = real(stories).filter((s) => fromTool(s, "planning-poker") && inBacklog(s));
-      return saved.length === 0
-        ? []
-        : [
-            {
-              id: "poker-plan",
-              label: "Plan the estimated stories into a sprint",
-              detail: `${plural(saved.length, "story", "stories")} estimated in Planning Poker ${be(saved.length)} waiting in the backlog.`,
-              href: "/sprint-planning",
-            },
-          ];
+      if (saved.length > 0) {
+        steps.push({
+          id: "poker-plan",
+          label: "Plan the estimated stories into a sprint",
+          detail: `${plural(saved.length, "story", "stories")} estimated in Planning Poker ${be(saved.length)} waiting in the backlog.`,
+          href: "/sprint-planning",
+        });
+      }
+      return steps;
     },
   }),
 
   "estimation-guide": rule({
-    select: (ws) => ({ logs: ws.pokerEstimationLogs }),
-    steps: ({ logs }) => {
-      const queue = (logs ?? []).find((d) => d.id === "pokerEstimationLog:current")?.queue ?? [];
-      const waiting = real(queue).length;
+    select: (ws) => ({ logs: ws.pokerEstimationLogs, asyncRounds: ws.pokerAsyncRounds }),
+    steps: ({ logs, asyncRounds }) => {
+      const queue = real(
+        (logs ?? []).find((d) => d.id === "pokerEstimationLog:current")?.queue ?? []
+      );
+      // Queued stories an estimate-without-a-meeting round holds aren't waiting.
+      const waiting = queue.length - heldQueueCount(queue, asyncRounds);
       return waiting === 0
         ? []
         : [
@@ -1466,6 +1478,15 @@ const RULES: Record<string, NextStepRule<object>> = {
           label: "Estimate the queued stories",
           detail: `${plural(queued, "story", "stories")} ${be(queued)} waiting in Planning Poker.`,
           href: "/planning-poker",
+        });
+      }
+      const unsized = unsizedBacklog(stories ?? []).length;
+      if (unsized >= UNSIZED_BATCH_MIN) {
+        steps.push({
+          id: "refinement-size-together",
+          label: `Size ${unsized} unsized stories together`,
+          detail: `${plural(unsized, "backlog story", "backlog stories")} ${unsized === 1 ? "has" : "have"} no points. Relative Sizing sizes them in one sitting.`,
+          href: "/relative-sizing?stories=unsized",
         });
       }
       const ready = real(stories).filter(
@@ -1613,16 +1634,31 @@ const RULES: Record<string, NextStepRule<object>> = {
           .filter(Boolean)
       );
       const bare = epics.filter((e) => !linked.has(e.id)).length;
-      return bare === 0
-        ? []
-        : [
-            {
-              id: "epics-break-down",
-              label: "Break epics into stories",
-              detail: `${plural(bare, "epic")} ${bare === 1 ? "has" : "have"} no linked stories, so ${bare === 1 ? "its" : "their"} progress is typed by hand.`,
-              href: "/story-mapper",
-            },
-          ];
+      const steps: NextStep[] =
+        bare === 0
+          ? []
+          : [
+              {
+                id: "epics-break-down",
+                label: "Break epics into stories",
+                detail: `${plural(bare, "epic")} ${bare === 1 ? "has" : "have"} no linked stories, so ${bare === 1 ? "its" : "their"} progress is typed by hand.`,
+                href: "/story-mapper",
+              },
+            ];
+      // The Now, Next, Later board's crowded note, as a step: the board's own count.
+      const realStories = real(stories);
+      const inNow = horizonColumns(
+        epics.map((e) => ({ epic: e, done: epicRollup(e, linkedStories(e.id, realStories)).done })),
+        new Date()
+      ).now.length;
+      if (inNow >= NOW_CROWDED)
+        steps.push({
+          id: "epics-now-crowded",
+          label: "Finish epics in Now before starting more",
+          detail: `Now holds ${inNow} epics on the Now, Next, Later board.`,
+          href: "/epic-roadmap",
+        });
+      return steps;
     },
   }),
 
@@ -2356,9 +2392,9 @@ const RULES: Record<string, NextStepRule<object>> = {
 
   // Tools plan, phase 1: a named root cause wants a countermeasure, and an
   // agreed one goes to Retro Actions, where someone owns it.
-  "root-cause": lazyRule(() => import("@/lib/root-cause/model"), {
+  "root-cause": lazyRule(() => import("@/lib/root-cause/next-step"), {
     select: (ws) => ({ analyses: ws.rootCauseAnalyses, boards: ws.retroBoards }),
-    steps: ({ analyses, boards }, { liveOnBoards, readAnalyses, sentLink }) => {
+    steps: ({ analyses, boards }, { liveOnBoards, loopToAct, readAnalyses, sentLink }) => {
       const steps: NextStep[] = [];
       // A synced row can hold anything: read each one as the page does.
       const newest = real(readAnalyses(analyses)).sort((a, b) =>
@@ -2383,6 +2419,18 @@ const RULES: Record<string, NextStepRule<object>> = {
           label: `Send the countermeasure for “${clip(unsent[0].title)}” to Retro Actions`,
           detail: "There someone owns it until it's done; left in the analysis, it rarely is.",
           href: open(unsent[0].id),
+        });
+      }
+      // A causal loop that closes with no root cause yet: act where its loops meet.
+      const loop = loopToAct(newest);
+      if (loop) {
+        steps.push({
+          id: "root-cause-loop",
+          label: `Pick where to act in “${clip(loop.analysis.title)}”`,
+          detail: loop.busiest
+            ? `“${clip(loop.busiest.text)}” sits in the most of its ${plural(loop.loops, "loop")}: mark it as the root cause if that's where to act.`
+            : `Its causal loop closes ${plural(loop.loops, "loop")}: mark the thing to act on as the root cause.`,
+          href: open(loop.analysis.id),
         });
       }
       return steps;
@@ -3761,8 +3809,13 @@ const RULES: Record<string, NextStepRule<object>> = {
   }),
 
   "hypothesis-tracker": rule({
-    select: (ws) => ({ trackers: ws.hypothesisTrackers, canvases: ws.riskiestAssumptions }),
-    steps: ({ trackers, canvases }) => {
+    select: (ws) => ({
+      trackers: ws.hypothesisTrackers,
+      canvases: ws.riskiestAssumptions,
+      metrics: ws.productMetrics,
+      okrs: ws.okrs,
+    }),
+    steps: ({ trackers, canvases, metrics, okrs }) => {
       const hypotheses = hypothesesOf(trackers);
       if (hypotheses.length === 0) return [];
       const steps: NextStep[] = [];
@@ -3793,11 +3846,13 @@ const RULES: Record<string, NextStepRule<object>> = {
           href: "/hypothesis-tracker",
         });
       }
-      // Running with a number to hit and nothing measured yet, the oldest first.
+      // Running with a number to hit and nothing measured yet, the oldest
+      // first. A value check gets its own step (valueCheckSteps, below).
       const waiting = hypotheses
         .filter(
           (h) =>
             h.status === "running" &&
+            !isValueCheck(h) &&
             typeof h.target?.value === "number" &&
             Number.isFinite(h.target.value) &&
             suggestVerdict(h) === null
@@ -3816,6 +3871,8 @@ const RULES: Record<string, NextStepRule<object>> = {
           href: "/hypothesis-tracker",
         });
       }
+      // Did the shipped work deliver? (the tools plan's phase 2, P2.5)
+      steps.push(...valueCheckSteps(hypotheses, { metrics, okrs }, todayIso()));
       return steps;
     },
   }),
@@ -4271,6 +4328,109 @@ const RULES: Record<string, NextStepRule<object>> = {
       }
       return steps;
     },
+  }),
+
+  // ── Phase 43, the tools plan's phase 2 ─────────────────────────────
+  // Each rule loads its tool's own next-step module. A rule's select reads
+  // only workspace store values.
+  "example-mapping": lazyRule(() => import("@/lib/example-mapping/next-steps"), {
+    select: (ws) => ({ maps: ws.exampleMaps, stories: ws.stories }),
+    steps: (s, m) => m.exampleMappingSteps(s),
+  }),
+  "relative-sizing": lazyRule(() => import("@/lib/relative-sizing/next-steps"), {
+    select: (ws) => ({ stories: ws.stories, sprints: ws.sprints }),
+    steps: (s, m) => m.relativeSizingSteps(s),
+  }),
+  "bug-triage": lazyRule(() => import("@/lib/bug-triage/model"), {
+    select: (ws) => ({ bugs: ws.bugReports, stories: ws.stories, interrupts: ws.interruptItems }),
+    steps: (s, m) => m.bugTriageSteps(s, todayIso()),
+  }),
+  "hill-chart": lazyRule(() => import("@/lib/hill-chart/model"), {
+    select: (ws) => ({ charts: ws.hillCharts }),
+    steps: (s, m) => m.hillChartSteps(s, new Date()),
+  }),
+  "test-sessions": lazyRule(() => import("@/lib/test-sessions/model"), {
+    select: (ws) => ({ sessions: ws.testSessions, bugs: ws.bugReports }),
+    steps: (s, m) => m.testSessionsSteps(s, new Date()),
+  }),
+  "notes-to-actions": lazyRule(() => import("@/lib/notes-to-actions/model"), {
+    select: (ws) => ({ notes: ws.meetingNotes }),
+    steps: (s, m) => m.notesToActionsSteps(s, new Date()),
+  }),
+  "product-canvas": lazyRule(() => import("@/lib/product-canvas/next-steps"), {
+    select: (ws) => ({
+      canvases: ws.productCanvases,
+      goals: ws.productGoals,
+      trackers: ws.hypothesisTrackers,
+    }),
+    steps: (s, m) => m.productCanvasSteps(s),
+  }),
+  "impact-map": lazyRule(() => import("@/lib/strategy-map/next-steps"), {
+    select: (ws) => ({ maps: ws.strategyMaps, stories: ws.stories, roadmaps: ws.epicRoadmaps }),
+    steps: (s, m) => m.impactMapSteps(s),
+  }),
+  "strategy-tree": lazyRule(() => import("@/lib/strategy-map/next-steps"), {
+    select: (ws) => ({ maps: ws.strategyMaps, trackers: ws.hypothesisTrackers }),
+    steps: (s, m) => m.strategyTreeSteps(s, new Date()),
+  }),
+  "persona-library": lazyRule(() => import("@/lib/personas/next-steps"), {
+    select: (ws) => ({ personas: ws.personas, maps: ws.strategyMaps, logs: ws.userInterviewLogs }),
+    steps: (s, m) => m.personaSteps(s),
+  }),
+  "product-metrics": lazyRule(() => import("@/lib/product-metrics/next-steps"), {
+    select: (ws) => ({
+      metrics: ws.productMetrics,
+      goals: ws.productGoals,
+      trackers: ws.hypothesisTrackers,
+    }),
+    steps: (s, m) => m.productMetricsSteps(s, todayIso()),
+  }),
+  "ab-calculator": lazyRule(() => import("@/lib/experiments/next-steps"), {
+    select: (ws) => ({ tests: ws.abTests, trackers: ws.hypothesisTrackers }),
+    steps: (s, m) => m.abCalculatorSteps(s, todayIso()),
+  }),
+  "ebm-dashboard": lazyRule(() => import("@/lib/ebm/next-steps"), {
+    select: (ws) => ({
+      boards: ws.ebmBoards,
+      metrics: ws.productMetrics,
+      goals: ws.productGoals,
+      trackers: ws.hypothesisTrackers,
+    }),
+    steps: (s, m) => m.ebmSteps(s, todayIso()),
+  }),
+  "flow-insights": lazyRule(() => import("@/lib/flow/insights-steps"), {
+    select: (ws) => ({
+      stories: ws.stories,
+      sprints: ws.sprints,
+      boards: ws.kanbanBoards,
+      plans: ws.capacityPlans,
+    }),
+    steps: (s, m) => m.flowInsightsSteps(s),
+  }),
+  improve: lazyRule(() => import("@/lib/improve/model"), {
+    select: (ws) => ({ items: ws.improvements, boards: ws.retroBoards, stories: ws.stories }),
+    steps: (s, m) => m.improveSteps(s, todayIso()),
+  }),
+  kickoff: lazyRule(() => import("@/lib/kickoff/next-step"), {
+    select: (ws) => ({
+      kickoffs: ws.kickoffs,
+      goals: ws.productGoals,
+      agreements: ws.workingAgreements,
+      members: ws.teamMembers,
+      sprints: ws.sprints,
+    }),
+    steps: (s, m) => m.kickoffNextSteps(s, todayIso()),
+  }),
+  "team-time": lazyRule(() => import("@/lib/team-time/next-step"), {
+    select: (ws) => ({
+      people: ws.teamTimePeople,
+      members: ws.teamMembers,
+      cadences: ws.ceremonyCadences,
+      agreements: ws.workingAgreements,
+      polls: ws.teamTimePolls,
+    }),
+    steps: (s, m) =>
+      m.teamTimeSteps(s, new Date(), Intl.DateTimeFormat().resolvedOptions().timeZone),
   }),
 };
 

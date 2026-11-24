@@ -65,6 +65,7 @@
  */
 
 import { isWithinJsonSize } from "../sanitize";
+import { isSenderSecret } from "../sender-tie";
 import { sha256Base64Url } from "../sha256";
 import { VISITOR_LIMITS, isVisitorMemberId, type VisitorTool } from "../visitor-rooms";
 import {
@@ -342,10 +343,11 @@ export function intentAad(by: string, iid: string): string {
 
 const utf8Length = (s: string) => new TextEncoder().encode(s).length;
 
-/** The sender's tab secret: random, 16 to 64 URL-safe characters (the room makes nanoid(21)). */
-export function isSenderSecret(v: unknown): v is string {
-  return typeof v === "string" && LOCK_KEY_RE.test(v);
-}
+/**
+ * The sender's tab secret: random, 16 to 64 URL-safe characters (the room
+ * makes nanoid(21)). Shared with the vote rounds (`sender-tie.ts`).
+ */
+export { isSenderSecret };
 
 /**
  * The request as it is sealed: its JSON (with the sender's tab secret as

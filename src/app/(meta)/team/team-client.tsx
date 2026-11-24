@@ -417,11 +417,16 @@ export function TeamClient() {
         </div>
       </div>
 
-      <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      {/* One column: beside the members, the long tool list left the page
+          blank for a screen and more under a short roster. It reads as a
+          grid of its own under them instead. */}
+      <div className="grid grid-cols-1 items-start gap-4">
         {!hydrated ? (
           // Capped near the empty state's height (~285 px on phones): a full
           // 60svh pulled "Where the team list is used" up into view on hydration.
-          <WorkspaceLoading className="max-md:min-h-[min(60svh,20rem)]">
+          // From md the list sits under it too, so it holds the empty state's
+          // ~240 px there as well.
+          <WorkspaceLoading className="max-md:min-h-[min(60svh,20rem)] md:min-h-60">
             Loading your team…
           </WorkspaceLoading>
         ) : showEmpty ? (
@@ -500,7 +505,7 @@ export function TeamClient() {
         )}
 
         <SectionCard title="Where the team list is used" icon={Share2}>
-          <ul className="space-y-3">
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {ROSTER_TOOLS.map(({ toolId, use }) => {
               const tool = getToolById(toolId);
               if (!tool) return null;

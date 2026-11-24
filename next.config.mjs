@@ -38,6 +38,10 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  // next build type-checks the app only: tsconfig.build.json leaves out the
+  // tests and scripts, which CI's own `tsc --noEmit` still checks. With them,
+  // the build's type check needed about 4.9 GB of heap; without, about 3.6 GB.
+  typescript: { tsconfigPath: "tsconfig.build.json" },
   async redirects() {
     return [
       // The old comic reader. Its pages were a PDF's, so they map to nothing

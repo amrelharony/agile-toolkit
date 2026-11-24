@@ -18,16 +18,22 @@
  * button on the page, so every verb stays open to a visitor's Amr (it acts
  * on their own browser's decks only).
  *
- * In the browser the verbs read and write the tool store (rehydrated first,
- * so a write never replaces what was saved). Over MCP the tool's synced
- * copy is read; there is no server write for a tool store, so deal answers
- * without putting the cards on the table, and shuffle and add_card say so.
+ * Each write is a pure planner (`planDeal`, `planShuffle`, `planAddCard`):
+ * it takes the clean state and returns the verb's answer and the next state,
+ * or null when nothing changes. In the browser the verbs read the tool store
+ * (rehydrated first, so a write never replaces what was saved) and apply the
+ * next state there. Over MCP they read and write the synced copy with
+ * `serverPatchUserStateBlob`: the planner runs on the saved blob, cleaned by
+ * the store's own normaliser, and runs again if another write got there
+ * first (the last run's answer is the one returned). An open page picks the
+ * change up, unless that tab has a change of its own it hasn't saved yet,
+ * which then wins.
  */
 
 import { z } from "zod";
 import { nanoid } from "nanoid";
 import { registry } from "../registry";
-import { serverGetUserStateBlob } from "../server-store";
+import { serverGetUserStateBlob, serverPatchUserStateBlob } from "../server-store";
 import {
   CARD_DECK_LIMITS,
   CARD_DECKS_STORE_KEY,
@@ -49,6 +55,7 @@ import {
   type DeckCard,
 } from "@/lib/card-decks/model";
 import { ensureCardDecksHydrated, readCardDecks, updateCardDecks } from "@/lib/card-decks/store";
+import type { Rng } from "@/lib/utils/random";
 
 const TOOL = "tool.card_decks";
 
@@ -61,8 +68,46 @@ async function serverState(userId: string): Promise<CardDecksState> {
   return normalizeCardDecks(await serverGetUserStateBlob(userId, CARD_DECKS_STORE_KEY));
 }
 
-const NO_SERVER_WRITE =
-  "Card Decks keeps its decks in the browser (synced as one tool store), and that can't be changed from here. Open /card-decks, or ask Amr there.";
+/** A write verb's answer, and the state to save (null: nothing changes). */
+interface Plan<O> {
+  out: O;
+  next: CardDecksState | null;
+}
+
+/** Run a planner on the browser's store and apply what it plans. */
+async function inBrowser<O>(plan: (state: CardDecksState) => Plan<O>): Promise<O> {
+  const { out, next } = plan(await browserState());
+  if (next) updateCardDecks(() => next);
+  return out;
+}
+
+/** Said when the saved decks are past the size the server may grow them to. */
+const TOO_LARGE =
+  "The saved decks are too big to change from here. Remove some cards or decks on /card-decks, then ask again.";
+
+/**
+ * Run a planner on the synced copy and save what it plans, with the same
+ * compare-and-set as every server blob write. The planner may run more than
+ * once (a lost race re-reads the row): the last run's answer is returned.
+ */
+async function onServer<O>(
+  userId: string,
+  plan: (state: CardDecksState) => Plan<O>,
+  refused: (reason: string) => O
+): Promise<O> {
+  let out: O | undefined;
+  const result = await serverPatchUserStateBlob(userId, CARD_DECKS_STORE_KEY, (raw) => {
+    const p = plan(normalizeCardDecks(raw));
+    out = p.out;
+    return p.next && normalizeCardDecks(p.next);
+  });
+  if (!result.written && result.reason === "too_large") return refused(TOO_LARGE);
+  return out as O;
+}
+
+/** What each write verb's description says about the MCP path. */
+const MCP_NOTE =
+  "Over MCP it is saved to the synced decks and an open /card-decks page picks it up, unless that tab has a change of its own not saved yet, which then wins.";
 
 const cardOut = (c: DeckCard) => ({
   id: c.id,
@@ -202,29 +247,56 @@ type DealOut =
       dealt: true;
       deck: { id: string; name: string };
       cards: CardOut[];
-      /** Browser: what the round can still deal. */
-      left?: number;
-      /** MCP: the table didn't change. */
-      saved?: false;
-      note?: string;
+      /** What the round can still deal. */
+      left: number;
     };
 
-function dealFrom(
+/**
+ * Deal from the deck asked for (or the one on the table), which goes on the
+ * table. Nothing changes when the deck is unknown or the round is done.
+ */
+function planDeal(
   state: CardDecksState,
-  params: z.infer<typeof dealParams>
-): { error: string } | { deck: Deck; result: ReturnType<typeof dealCards> } {
+  params: z.infer<typeof dealParams>,
+  rng: Rng = Math.random
+): Plan<DealOut> {
   const deck = findDeck(state.decks, params.deckId ?? state.deckId);
-  if (!deck) return { error: `No deck "${params.deckId}". tool.card_decks.list_decks lists them.` };
-  const round = state.rounds[deck.id] ?? [];
+  if (!deck)
+    return {
+      out: {
+        dealt: false,
+        reason: `No deck "${params.deckId}". tool.card_decks.list_decks lists them.`,
+      },
+      next: null,
+    };
+  const marks = marksOf(state);
+  const starredOnly = starredOnlyFor(state, deck);
   const result = dealCards(
     deck,
-    marksOf(state),
-    round,
+    marks,
+    state.rounds[deck.id] ?? [],
     params.count ?? 1,
-    Math.random,
-    starredOnlyFor(state, deck)
+    rng,
+    starredOnly
   );
-  return { deck, result };
+  if (result.cards.length === 0)
+    return {
+      out: {
+        dealt: false,
+        reason:
+          "No cards left to deal this round. Shuffle (tool.card_decks.shuffle) to start again.",
+      },
+      next: null,
+    };
+  return {
+    out: {
+      dealt: true,
+      deck: { id: deck.id, name: deck.name },
+      cards: result.cards.map(cardOut),
+      left: roundProgress(deck, marks, result.round, starredOnly).left,
+    },
+    next: { ...state, deckId: deck.id, rounds: { ...state.rounds, [deck.id]: result.round } },
+  };
 }
 
 registry.register({
@@ -233,48 +305,15 @@ registry.register({
   name: "deal",
   category: "write",
   requiresConfirmation: false,
-  description: `Deal cards at random onto Card Decks' table, from what the round can still deal (a card is dealt once a round; used and hidden cards never are; with "starred only" on, starred cards only). Params: {deckId? (default the deck on the table; another deck goes on the table), count?: 1-${CARD_DECK_LIMITS.hand} (default 1)}. Returns {dealt: true, deck: {id, name}, cards: {id, text, title?, hint?}[], left} or {dealt: false, reason} (none left: shuffle first). It doesn't show the cards to a live room: the host does that on the page.`,
+  description: `Deal cards at random onto Card Decks' table, from what the round can still deal (a card is dealt once a round; used and hidden cards never are; with "starred only" on, starred cards only). Params: {deckId? (default the deck on the table; another deck goes on the table), count?: 1-${CARD_DECK_LIMITS.hand} (default 1)}. Returns {dealt: true, deck: {id, name}, cards: {id, text, title?, hint?}[], left} or {dealt: false, reason} (none left: shuffle first). It doesn't show the cards to a live room: the host does that on the page. ${MCP_NOTE}`,
   paramsSchema: dealParams,
-  handler: async (params): Promise<DealOut> => {
-    const state = await browserState();
-    const out = dealFrom(state, params);
-    if ("error" in out) return { dealt: false, reason: out.error };
-    const { deck, result } = out;
-    if (result.cards.length === 0)
-      return {
-        dealt: false,
-        reason:
-          "No cards left to deal this round. Shuffle (tool.card_decks.shuffle) to start again.",
-      };
-    updateCardDecks((s) => ({ deckId: deck.id, rounds: { ...s.rounds, [deck.id]: result.round } }));
-    const left = roundProgress(
-      deck,
-      marksOf(state),
-      result.round,
-      starredOnlyFor(state, deck)
-    ).left;
-    return {
-      dealt: true,
-      deck: { id: deck.id, name: deck.name },
-      cards: result.cards.map(cardOut),
-      left,
-    };
-  },
-  mcpHandler: async (params, ctx): Promise<DealOut> => {
-    const state = await serverState(ctx.userId);
-    const out = dealFrom(state, params);
-    if ("error" in out) return { dealt: false, reason: out.error };
-    const { deck, result } = out;
-    if (result.cards.length === 0)
-      return { dealt: false, reason: "No cards left to deal this round on the saved table." };
-    return {
-      dealt: true,
-      saved: false,
-      note: "Drawn from the saved decks; the browser's table doesn't change from here.",
-      deck: { id: deck.id, name: deck.name },
-      cards: result.cards.map(cardOut),
-    };
-  },
+  handler: (params): Promise<DealOut> => inBrowser((s) => planDeal(s, params)),
+  mcpHandler: (params, ctx): Promise<DealOut> =>
+    onServer(
+      ctx.userId,
+      (s) => planDeal(s, params),
+      (reason) => ({ dealt: false, reason })
+    ),
 });
 
 /* ── shuffle ────────────────────────────────────────────────────────── */
@@ -287,6 +326,28 @@ const shuffleParams = z.object({
   deckId: z.string().max(64).optional().describe("Default: the deck on the table."),
 });
 
+/**
+ * A new round of the deck asked for (or the one on the table): its deals are
+ * forgotten. Nothing to save when the round hadn't started.
+ */
+function planShuffle(
+  state: CardDecksState,
+  params: z.infer<typeof shuffleParams>
+): Plan<ShuffleOut> {
+  const deck = findDeck(state.decks, params.deckId ?? state.deckId);
+  if (!deck) return { out: { shuffled: false, reason: `No deck "${params.deckId}".` }, next: null };
+  const round = state.rounds[deck.id];
+  const out: ShuffleOut = {
+    shuffled: true,
+    deck: { id: deck.id, name: deck.name },
+    back: dealtIds(round ?? []).length,
+  };
+  if (!round) return { out, next: null };
+  const rounds = { ...state.rounds };
+  delete rounds[deck.id];
+  return { out, next: { ...state, rounds } };
+}
+
 registry.register({
   id: `${TOOL}.shuffle`,
   toolId: TOOL,
@@ -294,22 +355,15 @@ registry.register({
   category: "write",
   // Asks first (the write default): a shuffle forgets which cards the
   // meeting has had, and Amr's write has no Undo, unlike the page's Shuffle.
-  description:
-    "Start a new round of a Card Decks deck: every card dealt this round goes back (used and hidden cards stay set aside), and which cards were dealt is forgotten. Params: {deckId?}. Returns {shuffled: true, deck: {id, name}, back (cards returned)} or {shuffled: false, reason}.",
+  description: `Start a new round of a Card Decks deck: every card dealt this round goes back (used and hidden cards stay set aside), and which cards were dealt is forgotten. Params: {deckId?}. Returns {shuffled: true, deck: {id, name}, back (cards returned)} or {shuffled: false, reason}. ${MCP_NOTE}`,
   paramsSchema: shuffleParams,
-  handler: async (params): Promise<ShuffleOut> => {
-    const state = await browserState();
-    const deck = findDeck(state.decks, params.deckId ?? state.deckId);
-    if (!deck) return { shuffled: false, reason: `No deck "${params.deckId}".` };
-    const back = dealtIds(state.rounds[deck.id] ?? []).length;
-    updateCardDecks((s) => {
-      const rounds = { ...s.rounds };
-      delete rounds[deck.id];
-      return { rounds };
-    });
-    return { shuffled: true, deck: { id: deck.id, name: deck.name }, back };
-  },
-  mcpHandler: async (): Promise<ShuffleOut> => ({ shuffled: false, reason: NO_SERVER_WRITE }),
+  handler: (params): Promise<ShuffleOut> => inBrowser((s) => planShuffle(s, params)),
+  mcpHandler: (params, ctx): Promise<ShuffleOut> =>
+    onServer(
+      ctx.userId,
+      (s) => planShuffle(s, params),
+      (reason) => ({ shuffled: false, reason })
+    ),
 });
 
 /* ── add_card ───────────────────────────────────────────────────────── */
@@ -343,22 +397,34 @@ type AddCardResult =
     }
   | { added: false; reason: string };
 
-function addCard(state: CardDecksState, params: z.infer<typeof addCardParams>): AddCardResult {
+/** A refusal of add_card: nothing changes. */
+const notAdded = (reason: string): Plan<AddCardResult> => ({
+  out: { added: false, reason },
+  next: null,
+});
+
+/**
+ * Add the card to one of the team's own decks, or start a new deck with it
+ * (which goes on the table). Built-in decks never change.
+ */
+function planAddCard(
+  state: CardDecksState,
+  params: z.infer<typeof addCardParams>
+): Plan<AddCardResult> {
   if (params.newDeckName !== undefined) {
     // The store keeps CARD_DECK_LIMITS.decks decks: one more would be cut
     // when it is saved, and Amr would report a deck that doesn't exist.
     if (state.decks.length >= CARD_DECK_LIMITS.decks)
-      return {
-        added: false,
-        reason: `The team has ${CARD_DECK_LIMITS.decks} decks of its own, the most Card Decks keeps. Delete one on /card-decks first, or add the card to a deck they have.`,
-      };
+      return notAdded(
+        `The team has ${CARD_DECK_LIMITS.decks} decks of its own, the most Card Decks keeps. Delete one on /card-decks first, or add the card to a deck they have.`
+      );
     const card = validateCardDraft({ text: params.text }, null);
-    if (!card.ok) return { added: false, reason: card.errors.text ?? "That card can't be added." };
+    if (!card.ok) return notAdded(card.errors.text ?? "That card can't be added.");
     const check = validateDeckDraft(
       { name: params.newDeckName, cards: card.values.text },
       state.decks
     );
-    if (!check.ok) return { added: false, reason: Object.values(check.errors).join(" ") };
+    if (!check.ok) return notAdded(Object.values(check.errors).join(" "));
     const at = new Date().toISOString();
     const deck: CustomDeck = {
       id: `deck_${nanoid(10)}`,
@@ -367,44 +433,47 @@ function addCard(state: CardDecksState, params: z.infer<typeof addCardParams>): 
       createdAt: at,
       updatedAt: at,
     };
-    updateCardDecks((s) => ({ decks: [...s.decks, deck], deckId: deck.id }));
     return {
-      added: true,
-      deckId: deck.id,
-      deckName: deck.name,
-      cardId: deck.cards[0].id,
-      cards: 1,
-      newDeck: true,
+      out: {
+        added: true,
+        deckId: deck.id,
+        deckName: deck.name,
+        cardId: deck.cards[0].id,
+        cards: 1,
+        newDeck: true,
+      },
+      next: { ...state, decks: [...state.decks, deck], deckId: deck.id },
     };
   }
   const id = params.deckId ?? state.deckId;
   const deck = state.decks.find((d) => d.id === id);
   if (!deck) {
     const builtIn = findDeck(state.decks, id);
-    return {
-      added: false,
-      reason: builtIn
+    return notAdded(
+      builtIn
         ? `"${builtIn.name}" is a built-in deck and can't change. Give newDeckName to start a deck of the team's own.`
-        : `No deck of the team's own with id "${id}". Give newDeckName to start one.`,
-    };
+        : `No deck of the team's own with id "${id}". Give newDeckName to start one.`
+    );
   }
   const check = validateCardDraft({ text: params.text }, deck);
-  if (!check.ok) return { added: false, reason: check.errors.text ?? "That card can't be added." };
+  if (!check.ok) return notAdded(check.errors.text ?? "That card can't be added.");
   const card: DeckCard = { id: `c_${nanoid(10)}`, text: check.values.text };
-  updateCardDecks((s) => ({
-    decks: s.decks.map((d) =>
-      d.id === deck.id
-        ? { ...d, cards: [...d.cards, card], updatedAt: new Date().toISOString() }
-        : d
-    ),
-  }));
+  const at = new Date().toISOString();
   return {
-    added: true,
-    deckId: deck.id,
-    deckName: deck.name,
-    cardId: card.id,
-    cards: deck.cards.length + 1,
-    newDeck: false,
+    out: {
+      added: true,
+      deckId: deck.id,
+      deckName: deck.name,
+      cardId: card.id,
+      cards: deck.cards.length + 1,
+      newDeck: false,
+    },
+    next: {
+      ...state,
+      decks: state.decks.map((d) =>
+        d.id === deck.id ? { ...d, cards: [...d.cards, card], updatedAt: at } : d
+      ),
+    },
   };
 }
 
@@ -413,8 +482,13 @@ registry.register({
   toolId: TOOL,
   name: "add_card",
   category: "write",
-  description: `Add a card to one of the team's own Card Decks decks (built-in decks don't change), or start a new deck with it. Params: {text (1-${CARD_DECK_LIMITS.cardText} characters), deckId? (default the deck on the table, when it is the team's own), newDeckName? (start a deck of that name; names must be new)}. A card already in the deck is refused. Returns {added: true, deckId, deckName, cardId, cards, newDeck} or {added: false, reason}.`,
+  description: `Add a card to one of the team's own Card Decks decks (built-in decks don't change), or start a new deck with it. Params: {text (1-${CARD_DECK_LIMITS.cardText} characters), deckId? (default the deck on the table, when it is the team's own), newDeckName? (start a deck of that name; names must be new)}. A card already in the deck is refused. Returns {added: true, deckId, deckName, cardId, cards, newDeck} or {added: false, reason}. ${MCP_NOTE}`,
   paramsSchema: addCardParams,
-  handler: async (params) => addCard(await browserState(), params),
-  mcpHandler: async (): Promise<AddCardResult> => ({ added: false, reason: NO_SERVER_WRITE }),
+  handler: (params): Promise<AddCardResult> => inBrowser((s) => planAddCard(s, params)),
+  mcpHandler: (params, ctx): Promise<AddCardResult> =>
+    onServer(
+      ctx.userId,
+      (s) => planAddCard(s, params),
+      (reason) => ({ added: false, reason })
+    ),
 });

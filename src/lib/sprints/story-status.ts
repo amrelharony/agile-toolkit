@@ -8,7 +8,9 @@
  * joined or left a sprint. So are its refinements (`stampRefinedWrite`): a
  * write that changes what the story says stamps `refinedAt`, which Backlog
  * Health's stale check reads; an Undo that takes back only its own change
- * puts the earlier stamp back (`withRefinedPutBack`).
+ * puts the earlier stamp back (`withRefinedPutBack`). Its blocked spells
+ * are stamped as well (`stampStoryBlocks`, lib/flow/block-stamps), by the
+ * store and by the agents' writes (`stampStoryWrite`).
  *
  *   - Into in progress, review or done from the backlog or to do: `startedAt`.
  *   - Back to the backlog or to do: `startedAt` and `doneAt` are cleared (the
@@ -22,6 +24,7 @@ import type {
   StoryStatus,
   StoryStatusChange,
 } from "@/lib/stores/workspace-types";
+import { stampStoryBlocks } from "@/lib/flow/block-stamps";
 
 /** At most this many status changes are kept per story (the latest). */
 export const STORY_STATUS_HISTORY_CAP = 50;
@@ -175,9 +178,23 @@ export function stampStoryMembership(
 
 const STAMPS = ["startedAt", "doneAt", "blocked", "statusHistory"] as const;
 
-/** Equal by value (a validated copy of the history is a new array). */
+/**
+ * Equal by value, whatever order an object's keys are in: a validated copy
+ * of the history is a new array, and a row read back from jsonb lists its
+ * keys in another order than the one zod or the page wrote.
+ */
 function same(a: unknown, b: unknown): boolean {
-  return a === b || JSON.stringify(a) === JSON.stringify(b);
+  return a === b || canonJson(a) === canonJson(b);
+}
+
+/** JSON with every object's keys sorted (undefined values left out, as JSON does). */
+function canonJson(value: unknown): string | undefined {
+  return JSON.stringify(value, (_key, v: unknown) => {
+    if (!v || typeof v !== "object" || Array.isArray(v)) return v;
+    const out: Record<string, unknown> = {};
+    for (const k of Object.keys(v).sort()) out[k] = (v as Record<string, unknown>)[k];
+    return out;
+  });
 }
 
 const REFINED_FIELDS = ["title", "points", "notes", "acceptanceCriteria", "gwt"] as const;
@@ -253,8 +270,10 @@ export function createRefinedMarks(): RefinedMarks {
  * and `prev` the stored one (undefined for a new story). A status change is
  * stamped like `withStoryStatus`, except that a stamp the write set itself
  * (a backfilled `doneAt`, say) is kept as written. A new story that starts
- * out in progress or done gets the start and done times it lacks. A change
- * to its title, points, notes or criteria stamps `refinedAt`
+ * out in progress or done gets the start and done times it lacks. Its
+ * blocked flag going on or off, a move into done included, opens or closes
+ * a blocked spell (`stampStoryBlocks`), unless the write set its own log. A
+ * change to its title, points, notes or criteria stamps `refinedAt`
  * (`stampRefinedWrite`); nothing else changes.
  */
 export function stampStoryWrite(
@@ -263,7 +282,7 @@ export function stampStoryWrite(
   at: string = new Date().toISOString()
 ): Story {
   return stampRefinedWrite(
-    stampStoryMembership(stampStatusWrite(next, prev, at), prev, at),
+    stampStoryMembership(stampStoryBlocks(stampStatusWrite(next, prev, at), prev, at), prev, at),
     prev,
     at
   );

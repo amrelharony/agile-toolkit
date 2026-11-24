@@ -1,0 +1,12 @@
+{
+  "//": "next build's type check (next.config.mjs typescript.tsconfigPath): the app without its tests and scripts, which CI's tsc --noEmit still checks against tsconfig.json.",
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ]
+  },
+  "exclude": ["node_modules", "design-system", "mcp-server", "test", "scripts"]
+}

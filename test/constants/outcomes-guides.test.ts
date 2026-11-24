@@ -115,6 +115,10 @@ describe("the Outcomes, quality & library guides describe the pages as they are 
       "opportunity-tree": "the Opportunity Tree",
       cynefin: "Cynefin",
       "design-sprint": "a Design Sprint",
+      "product-canvas": "Product Canvas",
+      "impact-map": "an Impact Map",
+      "strategy-tree": "a Strategy Tree",
+      kickoff: "Kickoff",
     };
     expect(Array.from(senders).sort()).toEqual(Object.keys(named).sort());
     expect(allText(guide("hypothesis-tracker"))).toContain(
@@ -170,7 +174,7 @@ describe("the Outcomes, quality & library guides describe the pages as they are 
     [
       "hypothesis-tracker",
       ["hypothesis-tracker-client.tsx", "hypothesis-form.tsx", "hypothesis-fields.tsx"],
-      ["hypothesis-card.tsx", "view.ts"],
+      ["hypothesis-card.tsx", "view.ts", "value-checks.tsx"],
       [
         "New hypothesis",
         "We believe",
@@ -190,6 +194,14 @@ describe("the Outcomes, quality & library guides describe the pages as they are 
         "What we learned",
         "Show",
         "Validation rate",
+        "Shipped work to check",
+        "Check its value",
+        "Measured by",
+        "Look after",
+        "Due",
+        "Read the metric",
+        "Use the A/B result",
+        "Kind",
       ],
     ],
     [

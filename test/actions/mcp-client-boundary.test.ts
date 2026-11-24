@@ -72,12 +72,82 @@ describe("what the MCP handlers call", () => {
   it("imports no client module, React DOM, zustand or the store", () => {
     const { seen, packages, clients } = walk(
       [
+        "src/app/(tools)/estimation-guide/references.ts",
+        "src/lib/analytics/distributions.ts",
+        "src/lib/bug-triage/model.ts",
+        "src/lib/estimation/async-pack.ts",
+        "src/lib/estimation/similar.ts",
+        "src/lib/estimation/three-point.ts",
+        "src/lib/experiments/ab.ts",
+        "src/lib/experiments/model.ts",
         "src/lib/parking-lot/model.ts",
         "src/lib/parking-lot/route-rules.ts",
+        "src/lib/pi-planning/confidence.ts",
+        "src/lib/pi-planning/model.ts",
+        "src/lib/pi-planning/predictability.ts",
+        "src/lib/pi-planning/roam.ts",
         "src/lib/handoffs/links.ts",
+        "src/lib/example-mapping/model.ts",
         "src/lib/facilitator-timers/settings.ts",
         "src/lib/facilitator-timers/model.ts",
         "src/lib/facilitator-timers/sounds.ts",
+        "src/lib/ebm/model.ts",
+        "src/lib/ebm/sources.ts",
+        "src/lib/flow/blocks.ts",
+        "src/lib/flow/distribution.ts",
+        "src/lib/flow/stability.ts",
+        "src/lib/hill-chart/model.ts",
+        "src/lib/hypotheses/value.ts",
+        "src/lib/hypotheses/value-steps.ts",
+        "src/lib/impediments/blockers.ts",
+        "src/lib/impediments/clusters.ts",
+        "src/lib/improve/coaching.ts",
+        "src/lib/improve/model.ts",
+        "src/lib/kanban/statik.ts",
+        "src/lib/kanban/workflow-view.ts",
+        "src/lib/kanban/workflow.ts",
+        "src/lib/kickoff/formats.ts",
+        "src/lib/kickoff/model.ts",
+        "src/lib/kickoff/next-step.ts",
+        "src/lib/notes-to-actions/due.ts",
+        "src/lib/notes-to-actions/extract.ts",
+        "src/lib/notes-to-actions/model.ts",
+        "src/lib/personas/from-notes.ts",
+        "src/lib/personas/interviews.ts",
+        "src/lib/personas/model.ts",
+        "src/lib/product-canvas/bets.ts",
+        "src/lib/product-canvas/fields.ts",
+        "src/lib/product-canvas/intake.ts",
+        "src/lib/product-canvas/model.ts",
+        "src/lib/product-canvas/starter.ts",
+        "src/lib/product-metrics/model.ts",
+        "src/lib/product-metrics/templates.ts",
+        "src/lib/relative-sizing/model.ts",
+        "src/lib/relative-sizing/state.ts",
+        "src/lib/releases/notes-steps.ts",
+        "src/lib/releases/notes.ts",
+        "src/lib/retro/seismograph.ts",
+        "src/lib/roadmap/epic-source.ts",
+        "src/lib/roadmap/horizons.ts",
+        "src/lib/root-cause/loops.ts",
+        "src/lib/standup/digest-ai.ts",
+        "src/lib/standup/entries.ts",
+        "src/lib/strategy-map/checks.ts",
+        "src/lib/strategy-map/drafts.ts",
+        "src/lib/strategy-map/formats.ts",
+        "src/lib/strategy-map/model.ts",
+        "src/lib/strategy-map/rules.ts",
+        "src/lib/strategy-map/send.ts",
+        "src/lib/team-time/model.ts",
+        "src/lib/team-time/next-step.ts",
+        "src/lib/team-time/note.ts",
+        "src/lib/team-time/rotation.ts",
+        "src/lib/team-time/sun.ts",
+        "src/lib/team-time/validate.ts",
+        "src/lib/test-sessions/model.ts",
+        "src/lib/trees/parent-tree.ts",
+        "src/lib/working-agreement/model.ts",
+        "src/lib/working-agreement/templates.ts",
       ].map(abs)
     );
     expect(clients).toEqual([]);
@@ -91,15 +161,44 @@ describe("what the MCP handlers call", () => {
 });
 
 describe("the action files", () => {
-  it.each(["parking-lot", "facilitator-timers"])(
-    "%s reaches no client module but the workspace store",
-    (tool) => {
-      const { seen, clients } = walk([abs(`src/lib/actions/tools/${tool}.ts`)]);
-      expect(clients).toEqual([]);
-      expect(seen.has(abs("src/lib/handoffs/registry.ts"))).toBe(false);
-      expect(seen.has(abs("src/lib/timer/dock-timer.ts"))).toBe(false);
-      expect(seen.has(abs("src/lib/facilitator-timers/store.ts"))).toBe(false);
-      expect(seen.size).toBeGreaterThan(4);
-    }
-  );
+  it.each([
+    // One tool id per line, so tools added side by side merge cleanly.
+    "ab-calculator",
+    "async-standup",
+    "bug-triage",
+    "parking-lot",
+    "pi-planning",
+    "planning-poker",
+    "ebm-dashboard",
+    "example-mapping",
+    "facilitator-timers",
+    "epic-roadmap",
+    "flow-insights",
+    "hill-chart",
+    "hypothesis-tracker",
+    "impact-map",
+    "impediments",
+    "improve",
+    "kanban",
+    "kickoff",
+    "notes-to-actions",
+    "persona-library",
+    "product-canvas",
+    "product-metrics",
+    "relative-sizing",
+    "release-readiness",
+    "retro",
+    "root-cause",
+    "strategy-tree",
+    "team-time",
+    "test-sessions",
+    "working-agreement",
+  ])("%s reaches no client module but the workspace store", (tool) => {
+    const { seen, clients } = walk([abs(`src/lib/actions/tools/${tool}.ts`)]);
+    expect(clients).toEqual([]);
+    expect(seen.has(abs("src/lib/handoffs/registry.ts"))).toBe(false);
+    expect(seen.has(abs("src/lib/timer/dock-timer.ts"))).toBe(false);
+    expect(seen.has(abs("src/lib/facilitator-timers/store.ts"))).toBe(false);
+    expect(seen.size).toBeGreaterThan(4);
+  });
 });

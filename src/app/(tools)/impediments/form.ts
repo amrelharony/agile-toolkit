@@ -8,6 +8,7 @@
  * the raised day starts at today but can be moved back.
  */
 
+import { BLOCKER_CLUSTER_MAX } from "@/lib/stores/workspace-types";
 import type {
   Impediment,
   ImpedimentCategory,
@@ -31,6 +32,8 @@ export interface ImpedimentDraft {
   dueDate: string;
   /** Only checked for a resolved impediment (the editor shows it then). */
   resolvedAt: string;
+  /** The blocker cluster, "" for none (at most BLOCKER_CLUSTER_MAX characters). */
+  cluster: string;
 }
 
 export type ImpedimentField = keyof ImpedimentDraft;
@@ -45,6 +48,7 @@ export interface ImpedimentValues {
   raisedAt: string;
   dueDate?: string;
   resolvedAt?: string;
+  cluster?: string;
 }
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -62,6 +66,7 @@ export function emptyDraft(today: string): ImpedimentDraft {
     raisedAt: today,
     dueDate: "",
     resolvedAt: "",
+    cluster: "",
   };
 }
 
@@ -81,6 +86,7 @@ export function draftFrom(i: Impediment): ImpedimentDraft {
     raisedAt: dayOf(i.raisedAt) ?? "",
     dueDate: impedimentDueDate(i) ?? "",
     resolvedAt: dayOf(i.resolvedAt) ?? "",
+    cluster: typeof i.cluster === "string" ? i.cluster : "",
   };
 }
 
@@ -143,6 +149,10 @@ export function validateImpediment(
       errors.resolvedAt = "It can't be resolved before it was raised.";
   }
 
+  const cluster = d.cluster.trim().replace(/\s+/g, " ");
+  if (cluster.length > BLOCKER_CLUSTER_MAX && !kept("cluster"))
+    errors.cluster = `Keep the cluster to ${BLOCKER_CLUSTER_MAX} characters.`;
+
   if (Object.keys(errors).length > 0) return { ok: false, errors };
   const description = d.description.trim();
   const raisedBy = d.raisedBy.trim();
@@ -159,6 +169,7 @@ export function validateImpediment(
       ...(owner ? { owner: cap("owner", owner, NAME_MAX) } : {}),
       ...(d.dueDate ? { dueDate: d.dueDate } : {}),
       ...(resolved ? { resolvedAt: d.resolvedAt } : {}),
+      ...(cluster ? { cluster: kept("cluster") ? d.cluster : cluster } : {}),
     },
   };
 }
@@ -186,8 +197,8 @@ export function newImpediment(v: ImpedimentValues, id: string): Impediment {
   return { id, ...rest, source: "manual" };
 }
 
-type Optional = "description" | "category" | "raisedBy" | "owner";
-const OPTIONAL: readonly Optional[] = ["description", "category", "raisedBy", "owner"];
+type Optional = "description" | "category" | "raisedBy" | "owner" | "cluster";
+const OPTIONAL: readonly Optional[] = ["description", "category", "raisedBy", "owner", "cluster"];
 
 /**
  * `row` with the editor's values. Untouched fields keep exactly what is
@@ -206,6 +217,8 @@ export function applyValues(row: Impediment, v: ImpedimentValues): Impediment {
     if (value === undefined) delete next[key];
     else (next as unknown as Record<Optional, string>)[key] = value;
   }
+  // The side goes with its cluster: cleared with it, kept while there is one.
+  if (next.cluster === undefined) delete next.blockSide;
   if (dayOf(row.raisedAt) !== v.raisedAt) next.raisedAt = v.raisedAt;
   if (isResolved(row) && v.resolvedAt && dayOf(row.resolvedAt) !== v.resolvedAt)
     next.resolvedAt = v.resolvedAt;

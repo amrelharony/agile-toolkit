@@ -1,6 +1,7 @@
 import { toPng } from "html-to-image";
 import { saveAs } from "file-saver";
 import { THEME_COLORS } from "@/lib/theme/boot-script";
+import { keepInExport } from "./export-skip";
 
 /**
  * Strip path separators, control characters, and leading dots so a download
@@ -155,6 +156,8 @@ export async function exportToPNG(
       // to decode.
       imagePlaceholder: BLANK_IMAGE,
       onImageErrorHandler: () => undefined,
+      // A control marked EXPORT_SKIP stays on the page and out of the picture.
+      filter: keepInExport,
     }),
     new Promise<string>((_, reject) =>
       setTimeout(() => reject(new Error("PNG export timed out")), timeoutMs)

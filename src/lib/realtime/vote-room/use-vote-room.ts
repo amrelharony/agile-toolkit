@@ -10,14 +10,19 @@
  *  - sends a signed `vote:state` when something changes (at most every
  *    500 ms), 500 ms after the last of a burst of joins, and every 30 s;
  *  - for each ballot: cheap checks first (round, phase, seat, removed,
- *    duplicate, cap, exact size), then it waits its turn for one of 8
- *    decryption slots (oldest first), is checked again, decrypted, and the
- *    round re-read (it may have moved on during the await) before it is
- *    folded into the counts. The answers are dropped there: the hook has no
- *    accessor for counts before Reveal, only how many ballots arrived. A
- *    resend of a ballot already counted gets the acks sent again; a second
- *    ballot from someone who already answered is refused and counted for
- *    the host's warning (`duplicateBallots`);
+ *    duplicate, cap, whether it carries a tab secret as its id's tie
+ *    expects, exact size), then it waits its turn for one of 8 decryption
+ *    slots (oldest first), is checked again, its answers and its tab secret
+ *    decrypted in that one slot, and the round re-read (it may have moved
+ *    on during the await) before it is folded into the counts. The answers
+ *    are dropped there: the hook has no accessor for counts before Reveal,
+ *    only how many ballots arrived. The first ballot an id gets counted
+ *    with ties that id to its tab's secret for the whole room (a seal of
+ *    it, `sender-tie.ts`); a later ballot under the id from another tab is
+ *    refused ("not-yours"). A resend of a ballot already counted gets the
+ *    acks sent again; a second ballot from someone who already answered,
+ *    or one from another tab, is refused and counted for the host's
+ *    warning (`duplicateBallots`);
  *  - Reveal needs minN ballots. It closes the round, withholds questions
  *    under minN, drops the ledger of who answered and the acks, and builds
  *    the `result` the tool may save. New round rotates the encryption key;
@@ -38,7 +43,13 @@
  *    about 110 s without an ack it gives up ("unconfirmed") and may answer
  *    again: the host never counts one id twice. The sealed ballot is kept in
  *    memory only; sessionStorage records round and ballot ids, never answers;
- *  - says so when someone else sends a ballot under its id ("impersonated");
+ *  - seals beside the answers this tab's secret (`tab-secret.ts`: made once
+ *    per room and id, kept for the tab's session, so a refresh goes on
+ *    answering), which the host ties the id to;
+ *  - says so when someone else sends a ballot under its id ("impersonated"),
+ *    and keeps saying so for the rest of the room: the host may have tied
+ *    the id to that other tab, and then this tab's answers go unconfirmed
+ *    (the page then says to answer from a new tab, which gets a new id);
  *  - "host-left" once the pinned host has been missing 10 s; "no-host" when
  *    no host's state arrived within 90 s of connecting (an old link).
  *
@@ -100,9 +111,13 @@ import {
 import {
   effectiveMinN,
   emptyLedger,
+  isVoteTabSecret,
   precheckBallot,
+  precheckSender,
+  tieBallotSender,
   type BallotLedger,
   type BallotRejection,
+  type BallotSenders,
   type FoldContext,
   type VoteRoundResult,
 } from "./aggregate";
@@ -137,12 +152,14 @@ import {
 } from "./kinds";
 import {
   ballotAad,
+  ballotTabAad,
   isVoteFingerprint,
   voteJoinUrl,
   webVoteCrypto,
   type HostKeyPair,
   type VoteCrypto,
 } from "./crypto";
+import { tabSecret } from "../tab-secret";
 
 /** How often the host checks whether the room has gone idle. */
 const IDLE_CHECK_MS = 30_000;
@@ -283,7 +300,11 @@ export interface VoteRoom {
    * refresh). Answering again is safe: the host never counts one id twice.
    */
   unconfirmed: boolean;
-  /** Participant: someone else sent answers under this tab's id this round. */
+  /**
+   * Participant: someone else sent answers under this tab's id in this room.
+   * It stays on until the room ends (a refresh included): the host may have
+   * tied the id to their tab, so this tab's answers may never be counted.
+   */
   impersonated: boolean;
   /** Scale rounds, after Reveal: per question, its distribution only from minN answers. */
   revealed: readonly RevealedQuestion[] | null;
@@ -342,8 +363,9 @@ export interface VoteRoom {
   stuffingSuspected: boolean;
   /**
    * Host: ballots refused this round because their sender had already
-   * answered. Someone may be answering under other people's ids, which can
-   * single out one person's answers.
+   * answered, or came from another tab than the one the sender's id is tied
+   * to. Someone may be answering under other people's ids, which can single
+   * out one person's answers.
    */
   duplicateBallots: number;
 }
@@ -436,6 +458,28 @@ function storedRound(code: string, roundId: string): AnsweredRound | null {
     : null;
 }
 
+/** Where this tab's secret and its "someone used my id" mark live (`tab-secret.ts`). */
+const TAB_KEY_PREFIX = "agile-toolkit:vote-room:";
+const impersonatedKey = (code: string, member: string) =>
+  `${TAB_KEY_PREFIX}impersonated:${code}:${member}`;
+
+/** Whether this tab saw someone else answer under its id in room `code` (survives a refresh). */
+function readImpersonated(code: string, member: string): boolean {
+  try {
+    return sessionStore()?.getItem(impersonatedKey(code, member)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeImpersonated(code: string, member: string): void {
+  try {
+    sessionStore()?.setItem(impersonatedKey(code, member), "1");
+  } catch {
+    /* storage full or blocked: the warning lasts as long as the page */
+  }
+}
+
 // ── Host round ───────────────────────────────────────────────────────
 
 /** Everything the host keeps about the current round. Only `ballots` leaves before Reveal. */
@@ -450,7 +494,7 @@ interface HostRound {
   acks: string[];
   /** Accepted ballot id → its sender, to know a resend from a theft. Dropped at Reveal. */
   ackedFrom: ReadonlyMap<string, string>;
-  /** Ballot ids refused because their sender had already answered (ids only, capped). */
+  /** Ballot ids refused because their sender had already answered, or wasn't the id's tab (ids only, capped). */
   refusedDuplicates: Set<string>;
   /** Ballots counted (frozen at Reveal, when the tally is dropped). */
   ballots: number;
@@ -494,7 +538,7 @@ interface RoundView {
   selfAnswered: boolean;
   /** Host: the stuffing warning. */
   suspicious: boolean;
-  /** Host: ballots refused as a second answer from the same id. */
+  /** Host: ballots refused as a second answer from the same id, or from another tab under it. */
   duplicates: number;
   /** When this client saw the round revealed (ISO). */
   revealedAt: string | null;
@@ -589,12 +633,13 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   const [idlePrompt, setIdlePrompt] = useState(false);
   const [removedVersion, setRemovedVersion] = useState(0);
-  // Participant: the ballot in flight, and which rounds were counted, went
-  // unconfirmed, or saw someone else's ballot under this tab's id.
+  // Participant: the ballot in flight, which rounds were counted or went
+  // unconfirmed, and whether this room saw someone else's ballot under this
+  // tab's id (from then on, for the rest of the room).
   const [myBallot, setMyBallot] = useState<{ roundId: string; bid: string } | null>(null);
   const [countedRound, setCountedRound] = useState<string | null>(null);
   const [unconfirmedRound, setUnconfirmedRound] = useState<string | null>(null);
-  const [impersonatedRound, setImpersonatedRound] = useState<string | null>(null);
+  const [impersonatedSeen, setImpersonatedSeen] = useState(false);
 
   const active = !TERMINAL.has(status);
   const requested = active && status !== "preparing" ? code : null;
@@ -629,13 +674,21 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   const waitingRef = useRef<BallotEnvelope[]>([]);
   const drainRef = useRef<() => void>(() => {});
   const queueRef = useRef<Promise<void>>(Promise.resolve());
+  // Host: each member id's tie to the tab its first counted ballot came
+  // from, for the whole room (New round keeps it). Seals only, capped.
+  const sendersRef = useRef<BallotSenders>(new Map());
   // Participant.
+  // This tab's secret (made on the first ballot, kept for the tab's session).
+  const secretRef = useRef<string | null>(null);
   const pinnedRef = useRef<{ by: string; sigKey: string } | null>(null);
   const lastSeqRef = useRef(-1);
   const pendingStateRef = useRef<RoundStateMessage | null>(null);
   const hostEcdhRef = useRef<string | null>(null);
   const myBallotRef = useRef<PendingBallot | null>(null);
-  const sentBidsRef = useRef<{ roundId: string; bids: Set<string> } | null>(null);
+  // Ballot ids this tab sent, by round, oldest round first: the newest
+  // MAX_ANSWERED_ROUNDS, so a ballot from an earlier round is still known
+  // as this tab's when storage is blocked.
+  const sentBidsRef = useRef<Map<string, Set<string>>>(new Map());
   const countedRoundRef = useRef<string | null>(null);
   const resendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const missingSinceRef = useRef<number | null>(null);
@@ -680,8 +733,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   /** Ballot ids this tab sent in `roundId`: this page's, and any from before a refresh. */
   const myBids = useCallback(
     (roundId: string): Set<string> => {
-      const sent = sentBidsRef.current;
-      const bids = new Set(sent?.roundId === roundId ? sent.bids : []);
+      const bids = new Set(sentBidsRef.current.get(roundId));
       for (const b of storedRound(code, roundId)?.b ?? []) bids.add(b);
       return bids;
     },
@@ -691,8 +743,15 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
   const noteSentBid = useCallback(
     (roundId: string, bid: string) => {
       const sent = sentBidsRef.current;
-      if (sent?.roundId === roundId) sent.bids.add(bid);
-      else sentBidsRef.current = { roundId, bids: new Set([bid]) };
+      const bids = sent.get(roundId) ?? new Set<string>();
+      bids.add(bid);
+      sent.delete(roundId);
+      sent.set(roundId, bids);
+      while (sent.size > MAX_ANSWERED_ROUNDS) {
+        const oldest = sent.keys().next().value;
+        if (oldest === undefined) break;
+        sent.delete(oldest);
+      }
       updateAnsweredRound(code, roundId, (r) => ({
         ...r,
         b: [...r.b.filter((x) => x !== bid), bid].slice(-MAX_BIDS_PER_ROUND),
@@ -700,6 +759,25 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     },
     [code]
   );
+
+  /** This tab's secret in this room: the stored one after a refresh, else a new nanoid(21). */
+  const tabSecretNow = useCallback(() => {
+    if (secretRef.current === null) {
+      secretRef.current = tabSecret(
+        TAB_KEY_PREFIX,
+        code,
+        selfId,
+        () => nanoid(21),
+        isVoteTabSecret
+      );
+    }
+    return secretRef.current;
+  }, [code, selfId]);
+
+  // After a refresh: the warning this tab already showed in this room shows again.
+  useEffect(() => {
+    if (role === "participant" && readImpersonated(code, selfId)) setImpersonatedSeen(true);
+  }, [code, role, selfId]);
 
   const clearResend = useCallback(() => {
     if (resendTimerRef.current !== null) clearTimeout(resendTimerRef.current);
@@ -894,10 +972,12 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     (env: BallotEnvelope, reason: BallotRejection) => {
       const round = hostRoundRef.current;
       if (!round) return;
-      if (reason === "duplicate") {
-        // A second ballot from an id that already answered: a second tab
-        // can't do that (new tab, new id), so someone may be answering under
-        // another person's id. Each ballot id counts once, resends included.
+      if (reason === "duplicate" || reason === "not-yours") {
+        // A second ballot from an id that already answered, or one from
+        // another tab than the id is tied to: a second tab of the same
+        // person can't do that (new tab, new id), so someone may be
+        // answering under another person's id. Each ballot id counts once,
+        // resends included.
         const seen = round.refusedDuplicates;
         if (!seen.has(env.bid) && seen.size < VOTE_LIMITS.maxAcks) {
           seen.add(env.bid);
@@ -921,7 +1001,9 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
         scheduleState();
         return;
       }
-      const refused = precheckBallot(env, round.ledger, round.counts.tally, foldContext());
+      const refused =
+        precheckBallot(env, round.ledger, round.counts.tally, foldContext()) ??
+        precheckSender(env, sendersRef.current);
       if (refused) {
         refuseBallot(env, refused);
         return;
@@ -929,12 +1011,34 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
       if (env.ct.length !== specCiphertextChars(round.spec)) return;
       const opening = openingRef.current;
       opening.add(env.by);
-      void cryptoImpl
-        .open(keys, env, ballotAad(env.roundId, env.by, env.bid))
-        .then((plain) => {
+      const tab = env.tab;
+      // The answers and the tab secret, in this one decryption slot.
+      void Promise.all([
+        cryptoImpl.open(keys, env, ballotAad(env.roundId, env.by, env.bid)),
+        tab
+          ? cryptoImpl.open(
+              keys,
+              { ...env, epk: tab.epk, iv: tab.iv, ct: tab.ct },
+              ballotTabAad(env.roundId, env.by, env.bid, env.ct)
+            )
+          : Promise.resolve(null),
+      ])
+        .then(([plain, secret]) => {
           // The round, its key, the phase or the seats may have changed meanwhile.
           const now = hostRoundRef.current;
           if (plain === null || !now || now.roundId !== round.roundId || keysRef.current !== keys) {
+            return;
+          }
+          // A tab secret that doesn't open with these answers, or isn't one,
+          // was lifted from someone else's ballot: not this sender's tab.
+          if (tab && !isVoteTabSecret(secret)) {
+            refuseBallot(env, "not-yours");
+            return;
+          }
+          // An id answers from the tab it first answered from, for the whole room.
+          const tie = tieBallotSender(sendersRef.current, env.by, tab ? secret : null);
+          if (!tie.ok) {
+            refuseBallot(env, tie.reason);
             return;
           }
           // Read by the round's kind, counted, and dropped: only the counts stay.
@@ -944,6 +1048,8 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
             refuseBallot(env, res.reason);
             return;
           }
+          // Counted: only now is the tie kept (a refused ballot ties nothing).
+          sendersRef.current = tie.senders;
           hostRoundRef.current = {
             ...now,
             counts: res.counts,
@@ -994,7 +1100,9 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
       }
       // Everything cheap before anything is decrypted. Every ballot of a
       // round has one size, from its public parameters: any other is dropped.
-      const refused = precheckBallot(env, round.ledger, round.counts.tally, foldContext());
+      const refused =
+        precheckBallot(env, round.ledger, round.counts.tally, foldContext()) ??
+        precheckSender(env, sendersRef.current);
       if (refused) {
         refuseBallot(env, refused);
         return;
@@ -1134,10 +1242,14 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
       if (!env) return;
       if (role === "participant") {
         // A ballot under this tab's id that this tab never sent: someone is
-        // spending its seat. Every ballot reaches every member anyway.
-        const round = viewRef.current?.roundId;
-        if (env.by === selfId && env.roundId === round && !myBids(round).has(env.bid)) {
-          setImpersonatedRound(round);
+        // spending its seat, and may have tied the id to their tab for the
+        // rest of the room. Every ballot reaches every member anyway. Whatever
+        // round it names: the id shows in presence at join, so one sent
+        // before this tab's first state (a round it hasn't seen yet) is the
+        // surest way to win the tie, and a forger knows the real round id.
+        if (env.by === selfId && !myBids(env.roundId).has(env.bid)) {
+          setImpersonatedSeen(true);
+          writeImpersonated(code, selfId);
         }
         return;
       }
@@ -1187,6 +1299,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     };
   }, [
     acceptState,
+    code,
     cryptoImpl,
     enqueue,
     fromPinnedHost,
@@ -1383,8 +1496,16 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
       if (!hostKey || !cryptoImpl) return "closed";
       const bid = nanoid(12);
       let sealed: { epk: string; iv: string; ct: string };
+      let tab: { epk: string; iv: string; ct: string };
       try {
         sealed = await cryptoImpl.seal(hostKey, ballotAad(v.roundId, selfId, bid), answers);
+        // This tab's secret, beside the answers and bound to them: the host
+        // ties this id to it on the first ballot it counts.
+        tab = await cryptoImpl.seal(
+          hostKey,
+          ballotTabAad(v.roundId, selfId, bid, sealed.ct),
+          tabSecretNow()
+        );
       } catch {
         return "failed";
       }
@@ -1410,6 +1531,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
         epk: sealed.epk,
         iv: sealed.iv,
         ct: sealed.ct,
+        tab: { epk: tab.epk, iv: tab.iv, ct: tab.ct },
       };
       roomRef.current.broadcast(VOTE_ROOM_EVENTS.ballot, envelope);
       noteSentBid(v.roundId, bid);
@@ -1430,6 +1552,7 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
       scheduleResend,
       scheduleState,
       selfId,
+      tabSecretNow,
       touch,
     ]
   );
@@ -1575,7 +1698,8 @@ export function useVoteRoom(opts: UseVoteRoomOptions): VoteRoom {
     unconfirmedRound === roundId &&
     !answered &&
     !awaitingAck;
-  const impersonated = role === "participant" && roundId !== null && impersonatedRound === roundId;
+  // Room-wide: once seen, it stays on in later rounds (the tie lasts the room).
+  const impersonated = role === "participant" && impersonatedSeen;
 
   const hostCanReveal = role === "host" && active && phase === "open" && ballots >= minN;
   let revealBlockedReason: string | null = null;

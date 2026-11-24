@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -31,6 +31,13 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 }));
 
 import { StoryMapperClient } from "@/app/(tools)/story-mapper/story-mapper-client";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 const SM_ID = "story-mapper:current";
 const ws = () => useWorkspaceStore.getState();

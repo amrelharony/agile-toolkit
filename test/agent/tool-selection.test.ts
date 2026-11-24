@@ -15,7 +15,10 @@ import {
   CORE_WORKSPACE_GROUPS,
   MAX_TOOLS_PER_TURN,
   PAGE_ACTION_GROUPS,
+  PAGE_ACTIONS,
+  PAGE_READ_GROUPS,
   pageActionGroups,
+  pageActions,
   recentUserText,
   selectTurnToolIds,
   toolNamesInHistory,
@@ -107,16 +110,64 @@ describe("pageActionGroups", () => {
     ]);
     // Actions under a different name than the page.
     expect(pageActionGroups("ceremony-timer")).toContain("tool.ceremony_cadence");
-    // Quick Vote's options come from the backlog, the stories and the retro.
-    expect(pageActionGroups("quick-vote")).toEqual([
-      "tool.quick_vote",
-      "workspace.quick_vote",
-      "workspace.backlog_item",
-      "workspace.story",
-      "workspace.retro_board",
-    ]);
+    // Quick Vote only reads the places its options come from (PAGE_READ_GROUPS).
+    expect(pageActionGroups("quick-vote")).toEqual(["tool.quick_vote", "workspace.quick_vote"]);
     // A page with no extras keeps just its two defaults.
     expect(pageActionGroups("model-card")).toEqual(["tool.model_card", "workspace.model_card"]);
+  });
+});
+
+describe("pageActions", () => {
+  const actions = [
+    { id: "tool.retro.add_card", category: "write" },
+    { id: "tool.retro.list_state", category: "read" },
+    { id: "workspace.retro_board.create", category: "write" },
+    { id: "workspace.retro_board.list", category: "read" },
+    { id: "workspace.story.create", category: "write" },
+    { id: "workspace.story.list", category: "read" },
+    { id: "workspace.sprint.list", category: "read" },
+    { id: "tool.audience_wall.add_wall", category: "write" },
+    { id: "tool.audience_wall.room_status", category: "read" },
+    { id: "tool.audience_wall.reveal", category: "write" },
+    { id: "tool.quick_vote.list_state", category: "read" },
+  ];
+  const ids = (toolId: string) => pageActions(toolId, actions).map((a) => a.id);
+
+  it("gives the page's own groups' actions, reads first, then writes", () => {
+    expect(ids("retro")).toEqual([
+      "tool.retro.list_state",
+      "workspace.retro_board.list",
+      "tool.retro.add_card",
+      "workspace.retro_board.create",
+    ]);
+  });
+
+  it("adds only the reads of the groups a page only reads, after its own", () => {
+    // Quick Vote reads backlog items, stories and retro boards.
+    expect(ids("quick-vote")).toEqual([
+      "tool.quick_vote.list_state",
+      "workspace.story.list",
+      "workspace.retro_board.list",
+    ]);
+  });
+
+  it("adds a page's single verbs, and no other action of their group", () => {
+    const review = ids("sprint-review");
+    expect(review).toContain("tool.audience_wall.room_status");
+    expect(review).toContain("tool.audience_wall.reveal");
+    expect(review).not.toContain("tool.audience_wall.add_wall");
+    expect(review.indexOf("tool.audience_wall.room_status")).toBeLessThan(
+      review.indexOf("tool.audience_wall.reveal")
+    );
+  });
+
+  it("gives a page with no own actions its read groups' reads, then the core reads", () => {
+    // Relative Sizing has no actions of its own yet; it reads stories.
+    const sizing = ids("relative-sizing");
+    expect(sizing[0]).toBe("workspace.story.list");
+    expect(sizing).toContain("workspace.sprint.list");
+    expect(sizing.filter((id) => id === "workspace.story.list")).toHaveLength(1);
+    expect(sizing.every((id) => id.endsWith(".list"))).toBe(true);
   });
 });
 
@@ -334,6 +385,60 @@ describe("selectTurnToolIds on the real registry", () => {
         expect(review, verb).toContain(`tool.audience_wall.${verb}`);
       }
       expect(review).toContain("tool.sprint_review.add_feedback");
+      // Only the room verbs: not the wall's own writes, scoring or saved sessions.
+      const vague = pick({ toolId: "sprint-review" });
+      for (const verb of ["room_status", "open_round", "set_open", "reveal", "lower_hands"]) {
+        expect(vague, verb).toContain(`tool.audience_wall.${verb}`);
+      }
+      for (const verb of ["add_wall", "scoring", "list_sessions"]) {
+        expect(vague, verb).not.toContain(`tool.audience_wall.${verb}`);
+      }
+    });
+
+    it("gives Quick Vote the reads of its options' places, and none of their writes", () => {
+      const own = pageActions("quick-vote", all).map((a) => a.id);
+      const sources = ["workspace.backlog_item", "workspace.story", "workspace.retro_board"];
+      // Quick Vote's options come from the backlog, the stories and the retro.
+      for (const g of sources) expect(own, g).toContain(`${g}.list`);
+      expect(own.indexOf("tool.quick_vote.list_state")).toBeLessThan(
+        own.indexOf("workspace.backlog_item.list")
+      );
+      const ids = pick({ toolId: "quick-vote" });
+      for (const g of sources) {
+        expect(ids, g).toContain(`${g}.list`);
+        for (const verb of ["create", "update", "delete"]) {
+          expect(ids, `${g}.${verb}`).not.toContain(`${g}.${verb}`);
+        }
+      }
+    });
+
+    it("keeps every page's actions within one turn's tools", () => {
+      for (const t of tools) {
+        expect(pageActions(t.id, all).length, t.id).toBeLessThanOrEqual(MAX_TOOLS_PER_TURN);
+      }
+    });
+
+    it("PAGE_READ_GROUPS and PAGE_ACTIONS name only real pages, groups with reads and real actions", () => {
+      for (const [page, read] of Object.entries(PAGE_READ_GROUPS)) {
+        expect(getToolById(page), page).toBeDefined();
+        for (const g of read) {
+          expect(
+            all.some((a) => a.toolId === g && a.category === "read"),
+            `${page} reads ${g}`
+          ).toBe(true);
+        }
+      }
+      for (const [page, ids] of Object.entries(PAGE_ACTIONS)) {
+        expect(getToolById(page), page).toBeDefined();
+        for (const id of ids) expect(registry.get(id), `${page} → ${id}`).toBeDefined();
+      }
+    });
+
+    it("no page both writes and only reads a group, or only reads one of its own", () => {
+      for (const [page, read] of Object.entries(PAGE_READ_GROUPS)) {
+        const own = pageActionGroups(page);
+        for (const g of read) expect(own, `${page} → ${g}`).not.toContain(g);
+      }
     });
 
     it("gives Quick Vote the reads of the places its options come from, after its own", () => {

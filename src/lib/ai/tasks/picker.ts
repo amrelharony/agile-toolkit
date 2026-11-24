@@ -3,18 +3,26 @@
  * ("rivers", "space missions", "jazz musicians"). Team Mixer reuses it for
  * fun group names. Plain names only, never anything about the people.
  *
- * This half is browser-safe: schemas with hard caps, the fallback (the
- * built-in themed lists, lib/picker/themes) and a sample. The prompt is in
- * `picker.server.ts`.
+ * This half is the def: schemas with hard caps, the fallback (the built-in
+ * themed lists, lib/picker/themes, from `picker.lite.ts`, which pages
+ * import) and a sample. The prompt is in `picker.server.ts`.
  */
 
 import { z } from "zod";
 import { defineAiTask } from "../define-task";
-import { fallbackThemeNames } from "@/lib/picker/themes";
+import {
+  THEME_NAMES_MAX,
+  THEME_NAME_CHARS,
+  THEME_TEXT_CHARS,
+  themeNamesFallback,
+} from "./picker.lite";
 
-export const THEME_NAMES_MAX = 20;
-export const THEME_NAME_CHARS = 30;
-export const THEME_TEXT_CHARS = 60;
+export {
+  THEME_NAMES_MAX,
+  THEME_NAME_CHARS,
+  THEME_TEXT_CHARS,
+  themeNamesFallback,
+} from "./picker.lite";
 
 const input = z.object({
   /** What the names are about, in the person's words. */
@@ -29,6 +37,9 @@ const output = z.object({
   names: z.array(z.string().trim().min(1).max(THEME_NAME_CHARS)).min(1).max(THEME_NAMES_MAX),
 });
 
+export type ThemeNamesInput = z.infer<typeof input>;
+export type ThemeNamesOutput = z.infer<typeof output>;
+
 export const themeNamesTask = defineAiTask({
   id: "picker.theme_names",
   toolId: "picker",
@@ -37,6 +48,6 @@ export const themeNamesTask = defineAiTask({
   maxTokens: 4096,
   input,
   output,
-  fallback: ({ theme, count, seed }) => ({ names: fallbackThemeNames(theme, count, seed) }),
+  fallback: themeNamesFallback,
   sample: { theme: "Rivers of the world", count: 8 },
 });

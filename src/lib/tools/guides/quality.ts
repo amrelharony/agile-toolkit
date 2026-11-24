@@ -462,4 +462,45 @@ export const GUIDES: ToolGuide[] = [
       },
     ],
   },
+  {
+    toolId: "bug-triage",
+    summary:
+      "Bug Triage sorts new bugs on a grid of how bad each one is against how soon it needs fixing. Each cell says what to do next, and the page shows which bugs have waited longer than they should.",
+    whenToUse: [
+      "Bugs arrive faster than anyone reads them.",
+      "After a bug bash or a test session.",
+      "The team argues about which bug comes first.",
+    ],
+    steps: [
+      "Log a bug in one line. More details holds the steps, what you expected and what happened.",
+      "Triage the oldest first: answer the quick checks, then place it by severity and priority.",
+      "Fix now logs it as an interrupt in the running sprint; next or later adds it to the backlog tagged bug; some day closes it with a reason.",
+      "All bugs shows each bug's age and which are past their fix-by target, and a bug whose work is done offers Close as fixed.",
+      "Ask Amr for severities suggests a severity, a priority and likely duplicates for you to accept, and Suggest severities without AI does the same from the checks.",
+    ],
+    tips: [
+      "Severity is how bad, priority is how soon, so keep them apart.",
+      "A duplicate closes pointing at the bug it repeats.",
+    ],
+    timebox: "Ten minutes, a few times a week.",
+  },
+  {
+    toolId: "test-sessions",
+    summary:
+      "Test Sessions runs exploratory testing in timed sessions. Each starts from a charter that says what to explore, with what, and what you want to learn; you take notes as you go, and the debrief says what was covered and what was found.",
+    whenToUse: [
+      "A story needs testing beyond its scripted checks.",
+      "Before a release.",
+      "A part of the product keeps surprising people.",
+    ],
+    steps: [
+      "Plan a session: the charter, a tester, a story if there is one, and a length from 15 minutes to 4 hours.",
+      "Start it to claim the timer, then add notes, bugs, questions and ideas, one line each.",
+      "At the end, send the bugs to Bug Triage with one Undo.",
+      "Debrief: how much was covered, how the time split between testing, bugs and setup, and what's next.",
+      "Ask Amr suggests charters from a story's notes and criteria, and Suggest charters without AI builds them from its Given/When/Then and ten lenses, such as limits, roles or a slow network.",
+    ],
+    tips: ["One charter per session: a new idea becomes the next session's charter."],
+    timebox: "A session is usually 45 to 90 minutes.",
+  },
 ];

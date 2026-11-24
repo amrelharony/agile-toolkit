@@ -1,0 +1,170 @@
+import type {
+  Improvement,
+  ImprovementCondition,
+  ImprovementStep,
+} from "@/lib/stores/workspace-types";
+import {
+  METHOD_LABEL,
+  OBSTACLE_STATUS_LABEL,
+  STATUS_LABEL,
+  STEP_STATUS_LABEL,
+  composeCondition,
+  doneElsewhere,
+  ownStatusOnly,
+  sortedReadings,
+  valueText,
+  type StepDone,
+} from "@/lib/improve/model";
+
+/** A table cell: one line, pipes escaped. */
+const cell = (s: string | undefined) =>
+  (s ?? "").replace(/\s+/g, " ").trim().replace(/\|/g, "\\|") || "—";
+
+/** Text kept as one paragraph per line. */
+const para = (s: string | undefined) => (s ?? "").trim();
+
+const condition = (c: ImprovementCondition, word: "by" | "on") =>
+  composeCondition(c, word) || "Not set yet.";
+
+/** A step's status as the page shows it: done where it was sent, or its own. */
+const stepStatus = (s: ImprovementStep, done: StepDone) =>
+  doneElsewhere(s, done) ?? STEP_STATUS_LABEL[s.status];
+
+function readingsTable(item: Improvement): string[] {
+  const rows = sortedReadings(item);
+  if (rows.length === 0) return ["No reading yet."];
+  const unit = item.target.unit ?? item.current.unit;
+  return [
+    "| Date | Value | Note |",
+    "| --- | --- | --- |",
+    ...rows.map(
+      (r) => `| ${r.date} | ${cell(valueText({ value: r.value, unit }))} | ${cell(r.note)} |`
+    ),
+  ];
+}
+
+function a3(
+  item: Improvement,
+  done: StepDone,
+  analysisTitle?: (id: string) => string | undefined
+): string[] {
+  const linked = item.rootCauseId ? analysisTitle?.(item.rootCauseId) : undefined;
+  const steps = item.steps;
+  return [
+    "### Why it matters",
+    para(item.background) || "Not written yet.",
+    "",
+    "### Where we are",
+    condition(item.current, "on"),
+    "",
+    "### Where we want to be",
+    condition(item.target, "by"),
+    "",
+    "### Why it happens",
+    para(item.analysis) || "Not written yet.",
+    ...(linked ? ["", `Root Cause analysis: ${linked}`] : []),
+    "",
+    "### What we'll change",
+    ...(steps.length === 0
+      ? ["Nothing yet."]
+      : [
+          "| What | Owner | Due | Status |",
+          "| --- | --- | --- | --- |",
+          ...steps.map(
+            (s) =>
+              `| ${cell(s.text)} | ${cell(s.owner)} | ${cell(s.due)} | ${stepStatus(s, done)} |`
+          ),
+        ]),
+    "",
+    "### Did it work?",
+    ...readingsTable(item),
+    "",
+    `What the check showed: ${para(item.check) || "Not written yet."}`,
+    "",
+    "### What's next",
+    para(item.followUp) || "Not written yet.",
+  ];
+}
+
+function kata(item: Improvement, done: StepDone): string[] {
+  const past = item.pastTargets ?? [];
+  return [
+    "### Challenge",
+    para(item.background) || "Not written yet.",
+    "",
+    "### Next target",
+    condition(item.target, "by"),
+    ...(past.length > 0
+      ? [
+          "",
+          "Past targets:",
+          ...past.map((t) => `- ${condition(t, "by")} (reached ${t.reachedAt.slice(0, 10)})`),
+        ]
+      : []),
+    "",
+    "### Where we are",
+    condition(item.current, "on"),
+    ...(item.nextCoachingAt ? ["", `Next coaching talk: ${item.nextCoachingAt}`] : []),
+    "",
+    "### Obstacles",
+    ...(item.obstacles.length === 0
+      ? ["None yet."]
+      : item.obstacles.map((o) =>
+          o.status === "cleared"
+            ? `- ~~${para(o.text)}~~ (cleared)`
+            : `- ${para(o.text)}${o.status === "working" ? ` (${OBSTACLE_STATUS_LABEL.working.toLowerCase()})` : ""}`
+        )),
+    "",
+    "### Experiments",
+    ...(item.steps.length === 0
+      ? ["None yet."]
+      : [
+          "| Try | Expect | Happened | Learned | Status |",
+          "| --- | --- | --- | --- | --- |",
+          ...item.steps.map(
+            (s) =>
+              `| ${cell(s.text)} | ${cell(s.expect)} | ${cell(s.result)} | ${cell(s.learned)} | ${stepStatus(s, done)} |`
+          ),
+        ]),
+    "",
+    "### Readings",
+    ...readingsTable(item),
+  ];
+}
+
+/**
+ * Every improvement as Markdown: the verdict quoted, then each one with its
+ * method and status, who leads it and its coach, an A3's seven sections
+ * (countermeasures and readings as tables) or a Kata's challenge, targets,
+ * obstacles (cleared ones struck through), experiments and readings. A
+ * step's status is the page's (`done`, stepDoneIn): one done where it was
+ * sent reads "Done in Retro Actions" or "Done in the backlog".
+ */
+export function improveToMarkdown(
+  items: readonly Improvement[],
+  {
+    verdict,
+    analysisTitle,
+    done = ownStatusOnly,
+  }: {
+    verdict?: string;
+    analysisTitle?: (id: string) => string | undefined;
+    done?: StepDone;
+  } = {}
+): string {
+  const out = ["# Improvements", ""];
+  if (verdict) out.push(`> ${verdict}`, "");
+  if (items.length === 0) {
+    out.push("No improvement yet.");
+    return out.join("\n");
+  }
+  for (const item of items) {
+    out.push(`## ${item.title}`, "", `${METHOD_LABEL[item.method]} · ${STATUS_LABEL[item.status]}`);
+    const people = [item.owner && `Owner: ${item.owner}`, item.coach && `Coach: ${item.coach}`]
+      .filter(Boolean)
+      .join(" · ");
+    if (people) out.push(people);
+    out.push("", ...(item.method === "a3" ? a3(item, done, analysisTitle) : kata(item, done)), "");
+  }
+  return out.join("\n").trimEnd() + "\n";
+}

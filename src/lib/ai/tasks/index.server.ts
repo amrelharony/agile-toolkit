@@ -6,44 +6,100 @@
 import "server-only";
 import type { AiTaskPrompt } from "../task-types";
 import { suggestOptionsPrompt } from "./_example.server";
+import { abPlanCheckPrompt } from "./ab-calculator.server";
+import { asyncStandupDigestPrompt } from "./async-standup.server";
 import { clusterPrompt, mergeQuestionsPrompt, toBacklogPrompt } from "./audience-wall.server";
 import { backlogHealthReviewPrompt } from "./backlog-health.server";
+import { bugTriageSeverityPrompt } from "./bug-triage.server";
 import { cardForMoodPrompt, generateCardsPrompt } from "./card-decks.server";
+import { ebmMeasuresPrompt } from "./ebm-dashboard.server";
+import { mapExamplesPrompt, mapQuestionsPrompt, mapRulesPrompt } from "./example-mapping.server";
 import { agendaPrompt } from "./facilitator-timers.server";
+import { flowInsightsClassifyPrompt } from "./flow-insights.server";
+import { hillChartUpdateNotePrompt } from "./hill-chart.server";
+import { impactMapDraftPrompt } from "./impact-map.server";
+import { impedimentsClusterPrompt } from "./impediments.server";
+import { improveNextExperimentPrompt } from "./improve.server";
 import { interruptClassifyPrompt } from "./interrupt-buffer.server";
+import { kanbanPoliciesPrompt } from "./kanban.server";
+import { kickoffDraftPrompt } from "./kickoff.server";
 import { meetingAuditSuggestPrompt } from "./meeting-audit.server";
+import { notesToActionsExtractPrompt } from "./notes-to-actions.server";
 import { parkingRoutePrompt } from "./parking-lot.server";
+import { personaFromNotesPrompt } from "./persona-library.server";
+import { roamPrompt } from "./pi-planning.server";
 import { themeNamesPrompt } from "./picker.server";
+import { pokerSimilarPrompt } from "./planning-poker.server";
+import { productCanvasDraftPrompt, productCanvasGapsPrompt } from "./product-canvas.server";
 import { productGoalDraftPrompt } from "./product-goal.server";
+import { productMetricsSuggestPrompt } from "./product-metrics.server";
+import { sizingDiscussPrompt, sizingSplitPrompt } from "./relative-sizing.server";
+import { releaseReadinessNotesPrompt } from "./release-readiness.server";
 import { groupTopicsPrompt, surprisePlanPrompt } from "./retro.server";
 import { retroActionsThemesPrompt } from "./retro-actions.server";
-import { categoriesPrompt, countermeasurePrompt, nextWhyPrompt } from "./root-cause.server";
+import {
+  categoriesPrompt,
+  countermeasurePrompt,
+  loopLinksPrompt,
+  nextWhyPrompt,
+} from "./root-cause.server";
 import { notebookTagPrompt, notebookWeeklySummaryPrompt } from "./sm-notebook.server";
 import { sprintRiskNotePrompt } from "./sprint.server";
+import { strategyTreeDraftPrompt } from "./strategy-tree.server";
+import { teamTimeScheduleNotePrompt } from "./team-time.server";
+import { testSessionsChartersPrompt } from "./test-sessions.server";
 
 // See index.ts on `any`: each prompt's input is checked by its task's schema first.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const AI_PROMPTS: readonly (AiTaskPrompt<any> & { taskId: string })[] = [
   suggestOptionsPrompt,
+  abPlanCheckPrompt,
+  asyncStandupDigestPrompt,
   clusterPrompt,
   mergeQuestionsPrompt,
   toBacklogPrompt,
   backlogHealthReviewPrompt,
+  bugTriageSeverityPrompt,
   generateCardsPrompt,
   cardForMoodPrompt,
+  ebmMeasuresPrompt,
+  mapRulesPrompt,
+  mapExamplesPrompt,
+  mapQuestionsPrompt,
   agendaPrompt,
+  flowInsightsClassifyPrompt,
+  hillChartUpdateNotePrompt,
+  impactMapDraftPrompt,
+  impedimentsClusterPrompt,
+  improveNextExperimentPrompt,
   interruptClassifyPrompt,
+  kanbanPoliciesPrompt,
+  kickoffDraftPrompt,
   meetingAuditSuggestPrompt,
+  notesToActionsExtractPrompt,
   parkingRoutePrompt,
+  personaFromNotesPrompt,
+  roamPrompt,
   themeNamesPrompt,
+  pokerSimilarPrompt,
+  productCanvasDraftPrompt,
+  productCanvasGapsPrompt,
   productGoalDraftPrompt,
+  productMetricsSuggestPrompt,
+  sizingDiscussPrompt,
+  sizingSplitPrompt,
+  releaseReadinessNotesPrompt,
   surprisePlanPrompt,
   groupTopicsPrompt,
   retroActionsThemesPrompt,
   nextWhyPrompt,
   categoriesPrompt,
   countermeasurePrompt,
+  loopLinksPrompt,
   notebookWeeklySummaryPrompt,
   notebookTagPrompt,
   sprintRiskNotePrompt,
+  strategyTreeDraftPrompt,
+  teamTimeScheduleNotePrompt,
+  testSessionsChartersPrompt,
 ];

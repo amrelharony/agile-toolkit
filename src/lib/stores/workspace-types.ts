@@ -193,6 +193,18 @@ export interface Story {
   link?: string;
   /** Its key in the team's tracker, such as "PAY-12" (at most 50 characters). */
   ticketKey?: string;
+  /*
+   * Flow Insights' fields (the tools plan's phase 2; see `BlockSpell` and
+   * `WORK_TYPES` in the Phase 43 block below). All optional: stories from
+   * before them have none.
+   */
+  /** What kind of work it is: a feature, a defect, debt or risk. */
+  workType?: WorkType;
+  /** Whether it adds value or is repeat work caused by an earlier failure. */
+  demand?: WorkDemand;
+  /** Its blocked spells, oldest first, stamped by lib/flow/block-stamps; at
+   *  most TOOL_LIST_MAX.blockLog are kept. */
+  blockLog?: BlockSpell[];
 }
 
 /** One Given/When/Then acceptance criterion on a story (see `Story.gwt`). */
@@ -261,6 +273,11 @@ export interface Impediment {
   dueDate?: ISODateString;
   /** Expected days to resolve, from when it was raised. */
   expectedResolutionDays?: number;
+  /** The blocker cluster it belongs to, such as "Waiting for a review" (at
+   *  most BLOCKER_CLUSTER_MAX characters). */
+  cluster?: string;
+  /** Whether the blocker sits inside the team or outside it. */
+  blockSide?: BlockSide;
 }
 
 /* ── Hand-offs ─────────────────────────────────────────────────────────
@@ -298,6 +315,14 @@ export const HANDOFF_ROUTE_IDS = [
   "opportunity",
   // Phase 42: an item opened as a root-cause analysis (Root Cause).
   "root-cause",
+  // Phase 43, the tools plan's phase 2: a bug to triage (Bug Triage) and an
+  // interrupt in the running sprint (Interrupt Buffer), P2.2; an epic on the
+  // roadmap (Epic Roadmap), P2.4; a rule proposed in the Working Agreement,
+  // P2.8.
+  "bug",
+  "interrupt",
+  "epic",
+  "agreement-rule",
 ] as const;
 
 export type HandoffRouteId = (typeof HANDOFF_ROUTE_IDS)[number];
@@ -1077,6 +1102,10 @@ export interface CharterRule {
   stillWorking?: boolean | "partly";
   /** Each person's answer; the source of truth for `agreedBy` once present. */
   consent?: CharterConsent[];
+  /** The item it was sent from (a kickoff's rule). */
+  sourceRef?: HandoffRef;
+  /** The charter template that wrote it, and which of its lines (slot, at most 40 characters). */
+  template?: { id: CharterTemplateId; slot: string };
 }
 
 export interface CharterMeta {
@@ -1129,6 +1158,8 @@ export interface WorkingAgreement {
   checkIns?: CharterCheckIn[];
   /** Published versions, oldest first (the latest 20 are kept). */
   versions?: CharterVersion[];
+  /** The charter templates applied (the tools plan's phase 2, P2.9; see `CharterTemplates`). */
+  templates?: CharterTemplates;
 }
 
 export interface LsFavorite {
@@ -1263,6 +1294,10 @@ export interface WardleyMap {
  * TreeNodeKind).
  * ────────────────────────────────────────────────────────────────── */
 
+/** An epic's place on the Now, Next, Later board (Epic Roadmap). */
+export const EPIC_HORIZONS = ["now", "next", "later"] as const;
+export type EpicHorizon = (typeof EPIC_HORIZONS)[number];
+
 export interface Epic {
   id: string;
   title: string;
@@ -1272,6 +1307,10 @@ export interface Epic {
   progress: number;
   owner?: string;
   color?: string;
+  /** Set by hand on the Now, Next, Later board; absent: read from its quarters. */
+  horizon?: EpicHorizon;
+  /** The item it was sent from (an impact map's deliverable, a strategy tree's initiative). */
+  sourceRef?: HandoffRef;
 }
 
 export interface EpicRoadmap {
@@ -1349,6 +1388,8 @@ export interface ReleaseShip {
   gateIds?: string[];
   gates?: Record<string, boolean>;
   gatesOpenAtShip?: number;
+  /** When the release was reopened after this ship (ISO time): notes saved before it were written for this ship. */
+  reopenedAt?: string;
 }
 
 export interface Release {
@@ -1370,6 +1411,8 @@ export interface Release {
   previousShips?: ReleaseShip[];
   /** Stories it ships, for an exact DORA lead time. */
   storyIds?: string[];
+  /** Its release notes, for customers or for the team (text at most TOOL_TEXT_MAX.releaseNotes). */
+  releaseNotes?: { audience: "customers" | "team"; text: string; updatedAt: string };
 }
 
 /** release-readiness singleton: launch gates + ship/rollback tracking. */
@@ -1506,6 +1549,17 @@ export interface Hypothesis {
   target?: HypothesisTarget;
   /** The measured result, in target.unit. Absent until measured. */
   actual?: number;
+  /*
+   * Value checks (the tools plan's phase 2, P2.5): did the shipped work
+   * deliver? See `HypothesisMeasuredBy` and `HypothesisShipped` in the
+   * Phase 43 block.
+   */
+  /** How it is measured. */
+  measuredBy?: HypothesisMeasuredBy;
+  /** The shipped story or epic it checks: present makes it a value check. */
+  shipped?: HypothesisShipped;
+  /** The day to read the result (YYYY-MM-DD). */
+  checkOn?: string;
 }
 
 export interface HypothesisTracker {
@@ -2359,7 +2413,21 @@ export interface StandupEntry {
   mode?: StandupMode;
   /** Anything else the person added (async posts). */
   description?: string;
+  /*
+   * The tools plan's phase 2 (P2.9): Progress/Plans/Problems, a DRI per
+   * blocker and a hand-over between time zones.
+   */
+  /** Absent: classic (yesterday, today, blockers). */
+  format?: StandupFormat;
+  /** Who is directly responsible for the blocker (at most 120 characters). */
+  blockerDri?: string;
+  /** A hand-over to the next time zone (at most 4,000 characters). */
+  handoff?: string;
 }
+
+/** A standup's format: classic (yesterday, today, blockers) or Progress/Plans/Problems. */
+export const STANDUP_FORMATS = ["classic", "ppp"] as const;
+export type StandupFormat = (typeof STANDUP_FORMATS)[number];
 
 /** A demo item in a sprint review's demo script. */
 export interface DemoFeature {
@@ -2432,7 +2500,16 @@ export interface RetroCard {
   dueDate?: ISODateString;
   /** The item this was sent from (a red health check, a kudos). */
   sourceRef?: HandoffRef;
+  /**
+   * The sprint day it happened, 0-based like `SprintDay.day` (0 is the first
+   * day), at most RETRO_CARD_DAY_MAX: an Emotional Seismograph board charts
+   * its cards by day.
+   */
+  day?: number;
 }
+
+/** The latest sprint day a retro card can be placed on (0-based). */
+export const RETRO_CARD_DAY_MAX = 30;
 
 /** A retrospective board — a singleton document (one current retro under a
  *  fixed id) holding the format, phase, cards, and timer state. Starting a
@@ -2771,6 +2848,13 @@ export interface KanbanCard {
   /** Column moves, oldest first; only the latest `KANBAN_HISTORY_CAP`
    *  (lib/kanban/flow.ts) are kept. Absent on cards from before it. */
   history?: KanbanColumnChange[];
+  /** What kind of work it is (see `Story.workType`). */
+  workType?: WorkType;
+  /** Whether it adds value or is failure demand (see `Story.demand`). */
+  demand?: WorkDemand;
+  /** Its blocked spells, oldest first, stamped by lib/flow/block-stamps; at
+   *  most TOOL_LIST_MAX.blockLog are kept. */
+  blockLog?: BlockSpell[];
 }
 
 /** One move of a Flow-board card, as `movedCard` (lib/kanban/flow.ts) records it. */
@@ -3326,10 +3410,20 @@ export interface PokerRound {
  * cap text and lists at TOOL_TEXT_MAX and TOOL_LIST_MAX; the pages' forms use
  * the same caps, so a record a page saved is always one an agent can update. */
 
-/** Text caps for the Phase 42 records: a label, a sentence or two, notes. */
-export const TOOL_TEXT_MAX = { short: 200, text: 1000, long: 5000 } as const;
+/** Text caps for the Phase 42 and Phase 43 records: a label, a sentence or two, notes. */
+export const TOOL_TEXT_MAX = {
+  short: 200,
+  text: 1000,
+  long: 5000,
+  /** A note typed on the go: a hill scope's or check-in's note, a test session note. */
+  capture: 500,
+  /** Pasted meeting notes (Notes to Actions). */
+  paste: 12000,
+  /** A release's notes (Release Readiness). */
+  releaseNotes: 3000,
+} as const;
 
-/** List caps for the Phase 42 records. */
+/** List caps for the Phase 42 and Phase 43 records. */
 export const TOOL_LIST_MAX = {
   /** A 5 Whys chain. */
   whys: 20,
@@ -3343,6 +3437,68 @@ export const TOOL_LIST_MAX = {
   ratings: 20,
   /** A story's Given/When/Then criteria. */
   gwt: 20,
+  /** A sectioned document's sections (lib/sectioned: Kickoff, Product Canvas). */
+  sections: 16,
+  /** Items in one section of a sectioned document. */
+  sectionItems: 30,
+  /** Blocked spells kept on a story or a Kanban card (lib/flow/block-stamps). */
+  blockLog: 20,
+  /** Saved versions of the Definition of Workflow. */
+  workflowVersions: 12,
+  /** Kanban cadences on the Definition of Workflow. */
+  kanbanCadences: 10,
+  /** An example map's rules (Example Mapping). */
+  mapRules: 12,
+  /** An example map's examples, all rules together. */
+  mapExamples: 60,
+  /** An example map's open questions. */
+  mapQuestions: 20,
+  /** A hill chart's scopes. */
+  hillScopes: 30,
+  /** A hill chart's saved check-ins (the oldest go first). */
+  hillCheckIns: 52,
+  /** A test session's notes. */
+  sessionNotes: 200,
+  /** Items found in one set of meeting notes. */
+  noteItems: 50,
+  /** A product canvas's items, all sections together. */
+  canvasItems: 60,
+  /** Links on one product canvas item. */
+  itemLinks: 10,
+  /** Who asked for an idea in the idea inbox. */
+  requesters: 20,
+  /** A strategy map's nodes (Impact Map, Strategy Tree). */
+  strategyNodes: 150,
+  /** A persona's goals, frustrations or habits, each list. */
+  personaPoints: 8,
+  /** The interviews a persona comes from. */
+  personaInterviews: 20,
+  /** A North Star's input metrics. */
+  northStarInputs: 5,
+  /** Product metrics in all (Product Metrics, EBM Dashboard). */
+  productMetrics: 60,
+  /** An A/B test's guardrail metrics. */
+  abGuardrails: 3,
+  /** EBM reviews kept (six years of quarters). */
+  ebmReviews: 24,
+  /** An Improvement Kata's obstacles. */
+  kataObstacles: 30,
+  /** An improvement's steps: an A3's countermeasures or a Kata's experiments. */
+  improveSteps: 50,
+  /** An improvement's readings. */
+  improveReadings: 100,
+  /** An Improvement Kata's past target conditions. */
+  improvePastTargets: 20,
+  /** The things on a causal loop (Root Cause). */
+  loopNodes: 30,
+  /** The arrows on a causal loop. */
+  loopLinks: 60,
+  /** The named loops on a causal loop. */
+  loopNames: 20,
+  /** A kickoff's trade-off sliders. */
+  kickoffSliders: 8,
+  /** The people at a kickoff. */
+  kickoffParticipants: 30,
 } as const;
 
 export const PARKING_LOT_STATUSES = ["open", "discussed", "sent", "dropped"] as const;
@@ -3373,7 +3529,7 @@ export interface ParkingLotItem {
 /** The kind it syncs under (user_entities), for server-side reads and writes. */
 export const PARKING_LOT_ITEM_KIND = "workspace:parkingLotItem";
 
-export const ROOT_CAUSE_METHODS = ["five-whys", "fishbone"] as const;
+export const ROOT_CAUSE_METHODS = ["five-whys", "fishbone", "causal-loop"] as const;
 export type RootCauseMethod = (typeof ROOT_CAUSE_METHODS)[number];
 
 /** One answer in a 5 Whys chain, in order: the first answers why the problem happened. */
@@ -3415,6 +3571,8 @@ export interface RootCauseAnalysis {
   sourceRef?: HandoffRef;
   /** Where its countermeasure was sent (Retro Actions: "retro-action"). */
   sentTo?: HandoffLink[];
+  /** Its causal loop (the tools plan's phase 2; see `RootCauseLoop`). */
+  loop?: RootCauseLoop;
   createdAt: ISODateString;
   updatedAt: ISODateString;
 }
@@ -3485,6 +3643,8 @@ export interface InterruptItem {
   resolvedAt?: ISODateString;
   /** Where it was sent (the backlog, the Impediment Tracker). */
   sentTo?: HandoffLink[];
+  /** The item it was sent from (a bug fixed now, from Bug Triage). */
+  sourceRef?: HandoffRef;
 }
 
 export const INTERRUPT_ITEM_KIND = "workspace:interruptItem";
@@ -3549,6 +3709,1448 @@ export interface MeetingAudit {
 }
 
 export const MEETING_AUDIT_KIND = "workspace:meetingAudit";
+
+/* ── Phase 43: the tools plan's phase 2 ───────────────────────────────
+ * The shared types the phase 2 tools build on, grouped by PR. Text and list
+ * caps are TOOL_TEXT_MAX and TOOL_LIST_MAX above; "short" is
+ * TOOL_TEXT_MAX.short and "text" TOOL_TEXT_MAX.text. */
+
+/**
+ * The most bytes of UTF-8 JSON one synced row may hold. The database refuses
+ * a `user_entities` row over 512 KB (0005_user_state.sql); this leaves room
+ * for the row's own columns. At their caps several Phase 43 records could
+ * pass it, so their CRUDs refuse a bigger row and their pages check
+ * `jsonBytes(row)` against it before a write that grows one.
+ */
+export const ENTITY_ROW_MAX_BYTES = 480 * 1024;
+
+/* The sectioned kit (lib/sectioned): Kickoff and Product Canvas. */
+
+/** One line in a sectioned document (lib/sectioned): Kickoff's and Product Canvas's items extend it. */
+export interface SectionItem {
+  id: string;
+  text: string;
+  /** Who owns it: the roster's spelling when they're on the team. */
+  owner?: string;
+  /** Where it was sent: one link per route. */
+  sentTo?: HandoffLink[];
+}
+
+/* P2.1, Example Mapping and Planning Poker's estimates without a meeting. */
+
+/** What an example map says about its story: ready to build, too big (split by rule), or waiting on answers. */
+export const EXAMPLE_MAP_VERDICTS = ["ready", "split", "not-yet"] as const;
+export type ExampleMapVerdict = (typeof EXAMPLE_MAP_VERDICTS)[number];
+
+export const EXAMPLE_QUESTION_STATUSES = ["open", "answered", "dropped"] as const;
+export type ExampleQuestionStatus = (typeof EXAMPLE_QUESTION_STATUSES)[number];
+
+/** A rule the story must follow (a blue card). */
+export interface ExampleMapRule {
+  id: string;
+  /** The rule (at most "short"). */
+  text: string;
+  /** The backlog story "Split by rule" made from it ("backlog-story"). */
+  sentTo?: HandoffLink[];
+}
+
+/** A concrete example under one rule (a green card); Given, When and Then are all three or none. */
+export interface ExampleMapExample {
+  id: string;
+  /** The rule it illustrates. */
+  ruleId: string;
+  /** The example in a line (at most "short"). */
+  text: string;
+  /** Each at most "text". */
+  given?: string;
+  when?: string;
+  then?: string;
+}
+
+/** A question nobody can answer yet (a red card). */
+export interface ExampleMapQuestion {
+  id: string;
+  /** The question (at most "short"). */
+  text: string;
+  /** The rule it is about, when it is about one. */
+  ruleId?: string;
+  /** Who will find the answer (at most "short"): the roster's spelling when they're on the team. */
+  owner?: string;
+  status: ExampleQuestionStatus;
+  /** The answer, once it is answered (at most "text"). */
+  answer?: string;
+}
+
+/**
+ * An example map (Example Mapping): one story's rules, an example for each
+ * and the open questions, mapped in a short timebox.
+ */
+export interface ExampleMap {
+  id: string;
+  /** The story as typed, or its title (at most "short"). */
+  title: string;
+  /** The backlog story it maps. */
+  storyId?: string;
+  /** At most TOOL_LIST_MAX.mapRules. */
+  rules: ExampleMapRule[];
+  /** At most TOOL_LIST_MAX.mapExamples. */
+  examples: ExampleMapExample[];
+  /** At most TOOL_LIST_MAX.mapQuestions. */
+  questions: ExampleMapQuestion[];
+  verdict?: ExampleMapVerdict;
+  /** The timebox in minutes, 5–60 (the page starts at 25). */
+  timeboxMinutes?: number;
+  /** When its rules and examples were last sent to the story. */
+  sentAt?: ISODateString;
+  /** Where it was sent: only "backlog-story". */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const EXAMPLE_MAP_KIND = "workspace:exampleMap";
+
+export const POKER_ASYNC_STATUSES = ["open", "revealed", "closed"] as const;
+export type PokerAsyncStatus = (typeof POKER_ASYNC_STATUSES)[number];
+
+/** Caps for an estimate without a meeting (Planning Poker); `keepDays` is how long a closed round is kept. */
+export const POKER_ASYNC_MAX = {
+  stories: 20,
+  replies: 20,
+  deck: 16,
+  title: 80,
+  storyTitle: 120,
+  note: 140,
+  notesPerReply: 5,
+  name: 40,
+  expected: 20,
+  keepDays: 14,
+} as const;
+
+/** One story in an estimate without a meeting. */
+export interface PokerAsyncStory {
+  /** The queue story's sessionStoryId, otherwise a UUID. */
+  id: string;
+  /** At most POKER_ASYNC_MAX.storyTitle. */
+  title: string;
+  /** The card the team settled on. */
+  finalEstimate?: string;
+  /** Marked to talk about. */
+  discuss?: boolean;
+}
+
+/** One person's reply: a card per story and up to POKER_ASYNC_MAX.notesPerReply notes. */
+export interface PokerAsyncReply {
+  id: string;
+  /** As they typed it, cleaned to at most POKER_ASYNC_MAX.name characters. */
+  name: string;
+  votes: { storyId: string; card: string }[];
+  /** Each at most POKER_ASYNC_MAX.note characters. */
+  notes?: { storyId: string; text: string }[];
+  at: ISODateString;
+}
+
+/**
+ * A Planning Poker round without a meeting: people reply by a due date,
+ * then the host reveals. Store only (no CRUD): replies hold other people's
+ * names and notes.
+ */
+export interface PokerAsyncRound {
+  /** "async_…". */
+  id: string;
+  /** At most POKER_ASYNC_MAX.title. */
+  title: string;
+  /** The tool's ScaleType ("fibonacci", "tshirt" or "custom"). */
+  scaleType: string;
+  /** The cards, at most POKER_ASYNC_MAX.deck, each at most 32 characters. */
+  deck: string[];
+  /** 1 to POKER_ASYNC_MAX.stories. */
+  stories: PokerAsyncStory[];
+  /** Who is expected to reply, at most POKER_ASYNC_MAX.expected names. */
+  expected?: string[];
+  /** The day replies are due (YYYY-MM-DD). */
+  dueDate?: string;
+  /** Show each card's meaning from the Estimation Guide. */
+  withMeanings?: boolean;
+  /** At most POKER_ASYNC_MAX.replies. */
+  replies: PokerAsyncReply[];
+  status: PokerAsyncStatus;
+  revealedAt?: ISODateString;
+  closedAt?: ISODateString;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const POKER_ASYNC_ROUND_KIND = "workspace:pokerAsyncRound";
+
+/* P2.2, the bug flow (Bug Triage, Test Sessions), Hill Chart and Notes to
+ * Actions. Release notes ride `Release.releaseNotes`; an interrupt sent
+ * from another tool records it in `InterruptItem.sourceRef`. */
+
+/** How bad a bug is. */
+export const BUG_SEVERITIES = ["critical", "major", "minor", "cosmetic"] as const;
+export type BugSeverity = (typeof BUG_SEVERITIES)[number];
+
+/** How soon a bug needs fixing. */
+export const BUG_PRIORITIES = ["now", "next", "later", "someday"] as const;
+export type BugPriority = (typeof BUG_PRIORITIES)[number];
+
+export const BUG_STATUSES = ["new", "triaged", "closed"] as const;
+export type BugStatus = (typeof BUG_STATUSES)[number];
+
+export const BUG_CLOSE_REASONS = [
+  "fixed",
+  "duplicate",
+  "cant-reproduce",
+  "wont-fix",
+  "not-a-bug",
+] as const;
+export type BugCloseReason = (typeof BUG_CLOSE_REASONS)[number];
+
+/** How many people a bug reaches. */
+export const BUG_REACH = ["one", "some", "many", "all"] as const;
+export type BugReach = (typeof BUG_REACH)[number];
+
+/** The quick checks Bug Triage asks before a bug is placed on the grid. */
+export interface BugChecks {
+  dataLoss?: boolean;
+  security?: boolean;
+  workaround?: boolean;
+  blocksRelease?: boolean;
+  reach?: BugReach;
+}
+
+/** A bug logged for triage (Bug Triage). */
+export interface BugReport {
+  id: string;
+  /** One line (at most "short"). */
+  title: string;
+  /** The steps, what was expected and what happened (each at most "text"). */
+  steps?: string;
+  expected?: string;
+  actual?: string;
+  /** Each at most "short". */
+  environment?: string;
+  /** The product area. */
+  area?: string;
+  /** Who reported it: the roster's spelling when they're on the team. */
+  reportedBy?: string;
+  severity?: BugSeverity;
+  priority?: BugPriority;
+  checks?: BugChecks;
+  status: BugStatus;
+  /** Why it was closed ("closed" status). */
+  closeReason?: BugCloseReason;
+  /** The bug it repeats (closed as "duplicate"). */
+  duplicateOf?: string;
+  triagedAt?: ISODateString;
+  closedAt?: ISODateString;
+  /** The item it was sent from (a test session note, meeting notes). */
+  sourceRef?: HandoffRef;
+  /** Where it was sent: the backlog or an interrupt in the running sprint. */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const BUG_REPORT_KIND = "workspace:bugReport";
+
+/** One piece of work on a hill chart: uphill (0–50) while it is being worked out, downhill after. */
+export interface HillScope {
+  id: string;
+  /** At most "short". */
+  title: string;
+  /** Where it stands, a whole number 0–100: 50 is the top of the hill. */
+  position: number;
+  /** The story or epic it follows. */
+  storyId?: string;
+  epicId?: string;
+  /** At most "capture". */
+  note?: string;
+  /** When its position last changed. */
+  movedAt: ISODateString;
+  /** When it reached the bottom on the right (done). */
+  doneAt?: ISODateString;
+  /** Where it was sent (an impediment, when it is stuck). */
+  sentTo?: HandoffLink[];
+}
+
+/** A weekly check-in: every scope's position at the time. */
+export interface HillCheckIn {
+  id: string;
+  at: ISODateString;
+  /** At most TOOL_LIST_MAX.hillScopes, each position a whole number 0–100. */
+  positions: { scopeId: string; position: number }[];
+  /** At most "capture". */
+  note?: string;
+}
+
+/** A hill chart (Hill Chart) for a sprint or an epic. */
+export interface HillChart {
+  id: string;
+  /** At most "short". */
+  title: string;
+  /** What it covers (at most "text"). */
+  about?: string;
+  sprintId?: string;
+  epicId?: string;
+  /** At most TOOL_LIST_MAX.hillScopes. */
+  scopes: HillScope[];
+  /** At most TOOL_LIST_MAX.hillCheckIns; the oldest go first. */
+  checkIns: HillCheckIn[];
+  archived?: boolean;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const HILL_CHART_KIND = "workspace:hillChart";
+
+export const TEST_SESSION_STATUSES = ["planned", "running", "done"] as const;
+export type TestSessionStatus = (typeof TEST_SESSION_STATUSES)[number];
+
+/** How much of its charter a session covered. */
+export const TEST_SESSION_COVERAGE = ["all", "most", "some", "little"] as const;
+export type TestSessionCoverage = (typeof TEST_SESSION_COVERAGE)[number];
+
+export const TEST_NOTE_KINDS = ["note", "bug", "question", "idea"] as const;
+export type TestNoteKind = (typeof TEST_NOTE_KINDS)[number];
+
+/** What a test session explores, with what, and what it wants to learn. */
+export interface TestCharter {
+  /** At most "short". */
+  target: string;
+  /** At most "short". */
+  using?: string;
+  /** At most "text". */
+  toLearn: string;
+}
+
+/** One line noted during a session. */
+export interface TestSessionNote {
+  id: string;
+  at: ISODateString;
+  kind: TestNoteKind;
+  /** At most "capture". */
+  text: string;
+  /** Where it was sent (a bug, to Bug Triage). */
+  sentTo?: HandoffLink[];
+}
+
+/** A timed exploratory test session (Test Sessions). */
+export interface TestSession {
+  id: string;
+  charter: TestCharter;
+  /** Who tests (at most "short"). */
+  tester?: string;
+  storyId?: string;
+  /** At most "short". */
+  area?: string;
+  /** Its length, a whole number of minutes from 15 to 240. */
+  minutes: number;
+  status: TestSessionStatus;
+  startedAt?: ISODateString;
+  endedAt?: ISODateString;
+  coverage?: TestSessionCoverage;
+  /** How the time split, in whole percents that add up to 100. */
+  split?: { testing: number; bugs: number; setup: number };
+  /** At most TOOL_LIST_MAX.sessionNotes. */
+  notes: TestSessionNote[];
+  /** At most "text". */
+  debrief?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const TEST_SESSION_KIND = "workspace:testSession";
+
+export const MEETING_NOTE_ITEM_KINDS = [
+  "action",
+  "decision",
+  "impediment",
+  "story",
+  "bug",
+  "question",
+] as const;
+export type MeetingNoteItemKind = (typeof MEETING_NOTE_ITEM_KINDS)[number];
+
+export const MEETING_NOTE_ITEM_STATUSES = ["open", "sent", "dropped", "answered"] as const;
+export type MeetingNoteItemStatus = (typeof MEETING_NOTE_ITEM_STATUSES)[number];
+
+/** One item kept from a meeting's notes. */
+export interface MeetingNoteItem {
+  id: string;
+  kind: MeetingNoteItemKind;
+  /** At most "short". */
+  text: string;
+  /** At most "text". */
+  detail?: string;
+  /** At most "short": the roster's spelling when they're on the team. */
+  owner?: string;
+  /** The day it is due (YYYY-MM-DD). */
+  due?: string;
+  /** The line of the notes it came from (at most 200 characters). */
+  quote?: string;
+  status: MeetingNoteItemStatus;
+  keptAt: ISODateString;
+  /** Where it was sent: one link per route. */
+  sentTo?: HandoffLink[];
+}
+
+/** One meeting's notes and the items kept from them (Notes to Actions). */
+export interface MeetingNote {
+  id: string;
+  /** The meeting's name (at most "short"). */
+  meeting?: string;
+  /** The day of the meeting (YYYY-MM-DD). */
+  date: string;
+  /** The pasted notes (at most "paste"); "" once forgotten. */
+  text: string;
+  /** When the pasted text was forgotten, keeping only the items. */
+  forgottenAt?: ISODateString;
+  /** At most TOOL_LIST_MAX.noteItems. */
+  items: MeetingNoteItem[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const MEETING_NOTE_KIND = "workspace:meetingNote";
+
+/* P2.3, Product Canvas: a product idea on one page, in one of seven formats
+ * built on the sectioned kit. Product names carry the Product/PRODUCT_
+ * prefix, so nothing is ambiguous beside Kickoff's. */
+
+export const PRODUCT_CANVAS_FORMATS = [
+  "vision-board",
+  "value-proposition",
+  "idea",
+  "lean-ux",
+  "pr-faq",
+  "business-case",
+  "shape-up",
+] as const;
+export type ProductCanvasFormat = (typeof PRODUCT_CANVAS_FORMATS)[number];
+
+/** Whether a canvas item is a known fact or a guess still to test. */
+export const PRODUCT_CANVAS_EVIDENCE = ["fact", "assumption"] as const;
+export type ProductCanvasEvidence = (typeof PRODUCT_CANVAS_EVIDENCE)[number];
+
+export const PRODUCT_IDEA_SOURCES = ["customer", "stakeholder", "team", "data", "other"] as const;
+export type ProductIdeaSource = (typeof PRODUCT_IDEA_SOURCES)[number];
+
+export const PRODUCT_IDEA_STATUSES = [
+  "new",
+  "assessing",
+  "accepted",
+  "declined",
+  "merged",
+] as const;
+export type ProductIdeaStatus = (typeof PRODUCT_IDEA_STATUSES)[number];
+
+export const PRODUCT_CASE_VERDICTS = ["pending", "go", "no-go", "change"] as const;
+export type ProductCaseVerdict = (typeof PRODUCT_CASE_VERDICTS)[number];
+
+export const PRODUCT_BET_STATUSES = ["table", "bet", "passed", "shipped", "cut"] as const;
+export type ProductBetStatus = (typeof PRODUCT_BET_STATUSES)[number];
+
+/** Number caps on a product canvas: a Shape Up cycle, weeks of appetite, an idea's demand. */
+export const PRODUCT_CANVAS_MAX = { cycle: 60, weeks: 12, demand: 9999 } as const;
+
+/** One line on a product canvas (the sectioned kit's item, with Product Canvas's fields). */
+export interface ProductCanvasItem extends SectionItem {
+  /** More about it (at most "text"). */
+  detail?: string;
+  evidence?: ProductCanvasEvidence;
+  /** At most TOOL_LIST_MAX.itemLinks, each at most 40 characters. */
+  links?: string[];
+  /** The hard question it answers (at most "short"). */
+  promptId?: string;
+  /** A nice-to-have in a Shape Up pitch. */
+  niceToHave?: boolean;
+}
+
+/** An idea in the idea inbox: who asked, where it came from and how many want it. */
+export interface ProductIdeaIntake {
+  /** At most TOOL_LIST_MAX.requesters, each at most "short". */
+  requesters: string[];
+  source: ProductIdeaSource;
+  /** How many asked for it, 1 to PRODUCT_CANVAS_MAX.demand. */
+  demand: number;
+  status: ProductIdeaStatus;
+  /** The idea it was merged into ("merged"). */
+  mergedInto?: string;
+  /** At most "text". */
+  note?: string;
+}
+
+/** A lean business case's decision. */
+export interface ProductCaseDecision {
+  verdict: ProductCaseVerdict;
+  note?: string;
+  decidedAt?: ISODateString;
+}
+
+/** A Shape Up pitch on the betting table. */
+export interface ProductPitchBet {
+  status: ProductBetStatus;
+  /** The cycle it is bet on, 1 to PRODUCT_CANVAS_MAX.cycle. */
+  cycle?: number;
+  /** The day the cycle starts (YYYY-MM-DD). */
+  start?: string;
+  /** 1 to PRODUCT_CANVAS_MAX.weeks. */
+  weeks?: number;
+  decidedAt?: ISODateString;
+}
+
+/**
+ * A product idea on one page (Product Canvas): its format's sections hold
+ * the items, keyed by the format's section ids (lib/sectioned). At most
+ * TOOL_LIST_MAX.sections sections and TOOL_LIST_MAX.canvasItems items.
+ */
+export interface ProductCanvas {
+  id: string;
+  format: ProductCanvasFormat;
+  /** At most "short". */
+  title: string;
+  sections: Record<string, ProductCanvasItem[]>;
+  /** A Shape Up pitch's appetite, 1 to PRODUCT_CANVAS_MAX.weeks. */
+  appetiteWeeks?: number;
+  /** The idea format's inbox fields. */
+  intake?: ProductIdeaIntake;
+  /** The business case format's decision. */
+  decision?: ProductCaseDecision;
+  /** The Shape Up format's bet. */
+  bet?: ProductPitchBet;
+  /** The Product Goal it was drafted from. */
+  productGoalId?: string;
+  /** Where it was sent: one link per route. */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const PRODUCT_CANVAS_KIND = "workspace:productCanvas";
+
+/* P2.4, Impact Map and Strategy Tree (one StrategyMap entity with a
+ * format) and the Persona Library. The Epic Roadmap's Now, Next, Later
+ * rides `Epic.horizon`; an epic sent from a map records it in
+ * `Epic.sourceRef`. */
+
+export const STRATEGY_MAP_FORMATS = ["impact-map", "dibb", "lean-value-tree", "hoshin"] as const;
+export type StrategyMapFormat = (typeof STRATEGY_MAP_FORMATS)[number];
+
+/** Where a strategy tree's part stands (not used on an impact map). */
+export const STRATEGY_NODE_STATUSES = ["proposed", "agreed", "questioned", "dropped"] as const;
+export type StrategyNodeStatus = (typeof STRATEGY_NODE_STATUSES)[number];
+
+/**
+ * One node of a strategy map. On an impact map level 0 is the goal, 1 an
+ * actor, 2 an impact and 3 a deliverable; a strategy tree's levels follow
+ * its format. Rules (lib/strategy-map/rules): one root at level 0, each
+ * node one level below its parent; `personaId` only on an impact map's
+ * actors, `focus` only on one of its impacts; `status` and `note` only on
+ * a strategy tree.
+ */
+export interface StrategyMapNode {
+  id: string;
+  /** null for the root. */
+  parentId: string | null;
+  level: 0 | 1 | 2 | 3;
+  /** At most "short". */
+  text: string;
+  /** At most "text". */
+  detail?: string;
+  /** How it is measured (at most "short"). */
+  measure?: string;
+  /** Who owns it (at most "short"). */
+  owner?: string;
+  status?: StrategyNodeStatus;
+  /** At most "text". */
+  note?: string;
+  /** The persona an impact map's actor is (Persona Library). */
+  personaId?: string;
+  /** The impact the team focuses on (one per impact map). */
+  focus?: boolean;
+  /** Where it was sent: the backlog, the roadmap or the Hypothesis Tracker. */
+  sentTo?: HandoffLink[];
+}
+
+/** An impact map or a strategy tree (DIBB, Lean Value Tree or Hoshin Kanri). */
+export interface StrategyMap {
+  id: string;
+  /** Fixed once the map is made. */
+  format: StrategyMapFormat;
+  /** At most "short". */
+  title: string;
+  /** At most TOOL_LIST_MAX.strategyNodes. */
+  nodes: StrategyMapNode[];
+  /** The Product Goal it starts from. */
+  productGoalId?: string;
+  /** The day its goal is due (YYYY-MM-DD). */
+  targetDate?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const STRATEGY_MAP_KIND = "workspace:strategyMap";
+
+/** A main persona, a secondary one, or an anti-persona (who the product is not for). */
+export const PERSONA_TIERS = ["primary", "secondary", "anti"] as const;
+export type PersonaTier = (typeof PERSONA_TIERS)[number];
+
+/** How much of a persona comes from research. */
+export const PERSONA_EVIDENCE = ["assumed", "some", "researched"] as const;
+export type PersonaEvidence = (typeof PERSONA_EVIDENCE)[number];
+
+/** Someone the team builds for (Persona Library). Personas live only here. */
+export interface Persona {
+  id: string;
+  /** A made-up name (at most "short"). */
+  name: string;
+  /** At most "short". */
+  role: string;
+  /** At most "text". */
+  summary?: string;
+  tier: PersonaTier;
+  evidence: PersonaEvidence;
+  /** Each list at most TOOL_LIST_MAX.personaPoints points of at most "short". */
+  goals: string[];
+  pains: string[];
+  behaviours: string[];
+  /** At most "short". */
+  quote?: string;
+  /** At most "text". */
+  context?: string;
+  /** At most TOOL_LIST_MAX.tags, each at most "short". */
+  tags: string[];
+  /** The User Interview Log interviews it comes from, at most TOOL_LIST_MAX.personaInterviews. */
+  interviewIds?: string[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const PERSONA_KIND = "workspace:persona";
+
+/* P2.5, Product Metrics, the A/B Calculator and the EBM Dashboard. The EBM
+ * measures are ProductMetric rows with `kva` set. The Hypothesis Tracker's
+ * value checks ride `Hypothesis.measuredBy`, `shipped` and `checkOn`. */
+
+/** A North Star, or one of the inputs that move it. */
+export const METRIC_ROLES = ["north-star", "input"] as const;
+export type MetricRole = (typeof METRIC_ROLES)[number];
+
+export const HEART_CATEGORIES = [
+  "happiness",
+  "engagement",
+  "adoption",
+  "retention",
+  "task-success",
+] as const;
+export type HeartCategory = (typeof HEART_CATEGORIES)[number];
+
+export const AARRR_STAGES = [
+  "acquisition",
+  "activation",
+  "retention",
+  "referral",
+  "revenue",
+] as const;
+export type AarrrStage = (typeof AARRR_STAGES)[number];
+
+/** Evidence-Based Management's four key value areas. */
+export const EBM_VALUE_AREAS = [
+  "current-value",
+  "unrealized-value",
+  "time-to-market",
+  "ability-to-innovate",
+] as const;
+export type EbmValueArea = (typeof EBM_VALUE_AREAS)[number];
+
+/** The toolkit's own numbers a metric can read its value from. */
+export const METRIC_SOURCE_IDS = [
+  "cycle-time-median",
+  "dora-lead-time",
+  "dora-deploys",
+  "dora-change-fail",
+  "nps-90d",
+  "open-tech-debt",
+] as const;
+export type MetricSourceId = (typeof METRIC_SOURCE_IDS)[number];
+
+/** One dated reading of a product metric. */
+export interface MetricReading {
+  id: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  value: number;
+  /** At most "short". */
+  note?: string;
+}
+
+/** A number the product lives by (Product Metrics), or an EBM measure (`kva`). */
+export interface ProductMetric {
+  id: string;
+  /** At most "short". */
+  name: string;
+  /** What it means (at most "text"). */
+  definition?: string;
+  /** At most HYPOTHESIS_UNIT_MAX (40) characters. */
+  unit?: string;
+  direction: MetricDirection;
+  baseline?: number;
+  target?: number;
+  /** At most "short". */
+  owner?: string;
+  /** A North Star or one of its inputs. */
+  role?: MetricRole;
+  /** Its HEART goal for one feature (each text at most "short"). */
+  heart?: { category: HeartCategory; feature: string; goal?: string; signal?: string };
+  /** Its AARRR funnel stage. */
+  aarrr?: AarrrStage;
+  /** Its EBM key value area. */
+  kva?: EbmValueArea;
+  /** Where its readings come from in the toolkit, when not typed. */
+  source?: MetricSourceId;
+  /** Oldest first, one per day; at most KR_CHECK_IN_CAP. */
+  readings: MetricReading[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const PRODUCT_METRIC_KIND = "workspace:productMetric";
+
+export const AB_TEST_STATUSES = ["planned", "running", "done"] as const;
+export type AbTestStatus = (typeof AB_TEST_STATUSES)[number];
+
+export const AB_DECISIONS = ["ship", "keep", "rerun"] as const;
+export type AbDecision = (typeof AB_DECISIONS)[number];
+
+/** One version in an A/B test: whole-number counts, conversions at most visitors. */
+export interface AbVariant {
+  id: string;
+  /** At most "short". */
+  name: string;
+  visitors: number;
+  conversions: number;
+}
+
+/** How an A/B test is planned, every rate as a fraction. */
+export interface AbTestPlan {
+  /** The current conversion rate, 0–1. */
+  baseline: number;
+  /** The smallest change worth finding. */
+  mde: number;
+  mdeMode: "relative" | "absolute";
+  /** 0.90, 0.95 or 0.99. */
+  confidence: number;
+  /** 0.8 or 0.9. */
+  power: number;
+  sided: "two" | "one";
+  /** Visitors a day, to say how long it runs. */
+  dailyTraffic?: number;
+}
+
+/** A planned or finished conversion test (A/B Calculator). */
+export interface AbTest {
+  id: string;
+  /** At most "short". */
+  name: string;
+  /** At most "text". */
+  question?: string;
+  metricName?: string;
+  /** The product metric it moves. */
+  metricId?: string;
+  /** The hypothesis it tests (Hypothesis Tracker). */
+  hypothesisId?: string;
+  plan: AbTestPlan;
+  /** Exactly two: the control, then B. */
+  variants: AbVariant[];
+  /** At most TOOL_LIST_MAX.abGuardrails. */
+  guardrails?: { name: string; why?: string }[];
+  status: AbTestStatus;
+  /** YYYY-MM-DD. */
+  startedOn?: string;
+  endedOn?: string;
+  decision?: AbDecision;
+  /** At most "text". */
+  note?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const AB_TEST_KIND = "workspace:abTest";
+
+/** A recorded EBM review: each area's score (0–1; absent: not measured) and the area to focus on next. */
+export interface EbmReview {
+  id: string;
+  /** YYYY-MM-DD. */
+  date: string;
+  focus: EbmValueArea;
+  /** At most "text". */
+  note?: string;
+  areas: Partial<Record<EbmValueArea, number>>;
+}
+
+/** The EBM Dashboard's one document, id EBM_BOARD_ID: the strategic goal and the reviews. */
+export interface EbmBoard {
+  id: string;
+  strategicGoal?: string;
+  /** Why it matters (at most "text"). */
+  strategicWhy?: string;
+  /** Oldest first, at most TOOL_LIST_MAX.ebmReviews. */
+  reviews: EbmReview[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const EBM_BOARD_KIND = "workspace:ebmBoard";
+export const EBM_BOARD_ID = "ebmBoard:current";
+
+/** How a value check is measured: a product metric, a key result, or in words. */
+export const MEASURED_BY_KINDS = ["metric", "key-result", "words"] as const;
+export type MeasuredByKind = (typeof MEASURED_BY_KINDS)[number];
+
+/** What a value check was shipped as. */
+export const SHIPPED_KINDS = ["story", "epic"] as const;
+export type ShippedKind = (typeof SHIPPED_KINDS)[number];
+
+/** How a hypothesis is measured: `metric` names `metricId`, `key-result` both ids, `words` a note. */
+export interface HypothesisMeasuredBy {
+  kind: MeasuredByKind;
+  metricId?: string;
+  okrId?: string;
+  keyResultId?: string;
+  /** At most 200 characters. */
+  note?: string;
+}
+
+/** The shipped story or epic a value check follows. */
+export interface HypothesisShipped {
+  kind: ShippedKind;
+  id: string;
+  /** At most 200 characters. */
+  title: string;
+  doneAt: string;
+}
+
+/* P2.6, Flow Insights and the Definition of Workflow: work types, blocked
+ * spells (`Story`, `KanbanCard` and `Impediment` carry the fields) and the
+ * workflow definition. */
+
+/** The kinds of work a story or a card can be. */
+export const WORK_TYPES = ["feature", "defect", "debt", "risk"] as const;
+export type WorkType = (typeof WORK_TYPES)[number];
+
+/** Value demand is new work people asked for; failure demand is repeat work caused by an earlier failure. */
+export const WORK_DEMANDS = ["value", "failure"] as const;
+export type WorkDemand = (typeof WORK_DEMANDS)[number];
+
+/** Whether a blocker sits inside the team or outside it. */
+export const BLOCK_SIDES = ["internal", "external"] as const;
+export type BlockSide = (typeof BLOCK_SIDES)[number];
+
+/** The most characters a blocker cluster's name can have. */
+export const BLOCKER_CLUSTER_MAX = 60;
+
+/**
+ * A blocked spell, stamped by lib/flow/block-stamps: when the flag went on
+ * (`from`) and off (`to`, absent while it is still blocked). `earlier`:
+ * flagged before tracking began (its time is a lower bound).
+ */
+export interface BlockSpell {
+  from: ISODateString;
+  to?: ISODateString;
+  /** What blocked it (at most "short"). */
+  cause?: string;
+  /** The blocker cluster it belongs to (at most BLOCKER_CLUSTER_MAX). */
+  cluster?: string;
+  side?: BlockSide;
+  earlier?: true;
+  /** Where it was sent (an impediment): at most one link per route. */
+  sentTo?: HandoffLink[];
+}
+
+/** The percentiles a service level expectation can be set at. */
+export const WORKFLOW_SLE_PERCENTILES = [50, 75, 85, 90, 95] as const;
+export type WorkflowSlePercentile = (typeof WORKFLOW_SLE_PERCENTILES)[number];
+
+/** One work type on the workflow: what it means here and the share of finished work it aims for. */
+export interface WorkflowWorkType {
+  type: WorkType;
+  /** What it means for this team (at most "short"). */
+  meaning?: string;
+  /** The target share of finished work, a whole number 0–100. */
+  targetPct?: number;
+}
+
+/** When work enters and leaves one stage of the workflow. */
+export interface WorkflowStagePolicy {
+  /** The stage's name (at most 20 characters). */
+  stage: string;
+  /** When work enters it (at most "short"). */
+  enter?: string;
+  /** When work leaves it (at most "short"). */
+  exit?: string;
+}
+
+/** How one class of service is handled (the policy at most "short"). */
+export interface WorkflowClassPolicy {
+  class: KanbanClassOfService;
+  policy: string;
+}
+
+/** Notes from the STATIK steps, one per step (each at most "text"). */
+export interface StatikNotes {
+  inside?: string;
+  outside?: string;
+  demand?: string;
+  capability?: string;
+  workflow?: string;
+  classes?: string;
+  design?: string;
+  rollout?: string;
+}
+
+/** A recurring Kanban meeting on the workflow. */
+export interface KanbanCadence {
+  id: string;
+  /** Its name (at most "short"). */
+  name: string;
+  cadence: MeetingCadence;
+  /** Its length in minutes, 5–240. */
+  minutes?: number;
+  /** What it is for (at most "short"). */
+  purpose?: string;
+}
+
+/**
+ * A saved version's copy of the workflow, with the board's WIP limits at the
+ * time, so a compare shows a WIP change. No STATIK notes, no cadences and no
+ * versions.
+ */
+export type WorkflowSnapshot = Pick<
+  WorkflowDefinition,
+  | "board"
+  | "workItem"
+  | "startPoint"
+  | "finishPoint"
+  | "workTypes"
+  | "policies"
+  | "classPolicies"
+  | "wipPolicy"
+  | "pullPolicy"
+  | "blockerPolicy"
+  | "sle"
+> & { wipLimits: Record<KanbanColumnId, number> };
+
+/** A saved version of the workflow. */
+export interface WorkflowVersion {
+  /** Its number, a whole number from 1. */
+  version: number;
+  savedAt: ISODateString;
+  /** What changed. */
+  note?: string;
+  /** What the team expects to change because of it (at most "short"). */
+  expect?: string;
+  snapshot: WorkflowSnapshot;
+}
+
+/**
+ * The team's Definition of Workflow (Kanban): one document, id
+ * WORKFLOW_DEFINITION_ID, describing one board (`board`). Its work-type
+ * targets apply to both boards, because Flow Insights reads them for both.
+ * Every policy and short text is at most "short", so its saved versions
+ * keep the row small.
+ */
+export interface WorkflowDefinition {
+  /** WORKFLOW_DEFINITION_ID. */
+  id: string;
+  /** The board it describes. */
+  board?: "sprint" | "flow";
+  /** What one item of work is. */
+  workItem?: string;
+  /** Where work is counted as started. */
+  startPoint?: string;
+  /** Where work is counted as finished. */
+  finishPoint?: string;
+  /** At most 4, one per work type. */
+  workTypes?: WorkflowWorkType[];
+  /** At most 6. */
+  policies?: WorkflowStagePolicy[];
+  /** At most 4, one per class of service. */
+  classPolicies?: WorkflowClassPolicy[];
+  wipPolicy?: string;
+  pullPolicy?: string;
+  blockerPolicy?: string;
+  /** The service level expectation: `pct` percent of items finish within `days` (1–365). */
+  sle?: { days: number; pct: WorkflowSlePercentile };
+  statik?: StatikNotes;
+  /** At most TOOL_LIST_MAX.kanbanCadences. */
+  cadences?: KanbanCadence[];
+  /** Saved versions: only the latest TOOL_LIST_MAX.workflowVersions are kept. */
+  versions?: WorkflowVersion[];
+  createdAt?: ISODateString;
+  updatedAt?: ISODateString;
+}
+
+export const WORKFLOW_DEFINITION_ID = "workflow-definition:current";
+export const WORKFLOW_DEFINITION_KIND = "workspace:workflowDefinition";
+
+/* P2.7, Improve (an A3 or the Improvement Kata), Root Cause's causal loop
+ * (`RootCauseAnalysis.loop`) and the Emotional Seismograph's card days
+ * (`RetroCard.day`). */
+
+export const IMPROVEMENT_METHODS = ["a3", "kata"] as const;
+export type ImprovementMethod = (typeof IMPROVEMENT_METHODS)[number];
+
+export const IMPROVEMENT_STATUSES = ["open", "checking", "closed", "dropped"] as const;
+export type ImprovementStatus = (typeof IMPROVEMENT_STATUSES)[number];
+
+export const IMPROVEMENT_STEP_STATUSES = ["planned", "running", "done", "dropped"] as const;
+export type ImprovementStepStatus = (typeof IMPROVEMENT_STEP_STATUSES)[number];
+
+export const KATA_OBSTACLE_STATUSES = ["open", "working", "cleared"] as const;
+export type KataObstacleStatus = (typeof KATA_OBSTACLE_STATUSES)[number];
+
+/** The most characters an improvement's unit can have. */
+export const IMPROVEMENT_UNIT_MAX = 20;
+
+/** Where things stand, or where the team wants them: words, and a number with a date when there is one. */
+export interface ImprovementCondition {
+  /** At most "text"; may be blank. */
+  text: string;
+  /** What is measured (at most "short"). */
+  metric?: string;
+  value?: number;
+  /** At most IMPROVEMENT_UNIT_MAX. */
+  unit?: string;
+  /** YYYY-MM-DD. */
+  date?: string;
+}
+
+/** A Kata target that was reached, kept when the next one is set. */
+export type ImprovementPastTarget = ImprovementCondition & { reachedAt: ISODateString };
+
+/** One dated reading of the improvement's number (note at most "short"). */
+export type ImprovementReading = Pick<KeyResultCheckIn, "id" | "date" | "value" | "note">;
+
+/** Something in the way of a Kata's target. */
+export interface ImprovementObstacle {
+  id: string;
+  text: string;
+  status: KataObstacleStatus;
+  /** Where it was sent (an impediment). */
+  sentTo?: HandoffLink[];
+}
+
+/** An A3's countermeasure or a Kata's experiment. */
+export interface ImprovementStep {
+  id: string;
+  /** Each at most "text". */
+  text: string;
+  expect?: string;
+  result?: string;
+  learned?: string;
+  /** The obstacle a Kata experiment works on. */
+  obstacleId?: string;
+  /** At most "short". */
+  owner?: string;
+  /** YYYY-MM-DD. */
+  due?: string;
+  status: ImprovementStepStatus;
+  doneAt?: ISODateString;
+  /** Where it was sent: Retro Actions or the backlog. */
+  sentTo?: HandoffLink[];
+}
+
+/** One thing being improved (Improve): an A3 or an Improvement Kata. */
+export interface Improvement {
+  id: string;
+  /** At most "short"; the only field that can't be blank. */
+  title: string;
+  /** Fixed when it starts. */
+  method: ImprovementMethod;
+  status: ImprovementStatus;
+  /** Each at most "short". */
+  owner?: string;
+  coach?: string;
+  /** Why it matters (at most "text"). */
+  background: string;
+  current: ImprovementCondition;
+  target: ImprovementCondition;
+  /** At most TOOL_LIST_MAX.improvePastTargets. */
+  pastTargets?: ImprovementPastTarget[];
+  /** Why it happens (at most "text"). */
+  analysis?: string;
+  /** The Root Cause analysis it links (at most 64 characters). */
+  rootCauseId?: string;
+  /** At most TOOL_LIST_MAX.kataObstacles; at most one "working". */
+  obstacles: ImprovementObstacle[];
+  /** At most TOOL_LIST_MAX.improveSteps. */
+  steps: ImprovementStep[];
+  /** At most TOOL_LIST_MAX.improveReadings. */
+  readings: ImprovementReading[];
+  /** Each at most "text". */
+  check?: string;
+  followUp?: string;
+  /** The next coaching talk (YYYY-MM-DD). */
+  nextCoachingAt?: string;
+  closedAt?: ISODateString;
+  /** Where it was sent: one link per route. */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const IMPROVEMENT_KIND = "workspace:improvement";
+
+/** An arrow on a causal loop: both things move the same way, or opposite ways. */
+export const LOOP_POLARITIES = ["same", "opposite"] as const;
+export type LoopPolarity = (typeof LOOP_POLARITIES)[number];
+
+/** Text caps on a causal loop: a thing on it, a loop's name. */
+export const LOOP_TEXT_MAX = { node: 120, name: 80 } as const;
+
+/** A thing on a causal loop that goes up or down. */
+export interface RootCauseLoopNode {
+  id: string;
+  /** At most LOOP_TEXT_MAX.node. */
+  text: string;
+}
+
+/** An arrow from one thing to another. */
+export interface RootCauseLoopLink {
+  id: string;
+  from: string;
+  to: string;
+  polarity: LoopPolarity;
+  /** The effect comes later. */
+  delay?: boolean;
+}
+
+/** A name the team gave one loop, keyed by the loop (at most 1,000 characters). */
+export interface RootCauseLoopName {
+  key: string;
+  /** At most LOOP_TEXT_MAX.name. */
+  name: string;
+}
+
+/** A Root Cause analysis's causal loop diagram. */
+export interface RootCauseLoop {
+  /** At most TOOL_LIST_MAX.loopNodes. */
+  nodes: RootCauseLoopNode[];
+  /** At most TOOL_LIST_MAX.loopLinks. */
+  links: RootCauseLoopLink[];
+  /** At most TOOL_LIST_MAX.loopNames. */
+  names?: RootCauseLoopName[];
+}
+
+/* P2.8, Kickoff: six formats built on the sectioned kit. A rule it sends to
+ * the Working Agreement records it in `CharterRule.sourceRef`. */
+
+export const KICKOFF_FORMATS = [
+  "alignment-map",
+  "project-poster",
+  "team-canvas",
+  "inception",
+  "trade-offs",
+  "problem-framing",
+] as const;
+export type KickoffFormat = (typeof KICKOFF_FORMATS)[number];
+
+export const KICKOFF_STATUSES = ["draft", "agreed"] as const;
+export type KickoffStatus = (typeof KICKOFF_STATUSES)[number];
+
+/** The most characters a kickoff item can have. */
+export const KICKOFF_ITEM_MAX = 500;
+/** The most characters a kickoff's brief can have. */
+export const KICKOFF_BRIEF_MAX = 2000;
+/** The most characters a trade-off slider's label can have. */
+export const KICKOFF_SLIDER_LABEL_MAX = 60;
+
+/**
+ * One line on a kickoff (the sectioned kit's item): its text is at most
+ * KICKOFF_ITEM_MAX and may be empty only when `owner` is set (a person whose
+ * role isn't known yet).
+ */
+export interface KickoffItem extends SectionItem {
+  /** A worry's likelihood and impact, whole numbers 1–5. */
+  likelihood?: number;
+  impact?: number;
+  /** The id of the worry item in the same kickoff this one answers. */
+  covers?: string;
+}
+
+/** One trade-off slider: positions are whole numbers 1–8, each used once. */
+export interface KickoffSlider {
+  id: string;
+  /** At most KICKOFF_SLIDER_LABEL_MAX. */
+  label: string;
+  position: number;
+  /** At most "short". */
+  note?: string;
+}
+
+/** A team's or a piece of work's kickoff (Kickoff), in one of six formats. */
+export interface Kickoff {
+  id: string;
+  /** At most "short". */
+  title: string;
+  format: KickoffFormat;
+  /** At most KICKOFF_BRIEF_MAX. */
+  brief?: string;
+  /** YYYY-MM-DD. */
+  date?: string;
+  /** At most TOOL_LIST_MAX.kickoffParticipants names, each at most "short". */
+  participants?: string[];
+  /** The items by the format's section id (lib/sectioned). */
+  sections: Record<string, KickoffItem[]>;
+  /** At most TOOL_LIST_MAX.kickoffSliders. */
+  sliders?: KickoffSlider[];
+  slidersSetAt?: ISODateString;
+  status: KickoffStatus;
+  agreedAt?: ISODateString;
+  /** The slider order's decision link. */
+  sentTo?: HandoffLink[];
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+export const KICKOFF_KIND = "workspace:kickoff";
+
+/* P2.9, Team Time (people, meeting-time polls and rotations), the Async
+ * Standup's formats (`StandupEntry.format`, `blockerDri`, `handoff`) and the
+ * Working Agreement's charter templates (`WorkingAgreement.templates`,
+ * `CharterRule.template`). */
+
+export const TEAM_TIME_PERSON_KIND = "workspace:teamTimePerson";
+export const TEAM_TIME_POLL_KIND = "workspace:teamTimePoll";
+export const TEAM_TIME_ROTATION_KIND = "workspace:teamTimeRotation";
+
+export const TEAM_TIME_ANSWERS = ["yes", "maybe", "no"] as const;
+export type TeamTimeAnswer = (typeof TEAM_TIME_ANSWERS)[number];
+
+export const TEAM_TIME_POLL_STATUSES = ["open", "closed"] as const;
+export type TeamTimePollStatus = (typeof TEAM_TIME_POLL_STATUSES)[number];
+
+/** A rotation moves the meeting's time in turn, or to whoever has had it worst. */
+export const TEAM_TIME_ROTATION_MODES = ["in-turn", "fairest"] as const;
+export type TeamTimeRotationMode = (typeof TEAM_TIME_ROTATION_MODES)[number];
+
+/** Team Time's caps: people, poll slots and answers, rotation options and held meetings, and text lengths. */
+export const TEAM_TIME_MAX = {
+  people: 50,
+  slots: 20,
+  answers: 50,
+  options: 4,
+  held: 52,
+  attendees: 50,
+  zone: 64,
+  site: 60,
+  label: 60,
+} as const;
+
+/** One person's time zone, hours and days (Team Time). */
+export interface TeamTimePerson {
+  id: string;
+  /** The roster member it is. */
+  teamMemberId?: string;
+  /** At most "short". */
+  name: string;
+  /** An IANA time zone in its canonical spelling, such as "Africa/Cairo". */
+  timeZone: string;
+  /** Working hours, "HH:MM" in their zone. */
+  start: string;
+  end: string;
+  /** 0 Sunday to 6 Saturday. */
+  workingDays: number[];
+  /** Days in the office, within the working days. */
+  officeDays?: number[];
+  /** Their office (at most TEAM_TIME_MAX.site). */
+  site?: string;
+  /** At most "text". */
+  note?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+/** One time a poll offers: a UTC instant. */
+export interface TeamTimeSlot {
+  id: string;
+  start: ISODateString;
+}
+
+/** One person's answers to a poll, by slot id. */
+export interface TeamTimePollAnswer {
+  /** At most "short". */
+  name: string;
+  picks: Record<string, TeamTimeAnswer>;
+}
+
+/** A poll for a meeting time (Team Time), answered by the facilitator. */
+export interface TeamTimePoll {
+  id: string;
+  /** At most "short". */
+  title: string;
+  /** The meeting's length in minutes. */
+  minutes: number;
+  /** At most TEAM_TIME_MAX.slots. */
+  slots: TeamTimeSlot[];
+  /** At most TEAM_TIME_MAX.answers. */
+  answers: TeamTimePollAnswer[];
+  status: TeamTimePollStatus;
+  chosenSlotId?: string;
+  /** At most "text". */
+  note?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+/** One time a rotating meeting can be held: a weekday and time in a zone. */
+export interface TeamTimeRotationOption {
+  id: string;
+  /** At most TEAM_TIME_MAX.label. */
+  label?: string;
+  /** 0 Sunday to 6 Saturday. */
+  weekday: number;
+  /** "HH:MM". */
+  time: string;
+  timeZone: string;
+}
+
+/** A held (or skipped) meeting of a rotation. */
+export interface TeamTimeHeld {
+  /** YYYY-MM-DD in the option's zone. */
+  date: string;
+  optionId: string;
+  skipped?: true;
+}
+
+/** A meeting that rotates between times, so the same people don't always take the late call. */
+export interface TeamTimeRotation {
+  id: string;
+  /** At most "short". */
+  meeting: string;
+  minutes: number;
+  everyWeeks: 1 | 2 | 3 | 4;
+  /** YYYY-MM-DD. */
+  startDate: string;
+  mode: TeamTimeRotationMode;
+  /** 2 to TEAM_TIME_MAX.options. */
+  options: TeamTimeRotationOption[];
+  /** TeamTimePerson ids, at most TEAM_TIME_MAX.attendees. */
+  attendees?: string[];
+  /** At most TEAM_TIME_MAX.held. */
+  held: TeamTimeHeld[];
+  /** The Meeting Audit row of the same meeting. */
+  meetingAuditId?: string;
+  createdAt: ISODateString;
+  updatedAt: ISODateString;
+}
+
+/** The Working Agreement's charter templates. */
+export const CHARTER_TEMPLATE_IDS = [
+  "urgency-ladder",
+  "core-hours",
+  "focus-time",
+  "ai-use",
+] as const;
+export type CharterTemplateId = (typeof CHARTER_TEMPLATE_IDS)[number];
+
+/** The caps of the charter templates' fields. */
+export const CHARTER_TEMPLATE_MAX = {
+  slot: 40,
+  levelsMin: 2,
+  levels: 6,
+  levelLabel: 40,
+  levelWhen: 160,
+  levelChannel: 80,
+  levelReplyWithin: 40,
+  anchorDays: 4,
+  site: 60,
+  weeklyMinHoursMin: 1,
+  weeklyMinHours: 40,
+  aiTools: 5,
+  aiTool: 60,
+  aiNote: 120,
+} as const;
+
+/** One rung of an urgency ladder: when to use it, where, and how fast a reply comes. */
+export interface UrgencyLevel {
+  id: string;
+  /** At most CHARTER_TEMPLATE_MAX.levelLabel. */
+  label: string;
+  /** At most CHARTER_TEMPLATE_MAX.levelWhen. */
+  when: string;
+  /** At most CHARTER_TEMPLATE_MAX.levelChannel. */
+  channel: string;
+  /** Free text, at most CHARTER_TEMPLATE_MAX.levelReplyWithin. */
+  replyWithin: string;
+}
+
+export interface UrgencyLadderTemplate {
+  /** 2 to CHARTER_TEMPLATE_MAX.levels. */
+  levels: UrgencyLevel[];
+  /** Whether the ladder holds after hours. */
+  afterHours: boolean;
+  appliedAt: ISODateString;
+}
+
+export const CORE_HOURS_PURPOSES = ["meetings", "quick-replies", "pairing"] as const;
+export type CoreHoursPurpose = (typeof CORE_HOURS_PURPOSES)[number];
+
+export interface CoreHoursTemplate {
+  /** "HH:MM". */
+  start: string;
+  end: string;
+  timeZone: string;
+  /** 0 Sunday to 6 Saturday. */
+  days: number[];
+  /** At least one. */
+  purposes: CoreHoursPurpose[];
+  /** Office anchor days by site, at most CHARTER_TEMPLATE_MAX.anchorDays. */
+  anchorDays?: { site: string; days: number[] }[];
+  appliedAt: ISODateString;
+}
+
+export interface FocusTimeTemplate {
+  days: number[];
+  start: string;
+  end: string;
+  /** null: each person's own clock. */
+  timeZone: string | null;
+  /** 1 to CHARTER_TEMPLATE_MAX.weeklyMinHours. */
+  weeklyMinHours?: number;
+  appliedAt: ISODateString;
+}
+
+/** Where AI is never used. */
+export const AI_USE_NEVER_IN = ["customer-data", "secrets", "confidential"] as const;
+export type AiUseNeverIn = (typeof AI_USE_NEVER_IN)[number];
+
+/** How AI-made work is reviewed. */
+export const AI_USE_REVIEW = ["as-any-work", "closer-look", "not-production"] as const;
+export type AiUseReview = (typeof AI_USE_REVIEW)[number];
+
+export interface AiUseTemplate {
+  /** At most CHARTER_TEMPLATE_MAX.aiTools, each at most CHARTER_TEMPLATE_MAX.aiTool. */
+  tools: string[];
+  neverIn: AiUseNeverIn[];
+  /** At most CHARTER_TEMPLATE_MAX.aiNote. */
+  neverInOther?: string;
+  review: AiUseReview;
+  customerFacing: boolean;
+  /** At most CHARTER_TEMPLATE_MAX.aiNote. */
+  shareWhere?: string;
+  appliedAt: ISODateString;
+}
+
+/** The templates a Working Agreement has applied. */
+export interface CharterTemplates {
+  urgencyLadder?: UrgencyLadderTemplate;
+  coreHours?: CoreHoursTemplate;
+  focusTime?: FocusTimeTemplate;
+  aiUse?: AiUseTemplate;
+}
 
 export interface Workspace {
   teamMembers: TeamMember[];
@@ -3695,6 +5297,30 @@ export interface Workspace {
   interruptItems?: InterruptItem[];
   notebookEntries?: NotebookEntry[];
   meetingAudits?: MeetingAudit[];
+  // Phase 43 — the tools plan's phase 2
+  exampleMaps?: ExampleMap[];
+  /** Planning Poker's estimates without a meeting (store only, no CRUD). */
+  pokerAsyncRounds?: PokerAsyncRound[];
+  bugReports?: BugReport[];
+  hillCharts?: HillChart[];
+  testSessions?: TestSession[];
+  meetingNotes?: MeetingNote[];
+  productCanvases?: ProductCanvas[];
+  /** Impact Maps and Strategy Trees (one entity, by format). */
+  strategyMaps?: StrategyMap[];
+  personas?: Persona[];
+  /** Product metrics and EBM measures (those with kva set). */
+  productMetrics?: ProductMetric[];
+  abTests?: AbTest[];
+  /** One EbmBoard, id EBM_BOARD_ID. */
+  ebmBoards?: EbmBoard[];
+  /** One WorkflowDefinition, id WORKFLOW_DEFINITION_ID (Kanban's Definition of Workflow). */
+  workflowDefinitions?: WorkflowDefinition[];
+  improvements?: Improvement[];
+  kickoffs?: Kickoff[];
+  teamTimePeople?: TeamTimePerson[];
+  teamTimePolls?: TeamTimePoll[];
+  teamTimeRotations?: TeamTimeRotation[];
 }
 
 /**
@@ -3977,6 +5603,25 @@ export const emptyWorkspace = {
   interruptItems: [],
   notebookEntries: [],
   meetingAudits: [],
+  // Phase 43 — the tools plan's phase 2
+  exampleMaps: [],
+  pokerAsyncRounds: [],
+  bugReports: [],
+  hillCharts: [],
+  testSessions: [],
+  meetingNotes: [],
+  productCanvases: [],
+  strategyMaps: [],
+  personas: [],
+  productMetrics: [],
+  abTests: [],
+  ebmBoards: [],
+  workflowDefinitions: [],
+  improvements: [],
+  kickoffs: [],
+  teamTimePeople: [],
+  teamTimePolls: [],
+  teamTimeRotations: [],
 } satisfies Workspace;
 
 /**

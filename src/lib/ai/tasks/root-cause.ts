@@ -1,5 +1,6 @@
 /**
- * Root Cause's AI tasks, the browser-safe half (prompts in root-cause.server.ts):
+ * Root Cause's AI tasks, the defs (prompts in root-cause.server.ts; pages
+ * import `root-cause.lite.ts`, which holds the fallbacks):
  *
  *   root-cause.next_why       the problem and the chain so far → up to 3
  *                             candidate answers to the next "why?"
@@ -7,18 +8,46 @@
  *                             category each cause belongs under
  *   root-cause.countermeasure the problem, the root cause and the chain →
  *                             up to 3 countermeasures, each with a check
+ *   root-cause.loop_links     the problem, the causal loop's things and
+ *                             arrows → up to 10 new arrows, each signed,
+ *                             with why it may hold
  *
  * Each has a fallback that needs no model: templates built from the last
  * answer (next_why), keyword rules for the six default categories
- * (categories), and templates built from the root cause (countermeasure).
- * The person accepts what fits; nothing is written on its own.
+ * (categories), templates built from the root cause (countermeasure), and
+ * a chain of the loop's things with one arrow back (loop_links). The
+ * person accepts what fits; nothing is written on its own.
  */
 
 import { z } from "zod";
-import { defineAiTask } from "../define-task";
+import { defineAiTask, type SchemaOf } from "../define-task";
+import {
+  LOOP_LINKS_INPUT_MAX,
+  LOOP_LINKS_MAX,
+  LOOP_LINK_WHY_MAX,
+  ROOT_CAUSE_SUGGESTIONS_MAX,
+  categoriesFallback,
+  countermeasureFallback,
+  loopLinksFallback,
+  nextWhyFallback,
+} from "./root-cause.lite";
 
-/** Candidates one ask returns. */
-export const ROOT_CAUSE_SUGGESTIONS_MAX = 3;
+export {
+  LOOP_LINKS_INPUT_MAX,
+  LOOP_LINKS_MAX,
+  LOOP_LINK_WHY_MAX,
+  ROOT_CAUSE_SUGGESTIONS_MAX,
+  categoriesFallback,
+  categoryFor,
+  countermeasureFallback,
+  fallbackCategoryMoves,
+  fallbackCountermeasures,
+  fallbackLoopLinks,
+  fallbackNextWhys,
+  guessPolarity,
+  loopLinksFallback,
+  nextWhyFallback,
+} from "./root-cause.lite";
 
 const Line = (max: number) => z.string().trim().max(max);
 
@@ -33,36 +62,8 @@ const nextWhyOutput = z.object({
   whys: z.array(Line(300).min(1)).min(1).max(ROOT_CAUSE_SUGGESTIONS_MAX),
 });
 
-/** "“Deploys failed”" for a template, cut to fit. */
-function quoted(text: string, max = 120): string {
-  const t = text
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/[.?!]+$/, "");
-  return `“${t.length > max ? `${t.slice(0, max - 1).trimEnd()}…` : t}”`;
-}
-
-/** The first sentence: the problem's title, when the page sends the title and the fact. */
-function firstSentence(text: string): string {
-  return text.trim().split(/(?<=[.?!])\s+/)[0] ?? text;
-}
-
-/**
- * Three candidate answers to the next "why?", built from the last answer
- * (or the problem's first sentence, its title, before the first): a check
- * that didn't catch it, the way of working that let it through, and nobody
- * owning it. Generic on purpose: they are prompts the team edits, and each
- * points at the process rather than a person.
- */
-export function fallbackNextWhys(problem: string, whys: readonly string[]): string[] {
-  const last = [...whys].reverse().find((w) => w.trim()) ?? firstSentence(problem);
-  const it = quoted(last);
-  return [
-    `No check caught ${it} before it went further.`,
-    `The way we plan and hand over work made ${it} easy to miss.`,
-    `Nobody clearly owned ${it}, so it waited.`,
-  ];
-}
+export type NextWhyInput = SchemaOf<typeof nextWhyInput>;
+export type NextWhyOutput = SchemaOf<typeof nextWhyOutput>;
 
 export const nextWhyTask = defineAiTask({
   id: "root-cause.next_why",
@@ -72,7 +73,7 @@ export const nextWhyTask = defineAiTask({
   maxTokens: 4096,
   input: nextWhyInput,
   output: nextWhyOutput,
-  fallback: ({ problem, whys }) => ({ whys: fallbackNextWhys(problem, whys) }),
+  fallback: nextWhyFallback,
   sample: {
     problem: "Two of the last three releases were rolled back the same day.",
     whys: [
@@ -110,63 +111,8 @@ const categoriesOutput = z.object({
     .max(100),
 });
 
-/**
- * Words that place a cause under one of the six default categories, first
- * match wins (in this order). Whole-word stems, lower case.
- */
-const CATEGORY_RULES: readonly { category: string; words: RegExp }[] = [
-  {
-    category: "Measurement",
-    words:
-      /\b(metric|monitor|alert|dashboard|measur|log|logging|observab|report|data|kpi|sla|trac(k|ing))/,
-  },
-  {
-    category: "Tools",
-    words:
-      /\b(tool|ci\b|pipeline|build|script|jira|server|library|framework|test suite|automation|deploy(ment)? tool|ide|laptop|software|bug)/,
-  },
-  {
-    category: "Environment",
-    words:
-      /\b(environment|staging|prod(uction)?|network|office|remote|time ?zone|outage|infra|cloud|vendor|weather|noise|holiday)/,
-  },
-  {
-    category: "People",
-    words:
-      /\b(skill|training|onboard|knowledge|new joiner|staff|hire|hiring|people|person|tired|overload|burnout|availab|sick|leave|holiday cover)/,
-  },
-  {
-    category: "Process",
-    words:
-      /\b(process|review|hand-?off|handover|approval|step|policy|plan|estimate|meeting|refinement|definition of done|checklist|priorit|scope|requirement|communicat)/,
-  },
-];
-
-/** The category a cause's words point to, or null when none does. */
-export function categoryFor(text: string): string | null {
-  const t = text.toLowerCase();
-  return CATEGORY_RULES.find((r) => r.words.test(t))?.category ?? null;
-}
-
-/**
- * Moves without AI: each cause whose words point to one of the board's
- * categories (by the keyword rules above) and that sits under another one.
- * A rule's category the board doesn't have is skipped.
- */
-export function fallbackCategoryMoves(
-  categories: readonly string[],
-  causes: readonly { id: string; text: string; category: string }[]
-): { causeId: string; category: string }[] {
-  const byKey = new Map(categories.map((c) => [c.trim().toLowerCase(), c]));
-  const out: { causeId: string; category: string }[] = [];
-  for (const cause of causes) {
-    const pick = categoryFor(cause.text);
-    const target = pick ? byKey.get(pick.toLowerCase()) : undefined;
-    if (!target || target.toLowerCase() === cause.category.trim().toLowerCase()) continue;
-    out.push({ causeId: cause.id, category: target });
-  }
-  return out.slice(0, 100);
-}
+export type CategoriesInput = SchemaOf<typeof categoriesInput>;
+export type CategoriesOutput = SchemaOf<typeof categoriesOutput>;
 
 export const categoriesTask = defineAiTask({
   id: "root-cause.categories",
@@ -176,7 +122,7 @@ export const categoriesTask = defineAiTask({
   maxTokens: 4096,
   input: categoriesInput,
   output: categoriesOutput,
-  fallback: ({ categories, causes }) => ({ moves: fallbackCategoryMoves(categories, causes) }),
+  fallback: categoriesFallback,
   sample: {
     problem: "Customers saw checkout errors for two hours before anyone noticed.",
     categories: ["People", "Process", "Tools", "Environment", "Measurement", "Other"],
@@ -209,28 +155,8 @@ const countermeasureOutput = z.object({
     .max(ROOT_CAUSE_SUGGESTIONS_MAX),
 });
 
-/**
- * Three countermeasures without AI, built from the root cause: stop it at
- * the source, catch it earlier, and make someone own it, each with a check
- * the team can look at in a sprint or two.
- */
-export function fallbackCountermeasures(rootCause: string): { text: string; check: string }[] {
-  const it = quoted(rootCause);
-  return [
-    {
-      text: `Change the step that lets ${it} happen, and write the new way into the Definition of Done.`,
-      check: "At the next two retros, ask whether it happened again.",
-    },
-    {
-      text: `Add a check that catches ${it} before work moves on.`,
-      check: "Count how often the check catches it over the next sprint.",
-    },
-    {
-      text: `Name one owner for ${it} and review it at each Sprint Review.`,
-      check: "The owner reports at the next review whether it came back.",
-    },
-  ];
-}
+export type CountermeasureInput = SchemaOf<typeof countermeasureInput>;
+export type CountermeasureOutput = SchemaOf<typeof countermeasureOutput>;
 
 export const countermeasureTask = defineAiTask({
   id: "root-cause.countermeasure",
@@ -240,7 +166,7 @@ export const countermeasureTask = defineAiTask({
   maxTokens: 4096,
   input: countermeasureInput,
   output: countermeasureOutput,
-  fallback: ({ rootCause }) => ({ countermeasures: fallbackCountermeasures(rootCause) }),
+  fallback: countermeasureFallback,
   sample: {
     problem: "Two of the last three releases were rolled back the same day.",
     rootCause: "Migrations are only tested on a small, seeded database.",
@@ -250,5 +176,60 @@ export const countermeasureTask = defineAiTask({
       "Migrations are only tested on a small, seeded database.",
     ],
     causes: ["No rehearsal of the release", "Release checklist skipped under time pressure"],
+  },
+});
+
+/* ── root-cause.loop_links ──────────────────────────────────────────── */
+
+const Polarity = z.enum(["same", "opposite"]);
+const L = LOOP_LINKS_INPUT_MAX;
+
+const loopLinksInput = z.object({
+  problem: Line(L.problem).min(1),
+  nodes: z
+    .array(z.object({ id: Line(L.id).min(1), text: Line(L.node).min(1) }))
+    .min(2)
+    .max(L.nodes),
+  links: z.array(z.object({ from: Line(L.id), to: Line(L.id), polarity: Polarity })).max(L.links),
+});
+
+const loopLinksOutput = z.object({
+  links: z
+    .array(
+      z.object({
+        from: Line(L.id).min(1),
+        to: Line(L.id).min(1),
+        polarity: Polarity,
+        delay: z.boolean().optional(),
+        why: Line(LOOP_LINK_WHY_MAX).min(1),
+      })
+    )
+    .max(LOOP_LINKS_MAX),
+});
+
+export type LoopLinksInput = SchemaOf<typeof loopLinksInput>;
+export type LoopLinksOutput = SchemaOf<typeof loopLinksOutput>;
+
+export const loopLinksTask = defineAiTask({
+  id: "root-cause.loop_links",
+  toolId: "root-cause",
+  tier: "flash",
+  effort: "low",
+  maxTokens: 4096,
+  input: loopLinksInput,
+  output: loopLinksOutput,
+  fallback: loopLinksFallback,
+  sample: {
+    problem: "Checkout errors noticed late. Customers saw errors for two hours before anyone knew.",
+    nodes: [
+      { id: "e", text: "Checkout errors customers see" },
+      { id: "t", text: "Support tickets" },
+      { id: "f", text: "Time spent firefighting" },
+      { id: "a", text: "Alerts on checkout" },
+    ],
+    links: [
+      { from: "e", to: "t", polarity: "same" },
+      { from: "t", to: "f", polarity: "same" },
+    ],
   },
 });

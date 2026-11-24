@@ -98,6 +98,17 @@ describe("AiSuggestions", () => {
     expect(doneLine("Shortlist", 5)).toBe("All shortlisted.");
     expect(doneLine("Deal", 1)).toBe("Dealt.");
     expect(doneLine("Merge", 1)).toBe("Merged.");
+    // Every other add-button word the tools use, irregular ones included.
+    expect(doneLine("Keep", 2)).toBe("All kept.");
+    expect(doneLine("Keep as a question", 2)).toBe("All kept.");
+    expect(doneLine("Plan", 2)).toBe("All planned.");
+    expect(doneLine("Set", 2)).toBe("All set.");
+    expect(doneLine("Set", 1)).toBe("Set.");
+    expect(doneLine("Place", 3)).toBe("All placed.");
+    expect(doneLine("Change", 2)).toBe("All changed.");
+    expect(doneLine("Replace", 2)).toBe("All replaced.");
+    expect(doneLine("Add tag", 2)).toBe("All added.");
+    expect(doneLine("Add to backlog", 2)).toBe("All added.");
     render(
       <AiSuggestions
         items={["Late standups", "Long standups"]}

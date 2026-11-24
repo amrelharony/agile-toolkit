@@ -97,6 +97,7 @@ import { RetroGoLive, type LiveRoomHandle } from "../room/host-live-room";
 import { hideCards } from "../room/hidden";
 import type { RetroThumbsHost } from "../room/use-retro-room";
 import { isLeanCoffee } from "@/lib/retro/lean-coffee";
+import { isSeismograph, seismographDays, teamMoodLine } from "@/lib/retro/seismograph";
 
 // Only a Lean Coffee board runs it: it loads with that board, not the page,
 // and its Ask Amr brings the AI kit and the task's schemas along.
@@ -104,6 +105,11 @@ const LeanCoffeeRunner = dynamic(
   () => import("./lean-coffee-runner").then((m) => m.LeanCoffeeRunner),
   { ssr: false }
 );
+
+// Only an Emotional Seismograph board draws it, with its chart.
+const SeismographView = dynamic(() => import("./seismograph-view").then((m) => m.SeismographView), {
+  ssr: false,
+});
 
 /** A fresh card in `columnKey`. */
 function newCard(columnKey: string, text: string): RetroCard {
@@ -200,6 +206,7 @@ export function Board({
   // A live room's thumbs vote, for the Lean Coffee runner (null on one screen).
   const [roomThumbs, setRoomThumbs] = useState<RetroThumbsHost | null>(null);
   const leanCoffee = isLeanCoffee(state);
+  const seismograph = isSeismograph(state);
 
   // Team names for "Voting as" (Vote phase).
   const teamNames = useWorkspaceStore(
@@ -226,6 +233,22 @@ export function Board({
   const lines = useMemo(
     () => (facts ? factLines(facts, { links: !example, impedimentsRecorded }) : []),
     [facts, example, impedimentsRecorded]
+  );
+
+  // An Emotional Seismograph board: the sprint's days (Day 0–9 with none,
+  // and on the example) and the team's mood on them, for the chart and the
+  // Markdown alike.
+  const moodEntries = useWorkspaceStore((s) => s.moodEntries);
+  const moodPulses = useWorkspaceStore((s) => s.moodPulses);
+  const seismo = useMemo(
+    () =>
+      seismograph
+        ? {
+            days: seismographDays(sprint),
+            mood: teamMoodLine(moodEntries, moodPulses, sprint),
+          }
+        : null,
+    [seismograph, sprint, moodEntries, moodPulses]
   );
 
   // Timer tick — only depend on timerRunning, not timerSeconds, to avoid
@@ -740,8 +763,9 @@ export function Board({
       toMarkdown({ format: state.format, cards: state.cards }, new Date(), {
         ...(facts ? { sprintName: facts.sprintName, facts: lines } : {}),
         themes,
+        ...(seismo ? { seismograph: seismo } : {}),
       }),
-    [state.format, state.cards, facts, lines, themes]
+    [state.format, state.cards, facts, lines, themes, seismo]
   );
   const exportJson = useMemo(
     () => buildExportJson({ format: state.format, cards: state.cards, votesPerPerson: budget }),
@@ -955,6 +979,20 @@ export function Board({
           />
         )}
 
+        {/* ── Emotional Seismograph: the cards on the sprint's days ── */}
+        {seismograph && seismo && (
+          <SeismographView
+            state={state}
+            shownCards={shownCards}
+            days={seismo.days}
+            mood={seismo.mood}
+            hasSprint={Boolean(sprint)}
+            example={example}
+            onUpdate={onUpdate}
+            log={log}
+          />
+        )}
+
         {/* ── Voting as (facilitator mode, Vote phase) ─────── */}
         {state.phase === "vote" && (
           <VoterPicker
@@ -1074,7 +1112,9 @@ export function Board({
           </Button>
           <span className="ml-auto text-xs text-sub">
             {state.format.name}
-            {sprint ? ` · ${sprint.name}` : ""} · Saved in your workspace
+            {/* Where it is saved is the header chip's to say: this browser for a
+                visitor, the owner's account for the owner. */}
+            {sprint ? ` · ${sprint.name}` : ""}
           </span>
         </div>
       </div>

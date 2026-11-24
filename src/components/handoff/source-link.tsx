@@ -8,7 +8,7 @@
 import Link from "next/link";
 import { CornerUpLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { sourceHref, sourceLabel } from "@/lib/handoffs/registry";
+import { sourceHref, sourceLabel } from "@/lib/handoffs/sources";
 import type { HandoffRef } from "@/lib/handoffs/types";
 
 export function SourceLink({

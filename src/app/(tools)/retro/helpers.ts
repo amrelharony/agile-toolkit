@@ -9,6 +9,7 @@
 import { retroFormats, type RetroFormat } from "@/lib/constants/retro-formats";
 import { retroVotes } from "@/lib/retro/board";
 import { slug } from "@/lib/retro/custom-format";
+import { isCardDay, isSeismograph } from "@/lib/retro/seismograph-format";
 import type { BoardState, RetroCard } from "./types";
 
 export function makeId() {
@@ -160,7 +161,9 @@ export function retroFileStem(format: Pick<RetroFormat, "id" | "name">): string 
   return `retro-${name && name !== "retro" ? name : "custom"}`;
 }
 
+/** The JSON export: a card's sprint day goes along only on an Emotional Seismograph board. */
 export function buildExportJson(state: Pick<BoardState, "format" | "cards" | "votesPerPerson">) {
+  const days = isSeismograph(state);
   return {
     format: state.format.name,
     votesPerPerson: retroVotes(state),
@@ -174,6 +177,7 @@ export function buildExportJson(state: Pick<BoardState, "format" | "cards" | "vo
           votes: c.votes,
           isActionItem: c.isActionItem,
           assignee: c.assignee || undefined,
+          ...(days && isCardDay(c.day) ? { day: c.day } : {}),
         })),
     })),
   };

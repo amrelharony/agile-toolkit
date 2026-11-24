@@ -1,39 +1,41 @@
 /**
- * Meeting Audit's AI task, the browser-safe half: up to five concrete changes
- * to the team's recurring meetings, from their length, cadence, headcount,
- * purpose and ratings. The person accepts each one; an accepted change goes
- * into that meeting's notes with its verdict set to change, with Undo.
+ * Meeting Audit's AI task, the def: up to five concrete changes to the
+ * team's recurring meetings, from their length, cadence, headcount, purpose
+ * and ratings. The person accepts each one; an accepted change goes into
+ * that meeting's notes with its verdict set to change, with Undo.
  *
  * Without AI the rules answer (lib/meeting-audit/model ruleChanges: a long
  * daily meeting is timeboxed, a long one with no outcome is cut, …), so the
- * audit works the same with AI off. The prompt is in `meeting-audit.server.ts`.
+ * audit works the same with AI off. That fallback and the caps live in
+ * `meeting-audit.lite.ts`, which pages import. The prompt is in
+ * `meeting-audit.server.ts`.
  */
 
 import { z } from "zod";
 import { defineAiTask } from "../define-task";
-import {
-  MEETING_CADENCES,
-  MEETING_VERDICTS,
-  type MeetingAudit,
-} from "@/lib/stores/workspace-types";
+import { MEETING_CADENCES, MEETING_VERDICTS } from "@/lib/stores/workspace-types";
 import {
   ATTENDEES_MAX,
   MEETING_CHANGES_MAX,
   MINUTES_MAX,
   RATING_MAX,
   RATING_MIN,
-  ruleChanges,
 } from "@/lib/meeting-audit/model";
+import {
+  MEETING_AUDIT_ID_MAX,
+  MEETING_AUDIT_MAX_MEETINGS,
+  MEETING_AUDIT_TEXT_MAX,
+  meetingAuditSuggestFallback,
+} from "./meeting-audit.lite";
 
-/** At most this many meetings per ask: a team's recurring calendar. */
-export const MEETING_AUDIT_MAX_MEETINGS = 30;
-/** Purposes and notes as sent: the first 300 characters say enough. */
-export const MEETING_AUDIT_TEXT_MAX = 300;
-/**
- * Ids as the task takes them. A stored id can be longer (an agent may choose
- * one), so the page leaves such a meeting out of the ask.
- */
-export const MEETING_AUDIT_ID_MAX = 64;
+export {
+  MEETING_AUDIT_ID_MAX,
+  MEETING_AUDIT_MAX_MEETINGS,
+  MEETING_AUDIT_TEXT_MAX,
+  fallbackChanges,
+  meetingAuditSuggestFallback,
+} from "./meeting-audit.lite";
+
 const ID_MAX = MEETING_AUDIT_ID_MAX;
 
 const rating = z.number().int().min(RATING_MIN).max(RATING_MAX).optional();
@@ -76,33 +78,8 @@ const output = z.object({
 });
 
 export type MeetingAuditAiInput = z.infer<typeof input>;
-export type MeetingChangeSuggestion = z.infer<typeof output>["changes"][number];
-
-/** The task's view of one meeting, as the rules read it. */
-function asAudit(m: MeetingAuditAiInput["meetings"][number]): MeetingAudit {
-  const ratings: Record<string, number> = {};
-  for (const [k, v] of Object.entries(m.ratings)) if (typeof v === "number") ratings[k] = v;
-  return {
-    id: m.id,
-    meeting: m.meeting,
-    cadence: m.cadence,
-    minutes: m.minutes,
-    attendees: m.attendees,
-    purpose: m.purpose ?? "",
-    ratings,
-    ...(m.verdict ? { verdict: m.verdict } : {}),
-    ...(m.notes ? { notes: m.notes } : {}),
-    createdAt: "",
-    updatedAt: "",
-  };
-}
-
-/** The changes without AI: the rules over the same meetings. */
-export function fallbackChanges(
-  meetings: MeetingAuditAiInput["meetings"]
-): MeetingChangeSuggestion[] {
-  return ruleChanges(meetings.map(asAudit));
-}
+export type MeetingAuditAiOutput = z.infer<typeof output>;
+export type MeetingChangeSuggestion = MeetingAuditAiOutput["changes"][number];
 
 export const meetingAuditSuggestTask = defineAiTask({
   id: "meeting-audit.suggest",
@@ -112,7 +89,7 @@ export const meetingAuditSuggestTask = defineAiTask({
   maxTokens: 4096,
   input,
   output,
-  fallback: ({ meetings }) => ({ changes: fallbackChanges(meetings) }),
+  fallback: meetingAuditSuggestFallback,
   sample: {
     meetings: [
       {

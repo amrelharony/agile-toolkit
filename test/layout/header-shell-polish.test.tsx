@@ -40,6 +40,7 @@ vi.mock("@/lib/kudos/beacon/header-beacon", () => ({ KudosHeaderBeacon: () => nu
 import { Header } from "@/components/layout/header";
 import { AMR_PANEL_ID } from "@/components/agent/mascot/panel-ids";
 import { useAgentStore } from "@/lib/agent/store";
+import { getSectionForTool } from "@/lib/constants/sections";
 import { getToolById } from "@/lib/constants/tools";
 import { VIP_TITLE } from "@/lib/vip/constants";
 
@@ -302,5 +303,35 @@ describe("the bar's title on a page that isn't a tool", () => {
     h.pathname = retro.path;
     const { container } = render(<Header onOpenSearch={() => {}} />);
     expect(currentPages(container).map((p) => p.textContent)).toEqual([retro.name]);
+  });
+});
+
+describe("the bar's middle crumb on a tool (from lg)", () => {
+  /** The trail's items as they read: Home, the middle crumb, the tool. */
+  const trail = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll("nav[aria-label='breadcrumb'] li"))
+      .filter((li) => li.getAttribute("role") !== "presentation")
+      .map((li) => li.textContent);
+
+  it.each([
+    ["retro", "Retrospect & improve"],
+    ["planning-poker", "Plan the sprint"],
+    ["audience-wall", "Run the sprint"],
+  ])("%s is under its section, %s, the name home and More in use", (id, label) => {
+    const tool = getToolById(id)!;
+    expect(getSectionForTool(id)?.label).toBe(label);
+    h.pathname = tool.path;
+    const { container } = render(<Header onOpenSearch={() => {}} />);
+    expect(trail(container)).toEqual(["Home", label, tool.name]);
+    // The category is no longer the crumb.
+    if (tool.category !== label) expect(screen.queryByText(tool.category)).toBeNull();
+  });
+
+  it("keeps the crumb from lg only, beside a title that can still be cut", () => {
+    h.pathname = getToolById("retro")!.path;
+    render(<Header onOpenSearch={() => {}} />);
+    const crumb = screen.getByText("Retrospect & improve");
+    expect(classesOf(crumb)).toEqual(expect.arrayContaining(["truncate", "max-w-[14rem]"]));
+    expect(classesOf(crumb.closest("li"))).toContain("lg:list-item");
   });
 });

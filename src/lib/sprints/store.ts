@@ -13,6 +13,19 @@ import { withStoryBlocked, withStoryStatus, withStorySprint } from "./story-stat
 import { withStoryDodCheck } from "@/lib/dod/model";
 
 /**
+ * Save `next` over `current` and return the story as the store keeps it,
+ * read back after the write: the store stamps a story's writes itself (its
+ * sprint moves, refinements and blocked spells), so the copy handed in is
+ * not always what was saved. No write, and `current` back, when `next` is
+ * `current`.
+ */
+function saveStory(current: Story, next: Story): Story {
+  if (next === current) return current;
+  useWorkspaceStore.getState().upsertStory(next);
+  return useWorkspaceStore.getState().stories.find((s) => s.id === next.id) ?? next;
+}
+
+/**
  * Move a story to `status`, stamping when work started, when it was done and
  * the change history (./story-status.ts). The one writer of a story's status
  * in the app, so cycle time and flow charts can trust the stamps. Returns
@@ -27,9 +40,7 @@ export function setStoryStatus(
   const ws = useWorkspaceStore.getState();
   const current = ws.stories.find((s) => s.id === id);
   if (!current) return null;
-  const next = withStoryStatus(current, status, at);
-  if (next !== current) ws.upsertStory(next);
-  return next;
+  return saveStory(current, withStoryStatus(current, status, at));
 }
 
 /**
@@ -49,9 +60,7 @@ export function setStorySprint(
   const ws = useWorkspaceStore.getState();
   const current = ws.stories.find((s) => s.id === id);
   if (!current) return null;
-  const next = withStorySprint(current, sprintId, at, { carriedOver });
-  if (next !== current) ws.upsertStory(next);
-  return next;
+  return saveStory(current, withStorySprint(current, sprintId, at, { carriedOver }));
 }
 
 /** Flag a story as blocked, or clear the flag. Returns the story as saved, or null. */
@@ -59,9 +68,7 @@ export function setStoryBlocked(id: string, blocked: boolean): Story | null {
   const ws = useWorkspaceStore.getState();
   const current = ws.stories.find((s) => s.id === id);
   if (!current) return null;
-  const next = withStoryBlocked(current, blocked);
-  if (next !== current) ws.upsertStory(next);
-  return next;
+  return saveStory(current, withStoryBlocked(current, blocked));
 }
 
 /**
@@ -78,9 +85,7 @@ export function setStoryDodCheck(
   const ws = useWorkspaceStore.getState();
   const current = ws.stories.find((s) => s.id === id);
   if (!current) return null;
-  const next = withStoryDodCheck(current, criterionId, checked, at);
-  if (next !== current) ws.upsertStory(next);
-  return next;
+  return saveStory(current, withStoryDodCheck(current, criterionId, checked, at));
 }
 
 /** Apply `update` to the stored series for `sprintId` (or an empty one) and save it. */

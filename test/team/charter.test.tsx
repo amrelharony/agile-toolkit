@@ -115,6 +115,7 @@ afterEach(() => {
     stories: [],
     sprints: [],
     retroBoards: [],
+    kickoffs: [],
   });
 });
 
@@ -407,5 +408,33 @@ describe("TeamCharter", () => {
     expect(md).toContain("- Fits in a sprint");
     expect(md).toContain("- Code reviewed");
     expect(md).toContain("| 1 | Our tiniest change |  |");
+  });
+
+  it("shows the team's purpose from its agreed Team Canvas, linked to that kickoff", () => {
+    const at = "2026-10-10T10:00:00.000Z";
+    const purpose = (status: "agreed" | "draft") => ({
+      id: `kickoff_${status}`,
+      title: "Squad kickoff",
+      format: "team-canvas" as const,
+      sections: { purpose: [{ id: `p_${status}`, text: `We ${status} on this` }] },
+      status,
+      ...(status === "agreed" ? { agreedAt: at } : {}),
+      createdAt: at,
+      updatedAt: at,
+    });
+    const { unmount } = render(<TeamCharter />);
+    expect(screen.queryByText("Team purpose:")).not.toBeInTheDocument();
+    unmount();
+
+    useWorkspaceStore.setState({ kickoffs: [purpose("draft"), purpose("agreed")] });
+    render(<TeamCharter />);
+    const line = screen.getByText("Team purpose:").closest("p") as HTMLElement;
+    expect(line).toHaveTextContent("We agreed on this");
+    expect(
+      within(line).getByRole("link", { name: "Open the Team Canvas in Kickoff" })
+    ).toHaveAttribute("href", "/kickoff?kickoff=kickoff_agreed");
+    expect(screen.getByTestId("export-markdown").textContent).toContain(
+      "## Team purpose\n\nWe agreed on this\n"
+    );
   });
 });

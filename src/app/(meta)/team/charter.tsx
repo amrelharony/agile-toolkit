@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, CalendarClock, ScrollText } from "lucide-react";
+import { ArrowRight, CalendarClock, PlaneTakeoff, ScrollText } from "lucide-react";
 import { useShallow } from "zustand/react/shallow";
 import { SectionCard } from "@/components/shared/section-card";
 import { ExportButton } from "@/components/shared/export-button";
@@ -14,6 +14,7 @@ import { collectRetroActions } from "@/lib/retro/actions";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
   HandoffLink,
+  Kickoff,
   ProductGoal,
   RetroBoard,
   Sprint,
@@ -27,7 +28,7 @@ import { useDefinitionOfDone } from "@/lib/dod/use-definition-of-done";
 import { WA_ID, normalizeAgreement } from "@/lib/working-agreement/model";
 import { useRefinementStore } from "@/app/(tools)/refinement/store";
 import { useEstimationGuideStore } from "@/app/(tools)/estimation-guide/store";
-import { charterCards, charterMarkdown, type CharterDocs } from "./charter-view";
+import { charterCards, charterMarkdown, charterPurpose, type CharterDocs } from "./charter-view";
 import { ProductGoalLine, useActiveProductGoal } from "@/components/product-goal/product-goal-line";
 
 /** Empty lists, so a workspace without stories or sprints doesn't make the docs anew each render. */
@@ -35,6 +36,7 @@ const NO_STORIES: Story[] = [];
 const NO_SPRINTS: Sprint[] = [];
 const NO_BOARDS: RetroBoard[] = [];
 const NO_GOALS: ProductGoal[] = [];
+const NO_KICKOFFS: Kickoff[] = [];
 
 /** An action handed to an impediment or a Kanban card is done when that is (as the cockpit counts it). */
 const handoffTargetDone = (link: HandoffLink): boolean =>
@@ -77,6 +79,8 @@ export function TeamCharter() {
   // The Product Goal the team works towards, read only (Product Goal edits it).
   const productGoals = useWorkspaceStore((s) => s.productGoals ?? NO_GOALS);
   const productGoal = useActiveProductGoal();
+  // The team's purpose from its agreed Team Canvas, read only (Kickoff edits it).
+  const kickoffs = useWorkspaceStore((s) => s.kickoffs ?? NO_KICKOFFS);
   // The guide's store waits to be asked (its page merges a shared link first).
   useEffect(() => {
     void useEstimationGuideStore.persist.rehydrate();
@@ -86,10 +90,22 @@ export function TeamCharter() {
   const [now] = useState(() => new Date());
 
   const docs = useMemo<CharterDocs>(
-    () => ({ members, cadence, agreement, dod, dor, estimation, stories, sprints, productGoals }),
-    [members, cadence, agreement, dod, dor, estimation, stories, sprints, productGoals]
+    () => ({
+      members,
+      cadence,
+      agreement,
+      dod,
+      dor,
+      estimation,
+      stories,
+      sprints,
+      productGoals,
+      kickoffs,
+    }),
+    [members, cadence, agreement, dod, dor, estimation, stories, sprints, productGoals, kickoffs]
   );
   const cards = useMemo(() => charterCards(docs), [docs]);
+  const purpose = useMemo(() => charterPurpose(docs), [docs]);
   const markdown = useMemo(() => charterMarkdown(docs, today), [docs, today]);
 
   // "Add to calendar" is for the sprint whose ceremonies come next: the active
@@ -125,6 +141,22 @@ export function TeamCharter() {
           charter as one document.
         </p>
         <ProductGoalLine goal={productGoal} className="mb-3" />
+        {purpose && (
+          <p className="mb-3 flex items-start gap-1.5 text-sm" data-field="team-purpose">
+            <PlaneTakeoff className="mt-0.5 h-4 w-4 shrink-0 text-accent" aria-hidden="true" />
+            <span className="min-w-0 break-words">
+              <span className="font-medium text-text">Team purpose: </span>
+              <span className="text-text">{purpose.text}</span>{" "}
+              <Link
+                href={purpose.href}
+                aria-label="Open the Team Canvas in Kickoff"
+                className="whitespace-nowrap text-xs text-accent hover:underline"
+              >
+                Open
+              </Link>
+            </span>
+          </p>
+        )}
         <ul className="grid gap-3 sm:grid-cols-2" aria-label="Charter documents">
           {cards.map((card) => {
             const tool = getToolById(card.toolId);
@@ -174,7 +206,7 @@ export function TeamCharter() {
                 )}
                 <Link
                   href={card.href}
-                  className="mt-auto inline-flex items-center gap-1 pt-1 text-sm font-medium text-accent hover:underline"
+                  className="mt-auto inline-flex items-center gap-1 pt-1 text-sm font-medium text-accent hover:underline pointer-coarse:min-h-11"
                 >
                   {card.empty ? "Write it" : "Open"}
                   <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />

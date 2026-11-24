@@ -1,8 +1,16 @@
 /**
  * A link that opens Quick Vote with a poll set up:
- * `/quick-vote?preset=poll&question=…&options=…`, the options one per
+ * `/quick-vote#preset=poll&question=…&options=…`, the options one per
  * line. Picker's "Vote in Quick Vote" builds it from its shortlist (up to
- * 20 names of up to 30 characters, a question of up to 200).
+ * 20 names of up to 30 characters, a question of up to 200), and Example
+ * Mapping, Product Canvas and Team Time from their own titles.
+ *
+ * The poll rides after the # sign, which browsers never send to a server:
+ * a next/link fetches (and prefetches) the page for its address without
+ * it, so what people typed stays in the browser, as the privacy page says.
+ * A query (`?preset=poll&…`, the old form) would reach the server's logs
+ * on every click and prefetch; Quick Vote still reads one, as a link it is
+ * handed, but nothing builds one.
  *
  * The page treats the link as untrusted text: only a poll is opened, each
  * value is cleaned and capped, and anything else in the link is ignored.
@@ -32,7 +40,10 @@ export interface PollLink {
   options: string[];
 }
 
-/** The link to open a poll with `question` and `options` (capped as the page reads them). */
+/**
+ * The link to open a poll with `question` and `options` (capped as the page
+ * reads them), carried after the # sign so it never reaches a server.
+ */
 export function pollLinkHref(question: string, options: readonly string[]): string {
   const params = new URLSearchParams({
     preset: "poll",
@@ -42,14 +53,17 @@ export function pollLinkHref(question: string, options: readonly string[]): stri
       .map((o) => cleanLine(o, LINK_OPTION_CHARS))
       .join("\n"),
   });
-  return `/quick-vote?${params.toString()}`;
+  return `/quick-vote#${params.toString()}`;
 }
 
-/** The poll a page address asks for (its `?…` part), or null when it asks for none. */
-export function readPollLink(search: string): PollLink | null {
+/**
+ * The poll a page address asks for, or null when it asks for none: its
+ * `#…` part (what pollLinkHref builds) or its `?…` part (an older link).
+ */
+export function readPollLink(part: string): PollLink | null {
   let params: URLSearchParams;
   try {
-    params = new URLSearchParams(search);
+    params = new URLSearchParams(part.startsWith("#") ? part.slice(1) : part);
   } catch {
     return null;
   }

@@ -37,6 +37,7 @@ import { generateInterruptBufferPrompts } from "@/lib/ai-prompts/interrupt-buffe
 import { SectionCard } from "@/components/shared/section-card";
 import { ExampleNotice, LoadExampleButton } from "@/components/tool-frame/example-data";
 import { SprintPicker } from "@/components/sprints/sprint-picker";
+import { SourceLink } from "@/components/handoff/source-link";
 import { IconButton } from "@/components/ui/icon-button";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
 import type {
@@ -53,7 +54,7 @@ import { INTERRUPT_BUFFER_ACTIONS } from "@/lib/history/event-actions";
 import { undoable } from "@/lib/utils/undoable";
 import { isExampleId } from "@/lib/utils/example-id";
 import type { AiSource } from "@/lib/ai/task-types";
-import { CLASSIFY_MAX, interruptClassifyTask } from "@/lib/ai/tasks/interrupt-buffer";
+import { CLASSIFY_MAX, interruptClassifyTask } from "@/lib/ai/tasks/interrupt-buffer.lite";
 import {
   EMPTY_INTERRUPT_DRAFT,
   INTERRUPT_KIND_LABEL,
@@ -625,6 +626,8 @@ export function BufferBoard({
                           {item.loggedAt.slice(0, 10)}
                           {item.resolvedAt && ` · resolved ${item.resolvedAt.slice(0, 10)}`}
                         </p>
+                        {/* Sent from another tool (a bug fixed now): a link back to it. */}
+                        <SourceLink sourceRef={item.sourceRef} />
                       </div>
                       <div className="ml-auto flex shrink-0 gap-1">
                         <IconButton

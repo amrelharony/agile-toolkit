@@ -43,6 +43,7 @@ export function validateAnalysisDraft(
 const METHOD_HINT: Record<RootCauseMethod, string> = {
   "five-whys": "Ask why, about five times, down one chain of causes.",
   fishbone: "Lay out many causes under people, process, tools and more, then count them.",
+  "causal-loop": "Map what feeds what, and find the loops that keep the problem going.",
 };
 
 export function NewAnalysisForm({
@@ -69,7 +70,7 @@ export function NewAnalysisForm({
             value={draft.title}
             maxLength={TOOL_TEXT_MAX.short}
             onChange={(e) => update({ title: e.target.value })}
-            placeholder="Releases rolled back the same day"
+            placeholder="e.g. Releases rolled back the same day"
           />
         )}
       </Field>

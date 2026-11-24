@@ -42,7 +42,7 @@ import { averageVelocity, completedSprints } from "@/lib/sprints/hub-view";
 import { sprintHref } from "@/lib/sprints/use-selected-sprint";
 import { todayIso } from "@/lib/sprints/series";
 import { findLink, withLink, withoutLink } from "@/lib/handoffs/registry";
-import { STORY_TITLE_MAX, buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
+import { buildBacklogStory } from "@/lib/handoffs/targets/backlog-story";
 import { STORY_ROUTE, actionSourceRef, impedimentSourceRef } from "@/lib/retro/improvement";
 import { backlogOrderText, storyPoints, totalStoryPoints } from "@/lib/sprints/plan";
 import {
@@ -576,9 +576,8 @@ export function PlanningBoard({
     }
     const story: Story = {
       ...buildBacklogStory({
+        // A long action is cut to a story title: the hand-off puts all of it in the notes.
         title: action.text,
-        // A long action is cut to a story title: its notes keep all of it.
-        description: action.text.trim().length > STORY_TITLE_MAX ? action.text : undefined,
         owner: action.assignee || undefined,
         sourceRef: actionSourceRef(action),
       }),

@@ -7,6 +7,7 @@ import {
   withStorySprint,
 } from "@/lib/sprints/story-status";
 import { cleanStoryFields } from "@/lib/stories/fields";
+import { stampBoardBlocks, stampStoryBlocks } from "@/lib/flow/block-stamps";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { reportStorageWriteFailure } from "./storage-health";
 import type {
@@ -137,10 +138,30 @@ import type {
   InterruptItem,
   NotebookEntry,
   MeetingAudit,
+  // Phase 43 — the tools plan's phase 2
+  ExampleMap,
+  PokerAsyncRound,
+  BugReport,
+  HillChart,
+  TestSession,
+  MeetingNote,
+  ProductCanvas,
+  StrategyMap,
+  Persona,
+  ProductMetric,
+  AbTest,
+  EbmBoard,
+  WorkflowDefinition,
+  Improvement,
+  Kickoff,
+  TeamTimePerson,
+  TeamTimePoll,
+  TeamTimeRotation,
 } from "./workspace-types";
 import { emptyWorkspace, weightedMatrixRemoval } from "./workspace-types";
 import { parseKudos } from "@/lib/kudos/parse";
 import { rowsUnlinkedFrom } from "@/lib/prioritization/binding";
+import { readAsyncRounds } from "@/lib/estimation/async-read";
 
 interface WorkspaceActions {
   setTeamName: (name: string) => void;
@@ -389,6 +410,43 @@ interface WorkspaceActions {
   removeNotebookEntry: (id: string) => void;
   upsertMeetingAudit: (x: MeetingAudit) => void;
   removeMeetingAudit: (id: string) => void;
+  // Phase 43 — the tools plan's phase 2
+  upsertExampleMap: (x: ExampleMap) => void;
+  removeExampleMap: (id: string) => void;
+  upsertPokerAsyncRound: (x: PokerAsyncRound) => void;
+  removePokerAsyncRound: (id: string) => void;
+  upsertBugReport: (x: BugReport) => void;
+  removeBugReport: (id: string) => void;
+  upsertHillChart: (x: HillChart) => void;
+  removeHillChart: (id: string) => void;
+  upsertTestSession: (x: TestSession) => void;
+  removeTestSession: (id: string) => void;
+  upsertMeetingNote: (x: MeetingNote) => void;
+  removeMeetingNote: (id: string) => void;
+  upsertProductCanvas: (x: ProductCanvas) => void;
+  removeProductCanvas: (id: string) => void;
+  upsertStrategyMap: (x: StrategyMap) => void;
+  removeStrategyMap: (id: string) => void;
+  upsertPersona: (x: Persona) => void;
+  removePersona: (id: string) => void;
+  upsertProductMetric: (x: ProductMetric) => void;
+  removeProductMetric: (id: string) => void;
+  upsertAbTest: (x: AbTest) => void;
+  removeAbTest: (id: string) => void;
+  upsertEbmBoard: (x: EbmBoard) => void;
+  removeEbmBoard: (id: string) => void;
+  upsertWorkflowDefinition: (x: WorkflowDefinition) => void;
+  removeWorkflowDefinition: (id: string) => void;
+  upsertImprovement: (x: Improvement) => void;
+  removeImprovement: (id: string) => void;
+  upsertKickoff: (x: Kickoff) => void;
+  removeKickoff: (id: string) => void;
+  upsertTeamTimePerson: (x: TeamTimePerson) => void;
+  removeTeamTimePerson: (id: string) => void;
+  upsertTeamTimePoll: (x: TeamTimePoll) => void;
+  removeTeamTimePoll: (id: string) => void;
+  upsertTeamTimeRotation: (x: TeamTimeRotation) => void;
+  removeTeamTimeRotation: (id: string) => void;
   replaceWorkspace: (w: Partial<Workspace>) => void;
   resetWorkspace: () => void;
   /** Batch upsert, stamped and cleaned as `upsertStory` does each one. Use
@@ -628,18 +686,24 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           return next;
         }),
       // Every local write of a story records when it was created, any
-      // change of its sprint and when what it says was refined (refinedAt;
-      // lib/sprints/story-status.ts); synced rows from other devices arrive
-      // through setEntities and keep their own stamps. Its notes, acceptance
-      // criteria, link and ticket key are cleaned and capped here too
-      // (lib/stories/fields.ts), whichever page wrote them.
+      // change of its sprint, when what it says was refined (refinedAt;
+      // lib/sprints/story-status.ts) and when its blocked flag went on or
+      // off (blockLog; lib/flow/block-stamps.ts); synced rows from other
+      // devices arrive through setEntities and keep their own stamps. Its
+      // notes, acceptance criteria, link and ticket key are cleaned and
+      // capped here too (lib/stories/fields.ts), whichever page wrote them.
       upsertStory: (s) =>
         set((_st) => {
           const prev = _st.stories.find((x) => x.id === s.id);
+          const at = new Date().toISOString();
           return {
             stories: replaceById(
               _st.stories,
-              stampRefinedWrite(stampStoryMembership(cleanStoryFields(s), prev), prev)
+              stampRefinedWrite(
+                stampStoryMembership(stampStoryBlocks(cleanStoryFields(s), prev, at), prev, at),
+                prev,
+                at
+              )
             ),
           };
         }),
@@ -821,7 +885,8 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => {
           if (items.length === 0) return _st;
           // Stamped as `upsertStory` stamps each one (created, joined its
-          // sprint, refined), with one time for the batch.
+          // sprint, refined, blocked or unblocked), with one time for the
+          // batch.
           const stored = new Map(_st.stories.map((x) => [x.id, x]));
           const at = new Date().toISOString();
           return {
@@ -830,7 +895,7 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
               items.map((s) => {
                 const prev = stored.get(s.id);
                 return stampRefinedWrite(
-                  stampStoryMembership(cleanStoryFields(s), prev, at),
+                  stampStoryMembership(stampStoryBlocks(cleanStoryFields(s), prev, at), prev, at),
                   prev,
                   at
                 );
@@ -1575,8 +1640,17 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ moodEntries: replaceById(_st.moodEntries ?? [], x) })),
       removeMoodEntry: (id) =>
         set((s) => ({ moodEntries: (s.moodEntries ?? []).filter((y) => y.id !== id) })),
+      // Each card's blocked flag going on or off opens or closes a blocked
+      // spell (lib/flow/block-stamps.ts), card by card against the stored
+      // board; synced boards arrive through setEntities and keep their logs.
       upsertKanbanBoard: (x) =>
-        set((_st) => ({ kanbanBoards: replaceById(_st.kanbanBoards ?? [], x) })),
+        set((_st) => {
+          const boards = _st.kanbanBoards ?? [];
+          const prev = boards.find((b) => b.id === x.id);
+          return {
+            kanbanBoards: replaceById(boards, stampBoardBlocks(x, prev, new Date().toISOString())),
+          };
+        }),
       removeKanbanBoard: (id) =>
         set((s) => ({ kanbanBoards: (s.kanbanBoards ?? []).filter((y) => y.id !== id) })),
       upsertDependencyMap: (x) =>
@@ -1612,6 +1686,74 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
         set((_st) => ({ meetingAudits: replaceById(_st.meetingAudits ?? [], x) })),
       removeMeetingAudit: (id) =>
         set((s) => ({ meetingAudits: (s.meetingAudits ?? []).filter((y) => y.id !== id) })),
+      // Phase 43 — the tools plan's phase 2
+      upsertExampleMap: (x) =>
+        set((_st) => ({ exampleMaps: replaceById(_st.exampleMaps ?? [], x) })),
+      removeExampleMap: (id) =>
+        set((s) => ({ exampleMaps: (s.exampleMaps ?? []).filter((y) => y.id !== id) })),
+      upsertPokerAsyncRound: (x) =>
+        set((_st) => ({ pokerAsyncRounds: replaceById(_st.pokerAsyncRounds ?? [], x) })),
+      removePokerAsyncRound: (id) =>
+        set((s) => ({ pokerAsyncRounds: (s.pokerAsyncRounds ?? []).filter((y) => y.id !== id) })),
+      upsertBugReport: (x) => set((_st) => ({ bugReports: replaceById(_st.bugReports ?? [], x) })),
+      removeBugReport: (id) =>
+        set((s) => ({ bugReports: (s.bugReports ?? []).filter((y) => y.id !== id) })),
+      upsertHillChart: (x) => set((_st) => ({ hillCharts: replaceById(_st.hillCharts ?? [], x) })),
+      removeHillChart: (id) =>
+        set((s) => ({ hillCharts: (s.hillCharts ?? []).filter((y) => y.id !== id) })),
+      upsertTestSession: (x) =>
+        set((_st) => ({ testSessions: replaceById(_st.testSessions ?? [], x) })),
+      removeTestSession: (id) =>
+        set((s) => ({ testSessions: (s.testSessions ?? []).filter((y) => y.id !== id) })),
+      upsertMeetingNote: (x) =>
+        set((_st) => ({ meetingNotes: replaceById(_st.meetingNotes ?? [], x) })),
+      removeMeetingNote: (id) =>
+        set((s) => ({ meetingNotes: (s.meetingNotes ?? []).filter((y) => y.id !== id) })),
+      upsertProductCanvas: (x) =>
+        set((_st) => ({ productCanvases: replaceById(_st.productCanvases ?? [], x) })),
+      removeProductCanvas: (id) =>
+        set((s) => ({ productCanvases: (s.productCanvases ?? []).filter((y) => y.id !== id) })),
+      upsertStrategyMap: (x) =>
+        set((_st) => ({ strategyMaps: replaceById(_st.strategyMaps ?? [], x) })),
+      removeStrategyMap: (id) =>
+        set((s) => ({ strategyMaps: (s.strategyMaps ?? []).filter((y) => y.id !== id) })),
+      upsertPersona: (x) => set((_st) => ({ personas: replaceById(_st.personas ?? [], x) })),
+      removePersona: (id) =>
+        set((s) => ({ personas: (s.personas ?? []).filter((y) => y.id !== id) })),
+      upsertProductMetric: (x) =>
+        set((_st) => ({ productMetrics: replaceById(_st.productMetrics ?? [], x) })),
+      removeProductMetric: (id) =>
+        set((s) => ({ productMetrics: (s.productMetrics ?? []).filter((y) => y.id !== id) })),
+      upsertAbTest: (x) => set((_st) => ({ abTests: replaceById(_st.abTests ?? [], x) })),
+      removeAbTest: (id) => set((s) => ({ abTests: (s.abTests ?? []).filter((y) => y.id !== id) })),
+      upsertEbmBoard: (x) => set((_st) => ({ ebmBoards: replaceById(_st.ebmBoards ?? [], x) })),
+      removeEbmBoard: (id) =>
+        set((s) => ({ ebmBoards: (s.ebmBoards ?? []).filter((y) => y.id !== id) })),
+      upsertWorkflowDefinition: (x) =>
+        set((_st) => ({ workflowDefinitions: replaceById(_st.workflowDefinitions ?? [], x) })),
+      removeWorkflowDefinition: (id) =>
+        set((s) => ({
+          workflowDefinitions: (s.workflowDefinitions ?? []).filter((y) => y.id !== id),
+        })),
+      upsertImprovement: (x) =>
+        set((_st) => ({ improvements: replaceById(_st.improvements ?? [], x) })),
+      removeImprovement: (id) =>
+        set((s) => ({ improvements: (s.improvements ?? []).filter((y) => y.id !== id) })),
+      upsertKickoff: (x) => set((_st) => ({ kickoffs: replaceById(_st.kickoffs ?? [], x) })),
+      removeKickoff: (id) =>
+        set((s) => ({ kickoffs: (s.kickoffs ?? []).filter((y) => y.id !== id) })),
+      upsertTeamTimePerson: (x) =>
+        set((_st) => ({ teamTimePeople: replaceById(_st.teamTimePeople ?? [], x) })),
+      removeTeamTimePerson: (id) =>
+        set((s) => ({ teamTimePeople: (s.teamTimePeople ?? []).filter((y) => y.id !== id) })),
+      upsertTeamTimePoll: (x) =>
+        set((_st) => ({ teamTimePolls: replaceById(_st.teamTimePolls ?? [], x) })),
+      removeTeamTimePoll: (id) =>
+        set((s) => ({ teamTimePolls: (s.teamTimePolls ?? []).filter((y) => y.id !== id) })),
+      upsertTeamTimeRotation: (x) =>
+        set((_st) => ({ teamTimeRotations: replaceById(_st.teamTimeRotations ?? [], x) })),
+      removeTeamTimeRotation: (id) =>
+        set((s) => ({ teamTimeRotations: (s.teamTimeRotations ?? []).filter((y) => y.id !== id) })),
       // Merge with emptyWorkspace first so "replace" truly replaces — unset
       // keys revert to their default rather than silently keeping prior state.
       replaceWorkspace: (w) => set({ ...emptyWorkspace, ...w }),
@@ -1727,6 +1869,25 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           interruptItems: s.interruptItems,
           notebookEntries: s.notebookEntries,
           meetingAudits: s.meetingAudits,
+          // Phase 43 — the tools plan's phase 2
+          exampleMaps: s.exampleMaps,
+          pokerAsyncRounds: s.pokerAsyncRounds,
+          bugReports: s.bugReports,
+          hillCharts: s.hillCharts,
+          testSessions: s.testSessions,
+          meetingNotes: s.meetingNotes,
+          productCanvases: s.productCanvases,
+          strategyMaps: s.strategyMaps,
+          personas: s.personas,
+          productMetrics: s.productMetrics,
+          abTests: s.abTests,
+          ebmBoards: s.ebmBoards,
+          workflowDefinitions: s.workflowDefinitions,
+          improvements: s.improvements,
+          kickoffs: s.kickoffs,
+          teamTimePeople: s.teamTimePeople,
+          teamTimePolls: s.teamTimePolls,
+          teamTimeRotations: s.teamTimeRotations,
           // Phase 22
           whiteboards: s.whiteboards,
           whiteboardObjects: s.whiteboardObjects,
@@ -1876,6 +2037,29 @@ export const useWorkspaceStore = create<Workspace & WorkspaceActions>()(
           interruptItems: arr("interruptItems"),
           notebookEntries: arr("notebookEntries"),
           meetingAudits: arr("meetingAudits"),
+          // Phase 43 — the tools plan's phase 2
+          exampleMaps: arr("exampleMaps"),
+          // No CRUD checks these rows on the way in: read them, so a malformed
+          // round is left out or repaired rather than thrown on by every reader.
+          pokerAsyncRounds: Array.isArray(p.pokerAsyncRounds)
+            ? readAsyncRounds(p.pokerAsyncRounds)
+            : undefined,
+          bugReports: arr("bugReports"),
+          hillCharts: arr("hillCharts"),
+          testSessions: arr("testSessions"),
+          meetingNotes: arr("meetingNotes"),
+          productCanvases: arr("productCanvases"),
+          strategyMaps: arr("strategyMaps"),
+          personas: arr("personas"),
+          productMetrics: arr("productMetrics"),
+          abTests: arr("abTests"),
+          ebmBoards: arr("ebmBoards"),
+          workflowDefinitions: arr("workflowDefinitions"),
+          improvements: arr("improvements"),
+          kickoffs: arr("kickoffs"),
+          teamTimePeople: arr("teamTimePeople"),
+          teamTimePolls: arr("teamTimePolls"),
+          teamTimeRotations: arr("teamTimeRotations"),
           // Phase 22 — Canvas
           whiteboards: arr("whiteboards"),
           whiteboardObjects: arr("whiteboardObjects"),
@@ -2029,6 +2213,21 @@ if (typeof window !== "undefined") {
   void Promise.resolve(useWorkspaceStore.persist.rehydrate()).catch(() => {
     /* corrupt persisted state — keep emptyWorkspace defaults */
   });
+
+  // Planning Poker's rounds without a meeting: a round past its 14 days is
+  // closed in storage, with its names and notes dropped, on whichever page
+  // loads or syncs the workspace (lib/estimation/async-expiry). Loaded on
+  // its own so the shared bundle doesn't carry it; one watcher across HMR.
+  type WindowWithExpiry = Window & { __agileToolkitAsyncExpiry?: () => void };
+  void import("@/lib/estimation/async-expiry")
+    .then(({ watchAsyncRoundExpiry }) => {
+      const w = window as WindowWithExpiry;
+      w.__agileToolkitAsyncExpiry?.();
+      w.__agileToolkitAsyncExpiry = watchAsyncRoundExpiry(useWorkspaceStore);
+    })
+    .catch(() => {
+      /* chunk failed to load: the readers still show an expired round closed */
+    });
 
   // R11-fix: cross-tab synchronisation. Two tabs of the same browser
   // each load + mutate the workspace independently; the LAST tab to
@@ -2242,6 +2441,27 @@ if (typeof window !== "undefined") {
     registerCollection("interruptItem", "interruptItems");
     registerCollection("notebookEntry", "notebookEntries");
     registerCollection("meetingAudit", "meetingAudits");
+    // Phase 43 — the tools plan's phase 2, the same way: each kind is what
+    // its workspace.* CRUD derives and what its *_KIND constant names
+    // (pokerAsyncRound has no CRUD; it names POKER_ASYNC_ROUND_KIND).
+    registerCollection("exampleMap", "exampleMaps");
+    registerCollection("pokerAsyncRound", "pokerAsyncRounds");
+    registerCollection("bugReport", "bugReports");
+    registerCollection("hillChart", "hillCharts");
+    registerCollection("testSession", "testSessions");
+    registerCollection("meetingNote", "meetingNotes");
+    registerCollection("productCanvas", "productCanvases");
+    registerCollection("strategyMap", "strategyMaps");
+    registerCollection("persona", "personas");
+    registerCollection("productMetric", "productMetrics");
+    registerCollection("abTest", "abTests");
+    registerCollection("ebmBoard", "ebmBoards");
+    registerCollection("workflowDefinition", "workflowDefinitions");
+    registerCollection("improvement", "improvements");
+    registerCollection("kickoff", "kickoffs");
+    registerCollection("teamTimePerson", "teamTimePeople");
+    registerCollection("teamTimePoll", "teamTimePolls");
+    registerCollection("teamTimeRotation", "teamTimeRotations");
     // Kudos wall — was localStorage-only + ephemeral realtime broadcast; now
     // also a per-entity synced collection so the agent (tool.kudos.*) can read
     // + post and the wall cloud-persists cross-device. The realtime broadcast
@@ -2420,6 +2640,24 @@ export function getWorkspaceSnapshot(): Workspace {
     interruptItems: state.interruptItems,
     notebookEntries: state.notebookEntries,
     meetingAudits: state.meetingAudits,
+    exampleMaps: state.exampleMaps,
+    pokerAsyncRounds: state.pokerAsyncRounds,
+    bugReports: state.bugReports,
+    hillCharts: state.hillCharts,
+    testSessions: state.testSessions,
+    meetingNotes: state.meetingNotes,
+    productCanvases: state.productCanvases,
+    strategyMaps: state.strategyMaps,
+    personas: state.personas,
+    productMetrics: state.productMetrics,
+    abTests: state.abTests,
+    ebmBoards: state.ebmBoards,
+    workflowDefinitions: state.workflowDefinitions,
+    improvements: state.improvements,
+    kickoffs: state.kickoffs,
+    teamTimePeople: state.teamTimePeople,
+    teamTimePolls: state.teamTimePolls,
+    teamTimeRotations: state.teamTimeRotations,
   };
 }
 

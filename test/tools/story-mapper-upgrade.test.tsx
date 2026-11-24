@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useWorkspaceStore } from "@/lib/stores/workspace-store";
@@ -37,6 +37,13 @@ import {
 import { cardDraftFrom, validateCard } from "@/app/(tools)/story-mapper/card-editor";
 import { cardColor } from "@/app/(tools)/story-mapper/card-colors";
 import { validateName } from "@/app/(tools)/story-mapper/inline-add";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 const SM_ID = "story-mapper:current";
 const NOW = new Date(2026, 9, 23);

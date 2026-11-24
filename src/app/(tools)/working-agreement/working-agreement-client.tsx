@@ -24,6 +24,7 @@ import { StatCard } from "@/components/shared/stat-card";
 import { Badge } from "@/components/ui/badge";
 import { useAnnounce } from "@/components/a11y/live-announcer";
 import { ExampleNotice, LoadExampleButton, exampleId } from "@/components/tool-frame/example-data";
+import { OnSearchParams, dropSearchParam } from "@/components/shared/on-search-params";
 import { generateWorkingAgreementPrompts } from "@/lib/ai-prompts/working-agreement";
 import { useHistoryLogger } from "@/lib/history/use-history-logger";
 import { WORKING_AGREEMENT_ACTIONS } from "@/lib/history/event-actions";
@@ -36,12 +37,22 @@ import type {
   CharterConsentVote,
   CharterRule,
   CharterRuleCategory,
+  CharterTemplateId,
   RetroBoard,
   Sprint,
+  TeamTimePerson,
   WorkingAgreement,
   Workspace,
 } from "@/lib/stores/workspace-types";
 import { useTeamRoster, useWorkspaceHydrated } from "@/lib/team/use-team-roster";
+import { canonicalZone } from "@/lib/team-time/zones";
+import {
+  applyTemplate,
+  isTemplateId,
+  revertTemplate,
+  templateName,
+  type TemplateValuesById,
+} from "@/lib/working-agreement/templates";
 import { plural } from "@/lib/charts/chart-text";
 import { toast } from "@/lib/utils/toast";
 import { removeWithUndo, undoable } from "@/lib/utils/undoable";
@@ -67,6 +78,7 @@ import {
   slippingRun,
   withCheckIn,
   withConsent,
+  withRuleText,
   withoutDraft,
   type CheckInMark,
 } from "@/lib/working-agreement/model";
@@ -78,6 +90,8 @@ import { agreementMarkdown } from "./markdown";
 import { AddRuleForm } from "./rule-form";
 import { RuleCard } from "./rule-card";
 import { VOTE_LABEL } from "./consent-panel";
+import { TemplatesPanel, templateButtonId } from "./templates-panel";
+import type { TeamTimeSource } from "./template-form";
 import { VersionsPanel } from "./versions-panel";
 import { cn } from "@/lib/utils";
 
@@ -86,6 +100,32 @@ export const TOOL_ID = "working-agreement";
 const NO_SPRINTS: Sprint[] = [];
 const NO_BOARDS: RetroBoard[] = [];
 const NO_LINKS: HandoffLink[] = [];
+const NO_PEOPLE: TeamTimePerson[] = [];
+
+/** This browser's time zone, canonical; UTC when it can't say. */
+function browserZone(): string {
+  try {
+    return canonicalZone(Intl.DateTimeFormat().resolvedOptions().timeZone) ?? "UTC";
+  } catch {
+    return "UTC";
+  }
+}
+
+/** "2 added, 1 updated": what an apply did, for its Undo toast and the announcement. */
+function appliedWords(r: {
+  added: string[];
+  updated: string[];
+  removed: string[];
+  skipped: unknown[];
+}) {
+  const parts = [
+    r.added.length > 0 ? `${r.added.length} added` : "",
+    r.updated.length > 0 ? `${r.updated.length} updated` : "",
+    r.removed.length > 0 ? `${r.removed.length} removed` : "",
+    r.skipped.length > 0 ? `${r.skipped.length} already in the charter` : "",
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join(", ") : "no rule changed";
+}
 
 /** A change to the agreement, applied to the document as it is when it runs. */
 type DocUpdate = (doc: WorkingAgreement) => WorkingAgreement;
@@ -113,16 +153,6 @@ const controlFor = (attr: string, id: string) =>
   Array.from(document.querySelectorAll<HTMLElement>(`[${attr}]`)).find(
     (el) => el.getAttribute(attr) === id
   );
-
-/** `rule` with its text and description as edited; an emptied description goes. */
-function withText(rule: CharterRule, text: string, description: string | undefined): CharterRule {
-  const next: CharterRule = { ...rule, text };
-  if (description !== undefined) {
-    if (description.trim()) next.description = description.trim();
-    else delete next.description;
-  }
-  return next;
-}
 
 /**
  * Working Agreement: the team's charter of rules, each person's consent to
@@ -153,6 +183,26 @@ export function WorkingAgreementClient() {
   const resetSnapshot = useRef<WorkingAgreement | null>(null);
   const addRef = useRef<HTMLDivElement>(null);
   const roundRef = useRef<HTMLDivElement>(null);
+
+  // The charter template whose form is open (one at a time), and how it opened.
+  const [openTemplate, setOpenTemplate] = useState<CharterTemplateId | null>(null);
+  const [openKey, setOpenKey] = useState(0);
+  const [fillOnOpen, setFillOnOpen] = useState(false);
+  const openTemplateForm = (id: CharterTemplateId | null, fill = false) => {
+    setOpenTemplate(id);
+    setFillOnOpen(fill);
+    setOpenKey((k) => k + 1);
+  };
+
+  // Team Time's rows as stored, for core hours on each clock. The template
+  // forms read them (never its example) once one opens: the reader loads with them.
+  const teamTimeRaw = useWorkspaceStore((s) => s.teamTimePeople) ?? NO_PEOPLE;
+  const [now] = useState(() => new Date());
+  const [zone] = useState(browserZone);
+  const teamTime: TeamTimeSource = useMemo(
+    () => ({ people: teamTimeRaw, roster: workspaceRoster, now, zone }),
+    [teamTimeRaw, workspaceRoster, now, zone]
+  );
 
   // Fixed for the render an edit starts in, so its Undo goes back to the
   // same place even if the example is loaded or cleared in between. The
@@ -228,13 +278,14 @@ export function WorkingAgreementClient() {
       toast.error(`“${text}” is already in the charter.`);
       return;
     }
-    patchRule(rule.id, (r) => withText(r, text, description));
+    // A hand edit makes a template's rule the team's own (withRuleText).
+    patchRule(rule.id, (r) => withRuleText(r, text, description));
     record(WORKING_AGREEMENT_ACTIONS.RULE_UPDATED, { ruleId: rule.id, text });
   };
 
   const setCategory = (rule: CharterRule, category: CharterRuleCategory) => {
     if (category === rule.category) return;
-    patchRule(rule.id, (r) => ({ ...r, category }));
+    patchRule(rule.id, (r) => withRuleText(r, r.text, undefined, category));
     record(WORKING_AGREEMENT_ACTIONS.RULE_UPDATED, { ruleId: rule.id, category });
     announce(`Moved “${rule.text}” to ${CATEGORY_LABEL[category]}`);
     // The card mounts again under its new category; its category stays focused.
@@ -289,6 +340,57 @@ export function WorkingAgreementClient() {
         ? controlFor("data-rule-edit", near.id)
         : addRef.current?.querySelector<HTMLElement>("input")
     );
+  };
+
+  /* ── Charter templates ────────────────────────────────────────────── */
+
+  // One apply is one Undo: the rules it added go, the ones it changed or
+  // took out come back, and its answers go back to what they were. The ids
+  // are drawn once, so the write and its Undo name the same rules.
+  const applyTpl = <Id extends CharterTemplateId>(id: Id, values: TemplateValuesById[Id]) => {
+    const at = new Date().toISOString();
+    const ids = Array.from({ length: 8 }, () => newId());
+    const idsFrom = () => {
+      let k = 0;
+      return () => ids[k++] ?? newId();
+    };
+    const before = doc;
+    const done = applyTemplate(before, id, values, idsFrom(), at);
+    const label = `Applied the ${templateName(id)} template: ${appliedWords(done)}`;
+    undoable({
+      label,
+      apply: () => {
+        write((d) => applyTemplate(d, id, values, idsFrom(), at).doc);
+        record(WORKING_AGREEMENT_ACTIONS.TEMPLATE_APPLIED, {
+          templateId: id,
+          added: done.added.length,
+          updated: done.updated.length,
+          removed: done.removed.length,
+          skipped: done.skipped.length,
+        });
+      },
+      revert: () => write((d) => revertTemplate(d, before, id, done)),
+    });
+    announce(label);
+    setOpenTemplate(null);
+    focusSoon(() => document.getElementById(templateButtonId(id)));
+  };
+
+  /** "Edit in template" on a rule card: that template's form, its answers as applied. */
+  const editTemplate = (id: CharterTemplateId) => {
+    openTemplateForm(id);
+    addRef.current?.closest("section")?.scrollIntoView?.({ block: "start" });
+  };
+
+  // /working-agreement?template=core-hours (Team Time's next steps and links)
+  // opens that template's form; core hours start from Team Time's shared
+  // hours. The link carries no values, and nothing is saved until applied.
+  const onSearch = (params: URLSearchParams) => {
+    const asked = params.get("template");
+    if (asked === null) return;
+    dropSearchParam("template");
+    if (!isTemplateId(asked)) return;
+    openTemplateForm(asked, asked === "core-hours");
   };
 
   /* ── Check-ins ────────────────────────────────────────────────────── */
@@ -487,6 +589,7 @@ export function WorkingAgreementClient() {
       description="The team's charter: rules everyone consents to, check-ins on whether they work, and published versions you can compare."
       category="Workshops & Facilitation"
     >
+      <OnSearchParams onChange={onSearch} />
       <ActionRow>
         <AiPromptGenerator config={promptConfig} />
         <ExportButton
@@ -598,6 +701,15 @@ export function WorkingAgreementClient() {
           <div ref={addRef}>
             <AddRuleForm rules={doc.rules} onAdd={(v) => add(v, "custom")} />
           </div>
+          <TemplatesPanel
+            doc={doc}
+            open={openTemplate}
+            openKey={openKey}
+            fillOnOpen={fillOnOpen}
+            teamTime={teamTime}
+            onOpen={(id) => openTemplateForm(id)}
+            onApply={applyTpl}
+          />
           {catalog.length > 0 && (
             <details className="mt-4 rounded-md border border-border bg-card">
               <summary className="min-h-10 cursor-pointer px-3 py-2 text-sm font-medium text-text">
@@ -655,6 +767,7 @@ export function WorkingAgreementClient() {
                         onMark={mark}
                         onVote={vote}
                         onDelete={remove}
+                        onEditTemplate={editTemplate}
                       />
                     ))}
                   </ul>

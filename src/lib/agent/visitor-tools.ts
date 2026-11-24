@@ -7,9 +7,10 @@
  *  1. The KB's best matches for the visitor's recent words (the first
  *     RANKED_FIRST of them), so "add a risk" finds the risk actions on any page.
  *     A weak match ("ok go") ranks nothing: it would only be noise.
- *  2. The open page's own actions (pageActionGroups, reads first), or the core
- *     workspace reads on a page with none, so "add a card" on /retro works even
- *     when the words rank something else higher.
+ *  2. The open page's own actions (pageActions: its groups, the groups it only
+ *     reads and its single verbs, reads first), or the core workspace reads on
+ *     a page with none, so "add a card" on /retro works even when the words
+ *     rank something else higher.
  *  3. The rest of the ranked matches, while there is room.
  *  4. Every tool the history being sent already called: the request replays
  *     those calls, and an OpenAI-compatible endpoint rejects a tool_call whose
@@ -36,7 +37,7 @@ import type { AnyToolAction } from "@/lib/actions/types";
 import { inLiveVisitorRoom } from "@/lib/realtime/live-visitor-room";
 import { VISITOR_LIMITS, type VisitorWireTool } from "@/lib/visitor-ai/contract";
 import { getRegistryKbIndex, matchKb } from "./mascot/kb";
-import { CORE_WORKSPACE_GROUPS, pageActionGroups, toolNamesInHistory } from "./tool-selection";
+import { CORE_WORKSPACE_GROUPS, pageActions, toolNamesInHistory } from "./tool-selection";
 import { resolvePageTool } from "./page-tool";
 import type { ChatMessage } from "./types";
 
@@ -137,12 +138,13 @@ export function selectVisitorToolIds(opts: {
   if (opts.toolId) {
     const inGroups = (groups: readonly string[]) =>
       groups.flatMap((g) => opts.actions.filter((a) => actionGroup(a) === g));
-    let own = inGroups(pageActionGroups(opts.toolId)).filter((a) => isVisitorAction(a));
+    // pageActions orders reads first; a page whose every own action is closed
+    // to visitors still gets the core reads.
+    let own = pageActions(opts.toolId, opts.actions).filter((a) => isVisitorAction(a));
     if (own.length === 0) {
       own = inGroups(CORE_WORKSPACE_GROUPS).filter((a) => a.category === "read");
     }
-    for (const a of own) if (a.category === "read") add(a.id);
-    for (const a of own) if (a.category !== "read") add(a.id);
+    for (const a of own) add(a.id);
   }
 
   for (const id of ranked.slice(RANKED_FIRST)) add(id);

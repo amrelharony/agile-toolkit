@@ -8,6 +8,7 @@ import { ExportButton } from "@/components/shared/export-button";
 import { AiPromptGenerator } from "@/components/shared/ai-prompt-generator";
 import { EmptyState } from "@/components/shared/empty-state";
 import { SectionCard } from "@/components/shared/section-card";
+import { WorkspaceLoading } from "@/components/shared/workspace-loading";
 import { NotEnoughData } from "@/components/shared/not-enough-data";
 import { AdvancedAnalysis } from "@/components/shared/advanced-analysis";
 import { ResetButton } from "@/components/shared/reset-button";
@@ -300,12 +301,7 @@ export function CFDClient() {
         description="See how work flows through your stages, from your Sprint or Flow board: widening bands are bottlenecks."
         category="Metrics & Dashboards"
       >
-        <p
-          role="status"
-          className="rounded-lg border border-border bg-card px-4 py-10 text-center text-sm text-sub"
-        >
-          Loading the boards…
-        </p>
+        <WorkspaceLoading>Loading the boards…</WorkspaceLoading>
       </ToolPageWrapper>
     );
   }

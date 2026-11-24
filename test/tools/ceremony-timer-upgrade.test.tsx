@@ -30,7 +30,12 @@ vi.mock("@/lib/sonification/use-sonification", () => ({ useToolSonification: () 
 vi.mock("@/lib/history/use-history-logger", () => ({
   useHistoryLogger: () => ({ log: () => {} }),
 }));
-const alarm = vi.hoisted(() => ({ playChime: vi.fn(), vibrate: vi.fn(), flashTitle: vi.fn() }));
+const alarm = vi.hoisted(() => ({
+  playChime: vi.fn(),
+  vibrate: vi.fn(),
+  flashTitle: vi.fn(),
+  timesUp: vi.fn(),
+}));
 vi.mock("@/app/(tools)/ceremony-timer/alarm", () => alarm);
 
 import { CeremonyTimerClient } from "@/app/(tools)/ceremony-timer/ceremony-timer-client";
@@ -430,6 +435,33 @@ describe("the docked timer", () => {
     });
     expect(dockFor(null, retro(), HREF, T0)).toBeNull();
     expect(dockFor({ ...run, finished: true }, retro(), HREF, T0)).toBeNull();
+  });
+
+  it("carries the timer's own chime switch when it is given", () => {
+    const run = startRun("retro", T0);
+    expect(dockFor(run, retro(), HREF, T0 + 100_000, true)).toEqual({
+      label: "Retro · Set the stage",
+      href: HREF,
+      totalSeconds: 600,
+      endsAt: T0 + 600_000,
+      pausedRemaining: 500,
+      chime: true,
+    });
+    expect(dockFor(run, retro(), HREF, T0, false)).toMatchObject({ chime: false });
+    expect(dockFor(run, retro(), HREF, T0)).not.toHaveProperty("chime");
+  });
+
+  it("publishes the segment with the switch, and a toggle reaches the dock", () => {
+    vi.useFakeTimers();
+    renderTimer();
+    pick(/^Daily Scrum/);
+    key(" ");
+    expect(useDockTimer.getState().timer).toMatchObject({ href: HREF, chime: false });
+    const sw = screen.getByRole("switch", { name: "Chime when time is up" });
+    fireEvent.click(sw);
+    expect(useDockTimer.getState().timer).toMatchObject({ href: HREF, chime: true });
+    fireEvent.click(sw);
+    expect(useDockTimer.getState().timer).toMatchObject({ href: HREF, chime: false });
   });
 
   it("follows a pause, resume or stop made in the dock", () => {
@@ -874,7 +906,8 @@ describe("running a Daily Scrum", () => {
     expect(timer()).toBe("+1:00");
     expect(screen.getByText("Over time")).toBeInTheDocument();
     expect(screen.getByTestId("live-assertive")).toHaveTextContent("Daily Scrum: time's up");
-    expect(alarm.flashTitle).toHaveBeenCalledTimes(1);
+    expect(alarm.timesUp).toHaveBeenCalledTimes(1);
+    expect(alarm.timesUp).toHaveBeenCalledWith({ sound: false });
     expect(alarm.playChime).not.toHaveBeenCalled();
     expect(alarm.vibrate).not.toHaveBeenCalled();
 
@@ -897,10 +930,13 @@ describe("running a Daily Scrum", () => {
     );
     key(" ");
     tick(301);
+    // A speaker's turn ends with one beep, on the page itself.
     expect(alarm.playChime).toHaveBeenCalledWith(1);
+    expect(alarm.timesUp).not.toHaveBeenCalled();
     tick(600);
-    expect(alarm.playChime).toHaveBeenCalledWith(3);
-    expect(alarm.vibrate).toHaveBeenCalledTimes(1);
+    // The segment's end is the shared alarm, with the timer's own switch.
+    expect(alarm.timesUp).toHaveBeenCalledTimes(1);
+    expect(alarm.timesUp).toHaveBeenCalledWith({ sound: true });
   });
 
   it("keeps the meeting when picking another agenda is undone", () => {

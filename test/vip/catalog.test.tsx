@@ -97,9 +97,10 @@ describe("the registry", () => {
 describe("a visitor without the hint", () => {
   it("sees the same tool counts as before VIP", () => {
     const interactive = getVisibleTools().filter((t) => t.kind !== "reading");
-    expect(interactive).toHaveLength(94);
+    // 94, plus the tools plan's phase 2: 14 visible, 3 on the shelf.
+    expect(interactive).toHaveLength(108);
     expect(getVisibleTools().filter(isVipOnly)).toEqual([]);
-    expect(getShelfTools()).toHaveLength(33);
+    expect(getShelfTools()).toHaveLength(36);
     expect(getShelfTools().filter(isVipOnly)).toEqual([]);
   });
 
@@ -118,7 +119,7 @@ describe("a visitor without the hint", () => {
     const { result } = renderHook(() => useToolVisibility());
     expect(result.current.tools.filter(isVipOnly)).toEqual([]);
     expect(result.current.isVisible("squad-session")).toBe(false);
-    expect(result.current.tools.filter((t) => t.kind !== "reading")).toHaveLength(94);
+    expect(result.current.tools.filter((t) => t.kind !== "reading")).toHaveLength(108);
   });
 
   it("doesn't get the VIP section in the home grid's data", () => {

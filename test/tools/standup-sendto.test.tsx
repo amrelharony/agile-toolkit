@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -36,6 +36,13 @@ vi.mock("@/lib/history/use-history-logger", () => ({
 }));
 
 import { StandupClient } from "@/app/(tools)/standup/standup-client";
+import { loadSendToMenuItems } from "@/components/handoff/send-to-menu";
+
+// Send to…'s items load the first time a menu shows them: load them once, so
+// every menu in these tests opens with its items.
+beforeAll(async () => {
+  await loadSendToMenuItems();
+});
 
 function entry(id: string, member: string, blockers: string, extra: Partial<StandupEntry> = {}) {
   return {

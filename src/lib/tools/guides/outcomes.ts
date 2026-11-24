@@ -49,13 +49,15 @@ export const GUIDES: ToolGuide[] = [
     whenToUse: [
       "Before building a feature whose value isn't proven yet.",
       "Discovery work where the team runs several experiments at once.",
+      "After a story or epic ships, to check it did what you hoped.",
     ],
     steps: [
       "Click New hypothesis and fill We believe, We will, To learn and Success looks like; Add hypothesis saves it (Enter works too). Move Raised on back if the test started earlier.",
       "Optionally set a Numeric target: The number should Rise to at least or Fall to at most a Target, with a Unit and the Baseline where it stands now.",
-      "Set the Status on the card as the test runs. A hypothesis sent from another tool (Riskiest Assumption, the Opportunity Tree, Cynefin or a Design Sprint) arrives Drafted, often with Needs detail: use Edit or Add the detail to fill what you'll do and the success metric before it can run.",
+      "Set the Status on the card as the test runs. A hypothesis sent from another tool (Riskiest Assumption, the Opportunity Tree, Cynefin, a Design Sprint, Product Canvas, an Impact Map, a Strategy Tree or Kickoff) arrives Drafted, often with Needs detail: use Edit or Add the detail to fill what you'll do and the success metric before it can run.",
       "When the result is in, type it in Measured result. The card says whether the target was met and offers Mark validated or Mark invalidated; nothing changes until you click it. Set Result on to the day the test ended and note What we learned.",
-      "Use Show to filter by Open, a result or Needs detail. Validation rate is validated ÷ (validated + invalidated); Advanced analysis shows how long tests take once five have a result.",
+      "After work ships, use Check its value under Shipped work to check: pick Measured by (a product metric, a key result or words) and Look after. Once Due, Read the metric fills the result; a linked A/B test shows on the card, and Use the A/B result adds it.",
+      "Use Show to filter by Open, a result or Needs detail, and Kind for value checks. Validation rate is validated ÷ (validated + invalidated); Advanced analysis shows how long tests take once five have a result.",
     ],
     tips: [
       "Set the success metric before the experiment starts so nobody moves the goalposts.",
@@ -177,5 +179,145 @@ export const GUIDES: ToolGuide[] = [
       "Record the decisions you take from the map in the Decision Log (ADR).",
     ],
     timebox: "60–90 minutes for a first map",
+  },
+  {
+    toolId: "product-canvas",
+    summary:
+      "Product Canvas puts a product idea on one page in the format that fits: a Vision Board with a pitch, a Value Proposition, an idea inbox, a Lean UX canvas, a PR/FAQ, a lean business case or a Shape Up pitch with a betting table.",
+    whenToUse: [
+      "A product or feature idea that needs to be clear before anyone builds it.",
+      "To weigh the ideas waiting in the inbox and decide which go ahead.",
+    ],
+    steps: [
+      "Pick a format.",
+      "Add notes to each box and mark each one a fact or a guess.",
+      "Ask Amr drafts from the Product Goal and points out gaps, and you pick what to keep. Suggest without AI offers the goal's words and starter lines.",
+      "Send a note to the Hypothesis Tracker, the backlog, the Opportunity Tree or the Decision Log.",
+      "In the idea inbox, log each idea with who asked, merge a repeat into the idea it repeats, then mark it Assessing, Accepted or Declined.",
+      "Give a business case its verdict: Go, No go, or Change and come back. On a Shape Up pitch, set the appetite and bet it on a cycle at the betting table.",
+    ],
+    tips: [
+      "One customer group per Value Proposition.",
+      "Read the pitch aloud: if it sounds odd, it isn't ready.",
+    ],
+    timebox: "Twenty to forty-five minutes per canvas.",
+  },
+  {
+    toolId: "impact-map",
+    summary:
+      "Impact Map starts from a goal and asks who can move it, how they would have to act differently, and what the team could build or do to cause that change. It keeps the backlog tied to why.",
+    whenToUse: [
+      "A Product Goal with a long wish list under it.",
+      "Choosing what to build next.",
+      "A roadmap item nobody can explain.",
+    ],
+    steps: [
+      "Write the goal with a measure and a date, or start from the Product Goal.",
+      "Add the actors, from the Persona Library or typed.",
+      "Under each actor, add the impacts: what they would start, stop, or do more or less of.",
+      "Under each impact, add deliverables.",
+      "Pick one focus impact, and the checks point out what's missing.",
+      "Send a deliverable to the backlog or the roadmap, or test an impact in the Hypothesis Tracker, each with Undo.",
+      "Ask Amr drafts a map from the goal for you to accept part by part, and Suggest deliverables works without AI.",
+    ],
+    tips: ["An impact that reads like a feature is a deliverable in disguise."],
+    timebox: "Thirty to sixty minutes.",
+  },
+  {
+    toolId: "strategy-tree",
+    summary:
+      "Strategy Tree lays out a strategy as a tree you can test, in one of three shapes: DIBB (data, insight, belief, bet), a Lean Value Tree (vision, goals, bets, initiatives) or Hoshin Kanri (from a three-to-five-year aim down to monthly targets with owners).",
+    whenToUse: [
+      "Leadership has a direction but no bets it can test.",
+      "Yearly planning.",
+      "Checking whether initiatives still serve a goal.",
+    ],
+    steps: [
+      "Pick a shape and write its root.",
+      "Add each level under the one above, with a measure or an owner where the level asks for one.",
+      "Mark each part proposed, agreed, has questions or dropped.",
+      "Send a bet to the Hypothesis Tracker to test it, or an initiative to the roadmap, each with Undo.",
+      "The checks list what is missing.",
+      "Ask Amr drafts a tree from the root for you to accept part by part. Every part can be typed without AI.",
+    ],
+    tips: ["A bet you can't test is a wish: give it a measure."],
+    timebox: "An hour for a first tree.",
+  },
+  {
+    toolId: "persona-library",
+    summary:
+      "Persona Library keeps the people you build for in one place: who they are, what they want, what gets in their way and how they work, with how much of it comes from real research.",
+    whenToUse: [
+      "The team argues about “the user” without naming one.",
+      "After a round of interviews.",
+      "Before an Impact Map.",
+    ],
+    steps: [
+      "Add a persona with a name, a role and its tier: main, also served, or not for us (an anti-persona).",
+      "List their goals, frustrations and habits, and say how much of it is researched or assumed.",
+      "Link the interviews it comes from.",
+      "Ask Amr drafts a persona from your notes or picked interviews, with participants renamed and the emails and phone numbers it can spot taken out first; check for other names, then edit it before saving. Without AI, the page pulls goals and frustrations out of the notes.",
+      "See which Impact Maps use it.",
+    ],
+    tips: ["Use made-up names.", "A persona marked assumed is a question to research."],
+    timebox: "Twenty minutes per persona.",
+  },
+  {
+    toolId: "product-metrics",
+    summary:
+      "Product Metrics keeps the numbers your product lives by in one place: a North Star with the few inputs that move it, HEART goals for each feature, and an AARRR funnel from first visit to revenue. You type or paste readings from your own tools.",
+    whenToUse: [
+      "The team ships, but can't say whether it helped.",
+      "Choosing what to measure for a Product Goal.",
+      "Setting up a funnel.",
+    ],
+    steps: [
+      "Pick a view: North Star, HEART or the funnel.",
+      "Add a metric with what it means, which way it should move, a baseline and a target.",
+      "Add readings by hand, or paste them.",
+      "Set up HEART goals for each feature, or one metric for each stage of the funnel.",
+      "Ask Amr suggests metrics for your product or a feature, and you pick the ones to keep. Without AI, Suggest metrics offers our own templates.",
+    ],
+    tips: ["One North Star, and at most five inputs."],
+    timebox: "Twenty minutes to set up; two minutes a reading.",
+  },
+  {
+    toolId: "ab-calculator",
+    summary:
+      "A/B Calculator plans a conversion test before it starts and reads it when it ends: how many people each version needs, how long that takes at your traffic, and whether the difference is real or noise.",
+    whenToUse: [
+      "Before an A/B test, to know how long to run it.",
+      "When a test ends.",
+      "When someone wants to stop a test early.",
+    ],
+    steps: [
+      "Plan it: the current rate, the smallest change worth finding, the confidence and the power give the people each version needs and the days that takes.",
+      "Run the test, then type the visitors and conversions for A and B.",
+      "Read the result: the difference, its confidence interval and whether it is significant. Until the plan is met it says Too early to call.",
+      "Save it and link it to a hypothesis, where its result shows on the card.",
+      "On a saved test, Ask Amr for checks suggests guardrails and risks to add; Suggest checks gives a fixed list without AI. Nothing is added until you pick it.",
+    ],
+    tips: ["Decide the sample size first, and don't stop the test when it first looks good."],
+    timebox: "Five minutes to plan.",
+  },
+  {
+    toolId: "ebm-dashboard",
+    summary:
+      "EBM Dashboard follows Evidence-Based Management: measures in four key value areas (current value, unrealized value, time to market and the ability to innovate), tied to a strategic goal and the experiments that move it. Readings can come from the toolkit's own data.",
+    whenToUse: [
+      "A quarterly look at whether the product delivers value.",
+      "Choosing where to improve next.",
+      "Explaining progress to stakeholders without a velocity chart.",
+    ],
+    steps: [
+      "Write the strategic goal and why it matters.",
+      "Add a few measures for each area, typed or read from the toolkit: cycle time, DORA, NPS or tech debt.",
+      "Add readings.",
+      "Link the experiments in the Hypothesis Tracker.",
+      "Record a review with the area to focus on next.",
+      "Ask Amr suggests measures for an area (Suggest measures without AI), and Suggest a focus works from the numbers alone.",
+    ],
+    tips: ["The area scores are a guide, not a grade."],
+    timebox: "Thirty minutes a quarter.",
   },
 ];

@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { SOURCE_TOOLS, sourceHref, sourceLabel } from "@/lib/handoffs/registry";
+import { KANBAN_FLOW_DOC } from "@/lib/handoffs/sources";
 
 /**
  * Every tool whose items land elsewhere with its sourceRef gets a "From …"
@@ -153,5 +154,41 @@ describe("the tools plan's phase 1 back-links", () => {
       expect(sourceLabel(ref), tool).toBe(label);
       expect(sourceHref(ref), tool).toBe(href);
     }
+  });
+});
+
+describe("the tools plan's phase 2 back-links", () => {
+  it("are listed ahead of their senders, each opening the document its item came from", () => {
+    // [tool, label, href with a doc "d1" and id "x1", href with no doc]
+    const cases: [string, string, string, string][] = [
+      ["example-mapping", "From example map", "/example-mapping?map=d1", "/example-mapping"],
+      ["relative-sizing", "From relative sizing", "/relative-sizing?board=d1", "/relative-sizing"],
+      ["bug-triage", "From bug triage", "/bug-triage?bug=x1", "/bug-triage?bug=x1"],
+      ["hill-chart", "From hill chart", "/hill-chart?chart=d1", "/hill-chart"],
+      ["test-sessions", "From test sessions", "/test-sessions?session=d1", "/test-sessions"],
+      ["notes-to-actions", "From meeting notes", "/notes-to-actions?note=d1", "/notes-to-actions"],
+      ["product-canvas", "From product canvas", "/product-canvas?canvas=d1", "/product-canvas"],
+      ["impact-map", "From impact map", "/impact-map?map=d1", "/impact-map"],
+      ["strategy-tree", "From strategy tree", "/strategy-tree?tree=d1", "/strategy-tree"],
+      ["improve", "From improvement", "/improve?item=d1", "/improve?item=x1"],
+      ["kickoff", "From kickoff", "/kickoff?kickoff=d1", "/kickoff"],
+      // A Sprint-board story names its sprint, which opens that sprint's board.
+      ["kanban", "From Kanban board", "/kanban?sprint=d1", "/kanban"],
+    ];
+    for (const [tool, label, withDoc, plain] of cases) {
+      expect(sourceLabel({ tool, id: "x1", doc: "d1" }), tool).toBe(label);
+      expect(sourceHref({ tool, id: "x1", doc: "d1" }), tool).toBe(withDoc);
+      expect(sourceHref({ tool, id: "x1" }), tool).toBe(plain);
+    }
+    expect(sourceHref({ tool: "impact-map", id: "x", doc: "map 1" })).toBe(
+      "/impact-map?map=map%201"
+    );
+    // A Flow-board card opens the Flow board, which a running sprint would otherwise hide.
+    expect(sourceHref({ tool: "kanban", id: "c1", doc: KANBAN_FLOW_DOC })).toBe(
+      "/kanban?board=flow"
+    );
+    expect(sourceHref({ tool: "kanban", id: "s", doc: "sprint 7" })).toBe(
+      "/kanban?sprint=sprint%207"
+    );
   });
 });

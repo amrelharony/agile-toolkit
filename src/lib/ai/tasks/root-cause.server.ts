@@ -7,9 +7,11 @@
 import "server-only";
 import { defineAiPrompt } from "../define-task";
 import {
+  LOOP_LINKS_MAX,
   ROOT_CAUSE_SUGGESTIONS_MAX,
   categoriesTask,
   countermeasureTask,
+  loopLinksTask,
   nextWhyTask,
 } from "./root-cause";
 
@@ -58,4 +60,34 @@ export const countermeasurePrompt = defineAiPrompt(countermeasureTask, {
     ]
       .filter(Boolean)
       .join("\n"),
+});
+
+export const loopLinksPrompt = defineAiPrompt(loopLinksTask, {
+  system: [
+    "You help a Scrum team draw a causal loop diagram of a problem: things that go up or down, and arrows from a cause to what it changes.",
+    `Given the problem, the things on the diagram (each with an id) and the arrows already drawn, suggest up to ${LOOP_LINKS_MAX} new arrows between the given things.`,
+    'polarity is "same" when both move the same way (more of one brings more of the other) and "opposite" when they move opposite ways (more of one brings less of the other).',
+    "Set delay to true only when the effect takes noticeable time to show.",
+    'Prefer arrows that close a loop back to where it started. For each, "why" is one plain sentence in sentence case that the team could check.',
+    "Use only the ids given, exactly as given. Never suggest an arrow already drawn, or one from a thing to itself. Never name or blame a person.",
+  ].join(" "),
+  user: ({ problem, nodes, links }) => {
+    const text = new Map(nodes.map((n) => [n.id, n.text]));
+    const drawn =
+      links.length === 0
+        ? ["Arrows already drawn: (none yet)"]
+        : [
+            "Arrows already drawn (from id -> to id, sign):",
+            ...links.map(
+              (l) =>
+                `${l.from} -> ${l.to}, ${l.polarity} (${text.get(l.from) ?? "?"} -> ${text.get(l.to) ?? "?"})`
+            ),
+          ];
+    return [
+      `Problem: ${problem}`,
+      "Things (id | thing):",
+      ...nodes.map((n) => `${n.id} | ${n.text}`),
+      ...drawn,
+    ].join("\n");
+  },
 });

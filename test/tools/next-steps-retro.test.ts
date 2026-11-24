@@ -334,6 +334,49 @@ describe("root-cause", () => {
     ]);
   });
 
+  it("asks where to act in a causal loop that closes with no root cause yet", () => {
+    const loop = {
+      nodes: [
+        { id: "e", text: "Errors" },
+        { id: "t", text: "Tickets" },
+        { id: "a", text: "Alerts" },
+      ],
+      links: [
+        { id: "l1", from: "e", to: "t", polarity: "same" as const },
+        { id: "l2", from: "t", to: "e", polarity: "same" as const },
+        { id: "l3", from: "t", to: "a", polarity: "opposite" as const },
+        { id: "l4", from: "a", to: "t", polarity: "same" as const },
+      ],
+    };
+    expect(steps("root-cause", { rootCauseAnalyses: [analysis("rca_loop", { loop })] })).toEqual([
+      {
+        id: "root-cause-loop",
+        label: "Pick where to act in “Problem rca_loop”",
+        detail:
+          "“Tickets” sits in the most of its 2 loops: mark it as the root cause if that's where to act.",
+        href: "/root-cause?analysis=rca_loop",
+      },
+    ]);
+    // One loop has no busiest thing; a named root cause, or no loop closing, asks nothing.
+    const one = { nodes: loop.nodes.slice(0, 2), links: loop.links.slice(0, 2) };
+    expect(
+      steps("root-cause", { rootCauseAnalyses: [analysis("rca_one", { loop: one })] })[0]
+    ).toMatchObject({
+      id: "root-cause-loop",
+      detail: "Its causal loop closes 1 loop: mark the thing to act on as the root cause.",
+    });
+    expect(
+      ids("root-cause", { rootCauseAnalyses: [analysis("rca_x", { loop, rootCause: "Tickets" })] })
+    ).toEqual(["root-cause-countermeasure"]);
+    const open = { nodes: loop.nodes, links: loop.links.slice(0, 1) };
+    expect(ids("root-cause", { rootCauseAnalyses: [analysis("rca_y", { loop: open })] })).toEqual(
+      []
+    );
+    expect(ids("root-cause", { rootCauseAnalyses: [analysis("example-rca", { loop })] })).toEqual(
+      []
+    );
+  });
+
   it("ignores example analyses and stays quiet with nothing to do", () => {
     expect(
       ids("root-cause", { rootCauseAnalyses: [analysis("example-rca", { rootCause: "A" })] })

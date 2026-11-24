@@ -1,8 +1,10 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { getNextStepRule, loadAllNextStepRules } from "@/lib/tools/next-steps";
+import { currentQuarter } from "@/lib/roadmap/quarters";
 import type {
   CapacityPlan,
   DependencyMap,
+  PokerAsyncRound,
   Sprint,
   Story,
   Workspace,
@@ -190,11 +192,72 @@ describe("estimation, refinement and poker", () => {
     ).toEqual([]);
   });
 
+  const asyncRound = (over: Partial<PokerAsyncRound> = {}): PokerAsyncRound => ({
+    id: "async_round000001",
+    title: "Checkout stories",
+    scaleType: "fibonacci",
+    deck: ["1", "2", "3", "5", "8"],
+    stories: [{ id: "s1", title: "Pay by phone" }],
+    expected: ["Ana"],
+    dueDate: "2099-01-01",
+    replies: [
+      {
+        id: "r1",
+        name: "Ana",
+        votes: [{ storyId: "s1", card: "5" }],
+        at: "2026-11-20T10:00:00.000Z",
+      },
+    ],
+    status: "open",
+    createdAt: "2026-11-20T10:00:00.000Z",
+    updatedAt: "2026-11-20T10:00:00.000Z",
+    ...over,
+  });
+
+  it("planning-poker: reveal a round without a meeting once it's due or everyone replied", () => {
+    expect(ids("planning-poker", { pokerAsyncRounds: [asyncRound()] })).toEqual([
+      "poker-async-reveal-async_round000001",
+    ]);
+    expect(steps("planning-poker", { pokerAsyncRounds: [asyncRound()] })[0].label).toBe(
+      "Reveal “Checkout stories”: 1 of 1 replied"
+    );
+    expect(ids("planning-poker", { pokerAsyncRounds: [asyncRound({ replies: [] })] })).toEqual([]);
+    expect(
+      ids("planning-poker", { pokerAsyncRounds: [asyncRound({ id: "example-async-1" })] })
+    ).toEqual([]);
+    expect(
+      ids("planning-poker", { pokerAsyncRounds: [asyncRound({ status: "revealed" })] })
+    ).toEqual([]);
+  });
+
   it("estimation-guide: estimate a waiting queue", () => {
     expect(
       ids("estimation-guide", { pokerEstimationLogs: log([{ id: "q", title: "A" }]) })
     ).toEqual(["guide-poker"]);
     expect(ids("estimation-guide", { pokerEstimationLogs: log([]) })).toEqual([]);
+  });
+
+  it("estimation-guide: a queued story an async round holds isn't waiting", () => {
+    const held = { id: "q", title: "A", sessionStoryId: "s1" };
+    expect(
+      ids("estimation-guide", {
+        pokerEstimationLogs: log([held]),
+        pokerAsyncRounds: [asyncRound()],
+      })
+    ).toEqual([]);
+    expect(
+      steps("estimation-guide", {
+        pokerEstimationLogs: log([held, { id: "q2", title: "B" }]),
+        pokerAsyncRounds: [asyncRound()],
+      })[0].detail
+    ).toMatch(/^1 story is waiting\./);
+    // A closed round holds nothing.
+    expect(
+      ids("estimation-guide", {
+        pokerEstimationLogs: log([held]),
+        pokerAsyncRounds: [asyncRound({ status: "closed" })],
+      })
+    ).toEqual(["guide-poker"]);
   });
 
   it("refinement: estimate the queue, then plan the ready stories", () => {
@@ -212,6 +275,21 @@ describe("estimation, refinement and poker", () => {
         ],
       })
     ).toEqual([]);
+  });
+
+  it("refinement: size five or more unsized backlog stories together", () => {
+    const unsized = Array.from({ length: 5 }, (_, i) => story({ id: `u${i}`, points: undefined }));
+    const out = steps("refinement", { stories: unsized });
+    expect(out.map((s) => s.id)).toEqual(["refinement-size-together"]);
+    expect(out[0]).toMatchObject({
+      label: "Size 5 unsized stories together",
+      detail: "5 backlog stories have no points. Relative Sizing sizes them in one sitting.",
+      href: "/relative-sizing?stories=unsized",
+    });
+    expect(ids("refinement", { stories: unsized.slice(0, 4) })).toEqual([]);
+    // The example's stories aren't the team's backlog.
+    const examples = unsized.map((s) => ({ ...s, id: `example-${s.id}` }));
+    expect(ids("refinement", { stories: examples })).toEqual([]);
   });
 });
 
@@ -324,6 +402,31 @@ describe("release-planner, jtbd-mapper and epic-roadmap", () => {
         stories: [story({ epicId: "e1" }), story({ id: "b", epicId: "e2" })],
       })
     ).toEqual([]);
+  });
+
+  it("epic-roadmap: Now holds 4 or more epics", () => {
+    // Today's quarter, so the case can't go red on a later date.
+    const q = currentQuarter();
+    const epics = ["a", "b", "c", "d"].map((id) => ({
+      id,
+      title: id,
+      startQuarter: q,
+      endQuarter: q,
+      progress: 0,
+    }));
+    const stories = epics.map((e) => story({ id: `s-${e.id}`, epicId: e.id, status: "todo" }));
+    const epicRoadmaps = [{ id: "epicRoadmap:current", epics }];
+    const out = steps("epic-roadmap", { epicRoadmaps, stories });
+    expect(out.map((s) => s.id)).toEqual(["epics-now-crowded"]);
+    expect(out[0].detail).toBe("Now holds 4 epics on the Now, Next, Later board.");
+    // A done epic leaves Now, and three is not crowded.
+    const oneDone = stories.map((s, i) => (i === 0 ? { ...s, status: "done" as const } : s));
+    expect(ids("epic-roadmap", { epicRoadmaps, stories: oneDone })).toEqual([]);
+    // Example epics don't count.
+    const examples = [
+      { id: "epicRoadmap:current", epics: epics.map((e) => ({ ...e, id: `example-${e.id}` })) },
+    ];
+    expect(ids("epic-roadmap", { epicRoadmaps: examples, stories: [] })).toEqual([]);
   });
 });
 

@@ -6,6 +6,9 @@
  * so nobody counts twice), then drops the ballot. Nothing here keeps an
  * answer next to the person who gave it. At Reveal the ledger goes too, and
  * `revealTally` gives a question's distribution only from `minN` answers.
+ * Across rounds the host keeps only which tab each member id answered from
+ * (`BallotSenders`: a seal per id, never an answer), so nobody else can
+ * answer under that id later.
  *
  * `VoteRoundResult` is what a tool saves: totals only, no ids, no names.
  * The facilitator fallback (counted hands, paper) builds the same result
@@ -16,8 +19,10 @@
  */
 
 import { VISITOR_LIMITS } from "../visitor-rooms";
+import { isSenderSecret, sealOf, tieSender } from "../sender-tie";
 import {
   VOTE_LIMITS,
+  VOTE_TAB_SECRET_CHARS,
   voteMinNFloor,
   type BallotEnvelope,
   type Questionnaire,
@@ -52,7 +57,9 @@ export type BallotRejection =
   | "not-admitted"
   | "duplicate"
   | "round-full"
-  | "bad-answers";
+  | "bad-answers"
+  /** The id is tied to another tab (`tieBallotSender`): someone is answering under it. */
+  | "not-yours";
 
 export interface FoldContext {
   /** The round takes ballots (not revealed, room live). */
@@ -104,6 +111,55 @@ export function precheckBallot(
   if (ledger.voted.has(env.by)) return "duplicate";
   if (tally.ballots >= VOTE_LIMITS.maxBallotsPerRound) return "round-full";
   return null;
+}
+
+// ── Tying an id to its tab ───────────────────────────────────────────
+
+/**
+ * Member ids the host ties to a tab's secret, for the whole room, at most
+ * (old ones are never dropped, so a member who leaves can't be stood in for
+ * later; past it a new id's ballot is refused as a full room's would be).
+ */
+export const VOTE_MAX_SENDERS = 1_000;
+
+/** Member id → the seal of the tab secret its first counted ballot carried ("" for none). */
+export type BallotSenders = ReadonlyMap<string, string>;
+
+/** A ballot's tab secret once opened: exactly `VOTE_TAB_SECRET_CHARS` URL-safe characters. */
+export function isVoteTabSecret(v: unknown): v is string {
+  return isSenderSecret(v) && v.length === VOTE_TAB_SECRET_CHARS;
+}
+
+/**
+ * The cheap half of the tie, on the envelope before anything is opened: an
+ * id tied to a tab that sent a secret refuses a ballot without one, and an
+ * id tied to one without (an older build) refuses a ballot with one. Null
+ * when the ballot may be opened (the secret itself is checked once open).
+ */
+export function precheckSender(
+  env: Pick<BallotEnvelope, "by" | "tab">,
+  senders: BallotSenders
+): BallotRejection | null {
+  const tied = senders.get(env.by);
+  if (tied === undefined) return null;
+  return (tied === "") !== (env.tab === undefined) ? "not-yours" : null;
+}
+
+/**
+ * The tie, once the ballot opened: `secret` is its opened tab secret (null
+ * for a ballot without one). The first counted ballot ties `by` to it; a
+ * later one must carry the same. The caller keeps the returned `senders`
+ * only once the ballot is counted, so a ballot refused for any other
+ * reason ties nothing. Never mutates `senders`.
+ */
+export function tieBallotSender(
+  senders: BallotSenders,
+  by: string,
+  secret: string | null
+): { ok: true; senders: BallotSenders } | { ok: false; reason: BallotRejection } {
+  const tie = tieSender(senders, by, sealOf(secret), VOTE_MAX_SENDERS);
+  if (tie.ok) return tie;
+  return { ok: false, reason: tie.why === "full" ? "round-full" : "not-yours" };
 }
 
 /**

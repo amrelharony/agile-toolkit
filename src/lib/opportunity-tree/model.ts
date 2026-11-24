@@ -145,46 +145,9 @@ export function opportunityGroups(nodes: readonly TreeNode[]): OpportunityGroup[
 
 /* ── Removing ────────────────────────────────────────────────────────── */
 
-/**
- * The node and everything under it. Safe on a hand-edited tree whose
- * parent links form a cycle. Empty for an unknown id.
- */
-export function subtreeIds(nodes: readonly TreeNode[], id: string): Set<string> {
-  if (!nodes.some((n) => n.id === id)) return new Set();
-  const ids = new Set<string>([id]);
-  let grew = true;
-  while (grew) {
-    grew = false;
-    for (const n of nodes) {
-      if (n.parentId && ids.has(n.parentId) && !ids.has(n.id)) {
-        ids.add(n.id);
-        grew = true;
-      }
-    }
-  }
-  return ids;
-}
-
-/** The tree without the node `id` and everything under it (the page's delete, remove_node). */
-export function withoutSubtree(nodes: readonly TreeNode[], id: string): TreeNode[] {
-  const gone = subtreeIds(nodes, id);
-  return nodes.filter((n) => !gone.has(n.id));
-}
-
-/**
- * The tree without the node `id` alone: its children move up to its
- * parent (the root when it had none), so nothing added under it in the
- * meantime is lost. Undoing an "opportunity" hand-off uses this. A child
- * may then sit under a kind that wouldn't take it from the menu; the page
- * shows it as it is.
- */
-export function withoutNode(nodes: readonly TreeNode[], id: string): TreeNode[] {
-  const node = nodes.find((n) => n.id === id);
-  if (!node) return [...nodes];
-  return nodes
-    .filter((n) => n.id !== id)
-    .map((n) => (n.parentId === id ? { ...n, parentId: node.parentId } : n));
-}
+// The subtree helpers live in lib/trees/parent-tree (shared with the
+// strategy maps); undoing an "opportunity" hand-off uses withoutNode.
+export { subtreeIds, withoutNode, withoutSubtree } from "@/lib/trees/parent-tree";
 
 /* ── The target ──────────────────────────────────────────────────────── */
 

@@ -41,12 +41,16 @@ import {
   WorkspaceLoading,
 } from "@/components/shared/workspace-loading";
 import { LoadingSprints } from "@/components/sprints/start";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { COCKPIT_ABOUT, SprintCockpit } from "@/app/(tools)/sprint/cockpit";
 import { PLANNING_ABOUT, SprintPlanning } from "@/app/(tools)/sprint-planning/planning";
 import { CapacityPlannerClient } from "@/app/(tools)/capacity-planner/capacity-planner-client";
 import { KanbanClient } from "@/app/(tools)/kanban/kanban-client";
 import { RetroActionsTracker } from "@/app/(tools)/retro-actions/tracker";
+import { RefinementClient } from "@/app/(tools)/refinement/refinement-client";
 import { TeamClient } from "@/app/(meta)/team/team-client";
+import { CycleTimeClient } from "@/app/(tools)/cycle-time/cycle-time-client";
+import { CFDClient } from "@/app/(tools)/cumulative-flow/cfd-client";
 
 /** The first HTML's status placeholder, parsed back into the DOM. */
 function serverStatus(ui: ReactElement): HTMLElement {
@@ -162,12 +166,41 @@ describe("pre-hydration placeholders reserve the tool's room", () => {
     expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
   });
 
+  it("Refinement's session column, which was blank before the backlog loaded", () => {
+    // The root layout provides tooltips in the app.
+    const status = serverStatus(
+      <TooltipProvider>
+        <RefinementClient />
+      </TooltipProvider>
+    );
+    expect(status).toHaveTextContent("Loading the backlog…");
+    // A short tool: the phone-only reserve.
+    expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
+    expect(status).not.toHaveClass(WORKSPACE_LOADING_RESERVE_TALL);
+    // It fills the left column of the lg grid, beside the side panel.
+    const column = status.parentElement!;
+    expect(column).toHaveClass("min-w-0");
+    expect(column.parentElement).toHaveClass("grid", "lg:grid-cols-[minmax(0,1fr)_380px]");
+  });
+
+  it.each([
+    ["the Cycle Time Analyzer", () => <CycleTimeClient />],
+    ["the Cumulative Flow Diagram", () => <CFDClient />],
+  ])("%s, which shifted 0.23 on phones with a one-line card", (_name, ui) => {
+    const status = serverStatus(ui());
+    expect(status).toHaveTextContent("Loading the boards…");
+    // Short until the boards load: the phone-only reserve.
+    expect(status).toHaveClass(WORKSPACE_LOADING_RESERVE);
+    expect(status).not.toHaveClass(WORKSPACE_LOADING_RESERVE_TALL);
+  });
+
   it("the Team page, capped near its empty state's height", () => {
     const status = serverStatus(<TeamClient />);
     expect(status).toHaveTextContent("Loading your team…");
-    // The cap replaces the default reserve (tailwind-merge), on phones only.
+    // The cap replaces the default reserve (tailwind-merge) on phones; from md
+    // it holds the empty state's height too, since the tool list sits under it.
     const minHeights = Array.from(status.classList).filter((c) => c.includes("min-h-"));
-    expect(minHeights).toEqual(["max-md:min-h-[min(60svh,20rem)]"]);
+    expect(minHeights).toEqual(["max-md:min-h-[min(60svh,20rem)]", "md:min-h-60"]);
     expect(status).not.toHaveAttribute("aria-busy");
   });
 });

@@ -20,7 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { InlineItemEditor, useInlineEdit } from "@/components/shared/inline-item-editor";
 import { AiButton, AiSuggestions } from "@/components/ai";
-import { nextWhyTask } from "@/lib/ai/tasks/root-cause";
+import { fitNextWhyInput, nextWhyTask } from "@/lib/ai/tasks/root-cause.lite";
 import type { AiSource } from "@/lib/ai/task-types";
 import {
   TOOL_LIST_MAX,
@@ -246,13 +246,15 @@ export function FiveWhys({
     focusAfter(null);
   };
 
-  const aiInput = () => ({
-    problem: [analysis.title, analysis.problem]
-      .filter((s) => s.trim())
-      .join(". ")
-      .slice(0, 1000),
-    whys: whyLines(analysis.whys).map((w) => w.slice(0, 1000)),
-  });
+  // A long chain is trimmed from its oldest whys to fit the request.
+  const aiInput = () =>
+    fitNextWhyInput({
+      problem: [analysis.title, analysis.problem]
+        .filter((s) => s.trim())
+        .join(". ")
+        .slice(0, 1000),
+      whys: whyLines(analysis.whys).map((w) => w.slice(0, 1000)),
+    });
 
   return (
     <section aria-labelledby="five-whys-heading" className="space-y-3">
