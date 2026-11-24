@@ -16,7 +16,7 @@ export function buildExample(now: Date = new Date()): TestSession[] {
     {
       id: exampleId("session-planned"),
       charter: {
-        target: "Saved addresses at checkout",
+        target: "saved addresses at checkout",
         using: "a slow or lost connection",
         toLearn: "what a shopper sees while the address list loads, and when it fails",
       },
@@ -31,7 +31,7 @@ export function buildExample(now: Date = new Date()): TestSession[] {
     {
       id: exampleId("session-running"),
       charter: {
-        target: "Adding a new address at checkout",
+        target: "adding a new address at checkout",
         using: "odd, empty and wrong input",
         toLearn: "whether it refuses bad postcodes clearly and keeps what was typed",
       },
@@ -60,7 +60,7 @@ export function buildExample(now: Date = new Date()): TestSession[] {
     {
       id: exampleId("session-done"),
       charter: {
-        target: "Picking a saved address",
+        target: "picking a saved address",
         using: "two saved addresses in different countries",
         toLearn: "whether the delivery price and dates follow the address picked",
       },

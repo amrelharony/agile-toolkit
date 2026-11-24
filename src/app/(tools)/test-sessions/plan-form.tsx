@@ -57,7 +57,8 @@ export function storyDetails(story: Story | undefined): string {
  * "Using…", "To learn…"), a length, a tester, an optional story from the
  * selected sprint and an area. Amr (or the ten lenses, without AI)
  * suggests charters for what is typed or the story picked; each accepted
- * one becomes a planned session (`onAccept`, with Undo).
+ * one becomes a planned session (`onAccept`, with Undo; Plan all plans
+ * them under one Undo).
  */
 export const PlanForm = forwardRef<
   HTMLInputElement,
@@ -67,7 +68,7 @@ export const PlanForm = forwardRef<
     /** Past charters as sentences, to skip repeats. */
     past: readonly string[];
     onSave: (values: CharterValues) => void;
-    onAccept: (charter: CharterSuggestion, draft: CharterDraft) => void;
+    onAccept: (charters: readonly CharterSuggestion[], draft: CharterDraft) => void;
     offerAddToRoster?: boolean;
   }
 >(function PlanForm({ stories, areas, past, onSave, onAccept, offerAddToRoster = true }, ref) {
@@ -114,7 +115,7 @@ export const PlanForm = forwardRef<
               maxLength={TOOL_TEXT_MAX.short}
               autoComplete="off"
               onChange={(e) => update({ target: e.target.value })}
-              placeholder="e.g. Saved addresses at checkout"
+              placeholder="e.g. saved addresses at checkout"
             />
           )}
         </Field>
@@ -236,7 +237,8 @@ export const PlanForm = forwardRef<
             // The length Plan makes: the nearest one the form offers.
             detail: `${lengthText(nearestLength(c.minutes))}. ${c.why}`,
           })}
-          onAccept={(c) => onAccept(c, draft)}
+          onAccept={(c) => onAccept([c], draft)}
+          onAcceptAll={(cs) => onAccept(cs, draft)}
           onDismiss={() => setIdeas(null)}
           returnFocus={() =>
             askRef.current?.querySelector<HTMLElement>('[data-testid="ai-button"]')

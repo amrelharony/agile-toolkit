@@ -168,31 +168,41 @@ export function TestSessionsClient() {
     planRef.current?.focus();
   };
 
-  /** An accepted charter: a planned session with what the form holds, with Undo. */
-  const acceptCharter = (c: CharterSuggestion, draft: CharterDraft) => {
+  /**
+   * Accepted charters (one, or every one left with Plan all): a planned
+   * session each, with what the form holds, under one Undo for them all.
+   */
+  const acceptCharters = (cs: readonly CharterSuggestion[], draft: CharterDraft) => {
+    if (cs.length === 0) return;
     const line = (v: string) => v.replace(/\s+/g, " ").trim();
-    const s = newSession(
-      {
-        charter: { target: line(c.target), using: line(c.using), toLearn: c.toLearn.trim() },
-        minutes: nearestLength(c.minutes),
-        ...(line(draft.tester) ? { tester: line(draft.tester) } : {}),
-        ...(draft.storyId ? { storyId: draft.storyId } : {}),
-        ...(line(draft.area) ? { area: line(draft.area) } : {}),
-      },
-      `tsess_${nanoid(8)}`,
-      nowIso()
+    const sessions = cs.map((c) =>
+      newSession(
+        {
+          charter: { target: line(c.target), using: line(c.using), toLearn: c.toLearn.trim() },
+          minutes: nearestLength(c.minutes),
+          ...(line(draft.tester) ? { tester: line(draft.tester) } : {}),
+          ...(draft.storyId ? { storyId: draft.storyId } : {}),
+          ...(line(draft.area) ? { area: line(draft.area) } : {}),
+        },
+        `tsess_${nanoid(8)}`,
+        nowIso()
+      )
     );
     undoable({
-      label: `Planned “${short(s.charter.target)}”`,
+      label:
+        sessions.length === 1
+          ? `Planned “${short(sessions[0]!.charter.target)}”`
+          : `Planned ${sessions.length} sessions`,
       kind: "success",
-      apply: () => saveSession(s),
-      revert: () => removeSession(s.id),
+      apply: () => sessions.forEach((s) => saveSession(s)),
+      revert: () => sessions.forEach((s) => removeSession(s.id)),
     });
-    record(s, TEST_SESSIONS_ACTIONS.SESSION_PLANNED, {
-      sessionId: s.id,
-      minutes: s.minutes,
-      source: "suggestion",
-    });
+    for (const s of sessions)
+      record(s, TEST_SESSIONS_ACTIONS.SESSION_PLANNED, {
+        sessionId: s.id,
+        minutes: s.minutes,
+        source: "suggestion",
+      });
   };
 
   const start = (session: TestSession) => {
@@ -490,7 +500,7 @@ export function TestSessionsClient() {
               areas={areas}
               past={past}
               onSave={plan}
-              onAccept={acceptCharter}
+              onAccept={acceptCharters}
               offerAddToRoster={!exampleOnly}
             />
           </SectionCard>

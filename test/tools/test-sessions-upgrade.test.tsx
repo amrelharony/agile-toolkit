@@ -377,7 +377,7 @@ describe("running a session", () => {
         name: "Bug",
       })
     );
-    const field = within(running).getByRole("textbox", { name: "Bug to note" });
+    const field = within(running).getByRole("textbox", { name: "The bug" });
     fireEvent.change(field, { target: { value: "The list jumps to the top" } });
     fireEvent.submit(field.closest("form")!);
     expect(stored("tsess_a")?.notes).toEqual([
@@ -389,7 +389,7 @@ describe("running a session", () => {
       kind: "bug",
     });
     // The kind stays for the next note.
-    expect(within(card("tsess_a")).getByRole("textbox", { name: "Bug to note" })).toHaveValue("");
+    expect(within(card("tsess_a")).getByRole("textbox", { name: "The bug" })).toHaveValue("");
   });
 
   it("End stops its own dock only", async () => {
