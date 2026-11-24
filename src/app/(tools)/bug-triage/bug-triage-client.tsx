@@ -150,9 +150,10 @@ export function BugTriageClient() {
   }, []);
 
   /** Amr's cheer and the milestone when the team's last waiting bug is placed, in one tick. */
-  const afterPlace = (bug: Pick<BugReport, "id">) => {
+  /** After `count` bugs (the one given, or the batch it is in) left the queue. */
+  const afterPlace = (bug: Pick<BugReport, "id">, count = 1) => {
     if (isExampleId(bug.id)) return;
-    placedInSitting.current += 1;
+    placedInSitting.current += count;
     const left = triageQueue(readBugs(currentBugs())).filter((b) => !isExampleId(b.id));
     if (left.length === 0) {
       log(BUG_TRIAGE_ACTIONS.TRIAGE_DONE, { count: placedInSitting.current });
@@ -186,24 +187,40 @@ export function BugTriageClient() {
     if (waiting) afterPlace(bug);
   };
 
-  /** An accepted suggestion: placed as Amr (or the rules) said, with Undo. */
-  const acceptSuggestion = (s: KeptSuggestion) => {
-    const prev = findBug(s.id);
+  /**
+   * Accepted suggestions (one, or every one left with Place all): placed as
+   * Amr (or the rules) said, under one Undo for them all.
+   */
+  const acceptSuggestions = (list: readonly KeptSuggestion[]) => {
     // Only a bug still waiting takes a suggestion (it may have been placed since).
-    if (!prev || !needsTriage(prev)) return;
-    const placed = { severity: s.severity, priority: s.priority };
+    const moves = list.flatMap((s) => {
+      const prev = findBug(s.id);
+      return prev && needsTriage(prev)
+        ? [{ prev, placed: { severity: s.severity, priority: s.priority } }]
+        : [];
+    });
+    const first = moves[0];
+    if (!first) return;
     undoable({
-      label: `Placed “${short(prev.title)}” at ${placeText(placed)}`,
+      label:
+        moves.length === 1
+          ? `Placed “${short(first.prev.title)}” at ${placeText(first.placed)}`
+          : `Placed ${moves.length} bugs`,
       kind: "success",
-      apply: () => saveBug(triageBug(prev, { ...placed, checks: prev.checks }, nowIso())),
-      revert: () => saveBug(prev),
+      apply: () =>
+        moves.forEach(({ prev, placed }) =>
+          saveBug(triageBug(prev, { ...placed, checks: prev.checks }, nowIso()))
+        ),
+      revert: () => moves.forEach(({ prev }) => saveBug(prev)),
     });
-    record(prev, BUG_TRIAGE_ACTIONS.BUG_TRIAGED, {
-      bugId: prev.id,
-      ...placed,
-      source: "suggestion",
-    });
-    afterPlace(prev);
+    for (const { prev, placed } of moves)
+      record(prev, BUG_TRIAGE_ACTIONS.BUG_TRIAGED, {
+        bugId: prev.id,
+        ...placed,
+        source: "suggestion",
+      });
+    const real = moves.filter(({ prev }) => !isExampleId(prev.id));
+    if (real[0]) afterPlace(real[0].prev, real.length);
   };
 
   const linkStore = (id: string): HandoffLinkStore => ({
@@ -482,7 +499,7 @@ export function BugTriageClient() {
                   today={today}
                   hints={hints}
                   onPlace={place}
-                  onAccept={acceptSuggestion}
+                  onAccept={acceptSuggestions}
                   onDuplicate={(bug, of) => close(bug, "duplicate", of)}
                   onOpen={openBug}
                 />

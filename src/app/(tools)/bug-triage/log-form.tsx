@@ -91,7 +91,7 @@ export const LogForm = forwardRef<
             enterKeyHint="done"
             autoComplete="off"
             onChange={(e) => update({ title: e.target.value })}
-            placeholder="e.g. The receipt shows the wrong currency"
+            placeholder="e.g. Wrong currency on receipts"
           />
         )}
       </Field>
