@@ -83,6 +83,23 @@ describe("ROSTER_TOOLS", () => {
     expect(use).not.toMatch(/ask for/);
   });
 
+  it.each([
+    [
+      "planning-poker",
+      "async/async-rounds-panel.tsx",
+      'label="Who should reply"',
+      /who should reply/,
+    ],
+    ["notes-to-actions", "item-row.tsx", "<PersonPicker", /each item's owner/],
+    ["retro", "components/voter-picker.tsx", 'label="Voting as"', /“Voting as”/],
+    ["kickoff", "start-form.tsx", 'label="Who takes part"', /who takes part/],
+  ])("names %s's second use of the team list", (id, file, marker, words) => {
+    const src = readFileSync(join(process.cwd(), "src", "app", "(tools)", id, file), "utf8");
+    expect(src).toContain(marker);
+    const use = ROSTER_TOOLS.find((t) => t.toolId === id)?.use ?? "";
+    expect(use).toMatch(words);
+  });
+
   it("says the Mood Tracker uses the roster only by name: the anonymous mode keeps team pulses", () => {
     const use = ROSTER_TOOLS.find((t) => t.toolId === "mood-tracker")?.use ?? "";
     expect(use).toMatch(/each person .* by name/);

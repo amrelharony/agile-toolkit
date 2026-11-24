@@ -51,17 +51,20 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   { toolId: "code-review-metrics", use: "Offers teammates as each pull request's author." },
   {
     toolId: "kickoff",
-    use: "Fills the Team Canvas with each person and their role, and offers teammates as owners.",
+    use: "Fills the Team Canvas with each person and their role, and offers teammates as who takes part and as owners.",
   },
   {
     toolId: "team-time",
     use: "Gives each person a time zone, working hours and office days, to find the hours you share.",
   },
-  { toolId: "planning-poker", use: "Seats everyone at the table in one click." },
+  {
+    toolId: "planning-poker",
+    use: "Seats everyone at the table in one click, and offers teammates for who should reply to a round without a meeting.",
+  },
   { toolId: "relative-sizing", use: "Fills the names the cards are dealt to." },
   {
     toolId: "notes-to-actions",
-    use: "Spells an action's owner as the team list does when the notes name a teammate.",
+    use: "Offers teammates as each item's owner, and spells an owner as the team list does when the notes name a teammate.",
   },
   { toolId: "facilitator-timers", use: "“Count the team” fills how many people are in the room." },
   { toolId: "retro-actions", use: "Offers teammates as each action's owner." },
@@ -93,7 +96,10 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
   { toolId: "kanban", use: "Offers teammates as each card's assignee and each story's owner." },
   { toolId: "pi-planning", use: "Offers teammates as each risk's owner under Risks: ROAM." },
   { toolId: "product-metrics", use: "Offers teammates as each metric's owner." },
-  { toolId: "retro", use: "Offers teammates as each action item's owner." },
+  {
+    toolId: "retro",
+    use: "Offers teammates as each action item's owner, and lists them under “Voting as” so each person spends their own votes.",
+  },
   { toolId: "strategy-tree", use: "Offers teammates as owners on the levels with an Owner field." },
   { toolId: "test-sessions", use: "Offers teammates as each session's tester." },
 ];
