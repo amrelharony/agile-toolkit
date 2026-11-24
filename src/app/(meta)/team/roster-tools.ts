@@ -57,4 +57,16 @@ export const ROSTER_TOOLS: readonly { toolId: string; use: string }[] = [
     toolId: "team-time",
     use: "Gives each person a time zone, working hours and office days, to find the hours you share.",
   },
+  { toolId: "planning-poker", use: "Seats everyone at the table in one click." },
+  { toolId: "relative-sizing", use: "Fills the names the cards are dealt to." },
+  {
+    toolId: "notes-to-actions",
+    use: "Spells an action's owner as the team list does when the notes name a teammate.",
+  },
+  { toolId: "facilitator-timers", use: "“Count the team” fills how many people are in the room." },
+  { toolId: "retro-actions", use: "Offers teammates as each action's owner." },
+  { toolId: "sprint-review", use: "Suggests teammates' names for who gave the feedback." },
+  { toolId: "premortem", use: "Sets the dot-voting budget from how many people are on the team." },
+  { toolId: "icebreaker", use: "Counts the team for how many people play." },
+  { toolId: "liberating-structures", use: "Offers the team's size to pick a structure that fits." },
 ];
